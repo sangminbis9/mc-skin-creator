@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mc-skin-creator-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "ai": {
+    "binding": "AI"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "MCSKIN_KV",
+      // TODO: `wrangler kv namespace create MCSKIN_KV` 실행 후 발급된 id로 교체해주세요.
+      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+    }
+  ]
+}
