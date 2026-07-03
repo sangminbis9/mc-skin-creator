@@ -9,3 +9,4 @@ workers/node_modules/
 workers/dist/
 workers/.wrangler/
 .wrangler/
+*.tsbuildinfo
