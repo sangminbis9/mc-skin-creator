@@ -10,8 +10,8 @@
 import type { Env, QuotaStatus } from "./types";
 
 export const DAILY_LIMIT_NEURONS = 5000;
-/** 생성 1회당 예상 Neurons (vision 모델 1회 호출, 보수적 추정치) */
-export const COST_PER_GENERATION = 10;
+/** 생성 1회당 예상 Neurons (llama-4-scout 1회 호출, 보수적 추정치: 입력 ~2.5k 토큰 + 출력 ~300 토큰) */
+export const COST_PER_GENERATION = 75;
 
 const ALMOST_THRESHOLD = 0.85;
 
