@@ -30,11 +30,12 @@ export async function checkImageQuality(
     }
   };
 
-  // 해상도
+  // 해상도 — 입력은 448 상한으로 축소된 업로드본이므로 그 기준으로 판정한다
+  // (세로 사진은 긴 변 448 기준 짧은 변이 ~336까지 정상)
   const minSide = Math.min(width, height);
   if (minSide < 200) {
     raise("fail", "사진이 너무 작아요. 더 큰 사진을 올려주세요.");
-  } else if (minSide < 400) {
+  } else if (minSide < 260) {
     raise("warn", "사진이 조금 작아요. 얼굴이 잘 보이면 괜찮아요.");
   }
 
@@ -109,10 +110,14 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** 업로드 전 리사이즈/압축: 서버로 원본 대신 축소본만 보낸다 */
+/**
+ * 업로드 전 리사이즈/압축: 서버로 원본 대신 축소본만 보낸다.
+ * 448 = 서버의 FLUX 이미지 생성 입력 제한(512x512 미만)에 맞춘 값.
+ * 비율을 유지한 채 긴 변을 448 이하로 줄인다 (crop 없음).
+ */
 export async function resizeForUpload(
   source: string | File,
-  maxSide = 768,
+  maxSide = 448,
 ): Promise<string> {
   const dataUrl =
     typeof source === "string" ? source : await fileToDataUrl(source);

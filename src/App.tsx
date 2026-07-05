@@ -6,6 +6,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { JumpBlocks } from "./components/pixel/JumpBlocks";
 import { SkinDocument } from "./editor/editorState";
+import { decodeSkinPng } from "./lib/skinDecode";
 import { generateSkinFromFeatures } from "./lib/skinFromFeatures";
 import { normalizeFeatures, type QuotaStatus } from "./lib/skinFeatures";
 import { AdminDashboard } from "./pages/AdminDashboard";
@@ -138,8 +139,14 @@ function App() {
       {step === "generating" && photo && (
         <GeneratingPage
           photoDataUrl={photo}
-          onDone={(features) => {
-            const canvas = generateSkinFromFeatures(normalizeFeatures(features));
+          onDone={async (result) => {
+            // AI가 직접 생성한 스킨 우선, 실패하면 특징 기반 절차 생성으로 fallback
+            const decoded = result.skinPngBase64
+              ? await decodeSkinPng(result.skinPngBase64)
+              : null;
+            const canvas =
+              decoded ??
+              generateSkinFromFeatures(normalizeFeatures(result.features));
             setDoc(new SkinDocument(canvas));
             setSkinVersion(0);
             setStep("preview");

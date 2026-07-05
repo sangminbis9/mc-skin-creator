@@ -1,59 +1,224 @@
 /**
- * 사진 → 인물 특징 추출 (Workers AI vision).
+ * 사진 → 마인크래프트 스킨 생성 파이프라인.
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
+ *
+ * 1) llama-4-scout 사진 분석 (품질 검사 + observed/inferred + 생성 프롬프트)
+ * 2) FLUX.2 [klein]으로 스킨 atlas 직접 생성 (스타일 참고 + 사용자 사진 + UV 가이드)
+ * 3) 512→64 셀 축소 + UV 마스크 + 검증, 실패 시 seed를 바꿔 1회 재생성
+ * 4) 두 번 실패하면 팔레트 특징만 내려보내 클라이언트의 절차적 생성기로 fallback
  */
 
+import {
+  runPhotoAnalysis,
+  type FallbackFeatures,
+  type PhotoAnalysis,
+} from "./analysis";
+import { bytesToBase64, decodeImage, encodePng } from "./png";
+import { packFrontViewToAtlas } from "./skinPack";
+import { applyUvMask, downscaleToAtlas, validateAtlas, validateFinalAtlas } from "./skinPost";
+import {
+  FluxKleinProvider,
+  type GenerationStrategy,
+  type SkinGenerationProvider,
+} from "./skinProvider";
+import {
+  NEURONS_IMAGE_INPUT_TILE,
+  NEURONS_IMAGE_OUTPUT_TILE,
+  NEURONS_VISION_ANALYSIS,
+} from "./quota";
 import type { Env } from "./types";
 
-const VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 /** 업로드 허용 최대 크기 (base64 data URL 문자 수, 약 1.1MB 이미지) */
 const MAX_IMAGE_CHARS = 1_500_000;
 
-/**
- * 색상은 hex 샘플링 대신 팔레트 분류로 묻는다.
- * (vision 모델은 정확한 hex 추출에 약하지만 "무슨 색인지" 분류는 잘한다)
- * 팔레트 이름 → hex 변환은 서버에서 수행해 클라이언트 계약(hex)을 유지한다.
- */
-const PROMPT = `You are a character designer analyzing a photo to create a Minecraft-style avatar that closely resembles the person.
+export type GenerationMode = "image" | "procedural_fallback";
 
-First, judge photo quality:
-- "fail" + failReason "no_face" if no human face is clearly visible
-- "fail" + failReason "blurry" if the photo is too blurry to see facial features
-- "fail" + failReason "too_small" if the person is too small in the frame
-- "warn" if usable but not ideal
-- "pass" if good
-
-If multiple people appear, analyze only the most prominent/central person.
-
-Then classify their visual features. For every color field, pick the CLOSEST option from the allowed list for that field — never invent other values. Respond with ONLY a JSON object:
-
-{
-  "quality": "pass" | "warn" | "fail",
-  "failReason": "no_face" | "blurry" | "too_small" | null,
-  "skinTone": "pale" | "light" | "medium" | "tan" | "brown" | "dark",
-  "hairColor": "black" | "dark-brown" | "brown" | "light-brown" | "blonde" | "platinum" | "red" | "auburn" | "gray" | "white" | "dyed-blue" | "dyed-pink" | "dyed-purple" | "dyed-green",
-  "hairstyle": "bald" | "buzz" | "short" | "medium" | "long" | "ponytail" | "bun" | "twintails" | "curly" | "afro",
-  "eyeColor": "black" | "dark-brown" | "brown" | "hazel" | "green" | "blue" | "gray",
-  "eyebrowThickness": "thin" | "normal" | "thick",
-  "facialHair": "none" | "mustache" | "goatee" | "beard" | "stubble",
-  "glasses": "none" | "regular" | "round" | "sunglasses",
-  "glassesColor": CLOTHING_COLOR,
-  "earrings": true | false,
-  "hat": "none" | "cap" | "beanie" | "hood",
-  "hatColor": CLOTHING_COLOR,
-  "expression": "smile" | "neutral" | "serious",
-  "topType": "tshirt" | "shirt" | "hoodie" | "jacket" | "sweater" | "dress" | "tank",
-  "topColor": CLOTHING_COLOR (main clothing color; if not visible, pick one matching their vibe),
-  "topAccentColor": CLOTHING_COLOR,
-  "sleeveLength": "short" | "long",
-  "bottomType": "pants" | "jeans" | "shorts" | "skirt",
-  "bottomColor": CLOTHING_COLOR (if not visible, pick one that matches the top),
-  "shoesColor": CLOTHING_COLOR
+/** 클라이언트에 내려보내는 분석 요약 (원본 사진 관련 정보는 포함하지 않는다) */
+export interface AnalysisSummary {
+  framing: PhotoAnalysis["framing"];
+  visibleRegions: PhotoAnalysis["visibleRegions"];
+  observed: PhotoAnalysis["observed"];
+  inferred: PhotoAnalysis["inferred"];
 }
 
-CLOTHING_COLOR must be one of: "black" | "white" | "gray" | "light-gray" | "red" | "orange" | "yellow" | "green" | "dark-green" | "blue" | "navy" | "sky-blue" | "purple" | "pink" | "brown" | "beige" | "denim" | "khaki"`;
+export interface GenerateResult {
+  status: number;
+  body: {
+    ok: boolean;
+    quality?: string;
+    failReason?: string;
+    features?: Record<string, unknown>;
+    analysis?: AnalysisSummary;
+    skinPngBase64?: string;
+    generationMode?: GenerationMode;
+    error?: string;
+    errorCode?: string;
+  };
+  /** 이 요청이 실제로 소비한 Neurons (실패 포함, KV에 커밋된다) */
+  neuronsSpent: number;
+  success: boolean;
+}
 
-// ---------- 팔레트 → hex (마인크래프트 픽셀아트에 어울리는 보정색) ----------
+export async function generateSkin(
+  env: Env,
+  imageDataUrl: string,
+  provider: SkinGenerationProvider = new FluxKleinProvider(env),
+): Promise<GenerateResult> {
+  if (
+    typeof imageDataUrl !== "string" ||
+    !imageDataUrl.startsWith("data:image/") ||
+    imageDataUrl.length > MAX_IMAGE_CHARS
+  ) {
+    return fail(400, "이미지 형식이 올바르지 않아요", "bad_request", 0);
+  }
+
+  // ---------- 1) 사진 분석 ----------
+  const analysisResult = await runPhotoAnalysis(env, imageDataUrl);
+  let spent = NEURONS_VISION_ANALYSIS;
+  if (!analysisResult.ok) {
+    console.log("analysis failed:", analysisResult.reason, analysisResult.detail);
+    // ai_error는 호출 자체가 실패했을 수 있어 보수적으로 분석 1회 비용만 계상
+    return fail(
+      502,
+      analysisResult.reason === "invalid_response"
+        ? "결과 형식이 올바르지 않아요"
+        : "AI가 스킨을 만드는 데 실패했어요",
+      "ai_failed",
+      spent,
+    );
+  }
+  const analysis = analysisResult.analysis;
+
+  if (analysis.quality === "fail") {
+    return {
+      status: 422,
+      body: {
+        ok: false,
+        quality: analysis.quality,
+        failReason: analysis.failReason ?? "unknown",
+        error: "사진에서 인물을 인식하지 못했어요",
+        errorCode: "photo_rejected",
+      },
+      neuronsSpent: spent,
+      success: false,
+    };
+  }
+
+  const features = fallbackFeaturesToHex(analysis.fallbackFeatures);
+  const summary: AnalysisSummary = {
+    framing: analysis.framing,
+    visibleRegions: analysis.visibleRegions,
+    observed: analysis.observed,
+    inferred: analysis.inferred,
+  };
+
+  // ---------- 2) 이미지 생성 (feature flag) ----------
+  let skinPngBase64: string | null = null;
+  if (env.IMAGE_GENERATION_ENABLED === "true") {
+    const mode: GenerationStrategy =
+      env.IMAGE_GEN_STRATEGY === "direct_atlas" ? "direct_atlas" : "front_view";
+    const baseSeed = (Math.random() * 0xffffffff) >>> 0;
+    for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
+      const generated = await provider.generate({
+        analysis,
+        photoDataUrl: imageDataUrl,
+        seed: (baseSeed + attempt * 7919) >>> 0,
+        mode,
+      });
+      if (!generated.ok) {
+        console.log(`image gen attempt ${attempt} failed:`, generated.error);
+        if (!generated.retryable) {
+          // 사진 크기/형식 문제는 재시도해도 동일하므로 즉시 fallback
+          break;
+        }
+        continue;
+      }
+      spent +=
+        generated.inputTiles * NEURONS_IMAGE_INPUT_TILE +
+        NEURONS_IMAGE_OUTPUT_TILE;
+      const atlas = await postprocess(generated.imageBytes, attempt, mode);
+      if (atlas) {
+        skinPngBase64 = atlas;
+      }
+    }
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      quality: analysis.quality,
+      features,
+      analysis: summary,
+      ...(skinPngBase64
+        ? { skinPngBase64, generationMode: "image" as const }
+        : { generationMode: "procedural_fallback" as const }),
+    },
+    neuronsSpent: spent,
+    success: true,
+  };
+}
+
+/** FLUX 출력 → 64x64 atlas. 검증 실패 시 null (재시도 유도) */
+async function postprocess(
+  imageBytes: Uint8Array,
+  attempt: number,
+  mode: GenerationStrategy,
+): Promise<string | null> {
+  try {
+    const decoded = await decodeImage(imageBytes);
+    let atlas;
+    if (mode === "front_view") {
+      // 정면 캐릭터 뷰 → 결정적 pack (UV 배치를 코드가 보장)
+      const packed = packFrontViewToAtlas(decoded);
+      if (!packed) {
+        console.log(`attempt ${attempt}: 정면 뷰에서 캐릭터를 분리하지 못함`);
+        return null;
+      }
+      atlas = packed.atlas;
+    } else {
+      if (decoded.width !== decoded.height || decoded.width < 64) {
+        console.log(`attempt ${attempt}: 비정사각 출력 ${decoded.width}x${decoded.height}`);
+        return null;
+      }
+      atlas = downscaleToAtlas(decoded);
+    }
+    const verdict = validateAtlas(atlas);
+    if (!verdict.ok) {
+      console.log(`attempt ${attempt}: atlas 검증 실패 —`, verdict.problems.join(" / "));
+      return null;
+    }
+    applyUvMask(atlas);
+    const finalVerdict = validateFinalAtlas(atlas);
+    if (!finalVerdict.ok) {
+      console.log(`attempt ${attempt}: 최종 검증 실패 —`, finalVerdict.problems.join(" / "));
+      return null;
+    }
+    return bytesToBase64(await encodePng(atlas));
+  } catch (error) {
+    console.log(
+      `attempt ${attempt}: 후처리 오류 —`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
+function fail(
+  status: number,
+  error: string,
+  errorCode: string,
+  neuronsSpent: number,
+): GenerateResult {
+  return {
+    status,
+    body: { ok: false, error, errorCode },
+    neuronsSpent,
+    success: false,
+  };
+}
+
+// ---------- 팔레트 이름 → hex (절차적 fallback 생성기 계약 유지) ----------
 
 const SKIN_TONES: Record<string, string> = {
   pale: "#f2d6c0",
@@ -130,150 +295,20 @@ function paletteHex(
   return fallback;
 }
 
-export interface GenerateResult {
-  status: number;
-  body: {
-    ok: boolean;
-    quality?: string;
-    failReason?: string;
-    features?: Record<string, unknown>;
-    error?: string;
-    errorCode?: string;
-  };
-  /** true면 quota를 차감한다 (AI 호출이 실제로 성공했을 때만) */
-  charge: boolean;
-  success: boolean;
-}
-
-export async function analyzePhoto(
-  env: Env,
-  imageDataUrl: string,
-): Promise<GenerateResult> {
-  if (
-    typeof imageDataUrl !== "string" ||
-    !imageDataUrl.startsWith("data:image/") ||
-    imageDataUrl.length > MAX_IMAGE_CHARS
-  ) {
-    return {
-      status: 400,
-      body: {
-        ok: false,
-        error: "이미지 형식이 올바르지 않아요",
-        errorCode: "bad_request",
-      },
-      charge: false,
-      success: false,
-    };
-  }
-
-  let responseText: string;
-  let responseObject: Record<string, unknown> | null = null;
-  try {
-    const result = (await env.AI.run(VISION_MODEL as never, {
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: imageDataUrl } },
-            { type: "text", text: PROMPT },
-          ],
-        },
-      ],
-      max_tokens: 800,
-      response_format: { type: "json_object" },
-    } as never)) as { response?: string | Record<string, unknown> };
-    responseText =
-      typeof result.response === "string" ? result.response : "";
-    // JSON mode에서는 response가 객체로 올 수 있다
-    if (
-      result.response &&
-      typeof result.response === "object" &&
-      !Array.isArray(result.response)
-    ) {
-      responseObject = result.response as Record<string, unknown>;
-    }
-  } catch {
-    return {
-      status: 502,
-      body: {
-        ok: false,
-        error: "AI가 스킨을 만드는 데 실패했어요",
-        errorCode: "ai_failed",
-      },
-      charge: false,
-      success: false,
-    };
-  }
-
-  const parsed = responseObject ?? extractJson(responseText);
-  if (!parsed) {
-    return {
-      status: 502,
-      body: {
-        ok: false,
-        error: "결과 형식이 올바르지 않아요",
-        errorCode: "ai_failed",
-      },
-      // AI 호출 자체는 성공했으므로 비용은 발생했지만,
-      // 사용자 실패 요청은 차감하지 않는 정책을 따른다.
-      charge: false,
-      success: false,
-    };
-  }
-
-  const quality = typeof parsed.quality === "string" ? parsed.quality : "pass";
-  if (quality === "fail") {
-    return {
-      status: 422,
-      body: {
-        ok: false,
-        quality,
-        failReason:
-          typeof parsed.failReason === "string" ? parsed.failReason : "unknown",
-        error: "사진에서 인물을 인식하지 못했어요",
-        errorCode: "photo_rejected",
-      },
-      charge: false,
-      success: false,
-    };
-  }
-
-  // 팔레트 이름 → hex 변환 (클라이언트는 기존과 동일하게 hex를 받는다)
-  const features: Record<string, unknown> = {
-    ...parsed,
-    skinTone: paletteHex(parsed.skinTone, SKIN_TONES, SKIN_TONES.light),
-    hairColor: paletteHex(parsed.hairColor, HAIR_COLORS, HAIR_COLORS["dark-brown"]),
-    eyeColor: paletteHex(parsed.eyeColor, EYE_COLORS, EYE_COLORS["dark-brown"]),
-    glassesColor: paletteHex(parsed.glassesColor, CLOTHING_COLORS, CLOTHING_COLORS.black),
-    hatColor: paletteHex(parsed.hatColor, CLOTHING_COLORS, CLOTHING_COLORS.red),
-    topColor: paletteHex(parsed.topColor, CLOTHING_COLORS, CLOTHING_COLORS.blue),
-    topAccentColor: paletteHex(parsed.topAccentColor, CLOTHING_COLORS, CLOTHING_COLORS.white),
-    bottomColor: paletteHex(parsed.bottomColor, CLOTHING_COLORS, CLOTHING_COLORS.denim),
-    shoesColor: paletteHex(parsed.shoesColor, CLOTHING_COLORS, CLOTHING_COLORS.white),
-  };
-  delete features.quality;
-  delete features.failReason;
-
+export function fallbackFeaturesToHex(
+  raw: FallbackFeatures,
+): Record<string, unknown> {
+  const source = raw as unknown as Record<string, unknown>;
   return {
-    status: 200,
-    body: { ok: true, quality, features },
-    charge: true,
-    success: true,
+    ...source,
+    skinTone: paletteHex(source.skinTone, SKIN_TONES, SKIN_TONES.light),
+    hairColor: paletteHex(source.hairColor, HAIR_COLORS, HAIR_COLORS["dark-brown"]),
+    eyeColor: paletteHex(source.eyeColor, EYE_COLORS, EYE_COLORS["dark-brown"]),
+    glassesColor: paletteHex(source.glassesColor, CLOTHING_COLORS, CLOTHING_COLORS.black),
+    hatColor: paletteHex(source.hatColor, CLOTHING_COLORS, CLOTHING_COLORS.red),
+    topColor: paletteHex(source.topColor, CLOTHING_COLORS, CLOTHING_COLORS.blue),
+    topAccentColor: paletteHex(source.topAccentColor, CLOTHING_COLORS, CLOTHING_COLORS.white),
+    bottomColor: paletteHex(source.bottomColor, CLOTHING_COLORS, CLOTHING_COLORS.denim),
+    shoesColor: paletteHex(source.shoesColor, CLOTHING_COLORS, CLOTHING_COLORS.white),
   };
-}
-
-function extractJson(text: string): Record<string, unknown> | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) {
-    return null;
-  }
-  try {
-    const value = JSON.parse(text.slice(start, end + 1)) as unknown;
-    return typeof value === "object" && value !== null
-      ? (value as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
 }

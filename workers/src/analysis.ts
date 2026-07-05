@@ -1,0 +1,479 @@
+/**
+ * 사진 분석 단계: llama-4-scout로 품질 검사 + observed/inferred 구조의
+ * PhotoAnalysis를 뽑는다. 이 결과는 이미지 생성 프롬프트와
+ * 절차적 fallback(팔레트 특징) 양쪽의 입력이 된다.
+ *
+ * observed = 사진에서 실제로 보이는 것, inferred = 보이지 않아 추론한 것.
+ * 이 구분을 스키마 수준에서 강제해 환각을 관찰 결과로 취급하지 않게 한다.
+ */
+
+import type { Env } from "./types";
+
+const VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+
+export type Framing = "face" | "upper_body" | "three_quarter" | "full_body";
+
+export interface InferredItem {
+  value: string;
+  rationale: string;
+}
+
+/** 절차적 fallback 생성기용 팔레트 분류 (기존 계약 유지) */
+export interface FallbackFeatures {
+  skinTone: string;
+  hairColor: string;
+  hairstyle: string;
+  eyeColor: string;
+  eyebrowThickness: string;
+  facialHair: string;
+  glasses: string;
+  glassesColor: string;
+  earrings: boolean;
+  hat: string;
+  hatColor: string;
+  expression: string;
+  topType: string;
+  topColor: string;
+  topAccentColor: string;
+  sleeveLength: string;
+  bottomType: string;
+  bottomColor: string;
+  shoesColor: string;
+}
+
+export interface PhotoAnalysis {
+  quality: "pass" | "warn" | "fail";
+  failReason: "no_face" | "blurry" | "too_small" | null;
+  framing: Framing;
+  visibleRegions: {
+    face: boolean;
+    hair: boolean;
+    upperBody: boolean;
+    lowerBody: boolean;
+    feet: boolean;
+  };
+  observed: {
+    face: string;
+    hair: string;
+    accessories: string;
+    clothing: string;
+    colorPalette: string[];
+  };
+  inferred: {
+    hairBack: InferredItem;
+    upperBody: InferredItem | null;
+    lowerBody: InferredItem | null;
+    shoes: InferredItem | null;
+  };
+  identityPrompt: string;
+  outfitPrompt: string;
+  negativePrompt: string;
+  fallbackFeatures: FallbackFeatures;
+}
+
+const CLOTHING_COLOR_ENUM =
+  '"black" | "white" | "gray" | "light-gray" | "red" | "orange" | "yellow" | "green" | "dark-green" | "blue" | "navy" | "sky-blue" | "purple" | "pink" | "brown" | "beige" | "denim" | "khaki"';
+
+const ANALYSIS_PROMPT = `You are a character designer analyzing a photo to build a Minecraft-style avatar that closely resembles the person in it.
+
+STEP 1 — photo quality:
+- "fail" + failReason "no_face" if there is no real human face clearly visible (this includes blank images, objects, landscapes, drawings without a real person).
+- "fail" + failReason "blurry" if the photo is too blurry to see facial features.
+- "fail" + failReason "too_small" if the person is too small in the frame.
+- "warn" if usable but not ideal, "pass" if good.
+A photo showing only a face IS acceptable — never fail a photo just because the body is not visible.
+If multiple people appear, analyze only the most prominent/central person.
+
+STEP 2 — framing: how much of the person is visible: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
+
+STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logos.
+
+STEP 4 — inferred: for body parts and clothing NOT visible, design choices that stay coherent with the observed colors, style and mood. Each inferred item needs a short rationale grounded in observed evidence. Rules:
+- Never base clothing choices on gender presentation or facial stereotypes; use only visible clothing cues, colors and mood.
+- If there are no clothing cues at all, choose neutral casual wear that harmonizes with skin/hair colors. Vary between shirt, knit, hoodie or light jacket depending on the photo's mood — do not always default to a plain t-shirt.
+- If a region IS visible in the photo, set its inferred entry to null.
+
+STEP 5 — prompts for an image generation model:
+- identityPrompt: 1-3 sentences capturing the recognizable identity: face shape, skin tone, hair silhouette/bangs/length/texture/color, eyes, eyebrows, facial hair, glasses/hat/earrings.
+- outfitPrompt: 1-3 sentences describing the COMPLETE head-to-toe outfit: visible garments first (preserve them faithfully), then inferred garments.
+- negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
+
+STEP 6 — fallbackFeatures: classify into these fixed palettes (pick the CLOSEST option, never invent values):
+{
+  "skinTone": "pale" | "light" | "medium" | "tan" | "brown" | "dark",
+  "hairColor": "black" | "dark-brown" | "brown" | "light-brown" | "blonde" | "platinum" | "red" | "auburn" | "gray" | "white" | "dyed-blue" | "dyed-pink" | "dyed-purple" | "dyed-green",
+  "hairstyle": "bald" | "buzz" | "short" | "medium" | "long" | "ponytail" | "bun" | "twintails" | "curly" | "afro",
+  "eyeColor": "black" | "dark-brown" | "brown" | "hazel" | "green" | "blue" | "gray",
+  "eyebrowThickness": "thin" | "normal" | "thick",
+  "facialHair": "none" | "mustache" | "goatee" | "beard" | "stubble",
+  "glasses": "none" | "regular" | "round" | "sunglasses",
+  "glassesColor": CLOTHING_COLOR,
+  "earrings": true | false,
+  "hat": "none" | "cap" | "beanie" | "hood",
+  "hatColor": CLOTHING_COLOR,
+  "expression": "smile" | "neutral" | "serious",
+  "topType": "tshirt" | "shirt" | "hoodie" | "jacket" | "sweater" | "dress" | "tank",
+  "topColor": CLOTHING_COLOR,
+  "topAccentColor": CLOTHING_COLOR,
+  "sleeveLength": "short" | "long",
+  "bottomType": "pants" | "jeans" | "shorts" | "skirt",
+  "bottomColor": CLOTHING_COLOR,
+  "shoesColor": CLOTHING_COLOR
+}
+CLOTHING_COLOR must be one of: ${CLOTHING_COLOR_ENUM}
+
+Respond with ONLY a JSON object matching this shape:
+{
+  "quality": "pass" | "warn" | "fail",
+  "failReason": "no_face" | "blurry" | "too_small" | null,
+  "framing": "face" | "upper_body" | "three_quarter" | "full_body",
+  "visibleRegions": { "face": bool, "hair": bool, "upperBody": bool, "lowerBody": bool, "feet": bool },
+  "observed": { "face": str, "hair": str, "accessories": str, "clothing": str, "colorPalette": [str] },
+  "inferred": {
+    "hairBack": { "value": str, "rationale": str },
+    "upperBody": { "value": str, "rationale": str } | null,
+    "lowerBody": { "value": str, "rationale": str } | null,
+    "shoes": { "value": str, "rationale": str } | null
+  },
+  "identityPrompt": str,
+  "outfitPrompt": str,
+  "negativePrompt": str,
+  "fallbackFeatures": { ...as specified above }
+}`;
+
+/** response_format용 JSON Schema — 모델 출력 유도용. 최종 판정은 validatePhotoAnalysis가 한다. */
+const INFERRED_ITEM_SCHEMA = {
+  type: ["object", "null"],
+  properties: {
+    value: { type: "string" },
+    rationale: { type: "string" },
+  },
+  required: ["value", "rationale"],
+};
+
+export const PHOTO_ANALYSIS_SCHEMA = {
+  type: "object",
+  properties: {
+    quality: { type: "string", enum: ["pass", "warn", "fail"] },
+    failReason: {
+      type: ["string", "null"],
+      enum: ["no_face", "blurry", "too_small", null],
+    },
+    framing: {
+      type: "string",
+      enum: ["face", "upper_body", "three_quarter", "full_body"],
+    },
+    visibleRegions: {
+      type: "object",
+      properties: {
+        face: { type: "boolean" },
+        hair: { type: "boolean" },
+        upperBody: { type: "boolean" },
+        lowerBody: { type: "boolean" },
+        feet: { type: "boolean" },
+      },
+      required: ["face", "hair", "upperBody", "lowerBody", "feet"],
+    },
+    observed: {
+      type: "object",
+      properties: {
+        face: { type: "string" },
+        hair: { type: "string" },
+        accessories: { type: "string" },
+        clothing: { type: "string" },
+        colorPalette: { type: "array", items: { type: "string" } },
+      },
+      required: ["face", "hair", "accessories", "clothing", "colorPalette"],
+    },
+    inferred: {
+      type: "object",
+      properties: {
+        hairBack: {
+          type: "object",
+          properties: INFERRED_ITEM_SCHEMA.properties,
+          required: INFERRED_ITEM_SCHEMA.required,
+        },
+        upperBody: INFERRED_ITEM_SCHEMA,
+        lowerBody: INFERRED_ITEM_SCHEMA,
+        shoes: INFERRED_ITEM_SCHEMA,
+      },
+      required: ["hairBack", "upperBody", "lowerBody", "shoes"],
+    },
+    identityPrompt: { type: "string" },
+    outfitPrompt: { type: "string" },
+    negativePrompt: { type: "string" },
+    fallbackFeatures: { type: "object" },
+  },
+  required: [
+    "quality",
+    "failReason",
+    "framing",
+    "visibleRegions",
+    "observed",
+    "inferred",
+    "identityPrompt",
+    "outfitPrompt",
+    "negativePrompt",
+    "fallbackFeatures",
+  ],
+} as const;
+
+// ---------- 런타임 검증 ----------
+
+export interface ValidationFailure {
+  ok: false;
+  errors: string[];
+}
+
+export type ValidationResult = { ok: true; analysis: PhotoAnalysis } | ValidationFailure;
+
+const FRAMINGS: Framing[] = ["face", "upper_body", "three_quarter", "full_body"];
+
+/**
+ * 모델 응답을 명시적으로 검증한다.
+ * 실패 시 기본값으로 조용히 덮지 않고 어떤 필드가 왜 틀렸는지 반환한다.
+ * (fallbackFeatures의 팔레트 값만은 뒤에서 paletteHex가 관용적으로 처리한다 —
+ *  fallback 경로 전용 데이터라 생성 품질 판단에 영향이 없기 때문)
+ */
+export function validatePhotoAnalysis(raw: unknown): ValidationResult {
+  const errors: string[] = [];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { ok: false, errors: ["응답이 객체가 아님"] };
+  }
+  const obj = raw as Record<string, unknown>;
+
+  const str = (path: string, value: unknown): string => {
+    if (typeof value !== "string") {
+      errors.push(`${path}: 문자열이 아님`);
+      return "";
+    }
+    return value;
+  };
+  const bool = (path: string, value: unknown): boolean => {
+    if (typeof value !== "boolean") {
+      errors.push(`${path}: boolean이 아님`);
+      return false;
+    }
+    return value;
+  };
+
+  const quality = str("quality", obj.quality);
+  if (!["pass", "warn", "fail"].includes(quality)) {
+    errors.push(`quality: 허용되지 않은 값 "${quality}"`);
+  }
+
+  let failReason: PhotoAnalysis["failReason"] = null;
+  if (obj.failReason !== null && obj.failReason !== undefined) {
+    if (
+      typeof obj.failReason === "string" &&
+      ["no_face", "blurry", "too_small"].includes(obj.failReason)
+    ) {
+      failReason = obj.failReason as PhotoAnalysis["failReason"];
+    } else if (quality === "fail") {
+      errors.push(`failReason: 허용되지 않은 값 ${JSON.stringify(obj.failReason)}`);
+    }
+  }
+
+  // quality가 fail이면 나머지 필드는 검증할 필요가 없다 (사진 거부 경로)
+  if (quality === "fail" && errors.length === 0) {
+    return {
+      ok: true,
+      analysis: {
+        quality: "fail",
+        failReason: failReason ?? "no_face",
+        framing: "face",
+        visibleRegions: {
+          face: false,
+          hair: false,
+          upperBody: false,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: { face: "", hair: "", accessories: "", clothing: "", colorPalette: [] },
+        inferred: {
+          hairBack: { value: "", rationale: "" },
+          upperBody: null,
+          lowerBody: null,
+          shoes: null,
+        },
+        identityPrompt: "",
+        outfitPrompt: "",
+        negativePrompt: "",
+        fallbackFeatures: {} as FallbackFeatures,
+      },
+    };
+  }
+
+  const framing = str("framing", obj.framing) as Framing;
+  if (!FRAMINGS.includes(framing)) {
+    errors.push(`framing: 허용되지 않은 값 "${framing}"`);
+  }
+
+  const vr = (obj.visibleRegions ?? {}) as Record<string, unknown>;
+  const visibleRegions = {
+    face: bool("visibleRegions.face", vr.face),
+    hair: bool("visibleRegions.hair", vr.hair),
+    upperBody: bool("visibleRegions.upperBody", vr.upperBody),
+    lowerBody: bool("visibleRegions.lowerBody", vr.lowerBody),
+    feet: bool("visibleRegions.feet", vr.feet),
+  };
+
+  const ob = (obj.observed ?? {}) as Record<string, unknown>;
+  const observed = {
+    face: str("observed.face", ob.face),
+    hair: str("observed.hair", ob.hair),
+    accessories: str("observed.accessories", ob.accessories),
+    clothing: str("observed.clothing", ob.clothing),
+    colorPalette: Array.isArray(ob.colorPalette)
+      ? ob.colorPalette.filter((c): c is string => typeof c === "string")
+      : (errors.push("observed.colorPalette: 배열이 아님"), []),
+  };
+
+  const parseInferredItem = (
+    path: string,
+    value: unknown,
+    nullable: boolean,
+  ): InferredItem | null => {
+    if (value === null || value === undefined) {
+      if (!nullable) {
+        errors.push(`${path}: null 불가`);
+        return { value: "", rationale: "" };
+      }
+      return null;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      errors.push(`${path}: 객체가 아님`);
+      return nullable ? null : { value: "", rationale: "" };
+    }
+    const item = value as Record<string, unknown>;
+    return {
+      value: str(`${path}.value`, item.value),
+      rationale: str(`${path}.rationale`, item.rationale),
+    };
+  };
+
+  const inf = (obj.inferred ?? {}) as Record<string, unknown>;
+  const inferred = {
+    hairBack: parseInferredItem("inferred.hairBack", inf.hairBack, false) as InferredItem,
+    upperBody: parseInferredItem("inferred.upperBody", inf.upperBody, true),
+    lowerBody: parseInferredItem("inferred.lowerBody", inf.lowerBody, true),
+    shoes: parseInferredItem("inferred.shoes", inf.shoes, true),
+  };
+
+  const identityPrompt = str("identityPrompt", obj.identityPrompt);
+  const outfitPrompt = str("outfitPrompt", obj.outfitPrompt);
+  const negativePrompt = str("negativePrompt", obj.negativePrompt);
+  if (identityPrompt.trim().length < 10) {
+    errors.push("identityPrompt: 내용이 비어 있거나 너무 짧음");
+  }
+  if (outfitPrompt.trim().length < 10) {
+    errors.push("outfitPrompt: 내용이 비어 있거나 너무 짧음");
+  }
+
+  const fallbackFeatures = (
+    typeof obj.fallbackFeatures === "object" && obj.fallbackFeatures !== null
+      ? obj.fallbackFeatures
+      : (errors.push("fallbackFeatures: 객체가 아님"), {})
+  ) as FallbackFeatures;
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+  return {
+    ok: true,
+    analysis: {
+      quality: quality as PhotoAnalysis["quality"],
+      failReason,
+      framing,
+      visibleRegions,
+      observed,
+      inferred,
+      identityPrompt,
+      outfitPrompt,
+      negativePrompt,
+      fallbackFeatures,
+    },
+  };
+}
+
+// ---------- Scout 호출 ----------
+
+export type AnalysisCallResult =
+  | { ok: true; analysis: PhotoAnalysis }
+  | { ok: false; reason: "ai_error" | "invalid_response"; detail: string };
+
+/**
+ * 사진 분석 실행. json_schema 유도 → 실패 시 json_object로 1회 재시도.
+ * 두 경우 모두 validatePhotoAnalysis로 런타임 검증한다.
+ */
+export async function runPhotoAnalysis(
+  env: Env,
+  imageDataUrl: string,
+): Promise<AnalysisCallResult> {
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: imageDataUrl } },
+        { type: "text", text: ANALYSIS_PROMPT },
+      ],
+    },
+  ];
+
+  const attempts: Array<Record<string, unknown>> = [
+    { type: "json_schema", json_schema: PHOTO_ANALYSIS_SCHEMA },
+    { type: "json_object" },
+  ];
+
+  let lastDetail = "";
+  for (const responseFormat of attempts) {
+    let parsed: unknown;
+    try {
+      const result = (await env.AI.run(VISION_MODEL as never, {
+        messages,
+        max_tokens: 1400,
+        response_format: responseFormat,
+      } as never)) as { response?: string | Record<string, unknown> };
+      if (result.response && typeof result.response === "object") {
+        parsed = result.response;
+      } else if (typeof result.response === "string") {
+        parsed = extractJson(result.response);
+      }
+    } catch (error) {
+      lastDetail = error instanceof Error ? error.message : String(error);
+      continue;
+    }
+    if (parsed === null || parsed === undefined) {
+      lastDetail = "응답에서 JSON을 찾지 못함";
+      continue;
+    }
+    const validated = validatePhotoAnalysis(parsed);
+    if (validated.ok) {
+      return { ok: true, analysis: validated.analysis };
+    }
+    lastDetail = `스키마 검증 실패: ${validated.errors.join("; ")}`;
+  }
+  return {
+    ok: false,
+    reason: lastDetail.startsWith("스키마") || lastDetail.startsWith("응답")
+      ? "invalid_response"
+      : "ai_error",
+    detail: lastDetail,
+  };
+}
+
+export function extractJson(text: string): Record<string, unknown> | null {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(text.slice(start, end + 1)) as unknown;
+    return typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}

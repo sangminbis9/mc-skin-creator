@@ -11,23 +11,40 @@ Java(Classic/Slim) / Bedrock용 PNG로 다운로드할 수 있습니다.
 
 ```
 [앱인토스 웹뷰 (React + TS + Vite)]
-  ├─ 사진 리사이즈/압축 (기기에서)
+  ├─ 사진 리사이즈/압축 (기기에서, 긴 변 448px — FLUX 입력 제한 512 미만)
   ├─ 품질 체크 휴리스틱 (해상도/밝기/선명도)
   │
   ├─ POST /api/generate ──▶ [Cloudflare Worker]
-  │                           ├─ KV quota 확인 (5,000 Neurons/day 자체 제한)
-  │                           ├─ Workers AI vision (llama-3.2-11b-vision-instruct)
-  │                           │   → 인물 특징 JSON (사진은 즉시 폐기, 저장 안 함)
+  │                           ├─ KV quota 확인 (Neurons/day 자체 제한)
+  │                           ├─ ① llama-4-scout 사진 분석 (analysis.ts)
+  │                           │    quality 게이트 + framing(face/upper_body/…)
+  │                           │    + observed/inferred 구분 + 생성 프롬프트
+  │                           ├─ ② FLUX.2 [klein] 4B 이미지 생성 (skinProvider.ts)
+  │                           │    사진을 직접 참조해 정면 픽셀 캐릭터 생성
+  │                           ├─ ③ 결정적 pack (skinPack.ts)
+  │                           │    배경 분리 → 부위 슬라이스 → 64x64 UV atlas 조립
+  │                           ├─ ④ UV 검증 (skinPost.ts) — 실패 시 seed 바꿔 1회 재시도
+  │                           │    (사진은 요청 처리 후 즉시 폐기, 저장 안 함)
   │                           └─ KV 운영 지표 카운트
   │
-  ├─ 특징 JSON → 절차적 스킨 생성 (skinFromFeatures.ts, 클라이언트)
+  ├─ 응답의 skinPngBase64 → 64x64 캔버스 (skinDecode.ts)
+  │   └─ 이미지 생성 실패 시: 특징 JSON → 절차적 생성 fallback (skinFromFeatures.ts)
   ├─ three.js 3D 미리보기/페인터 + 2D 캔버스 에디터 (동기화)
   └─ Java Classic/Slim, Bedrock PNG export → 기기 저장
 ```
 
-핵심 설계: **이미지 생성 모델을 쓰지 않습니다.** vision LLM이 사진에서 구조화된
-특징(hex 색상 포함)만 추출하고, 클라이언트의 절차적 생성기가 항상 유효한 64x64
-스킨 atlas를 그립니다. 결과가 결정적이라 품질이 안정적이고, quota 소비도 작습니다.
+핵심 설계: **관찰(observed)과 추론(inferred)을 구분합니다.** 분석 단계가 사진에
+보이는 특징과 보이지 않아 추론한 부분을 분리해 반환하고, framing별 정책(얼굴만 /
+상반신 / 전신)에 따라 보이는 의상은 보존하고 안 보이는 부분만 조화롭게 완성합니다.
+이미지 생성 모델은 UV atlas 배치를 지키지 못하므로(실측), FLUX에는 정면 캐릭터
+1장만 시키고 **UV 배치는 서버 코드가 결정적으로 보장**합니다(front_pack 전략).
+생성이 두 번 실패하면 기존 절차적 생성기로 자동 fallback합니다.
+
+- feature flag: `workers/wrangler.jsonc` — `IMAGE_GENERATION_ENABLED`("true"/"false"),
+  `IMAGE_GEN_STRATEGY`("front_view" 기본 / "direct_atlas" 실험용)
+- 스타일 참고 스킨(선택): 로컬은 `workers/.dev.vars`의 `STYLE_REF_B64`,
+  운영은 KV `asset:style-ref-448` — 사용 권리가 확인된 이미지만 사용할 것.
+  없으면 참고 없이 동작합니다 (front_view 전략은 참고 이미지를 쓰지 않음).
 
 ## 디렉터리 구조
 
@@ -38,10 +55,17 @@ src/
   components/  픽셀 UI 컴포넌트 (PixelButton 등) + AdLoadingPanel
   editor/      SkinModel(three.js), SkinViewer3D, SkinPainter3D,
                SkinTemplate2DEditor, editorState(undo/redo, 2D/3D 동기화)
-  lib/         skinAtlas, skinFromFeatures, skinFeatures, javaBedrockExport,
-               imageQuality, cloudflareAI(API 클라이언트), shareSkin, download
+  lib/         skinAtlas, skinFromFeatures, skinFeatures, skinDecode,
+               javaBedrockExport, imageQuality, cloudflareAI(API 클라이언트),
+               shareSkin, download
   styles/      pixel.css (픽셀 게임 디자인 시스템)
-workers/       Cloudflare Worker (API + quota + 운영 지표)
+workers/
+  src/         index(라우팅), analysis(사진 분석), skinPrompt(프롬프트),
+               skinProvider(FLUX 호출), skinPack(정면 뷰→atlas),
+               skinPost(축소/마스크/검증), png(PNG/JPEG 코덱), uvLayout,
+               generate(오케스트레이션), quota, analytics
+  scripts/     build-assets.mjs (UV 가이드 자산 생성)
+  test/        vitest 단위 테스트 (실제 AI 호출 없음 — CI 안전)
 ```
 
 ## 실행 방법
@@ -65,6 +89,7 @@ npm install
 npx wrangler login
 npx wrangler kv namespace create MCSKIN_KV   # 발급된 id를 wrangler.jsonc에 기입
 npm run dev                                   # 로컬: http://localhost:8787
+npm test                                      # 단위 테스트 (AI 호출 없음)
 npm run deploy                                # 배포
 ```
 
@@ -87,16 +112,20 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 
 ## quota 정책
 
-- 프로젝트 자체 제한 **5,000 Neurons/day** (Cloudflare 무료 10,000의 절반만 사용)
-- 생성 1회 비용은 보수적으로 10 Neurons로 추정 → 하루 약 500회
+- Cloudflare 무료 10,000 Neurons/day 중 `DAILY_BUDGET_RATIO`(기본 0.5 = 5,000)만 사용
+- 단계별 예상 비용 (`workers/src/quota.ts`, 공식 단가 기준 환산):
+  - 사진 분석 (llama-4-scout): ~170 Neurons
+  - 이미지 생성 (FLUX, 입력 1타일 + 출력 512x512 1타일): ~33 Neurons
+  - 정상 1회 합계 ~203 Neurons → 하루 약 24회 (재시도 발생 시 +33)
 - 리셋: 00:00 UTC = **매일 오전 9시 KST** (Cloudflare 무료 리셋과 동일)
 - 소진 시 AI 호출 전에 차단, 사용자에게는 "생성 가능/거의 마감/오늘 마감"으로만 노출
-- 실패한 생성(사진 인식 실패, AI 오류)은 quota를 차감하지 않음
+- 실제 발생한 AI 비용은 성공/실패와 무관하게 집계 (무료 한도 보호가 목적)
 - 재생성 기능 없음 — 1회 생성 후 편집기로 수정
 
 ## 개인정보
 
-- 원본 사진은 기기에서 축소 후 전송, Worker는 분석 즉시 폐기 (저장 없음)
+- 원본 사진은 기기에서 축소(긴 변 448px) 후 전송, Worker는 분석·생성 요청 처리
+  동안만 메모리에 유지하고 즉시 폐기 (저장 없음)
 - 생성 결과물도 서버 미저장 — 모든 스킨은 클라이언트에서 생성/보관
 - 업로드 전 동의 체크박스 + `#/privacy` 안내 페이지 제공
 

@@ -9,6 +9,7 @@ import { PixelProgress } from "../components/pixel/PixelProgress";
 import { ApiError, requestSkinGeneration } from "../lib/cloudflareAI";
 import type {
   GenerateResponse,
+  GenerationMode,
   QuotaStatus,
   SkinFeatures,
 } from "../lib/skinFeatures";
@@ -18,9 +19,16 @@ export interface GenerationFailure {
   message: string;
 }
 
+export interface GenerationSuccess {
+  features: SkinFeatures;
+  /** 있으면 AI가 직접 생성한 스킨 — 없거나 디코딩 실패 시 features로 절차 생성 */
+  skinPngBase64?: string;
+  generationMode: GenerationMode;
+}
+
 interface GeneratingPageProps {
   photoDataUrl: string;
-  onDone: (features: SkinFeatures) => void;
+  onDone: (result: GenerationSuccess) => void;
   onFail: (failure: GenerationFailure) => void;
   onQuotaClosed: (quota: QuotaStatus | null) => void;
 }
@@ -79,10 +87,14 @@ export function GeneratingPage({
         }
         setProgress(100);
         setStageIndex(STAGES.length - 1);
-        const features = response.features;
+        const result: GenerationSuccess = {
+          features: response.features,
+          skinPngBase64: response.skinPngBase64,
+          generationMode: response.generationMode ?? "procedural_fallback",
+        };
         setTimeout(() => {
           if (!cancelled) {
-            onDone(features);
+            onDone(result);
           }
         }, 600);
       } catch (error) {

@@ -8,8 +8,8 @@
  */
 
 import { bumpMetric, getMetric, METRICS, type Metric } from "./analytics";
-import { analyzePhoto } from "./generate";
-import { commitGenerationCost, dayKey, getQuotaStatus } from "./quota";
+import { generateSkin } from "./generate";
+import { commitNeurons, dayKey, getQuotaStatus } from "./quota";
 import type { Env } from "./types";
 
 const CORS_HEADERS: Record<string, string> = {
@@ -98,13 +98,11 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
     );
   }
 
-  // 3) AI 분석 (사진은 이 요청 스코프 안에서만 사용, 저장하지 않음)
-  const result = await analyzePhoto(env, body.image);
+  // 3) 분석 + 스킨 생성 (사진은 이 요청 스코프 안에서만 사용, 저장하지 않음)
+  const result = await generateSkin(env, body.image);
 
-  // 4) 성공한 생성만 quota 차감
-  if (result.charge) {
-    await commitGenerationCost(env);
-  }
+  // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
+  await commitNeurons(env, result.neuronsSpent);
   await bumpMetric(env, result.success ? "successes" : "failures");
 
   return json({ ...result.body, quota: await getQuotaStatus(env) }, result.status);

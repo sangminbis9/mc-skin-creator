@@ -55,12 +55,19 @@ export interface SkinFeatures {
 export type PhotoQuality = "pass" | "warn" | "fail";
 export type PhotoFailReason = "no_face" | "blurry" | "too_small" | "unknown";
 
+export type GenerationMode = "image" | "procedural_fallback";
+
 /** Worker /api/generate 응답 */
 export interface GenerateResponse {
   ok: boolean;
   quality?: PhotoQuality;
   failReason?: PhotoFailReason;
   features?: SkinFeatures;
+  /** AI가 직접 생성한 64x64 스킨 PNG (base64). 없으면 features로 절차 생성 */
+  skinPngBase64?: string;
+  generationMode?: GenerationMode;
+  /** observed/inferred 구분이 담긴 분석 요약 (디버깅/투명성용) */
+  analysis?: unknown;
   error?: string;
   errorCode?:
     | "quota_exceeded"
