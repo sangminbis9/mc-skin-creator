@@ -11,6 +11,9 @@ export const METRICS = [
   "attempts",
   "successes",
   "failures",
+  // 성공 중 AI 이미지 생성 vs 절차적 fallback 비율 — 품질 이슈 진단용
+  "gen_image",
+  "gen_fallback",
   "ad_impression",
   "share_click",
   "share_link",

@@ -302,6 +302,66 @@ function columnSpan(
   return x0 === -1 ? null : { x0, x1 };
 }
 
+/**
+ * 얼굴(머리 앞면)에 눈이 남아 있는지 확인하고, 없으면 최소한의 눈을 찍는다.
+ * 눈동자 색은 소스 얼굴 눈높이 대역의 가장 어두운 색을 샘플링한다.
+ */
+function ensureEyes(
+  atlas: RawImage,
+  src: RawImage,
+  headRegion: Region,
+  bg: [number, number, number],
+  skinColor: [number, number, number],
+): void {
+  const face = CLASSIC_LAYOUT.head.base.front;
+  const skinLum = 0.299 * skinColor[0] + 0.587 * skinColor[1] + 0.114 * skinColor[2];
+  // 눈 대역(얼굴 3~5행)에 피부보다 확실히 어두운 픽셀이 있으면 그대로 둔다
+  for (let y = 3; y <= 5; y++) {
+    for (let x = 1; x <= 6; x++) {
+      const d = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
+      const lum =
+        0.299 * atlas.rgba[d] + 0.587 * atlas.rgba[d + 1] + 0.114 * atlas.rgba[d + 2];
+      if (lum < skinLum * 0.55) {
+        return;
+      }
+    }
+  }
+  // 소스 얼굴의 눈높이 대역(머리 높이 40~60%)에서 가장 어두운 색 샘플
+  const eyeBand: Region = {
+    x0: headRegion.x0,
+    x1: headRegion.x1,
+    y0: headRegion.y0 + (headRegion.y1 - headRegion.y0) * 0.4,
+    y1: headRegion.y0 + (headRegion.y1 - headRegion.y0) * 0.6,
+  };
+  let darkest: [number, number, number] = [35, 28, 24];
+  let darkestLum = 255;
+  for (let y = Math.floor(eyeBand.y0); y < Math.ceil(eyeBand.y1); y++) {
+    for (let x = Math.floor(eyeBand.x0); x < Math.ceil(eyeBand.x1); x++) {
+      if (!isCharacterPixel(src, x, y, bg)) continue;
+      const d = (y * src.width + x) * 4;
+      const lum =
+        0.299 * src.rgba[d] + 0.587 * src.rgba[d + 1] + 0.114 * src.rgba[d + 2];
+      if (lum < darkestLum) {
+        darkestLum = lum;
+        darkest = [src.rgba[d], src.rgba[d + 1], src.rgba[d + 2]];
+      }
+    }
+  }
+  const put = (x: number, y: number, c: [number, number, number]) => {
+    const d = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
+    atlas.rgba[d] = c[0];
+    atlas.rgba[d + 1] = c[1];
+    atlas.rgba[d + 2] = c[2];
+    atlas.rgba[d + 3] = 255;
+  };
+  const white: [number, number, number] = [240, 240, 240];
+  // 마인크래프트 관례: 4행, 눈동자가 안쪽 (흰자-눈동자 ... 눈동자-흰자)
+  put(1, 4, white);
+  put(2, 4, darkest);
+  put(5, 4, darkest);
+  put(6, 4, white);
+}
+
 export function packFrontViewToAtlas(src: RawImage): PackResult | null {
   const bg = estimateBackground(src);
 
@@ -377,6 +437,10 @@ export function packFrontViewToAtlas(src: RawImage): PackResult | null {
     },
     bg,
   );
+  // 눈 보장: 8x8 축소에서 눈이 소실됐으면 (seed에 따라 발생)
+  // 마인크래프트 관례 위치(4행, 흰자+눈동자)에 최소한의 눈을 찍는다.
+  ensureEyes(atlas, src, headRegion, bg, skinColor);
+
   // 옆면은 front 가장자리 확장, 뒷면은 머리카락색 기반 (얼굴 반전 금지)
   fillRectFromRect(
     atlas,

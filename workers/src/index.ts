@@ -104,6 +104,12 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
   // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
   await commitNeurons(env, result.neuronsSpent);
   await bumpMetric(env, result.success ? "successes" : "failures");
+  if (result.success && result.body.generationMode) {
+    await bumpMetric(
+      env,
+      result.body.generationMode === "image" ? "gen_image" : "gen_fallback",
+    );
+  }
 
   return json({ ...result.body, quota: await getQuotaStatus(env) }, result.status);
 }
@@ -125,6 +131,8 @@ async function getStats(env: Env) {
     attempts: byMetric.attempts,
     successes: byMetric.successes,
     failures: byMetric.failures,
+    genImage: byMetric.gen_image,
+    genFallback: byMetric.gen_fallback,
     adImpressions: byMetric.ad_impression,
     shareClicks: byMetric.share_click,
     shareLinks: byMetric.share_link,
