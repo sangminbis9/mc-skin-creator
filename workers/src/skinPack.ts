@@ -274,6 +274,66 @@ function applyShading(atlas: RawImage): void {
 }
 
 /**
+ * 얼굴 입체감: 피부색 픽셀에만 은은한 명암을 준다 (이목구비·머리카락 보호).
+ * 세로: 이마 밝게 → 턱 어둡게, 가로: 중앙 밝게 → 가장자리 어둡게 (동글한 느낌).
+ * 추가로 overlay 앞면의 볼(4~6행 바깥 열)과 턱(하단 중앙)에 살짝 어두운
+ * 피부색을 덧붙여 바깥 레이어의 돌출로 기하학적 라운딩을 만든다.
+ */
+function contourFace(
+  atlas: RawImage,
+  skinColor: [number, number, number],
+): void {
+  const face = CLASSIC_LAYOUT.head.base.front;
+  const overlay = CLASSIC_LAYOUT.head.overlay.front;
+  const clamp = (v: number) => Math.max(0, Math.min(255, v));
+  const isSkin = (d: number) =>
+    Math.abs(atlas.rgba[d] - skinColor[0]) +
+      Math.abs(atlas.rgba[d + 1] - skinColor[1]) +
+      Math.abs(atlas.rgba[d + 2] - skinColor[2]) <
+    110;
+
+  for (let y = 0; y < face.h; y++) {
+    for (let x = 0; x < face.w; x++) {
+      const d = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
+      if (!isSkin(d)) {
+        continue; // 눈·눈썹·머리카락·안경은 그대로
+      }
+      let factor = 1.04 - (y / (face.h - 1)) * 0.09; // 1.04 → 0.95
+      const centerDist = Math.abs(x - (face.w - 1) / 2) / ((face.w - 1) / 2);
+      factor *= 1.03 - centerDist * 0.08; // 중앙 +3% → 가장자리 -5%
+      for (let ch = 0; ch < 3; ch++) {
+        atlas.rgba[d + ch] = clamp(atlas.rgba[d + ch] * factor);
+      }
+    }
+  }
+
+  // overlay 볼/턱 — 얼굴보다 8% 어두운 피부색 (base가 피부일 때만)
+  const cheek: [number, number, number] = [
+    Math.round(skinColor[0] * 0.92),
+    Math.round(skinColor[1] * 0.92),
+    Math.round(skinColor[2] * 0.92),
+  ];
+  const putOverlayIfSkin = (x: number, y: number) => {
+    const b = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
+    if (!isSkin(b)) {
+      return;
+    }
+    const d = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+    atlas.rgba[d] = cheek[0];
+    atlas.rgba[d + 1] = cheek[1];
+    atlas.rgba[d + 2] = cheek[2];
+    atlas.rgba[d + 3] = 255;
+  };
+  for (let y = 4; y <= 6; y++) {
+    putOverlayIfSkin(0, y); // 왼볼
+    putOverlayIfSkin(7, y); // 오른볼
+  }
+  for (let x = 2; x <= 5; x++) {
+    putOverlayIfSkin(x, 7); // 턱
+  }
+}
+
+/**
  * 머리카락 볼륨: 머리 base 면에서 머리카락색과 가까운 픽셀을 overlay로 복사해
  * 모자 레이어가 살짝 부풀어 보이게 한다. 앞면은 위쪽 절반만(눈썹·눈 오염 방지).
  */
@@ -621,6 +681,8 @@ export function packFrontViewToAtlas(src: RawImage): PackResult | null {
   // 눈 보장: 8x8 축소에서 눈이 소실됐으면 (seed에 따라 발생)
   // 마인크래프트 관례 위치(4행, 흰자+눈동자)에 최소한의 눈을 찍는다.
   ensureEyes(atlas, src, front.head, bg, skinColor);
+  // 얼굴 명암 + overlay 볼/턱 라운딩 (이목구비는 건드리지 않음)
+  contourFace(atlas, skinColor);
 
   // 옆면은 front 가장자리 확장 (얼굴 반전 금지)
   fillRectFromRect(

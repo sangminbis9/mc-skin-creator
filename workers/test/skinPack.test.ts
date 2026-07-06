@@ -53,6 +53,17 @@ describe("packFrontViewToAtlas", () => {
     }
     expect(darkPixels).toBeGreaterThan(0);
 
+    // 얼굴 라운딩: 가장자리 피부가 중앙 피부보다 어둡다 (row 6은 순수 피부 행)
+    const edge = (atlas.rgba[(14 * ATLAS_SIZE + 8) * 4] +
+      atlas.rgba[(14 * ATLAS_SIZE + 15) * 4]) / 2;
+    const center = (atlas.rgba[(14 * ATLAS_SIZE + 11) * 4] +
+      atlas.rgba[(14 * ATLAS_SIZE + 12) * 4]) / 2;
+    expect(edge).toBeLessThan(center);
+
+    // overlay 볼 라운딩: 머리 overlay 앞면(40,8)의 볼 위치가 불투명 피부색
+    const cheekAlpha = atlas.rgba[((8 + 5) * ATLAS_SIZE + 40 + 0) * 4 + 3];
+    expect(cheekAlpha).toBe(255);
+
     // UV 규칙 준수
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
