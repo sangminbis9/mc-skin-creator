@@ -20,6 +20,55 @@ export interface PackResult {
   problems: string[];
 }
 
+/**
+ * 얼굴 구조적 합성용 특징 (분석 단계 결과에서 전달).
+ * 색상은 hex 문자열 (#rrggbb).
+ */
+export interface FaceStyle {
+  eyeColor: string;
+  glassesColor: string;
+  eyebrowThickness: string; // thin | normal | thick
+  expression: string; // smile | neutral | serious
+  facialHair: string; // none | mustache | goatee | beard | stubble
+  glasses: string; // none | regular | round | sunglasses
+}
+
+export const DEFAULT_FACE_STYLE: FaceStyle = {
+  eyeColor: "#4a3728",
+  glassesColor: "#22201e",
+  eyebrowThickness: "normal",
+  expression: "neutral",
+  facialHair: "none",
+  glasses: "none",
+};
+
+type Rgb = [number, number, number];
+
+function hexToRgb(hex: string, fallback: Rgb): Rgb {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) {
+    return fallback;
+  }
+  const v = parseInt(m[1], 16);
+  return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+}
+
+function shadeRgb(c: Rgb, f: number): Rgb {
+  return [
+    Math.max(0, Math.min(255, Math.round(c[0] * f))),
+    Math.max(0, Math.min(255, Math.round(c[1] * f))),
+    Math.max(0, Math.min(255, Math.round(c[2] * f))),
+  ];
+}
+
+function mixRgb(a: Rgb, b: Rgb, t: number): Rgb {
+  return [
+    Math.round(a[0] * (1 - t) + b[0] * t),
+    Math.round(a[1] * (1 - t) + b[1] * t),
+    Math.round(a[2] * (1 - t) + b[2] * t),
+  ];
+}
+
 interface Region {
   x0: number;
   y0: number;
@@ -274,62 +323,201 @@ function applyShading(atlas: RawImage): void {
 }
 
 /**
- * 얼굴 입체감: 피부색 픽셀에만 은은한 명암을 준다 (이목구비·머리카락 보호).
- * 세로: 이마 밝게 → 턱 어둡게, 가로: 중앙 밝게 → 가장자리 어둡게 (동글한 느낌).
- * 추가로 overlay 앞면의 볼(4~6행 바깥 열)과 턱(하단 중앙)에 살짝 어두운
- * 피부색을 덧붙여 바깥 레이어의 돌출로 기하학적 라운딩을 만든다.
+ * 얼굴 구조적 합성.
+ *
+ * 샘플링만으로 만든 8x8 얼굴은 코·입 그림자가 검은 얼룩으로 증폭되거나
+ * 앞머리에 눈이 묻히는 문제가 있었다(실측). 대신:
+ * - 렌더에서 가져오는 것: 앞머리 실루엣(열별 내려온 깊이)과 머리카락 질감, 피부색
+ * - 분석 특징으로 그리는 것: 눈썹(2행)·눈(3-4행)·코(5행)·입(6행)·수염,
+ *   안경은 overlay(2-5행) — 클라이언트 절차 생성기와 동일한 검증된 좌표
+ * - 피부에는 이마→턱·중앙→가장자리 명암, overlay에 볼(5-6행)·턱(7행) 라운딩
  */
-function contourFace(
+function composeFace(
   atlas: RawImage,
-  skinColor: [number, number, number],
+  src: RawImage,
+  headRegion: Region,
+  bg: [number, number, number],
+  hairColor: Rgb,
+  skinColor: Rgb,
+  style: FaceStyle,
 ): void {
   const face = CLASSIC_LAYOUT.head.base.front;
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
-  const clamp = (v: number) => Math.max(0, Math.min(255, v));
-  const isSkin = (d: number) =>
-    Math.abs(atlas.rgba[d] - skinColor[0]) +
-      Math.abs(atlas.rgba[d + 1] - skinColor[1]) +
-      Math.abs(atlas.rgba[d + 2] - skinColor[2]) <
-    110;
-
-  for (let y = 0; y < face.h; y++) {
-    for (let x = 0; x < face.w; x++) {
-      const d = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
-      if (!isSkin(d)) {
-        continue; // 눈·눈썹·머리카락·안경은 그대로
-      }
-      let factor = 1.04 - (y / (face.h - 1)) * 0.09; // 1.04 → 0.95
-      const centerDist = Math.abs(x - (face.w - 1) / 2) / ((face.w - 1) / 2);
-      factor *= 1.03 - centerDist * 0.08; // 중앙 +3% → 가장자리 -5%
-      for (let ch = 0; ch < 3; ch++) {
-        atlas.rgba[d + ch] = clamp(atlas.rgba[d + ch] * factor);
-      }
-    }
-  }
-
-  // overlay 볼/턱 — 얼굴보다 8% 어두운 피부색 (base가 피부일 때만)
-  const cheek: [number, number, number] = [
-    Math.round(skinColor[0] * 0.92),
-    Math.round(skinColor[1] * 0.92),
-    Math.round(skinColor[2] * 0.92),
-  ];
-  const putOverlayIfSkin = (x: number, y: number) => {
-    const b = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
-    if (!isSkin(b)) {
-      return;
-    }
-    const d = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
-    atlas.rgba[d] = cheek[0];
-    atlas.rgba[d + 1] = cheek[1];
-    atlas.rgba[d + 2] = cheek[2];
+  const put = (rect: Rect, x: number, y: number, c: Rgb) => {
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba[d] = c[0];
+    atlas.rgba[d + 1] = c[1];
+    atlas.rgba[d + 2] = c[2];
     atlas.rgba[d + 3] = 255;
   };
-  for (let y = 4; y <= 6; y++) {
-    putOverlayIfSkin(0, y); // 왼볼
-    putOverlayIfSkin(7, y); // 오른볼
+
+  // 1) 8x8 셀 샘플 + 머리카락/피부 분류
+  const rw = headRegion.x1 - headRegion.x0;
+  const rh = headRegion.y1 - headRegion.y0;
+  const cellColor: Rgb[] = [];
+  for (let cy = 0; cy < 8; cy++) {
+    for (let cx = 0; cx < 8; cx++) {
+      cellColor.push(
+        featureColor(
+          src,
+          {
+            x0: headRegion.x0 + (cx / 8) * rw,
+            x1: headRegion.x0 + ((cx + 1) / 8) * rw,
+            y0: headRegion.y0 + (cy / 8) * rh,
+            y1: headRegion.y0 + ((cy + 1) / 8) * rh,
+          },
+          bg,
+        ),
+      );
+    }
   }
-  for (let x = 2; x <= 5; x++) {
-    putOverlayIfSkin(x, 7); // 턱
+  const dist = (a: Rgb, b: Rgb) =>
+    Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+  const isHairCell = (c: Rgb) =>
+    dist(c, hairColor) < dist(c, skinColor) && dist(c, hairColor) < 160;
+
+  // 앞머리 깊이: 열별로 위에서 연속된 머리카락 셀 수 (눈 행 보호를 위해 최대 3)
+  const hairDepth: number[] = [];
+  for (let cx = 0; cx < 8; cx++) {
+    let depth = 0;
+    while (depth < 3 && isHairCell(cellColor[depth * 8 + cx])) {
+      depth++;
+    }
+    hairDepth.push(depth);
+  }
+
+  // 2) 바탕: 머리카락(렌더 질감 유지) + 피부(명암 그라데이션)
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      if (y < hairDepth[x]) {
+        const cell = cellColor[y * 8 + x];
+        put(face, x, y, isHairCell(cell) ? cell : hairColor);
+      } else {
+        let factor = 1.04 - (y / 7) * 0.09; // 이마 밝게 → 턱 어둡게
+        const centerDist = Math.abs(x - 3.5) / 3.5;
+        factor *= 1.03 - centerDist * 0.08; // 중앙 밝게 → 가장자리 어둡게
+        put(face, x, y, shadeRgb(skinColor, factor));
+      }
+    }
+  }
+
+  // 3) 이목구비 (클라이언트 절차 생성기의 검증된 좌표)
+  const browColor = shadeRgb(hairColor, 0.8);
+  if (style.eyebrowThickness === "thick") {
+    for (const x of [0, 1, 2, 5, 6, 7]) {
+      if (hairDepth[x] <= 2) put(face, x, 2, browColor);
+    }
+  } else {
+    const c =
+      style.eyebrowThickness === "thin"
+        ? mixRgb(browColor, skinColor, 0.35)
+        : browColor;
+    for (const x of [1, 2, 5, 6]) {
+      if (hairDepth[x] <= 2) put(face, x, 2, c);
+    }
+  }
+
+  const white: Rgb = [245, 245, 240];
+  const eye = hexToRgb(style.eyeColor, [74, 55, 40]);
+  for (const [wx, ix] of [
+    [1, 2],
+    [6, 5],
+  ] as const) {
+    put(face, wx, 3, white);
+    put(face, wx, 4, shadeRgb(white, 0.92));
+    put(face, ix, 3, eye);
+    put(face, ix, 4, shadeRgb(eye, 0.75));
+  }
+
+  const skinShadow = shadeRgb(skinColor, 0.82);
+  put(face, 3, 5, skinShadow);
+  put(face, 4, 5, skinShadow);
+
+  const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
+  if (style.expression === "smile") {
+    put(face, 3, 6, mouthColor);
+    put(face, 4, 6, mouthColor);
+    put(face, 2, 6, shadeRgb(mouthColor, 1.15));
+    put(face, 5, 6, shadeRgb(mouthColor, 1.15));
+    const blush = mixRgb(skinColor, [255, 138, 128], 0.35);
+    put(face, 0, 5, blush);
+    put(face, 7, 5, blush);
+  } else if (style.expression === "serious") {
+    for (const x of [2, 3, 4, 5]) {
+      put(face, x, 6, shadeRgb(mouthColor, 0.8));
+    }
+  } else {
+    put(face, 3, 6, mouthColor);
+    put(face, 4, 6, mouthColor);
+  }
+
+  // 수염
+  if (style.facialHair !== "none") {
+    const beard =
+      style.facialHair === "stubble"
+        ? mixRgb(skinColor, hairColor, 0.4)
+        : shadeRgb(hairColor, 0.9);
+    if (style.facialHair === "mustache" || style.facialHair === "beard") {
+      put(face, 2, 5, beard);
+      put(face, 5, 5, beard);
+    }
+    if (style.facialHair === "goatee") {
+      put(face, 3, 7, beard);
+      put(face, 4, 7, beard);
+    }
+    if (style.facialHair === "beard" || style.facialHair === "stubble") {
+      for (let x = 0; x < 8; x++) {
+        put(face, x, 7, beard);
+      }
+      put(face, 0, 6, beard);
+      put(face, 7, 6, beard);
+    }
+  }
+
+  // 4) overlay: 볼(5-6행)·턱(7행) 라운딩 — 안경보다 먼저 그린다 (안경이 위에 얹힘)
+  const cheek = shadeRgb(skinColor, 0.92);
+  for (const y of [5, 6]) {
+    put(overlay, 0, y, cheek);
+    put(overlay, 7, y, cheek);
+  }
+  if (style.facialHair === "none" || style.facialHair === "mustache") {
+    for (const x of [2, 3, 4, 5]) {
+      put(overlay, x, 7, cheek);
+    }
+  }
+
+  // 5) 안경 (overlay, 클라이언트와 동일 좌표)
+  if (style.glasses !== "none") {
+    const rim = hexToRgb(style.glassesColor, [34, 32, 30]);
+    const lens = style.glasses === "sunglasses" ? shadeRgb(rim, 0.55) : null;
+    for (const x0 of [0, 5]) {
+      if (style.glasses === "round") {
+        put(overlay, x0 + 1, 2, rim);
+        put(overlay, x0, 3, rim);
+        put(overlay, x0 + 2, 3, rim);
+        put(overlay, x0 + 1, 5, rim);
+      } else {
+        for (let x = x0; x < x0 + 3; x++) {
+          put(overlay, x, 2, rim);
+          put(overlay, x, 5, rim);
+        }
+        put(overlay, x0, 3, rim);
+        put(overlay, x0 + 2, 3, rim);
+        put(overlay, x0, 4, rim);
+        put(overlay, x0 + 2, 4, rim);
+      }
+      if (lens) {
+        put(overlay, x0 + 1, 3, lens);
+        put(overlay, x0 + 1, 4, lens);
+      }
+    }
+    put(overlay, 3, 3, rim);
+    put(overlay, 4, 3, rim);
+    // 안경 다리 (옆면 overlay)
+    put(CLASSIC_LAYOUT.head.overlay.right, 7, 3, rim);
+    put(CLASSIC_LAYOUT.head.overlay.right, 6, 3, rim);
+    put(CLASSIC_LAYOUT.head.overlay.left, 0, 3, rim);
+    put(CLASSIC_LAYOUT.head.overlay.left, 1, 3, rim);
   }
 }
 
@@ -565,67 +753,10 @@ function sliceFigure(
   };
 }
 
-/**
- * 얼굴(머리 앞면)에 눈이 남아 있는지 확인하고, 없으면 최소한의 눈을 찍는다.
- * 눈동자 색은 소스 얼굴 눈높이 대역의 가장 어두운 색을 샘플링한다.
- */
-function ensureEyes(
-  atlas: RawImage,
+export function packFrontViewToAtlas(
   src: RawImage,
-  headRegion: Region,
-  bg: [number, number, number],
-  skinColor: [number, number, number],
-): void {
-  const face = CLASSIC_LAYOUT.head.base.front;
-  const skinLum = 0.299 * skinColor[0] + 0.587 * skinColor[1] + 0.114 * skinColor[2];
-  // 눈 대역(얼굴 3~5행)에 피부보다 확실히 어두운 픽셀이 있으면 그대로 둔다
-  for (let y = 3; y <= 5; y++) {
-    for (let x = 1; x <= 6; x++) {
-      const d = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
-      const lum =
-        0.299 * atlas.rgba[d] + 0.587 * atlas.rgba[d + 1] + 0.114 * atlas.rgba[d + 2];
-      if (lum < skinLum * 0.55) {
-        return;
-      }
-    }
-  }
-  // 소스 얼굴의 눈높이 대역(머리 높이 40~60%)에서 가장 어두운 색 샘플
-  const eyeBand: Region = {
-    x0: headRegion.x0,
-    x1: headRegion.x1,
-    y0: headRegion.y0 + (headRegion.y1 - headRegion.y0) * 0.4,
-    y1: headRegion.y0 + (headRegion.y1 - headRegion.y0) * 0.6,
-  };
-  let darkest: [number, number, number] = [35, 28, 24];
-  let darkestLum = 255;
-  for (let y = Math.floor(eyeBand.y0); y < Math.ceil(eyeBand.y1); y++) {
-    for (let x = Math.floor(eyeBand.x0); x < Math.ceil(eyeBand.x1); x++) {
-      if (!isCharacterPixel(src, x, y, bg)) continue;
-      const d = (y * src.width + x) * 4;
-      const lum =
-        0.299 * src.rgba[d] + 0.587 * src.rgba[d + 1] + 0.114 * src.rgba[d + 2];
-      if (lum < darkestLum) {
-        darkestLum = lum;
-        darkest = [src.rgba[d], src.rgba[d + 1], src.rgba[d + 2]];
-      }
-    }
-  }
-  const put = (x: number, y: number, c: [number, number, number]) => {
-    const d = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
-    atlas.rgba[d] = c[0];
-    atlas.rgba[d + 1] = c[1];
-    atlas.rgba[d + 2] = c[2];
-    atlas.rgba[d + 3] = 255;
-  };
-  const white: [number, number, number] = [240, 240, 240];
-  // 마인크래프트 관례: 4행, 눈동자가 안쪽 (흰자-눈동자 ... 눈동자-흰자)
-  put(1, 4, white);
-  put(2, 4, darkest);
-  put(5, 4, darkest);
-  put(6, 4, white);
-}
-
-export function packFrontViewToAtlas(src: RawImage): PackResult | null {
+  faceStyle: FaceStyle = DEFAULT_FACE_STYLE,
+): PackResult | null {
   const bg = estimateBackground(src);
 
   // 배경 분리 자체가 안 되는 입력(전면 노이즈 등) 방어
@@ -662,7 +793,6 @@ export function packFrontViewToAtlas(src: RawImage): PackResult | null {
 
   // ---------- 머리 ----------
   const head = CLASSIC_LAYOUT.head;
-  fillRectFromRegion(atlas, head.base.front, src, front.head, bg, true);
   const hairColor = medianColor(
     src,
     { ...front.head, y1: front.head.y0 + (front.head.y1 - front.head.y0) * 0.22 },
@@ -678,11 +808,8 @@ export function packFrontViewToAtlas(src: RawImage): PackResult | null {
     },
     bg,
   );
-  // 눈 보장: 8x8 축소에서 눈이 소실됐으면 (seed에 따라 발생)
-  // 마인크래프트 관례 위치(4행, 흰자+눈동자)에 최소한의 눈을 찍는다.
-  ensureEyes(atlas, src, front.head, bg, skinColor);
-  // 얼굴 명암 + overlay 볼/턱 라운딩 (이목구비는 건드리지 않음)
-  contourFace(atlas, skinColor);
+  // 얼굴: 렌더의 앞머리 실루엣·색 + 분석 특징 기반 이목구비 구조적 합성
+  composeFace(atlas, src, front.head, bg, hairColor, skinColor, faceStyle);
 
   // 옆면은 front 가장자리 확장 (얼굴 반전 금지)
   fillRectFromRect(

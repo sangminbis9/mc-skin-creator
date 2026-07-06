@@ -53,12 +53,19 @@ describe("packFrontViewToAtlas", () => {
     }
     expect(darkPixels).toBeGreaterThan(0);
 
-    // 얼굴 라운딩: 가장자리 피부가 중앙 피부보다 어둡다 (row 6은 순수 피부 행)
-    const edge = (atlas.rgba[(14 * ATLAS_SIZE + 8) * 4] +
-      atlas.rgba[(14 * ATLAS_SIZE + 15) * 4]) / 2;
-    const center = (atlas.rgba[(14 * ATLAS_SIZE + 11) * 4] +
-      atlas.rgba[(14 * ATLAS_SIZE + 12) * 4]) / 2;
+    // 얼굴 라운딩: 가장자리 피부가 중앙 피부보다 어둡다
+    // (4행: 눈은 1,2,5,6열이므로 0/7열=가장자리 피부, 3/4열=중앙 피부)
+    const edge = (atlas.rgba[(12 * ATLAS_SIZE + 8) * 4] +
+      atlas.rgba[(12 * ATLAS_SIZE + 15) * 4]) / 2;
+    const center = (atlas.rgba[(12 * ATLAS_SIZE + 11) * 4] +
+      atlas.rgba[(12 * ATLAS_SIZE + 12) * 4]) / 2;
     expect(edge).toBeLessThan(center);
+
+    // 구조적 얼굴: 눈(3행)은 흰자+눈동자 구조 — 1열은 흰자(밝음), 2열은 눈동자(어두움)
+    const eyeWhite = atlas.rgba[(11 * ATLAS_SIZE + 9) * 4];
+    const iris = atlas.rgba[(11 * ATLAS_SIZE + 10) * 4];
+    expect(eyeWhite).toBeGreaterThan(200);
+    expect(iris).toBeLessThan(120);
 
     // overlay 볼 라운딩: 머리 overlay 앞면(40,8)의 볼 위치가 불투명 피부색
     const cheekAlpha = atlas.rgba[((8 + 5) * ATLAS_SIZE + 40 + 0) * 4 + 3];

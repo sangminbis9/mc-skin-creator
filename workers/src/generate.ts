@@ -14,7 +14,11 @@ import {
   type PhotoAnalysis,
 } from "./analysis";
 import { bytesToBase64, decodeImage, encodePng } from "./png";
-import { packFrontViewToAtlas } from "./skinPack";
+import {
+  DEFAULT_FACE_STYLE,
+  packFrontViewToAtlas,
+  type FaceStyle,
+} from "./skinPack";
 import { applyUvMask, downscaleToAtlas, validateAtlas, validateFinalAtlas } from "./skinPost";
 import {
   FluxKleinProvider,
@@ -117,6 +121,16 @@ export async function generateSkin(
   if (env.IMAGE_GENERATION_ENABLED === "true") {
     const mode: GenerationStrategy =
       env.IMAGE_GEN_STRATEGY === "direct_atlas" ? "direct_atlas" : "front_view";
+    // 얼굴 구조적 합성용 특징 (색은 hex로 매핑된 값, 나머지는 분류값 그대로)
+    const raw = analysis.fallbackFeatures as unknown as Record<string, unknown>;
+    const faceStyle: FaceStyle = {
+      eyeColor: String(features.eyeColor),
+      glassesColor: String(features.glassesColor),
+      eyebrowThickness: String(raw.eyebrowThickness ?? DEFAULT_FACE_STYLE.eyebrowThickness),
+      expression: String(raw.expression ?? DEFAULT_FACE_STYLE.expression),
+      facialHair: String(raw.facialHair ?? DEFAULT_FACE_STYLE.facialHair),
+      glasses: String(raw.glasses ?? DEFAULT_FACE_STYLE.glasses),
+    };
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
       const generated = await provider.generate({
@@ -136,7 +150,7 @@ export async function generateSkin(
       spent +=
         generated.inputTiles * NEURONS_IMAGE_INPUT_TILE +
         generated.outputTiles * NEURONS_IMAGE_OUTPUT_TILE;
-      const atlas = await postprocess(generated.imageBytes, attempt, mode);
+      const atlas = await postprocess(generated.imageBytes, attempt, mode, faceStyle);
       if (atlas) {
         skinPngBase64 = atlas;
       }
@@ -164,13 +178,14 @@ async function postprocess(
   imageBytes: Uint8Array,
   attempt: number,
   mode: GenerationStrategy,
+  faceStyle: FaceStyle,
 ): Promise<string | null> {
   try {
     const decoded = await decodeImage(imageBytes);
     let atlas;
     if (mode === "front_view") {
       // 정면 캐릭터 뷰 → 결정적 pack (UV 배치를 코드가 보장)
-      const packed = packFrontViewToAtlas(decoded);
+      const packed = packFrontViewToAtlas(decoded, faceStyle);
       if (!packed) {
         console.log(`attempt ${attempt}: 정면 뷰에서 캐릭터를 분리하지 못함`);
         return null;
