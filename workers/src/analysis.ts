@@ -94,7 +94,7 @@ STEP 4 — inferred: for body parts and clothing NOT visible, design choices tha
 - If a region IS visible in the photo, set its inferred entry to null.
 
 STEP 5 — prompts for an image generation model:
-- identityPrompt: 1-3 sentences capturing the recognizable identity: face shape, skin tone, hair silhouette/bangs/length/texture/color, eyes, eyebrows, facial hair, glasses/hat/earrings.
+- identityPrompt: 2-4 sentences capturing the recognizable identity, as SPECIFIC as possible: face shape (round/oval/angular), skin tone, hair (exact color shade, parting direction, bangs style, length, texture like straight/wavy/curly), eye shape and color, eyebrow shape, nose/mouth impression, facial hair, glasses shape/color, hat, earrings, and any distinctive features. Avoid generic phrases — describe what makes THIS person recognizable.
 - outfitPrompt: 1-3 sentences describing the COMPLETE head-to-toe outfit: visible garments first (preserve them faithfully), then inferred garments.
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 

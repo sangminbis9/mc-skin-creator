@@ -38,23 +38,23 @@ function framingPolicy(analysis: PhotoAnalysis, personRef: string): string {
 }
 
 /**
- * 정면 캐릭터 뷰 생성 프롬프트 (front_pack 전략).
- * FLUX는 UV atlas 배치를 지키지 못하지만 마인크래프트 비율의 정면 픽셀
- * 캐릭터는 잘 그린다 — 배치는 skinPack이 결정적으로 수행한다.
+ * 정면+뒷면 두 뷰 생성 프롬프트 (front_pack 전략).
+ * FLUX는 UV atlas 배치를 지키지 못하지만 마인크래프트 비율의 캐릭터 뷰는
+ * 잘 그린다 — 배치는 skinPack이 결정적으로 수행하고, 뒷면 뷰 덕분에
+ * 머리 뒷모습/옷 뒷면이 실제 렌더로 채워진다.
  */
 export function buildFrontViewPrompt(analysis: PhotoAnalysis): string {
   const lines = [
-    "Exactly one blocky pixel-art video game character, front view, standing straight, arms at the sides, full body from head to feet.",
+    "Two views of the SAME blocky pixel-art video game character side by side: on the left the FRONT view, on the right the BACK view (seen from behind, showing the back of the head, hair and outfit). Both standing straight, arms at the sides, full body from head to feet, identical size and proportions.",
     "Minecraft proportions: large cubic head (about a quarter of total height), rectangular torso, straight blocky arms and legs.",
-    "Centered on a plain solid very light gray background. Nothing else in the image.",
+    "Both views centered on a plain solid very light gray background with a clear gap between them. Nothing else in the image.",
     `Design the character after the subject of image 0: hairstyle silhouette, bangs, hair color, skin tone, accessories and visible clothing must be clearly readable. ${analysis.identityPrompt}`,
     framingPolicy(analysis, "Image 0"),
     "Crisp pixel clusters, 3-6 shade ramps per material, deliberate single-pixel detailing.",
   ];
   const avoid = [
-    "multiple characters or views",
-    "character sheets",
-    "side or back views",
+    "more than two figures",
+    "side views",
     "cropped body",
     "photorealism",
     "smooth gradients",

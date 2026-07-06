@@ -135,7 +135,7 @@ export async function generateSkin(
       }
       spent +=
         generated.inputTiles * NEURONS_IMAGE_INPUT_TILE +
-        NEURONS_IMAGE_OUTPUT_TILE;
+        generated.outputTiles * NEURONS_IMAGE_OUTPUT_TILE;
       const atlas = await postprocess(generated.imageBytes, attempt, mode);
       if (atlas) {
         skinPngBase64 = atlas;

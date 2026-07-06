@@ -24,7 +24,7 @@ export interface SkinGenerationRequest {
 }
 
 export type SkinGenerationResult =
-  | { ok: true; imageBytes: Uint8Array; inputTiles: number }
+  | { ok: true; imageBytes: Uint8Array; inputTiles: number; outputTiles: number }
   /** retryable: seed를 바꿔 재시도할 가치가 있는 실패 (moderation flag, 일시 오류 등) */
   | { ok: false; error: string; retryable: boolean };
 
@@ -36,8 +36,11 @@ const FLUX_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 /** FLUX 입력 이미지 제약: 512x512보다 작아야 한다 */
 const MAX_INPUT_EDGE = 511;
 const MIN_INPUT_EDGE = 64;
-/** 출력 요청 크기 (64의 배수, 후처리에서 8x8 셀 축소) */
+/** direct_atlas 출력 크기 (64의 배수, 후처리에서 8x8 셀 축소) */
 const OUTPUT_SIZE = 512;
+/** front_view 출력 크기: 정면+뒷면 두 뷰가 나란히 (512x512 타일 2개 비용) */
+const FRONT_VIEW_WIDTH = 1024;
+const FRONT_VIEW_HEIGHT = 512;
 
 /**
  * 스타일 참고 스킨(448x448 PNG base64) 조회 순서:
@@ -124,14 +127,16 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         : [photo.bytes, base64ToBytes(UV_GUIDE_PNG_B64)];
     }
 
+    const width = request.mode === "front_view" ? FRONT_VIEW_WIDTH : OUTPUT_SIZE;
+    const height = request.mode === "front_view" ? FRONT_VIEW_HEIGHT : OUTPUT_SIZE;
     const form = new FormData();
     images.forEach((bytes, index) => {
       const mime = bytes === photo.bytes ? photo.mime : "image/png";
       form.append(`input_image_${index}`, new Blob([bytes], { type: mime }));
     });
     form.append("prompt", prompt);
-    form.append("width", String(OUTPUT_SIZE));
-    form.append("height", String(OUTPUT_SIZE));
+    form.append("width", String(width));
+    form.append("height", String(height));
     form.append("seed", String(request.seed));
 
     // FormData 직렬화 + multipart boundary가 포함된 Content-Type 확보
@@ -166,6 +171,7 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         ok: true,
         imageBytes: base64ToBytes(image),
         inputTiles: images.length,
+        outputTiles: Math.ceil((width * height) / (512 * 512)),
       };
     } catch {
       return { ok: false, error: "FLUX image base64 디코드 실패", retryable: true };

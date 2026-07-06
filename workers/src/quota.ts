@@ -23,9 +23,9 @@ const DEFAULT_BUDGET_RATIO = 0.5;
 export const NEURONS_VISION_ANALYSIS = 170;
 export const NEURONS_IMAGE_INPUT_TILE = 6;
 export const NEURONS_IMAGE_OUTPUT_TILE = 27;
-/** 이미지 생성 1회 호출 — front_view 전략(사진 1장 입력 + 512x512 출력 1장) 기준 */
+/** 이미지 생성 1회 호출 — front_view 전략(사진 1장 입력 + 1024x512 정면·뒷면 출력 = 타일 2개) 기준 */
 export const NEURONS_IMAGE_GEN_CALL =
-  NEURONS_IMAGE_INPUT_TILE + NEURONS_IMAGE_OUTPUT_TILE;
+  NEURONS_IMAGE_INPUT_TILE + 2 * NEURONS_IMAGE_OUTPUT_TILE;
 
 /** quota 남은 횟수 표시용 — 분석 1회 + 이미지 생성 1회 (재시도 없는 정상 경로) */
 export const NEURONS_PER_GENERATION_ESTIMATE =

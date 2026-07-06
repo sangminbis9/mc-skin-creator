@@ -20,9 +20,10 @@ Java(Classic/Slim) / Bedrock용 PNG로 다운로드할 수 있습니다.
   │                           │    quality 게이트 + framing(face/upper_body/…)
   │                           │    + observed/inferred 구분 + 생성 프롬프트
   │                           ├─ ② FLUX.2 [klein] 4B 이미지 생성 (skinProvider.ts)
-  │                           │    사진을 직접 참조해 정면 픽셀 캐릭터 생성
+  │                           │    사진을 직접 참조해 정면+뒷면 두 뷰 생성 (1024x512)
   │                           ├─ ③ 결정적 pack (skinPack.ts)
-  │                           │    배경 분리 → 부위 슬라이스 → 64x64 UV atlas 조립
+  │                           │    배경 분리 → 두 뷰 분할 → 부위 슬라이스 → 64x64 UV atlas
+  │                           │    조립 + 셰이딩 패스 + 머리카락 overlay 볼륨
   │                           ├─ ④ UV 검증 (skinPost.ts) — 실패 시 seed 바꿔 1회 재시도
   │                           │    (사진은 요청 처리 후 즉시 폐기, 저장 안 함)
   │                           └─ KV 운영 지표 카운트
@@ -115,8 +116,8 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 - Cloudflare 무료 10,000 Neurons/day 중 `DAILY_BUDGET_RATIO`(기본 0.5 = 5,000)만 사용
 - 단계별 예상 비용 (`workers/src/quota.ts`, 공식 단가 기준 환산):
   - 사진 분석 (llama-4-scout): ~170 Neurons
-  - 이미지 생성 (FLUX, 입력 1타일 + 출력 512x512 1타일): ~33 Neurons
-  - 정상 1회 합계 ~203 Neurons → 하루 약 24회 (재시도 발생 시 +33)
+  - 이미지 생성 (FLUX, 입력 1타일 + 정면·뒷면 1024x512 출력 2타일): ~60 Neurons
+  - 정상 1회 합계 ~230 Neurons → 하루 약 21회 (재시도 발생 시 +60)
 - 리셋: 00:00 UTC = **매일 오전 9시 KST** (Cloudflare 무료 리셋과 동일)
 - 소진 시 AI 호출 전에 차단, 사용자에게는 "생성 가능/거의 마감/오늘 마감"으로만 노출
 - 실제 발생한 AI 비용은 성공/실패와 무관하게 집계 (무료 한도 보호가 목적)

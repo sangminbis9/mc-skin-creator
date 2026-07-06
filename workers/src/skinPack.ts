@@ -7,7 +7,13 @@
  */
 
 import type { RawImage } from "./png";
-import { ATLAS_SIZE, CLASSIC_LAYOUT, type BoxUV, type Rect } from "./uvLayout";
+import {
+  ALL_PARTS,
+  ATLAS_SIZE,
+  CLASSIC_LAYOUT,
+  type BoxUV,
+  type Rect,
+} from "./uvLayout";
 
 export interface PackResult {
   atlas: RawImage;
@@ -210,10 +216,11 @@ function fillRectSolid(
 }
 
 /**
- * front 면을 채운 뒤 나머지 면을 파생:
- * 옆면 = front 가장자리 열 확장, 뒷면 = front 좌우반전 + 어둡게, 위/아래 = 지정색.
+ * front 면을 채운 뒤 옆/위/아래 면을 파생:
+ * 옆면 = front 가장자리 열 확장, 위/아래 = 지정색.
+ * 뒷면은 호출부에서 처리한다 (뒷면 뷰가 있으면 실제 렌더, 없으면 front 반전 파생).
  */
-function completeBox(
+function completeSides(
   atlas: RawImage,
   box: BoxUV,
   topColor: [number, number, number],
@@ -229,9 +236,80 @@ function completeBox(
   // 마인크래프트 표준: right 면이 전개도 왼쪽, left 면이 오른쪽
   fillRectFromRect(atlas, box.right, edgeLeft, 0.86);
   fillRectFromRect(atlas, box.left, edgeRight, 0.86);
-  fillRectFromRect(atlas, box.back, box.front, 0.78, true);
   fillRectSolid(atlas, box.top, topColor);
   fillRectSolid(atlas, box.bottom, bottomColor, 0.82);
+}
+
+/**
+ * 결정적 셰이딩 패스: 면별 상→하 명암 램프 + 가장자리 어둡게 + 좌표 해시 디더링.
+ * 단색 덩어리를 픽셀아트다운 질감으로 만든다. 얼굴(머리 앞면)은 건드리지 않는다.
+ */
+function applyShading(atlas: RawImage): void {
+  const clamp = (v: number) => Math.max(0, Math.min(255, v));
+  for (const part of ALL_PARTS) {
+    for (const [faceName, rect] of Object.entries(CLASSIC_LAYOUT[part].base) as Array<
+      [keyof BoxUV, Rect]
+    >) {
+      if (part === "head" && faceName === "front") {
+        continue; // 이목구비 보호
+      }
+      for (let cy = 0; cy < rect.h; cy++) {
+        const ramp = 1.05 - (cy / Math.max(1, rect.h - 1)) * 0.13; // 1.05 → 0.92
+        for (let cx = 0; cx < rect.w; cx++) {
+          let factor = ramp;
+          if (rect.w >= 4 && (cx === 0 || cx === rect.w - 1)) {
+            factor *= 0.95;
+          }
+          const hash =
+            (((rect.x + cx) * 73856093) ^ ((rect.y + cy) * 19349663)) >>> 0;
+          const jitter = (hash % 9) - 4; // ±4 결정적 디더링
+          const d = ((rect.y + cy) * ATLAS_SIZE + rect.x + cx) * 4;
+          for (let ch = 0; ch < 3; ch++) {
+            atlas.rgba[d + ch] = clamp(atlas.rgba[d + ch] * factor + jitter);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 머리카락 볼륨: 머리 base 면에서 머리카락색과 가까운 픽셀을 overlay로 복사해
+ * 모자 레이어가 살짝 부풀어 보이게 한다. 앞면은 위쪽 절반만(눈썹·눈 오염 방지).
+ */
+function puffHairOverlay(
+  atlas: RawImage,
+  hairColor: [number, number, number],
+): void {
+  const head = CLASSIC_LAYOUT.head;
+  const faces: Array<[keyof BoxUV, boolean]> = [
+    ["top", false],
+    ["back", false],
+    ["left", false],
+    ["right", false],
+    ["front", true], // 위쪽 절반만
+  ];
+  for (const [face, topHalfOnly] of faces) {
+    const b = head.base[face];
+    const o = head.overlay[face];
+    const maxY = topHalfOnly ? Math.floor(b.h / 2) : b.h;
+    for (let y = 0; y < maxY; y++) {
+      for (let x = 0; x < b.w; x++) {
+        const s = ((b.y + y) * ATLAS_SIZE + b.x + x) * 4;
+        const dist =
+          Math.abs(atlas.rgba[s] - hairColor[0]) +
+          Math.abs(atlas.rgba[s + 1] - hairColor[1]) +
+          Math.abs(atlas.rgba[s + 2] - hairColor[2]);
+        if (dist < 96) {
+          const d = ((o.y + y) * ATLAS_SIZE + o.x + x) * 4;
+          atlas.rgba[d] = atlas.rgba[s];
+          atlas.rgba[d + 1] = atlas.rgba[s + 1];
+          atlas.rgba[d + 2] = atlas.rgba[s + 2];
+          atlas.rgba[d + 3] = 255;
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -244,12 +322,13 @@ function findShoulderRow(
   bg: [number, number, number],
   minY: number,
   maxY: number,
+  xr: { x0: number; x1: number },
 ): number {
   const bboxH = maxY - minY + 1;
   const widths: number[] = [];
   for (let y = minY; y <= maxY; y++) {
     let count = 0;
-    for (let x = 0; x < src.width; x++) {
+    for (let x = xr.x0; x < xr.x1; x++) {
       if (isCharacterPixel(src, x, y, bg)) count++;
     }
     widths.push(count);
@@ -280,11 +359,12 @@ function columnSpan(
   bg: [number, number, number],
   y0: number,
   y1: number,
+  xr: { x0: number; x1: number },
 ): { x0: number; x1: number } | null {
   const rows = Math.max(1, Math.ceil(y1) - Math.floor(y0));
   const counts = new Array<number>(src.width).fill(0);
   for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
-    for (let x = 0; x < src.width; x++) {
+    for (let x = xr.x0; x < xr.x1; x++) {
       if (isCharacterPixel(src, x, y, bg)) {
         counts[x]++;
       }
@@ -293,13 +373,136 @@ function columnSpan(
   const threshold = Math.max(2, rows * 0.06);
   let x0 = -1;
   let x1 = -1;
-  for (let x = 0; x < src.width; x++) {
+  for (let x = xr.x0; x < xr.x1; x++) {
     if (counts[x] >= threshold) {
       if (x0 === -1) x0 = x;
       x1 = x + 1;
     }
   }
   return x0 === -1 ? null : { x0, x1 };
+}
+
+/**
+ * 캐릭터 figure의 열 구간 탐지 (최대 2개: 정면 뷰 + 뒷면 뷰).
+ * 열 히스토그램에서 캐릭터 열 run을 찾고, 충분히 큰 run이 2개면 두 뷰로 본다.
+ */
+function findFigureRanges(
+  src: RawImage,
+  bg: [number, number, number],
+): Array<{ x0: number; x1: number }> {
+  const counts = new Array<number>(src.width).fill(0);
+  for (let y = 0; y < src.height; y++) {
+    for (let x = 0; x < src.width; x++) {
+      if (isCharacterPixel(src, x, y, bg)) counts[x]++;
+    }
+  }
+  const threshold = Math.max(3, src.height * 0.03);
+  const runs: Array<{ x0: number; x1: number }> = [];
+  let start = -1;
+  let gap = 0;
+  const GAP_TOLERANCE = Math.max(4, Math.floor(src.width * 0.015));
+  for (let x = 0; x <= src.width; x++) {
+    const on = x < src.width && counts[x] >= threshold;
+    if (on) {
+      if (start === -1) start = x;
+      gap = 0;
+    } else if (start !== -1) {
+      gap++;
+      if (gap > GAP_TOLERANCE || x === src.width) {
+        runs.push({ x0: start, x1: x - gap + 1 });
+        start = -1;
+        gap = 0;
+      }
+    }
+  }
+  const big = runs.filter((r) => r.x1 - r.x0 >= 32);
+  if (big.length >= 2) {
+    // 가장 넓은 두 run을 좌→우 순서로
+    big.sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0));
+    return big.slice(0, 2).sort((a, b) => a.x0 - b.x0);
+  }
+  return big.slice(0, 1);
+}
+
+/** 한 figure를 머리/몸통/팔/다리 소스 영역으로 슬라이스 */
+interface FigureSlices {
+  head: Region;
+  body: Region;
+  /** 화면(뷰어) 기준 왼쪽/오른쪽 팔·다리 */
+  viewLeftArm: Region;
+  viewRightArm: Region;
+  viewLeftLeg: Region;
+  viewRightLeg: Region;
+}
+
+function sliceFigure(
+  src: RawImage,
+  bg: [number, number, number],
+  xr: { x0: number; x1: number },
+): FigureSlices | null {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let count = 0;
+  for (let y = 0; y < src.height; y++) {
+    for (let x = xr.x0; x < xr.x1; x++) {
+      if (isCharacterPixel(src, x, y, bg)) {
+        count++;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  const area = (xr.x1 - xr.x0) * src.height;
+  if (count < area * 0.04 || maxY - minY + 1 < 64) {
+    return null;
+  }
+
+  const shoulderY = findShoulderRow(src, bg, minY, maxY, xr);
+  const headRows = { y0: minY, y1: shoulderY };
+  const torsoRows = { y0: shoulderY, y1: shoulderY + (maxY + 1 - shoulderY) * 0.5 };
+  const legRows = { y0: torsoRows.y1, y1: maxY + 1 };
+
+  const headSpan = columnSpan(src, bg, headRows.y0, headRows.y1, xr);
+  const torsoSpan = columnSpan(src, bg, torsoRows.y0, torsoRows.y1, xr);
+  const legSpan = columnSpan(src, bg, legRows.y0, legRows.y1, xr);
+  if (!headSpan || !torsoSpan || !legSpan) {
+    return null;
+  }
+  const torsoWidth = torsoSpan.x1 - torsoSpan.x0;
+  const legWidth = legSpan.x1 - legSpan.x0;
+  return {
+    head: { x0: headSpan.x0, x1: headSpan.x1, y0: headRows.y0, y1: headRows.y1 },
+    body: {
+      x0: torsoSpan.x0 + torsoWidth * 0.25,
+      x1: torsoSpan.x1 - torsoWidth * 0.25,
+      y0: torsoRows.y0,
+      y1: torsoRows.y1,
+    },
+    viewLeftArm: {
+      x0: torsoSpan.x0,
+      x1: torsoSpan.x0 + torsoWidth * 0.25,
+      y0: torsoRows.y0,
+      y1: torsoRows.y1,
+    },
+    viewRightArm: {
+      x0: torsoSpan.x1 - torsoWidth * 0.25,
+      x1: torsoSpan.x1,
+      y0: torsoRows.y0,
+      y1: torsoRows.y1,
+    },
+    viewLeftLeg: {
+      x0: legSpan.x0,
+      x1: legSpan.x0 + legWidth * 0.5,
+      y0: legRows.y0,
+      y1: legRows.y1,
+    },
+    viewRightLeg: {
+      x0: legSpan.x0 + legWidth * 0.5,
+      x1: legSpan.x1,
+      y0: legRows.y0,
+      y1: legRows.y1,
+    },
+  };
 }
 
 /**
@@ -365,48 +568,32 @@ function ensureEyes(
 export function packFrontViewToAtlas(src: RawImage): PackResult | null {
   const bg = estimateBackground(src);
 
-  // 캐릭터 전체 bbox
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let count = 0;
+  // 배경 분리 자체가 안 되는 입력(전면 노이즈 등) 방어
+  let charCount = 0;
   for (let y = 0; y < src.height; y++) {
     for (let x = 0; x < src.width; x++) {
-      if (isCharacterPixel(src, x, y, bg)) {
-        count++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
+      if (isCharacterPixel(src, x, y, bg)) charCount++;
     }
   }
-  const area = src.width * src.height;
-  if (count < area * 0.04 || count > area * 0.9) {
-    return null; // 캐릭터를 분리하지 못함 (빈 이미지거나 배경 분리 실패)
-  }
-  const bboxH = maxY - minY + 1;
-  const bboxW = maxX - minX + 1;
-  if (bboxH < 64 || bboxW < 32) {
+  if (charCount > src.width * src.height * 0.9) {
     return null;
   }
 
-  // 세로 분할: 어깨선을 감지해 머리를 자르고, 남은 높이를 몸통/다리 반씩(12:12)
-  const shoulderY = findShoulderRow(src, bg, minY, maxY);
-  const headRows = { y0: minY, y1: shoulderY };
-  const torsoRows = { y0: shoulderY, y1: shoulderY + (maxY + 1 - shoulderY) * 0.5 };
-  const legRows = { y0: torsoRows.y1, y1: maxY + 1 };
-
-  // 머리: 해당 행에서 실제 열 범위를 다시 측정 (머리가 몸보다 좁거나 넓을 수 있음)
-  const headSpan = columnSpan(src, bg, headRows.y0, headRows.y1);
-  const torsoSpan = columnSpan(src, bg, torsoRows.y0, torsoRows.y1);
-  const legSpan = columnSpan(src, bg, legRows.y0, legRows.y1);
-  if (!headSpan || !torsoSpan || !legSpan) {
+  // figure 탐지: 1개면 정면만, 2개면 [정면, 뒷면]
+  const ranges = findFigureRanges(src, bg);
+  if (ranges.length === 0) {
     return null;
   }
+  const front = sliceFigure(src, bg, ranges[0]);
+  if (!front) {
+    return null;
+  }
+  const back = ranges.length > 1 ? sliceFigure(src, bg, ranges[1]) : null;
 
   const problems: string[] = [];
+  if (ranges.length > 1 && !back) {
+    problems.push("뒷면 뷰 슬라이스 실패 — 정면 파생으로 대체");
+  }
   const atlas: RawImage = {
     width: ATLAS_SIZE,
     height: ATLAS_SIZE,
@@ -415,33 +602,27 @@ export function packFrontViewToAtlas(src: RawImage): PackResult | null {
 
   // ---------- 머리 ----------
   const head = CLASSIC_LAYOUT.head;
-  const headRegion: Region = {
-    x0: headSpan.x0,
-    x1: headSpan.x1,
-    y0: headRows.y0,
-    y1: headRows.y1,
-  };
-  fillRectFromRegion(atlas, head.base.front, src, headRegion, bg, true);
+  fillRectFromRegion(atlas, head.base.front, src, front.head, bg, true);
   const hairColor = medianColor(
     src,
-    { ...headRegion, y1: headRegion.y0 + (headRegion.y1 - headRegion.y0) * 0.22 },
+    { ...front.head, y1: front.head.y0 + (front.head.y1 - front.head.y0) * 0.22 },
     bg,
   );
   const skinColor = medianColor(
     src,
     {
-      x0: headRegion.x0 + (headRegion.x1 - headRegion.x0) * 0.3,
-      x1: headRegion.x1 - (headRegion.x1 - headRegion.x0) * 0.3,
-      y0: headRegion.y0 + (headRegion.y1 - headRegion.y0) * 0.55,
-      y1: headRegion.y1 - (headRegion.y1 - headRegion.y0) * 0.15,
+      x0: front.head.x0 + (front.head.x1 - front.head.x0) * 0.3,
+      x1: front.head.x1 - (front.head.x1 - front.head.x0) * 0.3,
+      y0: front.head.y0 + (front.head.y1 - front.head.y0) * 0.55,
+      y1: front.head.y1 - (front.head.y1 - front.head.y0) * 0.15,
     },
     bg,
   );
   // 눈 보장: 8x8 축소에서 눈이 소실됐으면 (seed에 따라 발생)
   // 마인크래프트 관례 위치(4행, 흰자+눈동자)에 최소한의 눈을 찍는다.
-  ensureEyes(atlas, src, headRegion, bg, skinColor);
+  ensureEyes(atlas, src, front.head, bg, skinColor);
 
-  // 옆면은 front 가장자리 확장, 뒷면은 머리카락색 기반 (얼굴 반전 금지)
+  // 옆면은 front 가장자리 확장 (얼굴 반전 금지)
   fillRectFromRect(
     atlas,
     head.base.right,
@@ -459,88 +640,81 @@ export function packFrontViewToAtlas(src: RawImage): PackResult | null {
     },
     0.86,
   );
-  fillRectSolid(atlas, head.base.back, hairColor, 0.9);
+  // 뒷면: 뒷면 뷰가 있으면 실제 렌더(뒤통수), 없으면 머리카락색
+  if (back) {
+    fillRectFromRegion(atlas, head.base.back, src, back.head, bg);
+  } else {
+    fillRectSolid(atlas, head.base.back, hairColor, 0.9);
+  }
   fillRectSolid(atlas, head.base.top, hairColor);
   fillRectSolid(atlas, head.base.bottom, skinColor, 0.85);
 
   // ---------- 몸통 ----------
-  const torsoWidth = torsoSpan.x1 - torsoSpan.x0;
-  // 팔이 몸에 붙어 있으므로 중앙 1/2이 몸통, 양끝 1/4씩이 팔 (마인크래프트 4-8-4 비율)
-  const bodyRegion: Region = {
-    x0: torsoSpan.x0 + torsoWidth * 0.25,
-    x1: torsoSpan.x1 - torsoWidth * 0.25,
-    y0: torsoRows.y0,
-    y1: torsoRows.y1,
-  };
   const body = CLASSIC_LAYOUT.body;
-  fillRectFromRegion(atlas, body.base.front, src, bodyRegion, bg);
+  fillRectFromRegion(atlas, body.base.front, src, front.body, bg);
   const torsoTopColor = medianColor(
     src,
-    { ...bodyRegion, y1: bodyRegion.y0 + (bodyRegion.y1 - bodyRegion.y0) * 0.15 },
+    { ...front.body, y1: front.body.y0 + (front.body.y1 - front.body.y0) * 0.15 },
     bg,
   );
-  completeBox(atlas, body.base, torsoTopColor, torsoTopColor);
-
-  // ---------- 팔 (화면 왼쪽 = 캐릭터의 오른팔) ----------
-  const rightArmRegion: Region = {
-    x0: torsoSpan.x0,
-    x1: torsoSpan.x0 + torsoWidth * 0.25,
-    y0: torsoRows.y0,
-    y1: torsoRows.y1,
-  };
-  const leftArmRegion: Region = {
-    x0: torsoSpan.x1 - torsoWidth * 0.25,
-    x1: torsoSpan.x1,
-    y0: torsoRows.y0,
-    y1: torsoRows.y1,
-  };
-  for (const [part, region] of [
-    ["rightArm", rightArmRegion],
-    ["leftArm", leftArmRegion],
-  ] as const) {
-    const box = CLASSIC_LAYOUT[part].base;
-    fillRectFromRegion(atlas, box.front, src, region, bg);
-    const sleeveColor = medianColor(
-      src,
-      { ...region, y1: region.y0 + (region.y1 - region.y0) * 0.2 },
-      bg,
-    );
-    completeBox(atlas, box, sleeveColor, skinColor); // 아래면 = 손 (피부색)
+  completeSides(atlas, body.base, torsoTopColor, torsoTopColor);
+  if (back) {
+    fillRectFromRegion(atlas, body.base.back, src, back.body, bg);
+  } else {
+    fillRectFromRect(atlas, body.base.back, body.base.front, 0.78, true);
   }
 
-  // ---------- 다리 (화면 왼쪽 = 캐릭터의 오른다리) ----------
-  const legWidth = legSpan.x1 - legSpan.x0;
-  const rightLegRegion: Region = {
-    x0: legSpan.x0,
-    x1: legSpan.x0 + legWidth * 0.5,
-    y0: legRows.y0,
-    y1: legRows.y1,
-  };
-  const leftLegRegion: Region = {
-    x0: legSpan.x0 + legWidth * 0.5,
-    x1: legSpan.x1,
-    y0: legRows.y0,
-    y1: legRows.y1,
-  };
-  for (const [part, region] of [
-    ["rightLeg", rightLegRegion],
-    ["leftLeg", leftLegRegion],
-  ] as const) {
+  // ---------- 팔 ----------
+  // 정면 뷰: 화면 왼쪽 = 캐릭터의 오른팔. 뒷면 뷰: 화면 왼쪽 = 캐릭터의 왼팔.
+  const arms = [
+    { part: "rightArm" as const, frontRegion: front.viewLeftArm, backRegion: back?.viewRightArm },
+    { part: "leftArm" as const, frontRegion: front.viewRightArm, backRegion: back?.viewLeftArm },
+  ];
+  for (const { part, frontRegion, backRegion } of arms) {
     const box = CLASSIC_LAYOUT[part].base;
-    fillRectFromRegion(atlas, box.front, src, region, bg);
+    fillRectFromRegion(atlas, box.front, src, frontRegion, bg);
+    const sleeveColor = medianColor(
+      src,
+      { ...frontRegion, y1: frontRegion.y0 + (frontRegion.y1 - frontRegion.y0) * 0.2 },
+      bg,
+    );
+    completeSides(atlas, box, sleeveColor, skinColor); // 아래면 = 손 (피부색)
+    if (backRegion) {
+      fillRectFromRegion(atlas, box.back, src, backRegion, bg);
+    } else {
+      fillRectFromRect(atlas, box.back, box.front, 0.78, true);
+    }
+  }
+
+  // ---------- 다리 ----------
+  const legs = [
+    { part: "rightLeg" as const, frontRegion: front.viewLeftLeg, backRegion: back?.viewRightLeg },
+    { part: "leftLeg" as const, frontRegion: front.viewRightLeg, backRegion: back?.viewLeftLeg },
+  ];
+  for (const { part, frontRegion, backRegion } of legs) {
+    const box = CLASSIC_LAYOUT[part].base;
+    fillRectFromRegion(atlas, box.front, src, frontRegion, bg);
     const pantsColor = medianColor(
       src,
-      { ...region, y1: region.y0 + (region.y1 - region.y0) * 0.2 },
+      { ...frontRegion, y1: frontRegion.y0 + (frontRegion.y1 - frontRegion.y0) * 0.2 },
       bg,
     );
     const shoeColor = medianColor(
       src,
-      { ...region, y0: region.y1 - (region.y1 - region.y0) * 0.12 },
+      { ...frontRegion, y0: frontRegion.y1 - (frontRegion.y1 - frontRegion.y0) * 0.12 },
       bg,
     );
-    completeBox(atlas, box, pantsColor, shoeColor);
+    completeSides(atlas, box, pantsColor, shoeColor);
+    if (backRegion) {
+      fillRectFromRegion(atlas, box.back, src, backRegion, bg);
+    } else {
+      fillRectFromRect(atlas, box.back, box.front, 0.78, true);
+    }
   }
 
-  // overlay 레이어는 비워둔다 (base가 모든 정보를 담는다) — applyUvMask가 투명 처리
+  // ---------- 마감: 셰이딩 + 머리카락 볼륨(overlay) ----------
+  applyShading(atlas);
+  puffHairOverlay(atlas, hairColor);
+
   return { atlas, problems };
 }

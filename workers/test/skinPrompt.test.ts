@@ -40,12 +40,12 @@ describe("buildSkinPrompt framing 정책", () => {
     expect(withoutRef).not.toContain("Image 2");
   });
 
-  it("front_view 프롬프트는 단일 정면 캐릭터를 요구하고 인물 특징을 담는다", () => {
+  it("front_view 프롬프트는 정면+뒷면 두 뷰를 요구하고 인물 특징을 담는다", () => {
     const prompt = buildFrontViewPrompt(makeAnalysis());
-    expect(prompt).toContain("Exactly one blocky pixel-art");
-    expect(prompt).toContain("front view");
+    expect(prompt).toContain("FRONT view");
+    expect(prompt).toContain("BACK view");
     expect(prompt).toContain("silver glasses"); // identityPrompt 반영
-    expect(prompt).toContain("character sheets"); // 회피 목록
+    expect(prompt).toContain("more than two figures"); // 회피 목록
   });
 
   it("서로 다른 두 사람은 서로 다른 프롬프트를 얻는다 (프리셋 수렴 방지)", () => {
