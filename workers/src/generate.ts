@@ -130,6 +130,8 @@ export async function generateSkin(
       expression: String(raw.expression ?? DEFAULT_FACE_STYLE.expression),
       facialHair: String(raw.facialHair ?? DEFAULT_FACE_STYLE.facialHair),
       glasses: String(raw.glasses ?? DEFAULT_FACE_STYLE.glasses),
+      hairstyle: String(raw.hairstyle ?? DEFAULT_FACE_STYLE.hairstyle),
+      hat: String(raw.hat ?? DEFAULT_FACE_STYLE.hat),
     };
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {

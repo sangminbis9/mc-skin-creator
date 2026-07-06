@@ -31,6 +31,9 @@ export interface FaceStyle {
   expression: string; // smile | neutral | serious
   facialHair: string; // none | mustache | goatee | beard | stubble
   glasses: string; // none | regular | round | sunglasses
+  /** bald | buzz | short | medium | long | ponytail | bun | twintails | curly | afro */
+  hairstyle: string;
+  hat: string; // none | cap | beanie | hood
 }
 
 export const DEFAULT_FACE_STYLE: FaceStyle = {
@@ -40,6 +43,8 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   expression: "neutral",
   facialHair: "none",
   glasses: "none",
+  hairstyle: "short",
+  hat: "none",
 };
 
 type Rgb = [number, number, number];
@@ -521,42 +526,142 @@ function composeFace(
   }
 }
 
+/** 좌표 해시 기반 결정적 지터 색 (머리카락 질감용) */
+function hairPixel(color: Rgb, gx: number, gy: number, jitter: number): Rgb {
+  const hash = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
+  const f = 1 + (((hash % 200) - 100) / 100) * jitter;
+  return shadeRgb(color, f);
+}
+
 /**
- * 머리카락 볼륨: 머리 base 면에서 머리카락색과 가까운 픽셀을 overlay로 복사해
- * 모자 레이어가 살짝 부풀어 보이게 한다. 앞면은 위쪽 절반만(눈썹·눈 오염 방지).
+ * 헤어스타일 구조적 합성 (클라이언트 절차 생성기의 검증된 구조 이식).
+ *
+ * 렌더가 실제로 보여주는 곳은 렌더를 우선한다:
+ * - 앞머리 실루엣: composeFace가 렌더에서 가져옴 (여기서는 건드리지 않음)
+ * - 뒤통수: 뒷면 뷰 렌더가 있으면 base를 유지
+ * 렌더가 못 채우는 곳을 hairstyle 분류로 완성한다:
+ * - 옆면 머리 길이, overlay 볼륨(정수리·이마 위), 장발의 어깨선(몸통 overlay),
+ *   포니테일/번/양갈래/아프로·곱슬 볼륨
+ * 모자를 쓴 인물은 렌더의 머리 영역이 이미 모자이므로 전부 생략한다.
  */
-function puffHairOverlay(
+function composeHair(
   atlas: RawImage,
-  hairColor: [number, number, number],
+  hairColor: Rgb,
+  style: FaceStyle,
+  hasBackView: boolean,
 ): void {
-  const head = CLASSIC_LAYOUT.head;
-  const faces: Array<[keyof BoxUV, boolean]> = [
-    ["top", false],
-    ["back", false],
-    ["left", false],
-    ["right", false],
-    ["front", true], // 위쪽 절반만
-  ];
-  for (const [face, topHalfOnly] of faces) {
-    const b = head.base[face];
-    const o = head.overlay[face];
-    const maxY = topHalfOnly ? Math.floor(b.h / 2) : b.h;
-    for (let y = 0; y < maxY; y++) {
-      for (let x = 0; x < b.w; x++) {
-        const s = ((b.y + y) * ATLAS_SIZE + b.x + x) * 4;
-        const dist =
-          Math.abs(atlas.rgba[s] - hairColor[0]) +
-          Math.abs(atlas.rgba[s + 1] - hairColor[1]) +
-          Math.abs(atlas.rgba[s + 2] - hairColor[2]);
-        if (dist < 96) {
-          const d = ((o.y + y) * ATLAS_SIZE + o.x + x) * 4;
-          atlas.rgba[d] = atlas.rgba[s];
-          atlas.rgba[d + 1] = atlas.rgba[s + 1];
-          atlas.rgba[d + 2] = atlas.rgba[s + 2];
-          atlas.rgba[d + 3] = 255;
-        }
+  if (style.hairstyle === "bald" || style.hat !== "none") {
+    return;
+  }
+  const base = CLASSIC_LAYOUT.head.base;
+  const over = CLASSIC_LAYOUT.head.overlay;
+  const s = style.hairstyle;
+  const jitter = s === "curly" || s === "afro" ? 0.12 : 0.06;
+
+  const fill = (rect: Rect, x0: number, y0: number, w: number, h: number) => {
+    for (let y = y0; y < Math.min(rect.h, y0 + h); y++) {
+      for (let x = x0; x < Math.min(rect.w, x0 + w); x++) {
+        const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+        const c = hairPixel(hairColor, rect.x + x, rect.y + y, jitter);
+        atlas.rgba[d] = c[0];
+        atlas.rgba[d + 1] = c[1];
+        atlas.rgba[d + 2] = c[2];
+        atlas.rgba[d + 3] = 255;
       }
     }
+  };
+
+  // 스타일별 옆/뒷머리 길이 (클라이언트와 동일 값)
+  const sideRows =
+    s === "buzz"
+      ? 1
+      : s === "short"
+        ? 3
+        : s === "medium" || s === "curly"
+          ? 5
+          : s === "bun" || s === "ponytail"
+            ? 2
+            : s === "afro"
+              ? 3
+              : 8; // long, twintails
+  const backRows =
+    s === "buzz"
+      ? 2
+      : s === "short"
+        ? 4
+        : s === "medium" || s === "curly"
+          ? 6
+          : s === "bun" || s === "ponytail"
+            ? 3
+            : s === "afro"
+              ? 4
+              : 8;
+
+  // 옆머리 (렌더는 가장자리 확장뿐이라 항상 카테고리로 채움)
+  fill(base.right, 0, 0, 8, sideRows);
+  fill(base.left, 0, 0, 8, sideRows);
+  // 뒷머리: 뒷면 뷰 렌더가 있으면 실제 렌더 유지
+  if (!hasBackView) {
+    fill(base.back, 0, 0, 8, backRows);
+  }
+  // 정수리는 base가 이미 hairColor — overlay 볼륨만 추가
+
+  // 긴 머리: 얼굴 옆 라인 (front 양끝 세로줄)
+  if (s === "long" || s === "twintails") {
+    fill(base.front, 0, 0, 1, 6);
+    fill(base.front, 7, 0, 1, 6);
+  }
+
+  // ---- overlay 볼륨 ----
+  fill(over.top, 0, 0, 8, 8);
+  fill(over.front, 0, 0, 8, 1);
+  fill(over.right, 0, 0, 8, 1);
+  fill(over.left, 0, 0, 8, 1);
+  fill(over.back, 0, 0, 8, 1);
+
+  if (s === "afro" || s === "curly") {
+    const rows = s === "afro" ? 4 : 2;
+    fill(over.front, 0, 0, 8, rows);
+    fill(over.right, 0, 0, 8, rows + 1);
+    fill(over.left, 0, 0, 8, rows + 1);
+    fill(over.back, 0, 0, 8, rows + 1);
+  }
+  if (s === "long") {
+    // 어깨까지 내려오는 뒷머리 (몸통 뒤 overlay) + 옆 볼륨
+    fill(CLASSIC_LAYOUT.body.overlay.back, 0, 0, 8, 4);
+    fill(CLASSIC_LAYOUT.body.overlay.back, 1, 4, 6, 1);
+    fill(over.right, 0, 0, 8, 6);
+    fill(over.left, 0, 0, 8, 6);
+  }
+  if (s === "ponytail") {
+    fill(over.back, 2, 1, 4, 7);
+    fill(CLASSIC_LAYOUT.body.overlay.back, 3, 0, 2, 4);
+  }
+  if (s === "bun") {
+    fill(over.back, 2, 0, 4, 3);
+    fill(over.top, 2, 5, 4, 3);
+  }
+  if (s === "twintails") {
+    fill(over.right, 5, 0, 3, 8);
+    fill(over.left, 0, 0, 3, 8);
+    fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 4, 4);
+    fill(CLASSIC_LAYOUT.body.overlay.left, 0, 0, 4, 4);
+  }
+
+  // 옆면 overlay를 머리로 채우며 안경 다리가 덮였을 수 있어 다시 그린다
+  if (style.glasses !== "none") {
+    const rim = hexToRgb(style.glassesColor, [34, 32, 30]);
+    const put = (rect: Rect, x: number, y: number) => {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      atlas.rgba[d] = rim[0];
+      atlas.rgba[d + 1] = rim[1];
+      atlas.rgba[d + 2] = rim[2];
+      atlas.rgba[d + 3] = 255;
+    };
+    put(over.right, 7, 3);
+    put(over.right, 6, 3);
+    put(over.left, 0, 3);
+    put(over.left, 1, 3);
   }
 }
 
@@ -901,9 +1006,9 @@ export function packFrontViewToAtlas(
     }
   }
 
-  // ---------- 마감: 셰이딩 + 머리카락 볼륨(overlay) ----------
+  // ---------- 마감: 헤어스타일 구조 + 셰이딩 ----------
+  composeHair(atlas, hairColor, faceStyle, back !== null);
   applyShading(atlas);
-  puffHairOverlay(atlas, hairColor);
 
   return { atlas, problems };
 }

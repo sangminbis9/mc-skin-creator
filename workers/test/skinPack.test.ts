@@ -85,6 +85,46 @@ describe("packFrontViewToAtlas", () => {
     expect(packFrontViewToAtlas(blank)).toBeNull();
   });
 
+  it("hairstyle=long이면 옆머리가 길고 몸통 뒤 overlay에 머리카락이 내려온다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      eyeColor: "#4a3728",
+      glassesColor: "#22201e",
+      eyebrowThickness: "normal",
+      expression: "neutral",
+      facialHair: "none",
+      glasses: "none",
+      hairstyle: "long",
+      hat: "none",
+    });
+    expect(packed).not.toBeNull();
+    const atlas = packed!.atlas;
+    // 옆면(head.base.right = x0..7,y8..15) 아래쪽(7행)까지 머리색(어두움)
+    const sideLow = avgOfRect(atlas, { x: 0, y: 15, w: 8, h: 1 });
+    expect(sideLow[0]).toBeLessThan(120);
+    // 몸통 뒤 overlay(boxUV(16,32).back = x32,y36)에 머리카락 존재
+    const bodyBackOver = CLASSIC_LAYOUT.body.overlay.back;
+    const d = (bodyBackOver.y * 64 + bodyBackOver.x) * 4;
+    expect(atlas.rgba[d + 3]).toBe(255);
+    expect(atlas.rgba[d]).toBeLessThan(120); // 어두운 머리색
+  });
+
+  it("hat이 있으면 카테고리 헤어를 덧그리지 않는다 (렌더의 모자 보존)", () => {
+    const withHat = packFrontViewToAtlas(makeFrontView(), {
+      eyeColor: "#4a3728",
+      glassesColor: "#22201e",
+      eyebrowThickness: "normal",
+      expression: "neutral",
+      facialHair: "none",
+      glasses: "none",
+      hairstyle: "long",
+      hat: "cap",
+    })!;
+    // 몸통 뒤 overlay가 비어 있어야 함 (장발 합성 생략)
+    const bodyBackOver = CLASSIC_LAYOUT.body.overlay.back;
+    const d = (bodyBackOver.y * 64 + bodyBackOver.x) * 4;
+    expect(withHat.atlas.rgba[d + 3]).toBe(0);
+  });
+
   it("캐릭터가 너무 작으면 null", () => {
     const tiny: RawImage = {
       width: 256,
