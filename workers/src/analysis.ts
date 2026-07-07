@@ -29,6 +29,7 @@ export interface PixelRenderHints {
   eyebrowShape: "straight" | "arched" | "slanted" | "soft";
   noseShape: "small" | "straight" | "rounded" | "prominent";
   mouthShape: "small" | "wide" | "full" | "thin";
+  jawShape: "rounded" | "pointed" | "square" | "soft";
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength: "none" | "short" | "brow" | "eye";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
@@ -137,10 +138,11 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
 - mouthShape means the visible mouth/lip impression: small/compact, wide, full/darker lips, or thin/subtle.
+- jawShape means the visible lower-face contour: rounded/full jaw, pointed/narrow chin, square/strong jaw corners, or soft/low-contrast jaw.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
@@ -199,6 +201,7 @@ Respond with ONLY a JSON object matching this shape:
     "eyebrowShape": "straight" | "arched" | "slanted" | "soft",
     "noseShape": "small" | "straight" | "rounded" | "prominent",
     "mouthShape": "small" | "wide" | "full" | "thin",
+    "jawShape": "rounded" | "pointed" | "square" | "soft",
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
     "bangsLength": "none" | "short" | "brow" | "eye",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
@@ -303,6 +306,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["small", "wide", "full", "thin"],
         },
+        jawShape: {
+          type: "string",
+          enum: ["rounded", "pointed", "square", "soft"],
+        },
         bangs: {
           type: "string",
           enum: ["none", "straight", "side", "curtain", "wispy"],
@@ -374,6 +381,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "eyebrowShape",
         "noseShape",
         "mouthShape",
+        "jawShape",
         "bangs",
         "bangsLength",
         "hairTexture",
@@ -499,6 +507,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           eyebrowShape: "straight",
           noseShape: "small",
           mouthShape: "small",
+          jawShape: "soft",
           bangs: "none",
           bangsLength: "none",
           hairTexture: "straight",
@@ -631,6 +640,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.mouthShape,
       ["small", "wide", "full", "thin"],
       "small",
+    ),
+    jawShape: enumValue(
+      "renderHints.jawShape",
+      hints.jawShape,
+      ["rounded", "pointed", "square", "soft"],
+      "soft",
     ),
     bangs: enumValue(
       "renderHints.bangs",

@@ -68,6 +68,7 @@ describe("validatePhotoAnalysis", () => {
     broken.renderHints.eyebrowShape = "zigzag" as never;
     broken.renderHints.noseShape = "triangle" as never;
     broken.renderHints.mouthShape = "square" as never;
+    broken.renderHints.jawShape = "blocky" as never;
     broken.renderHints.bangs = "generic" as never;
     broken.renderHints.bangsLength = "forehead" as never;
     broken.renderHints.hairSilhouette = "generic" as never;
@@ -78,6 +79,7 @@ describe("validatePhotoAnalysis", () => {
       expect(result.errors.join()).toContain("renderHints.eyebrowShape");
       expect(result.errors.join()).toContain("renderHints.noseShape");
       expect(result.errors.join()).toContain("renderHints.mouthShape");
+      expect(result.errors.join()).toContain("renderHints.jawShape");
       expect(result.errors.join()).toContain("renderHints.bangs");
       expect(result.errors.join()).toContain("renderHints.bangsLength");
       expect(result.errors.join()).toContain("renderHints.hairSilhouette");

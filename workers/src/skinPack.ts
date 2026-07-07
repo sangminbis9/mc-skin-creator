@@ -41,6 +41,7 @@ export interface FaceStyle {
   eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
   noseShape?: "small" | "straight" | "rounded" | "prominent";
   mouthShape?: "small" | "wide" | "full" | "thin";
+  jawShape?: "rounded" | "pointed" | "square" | "soft";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
@@ -79,6 +80,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   eyebrowShape: "straight",
   noseShape: "small",
   mouthShape: "small",
+  jawShape: "soft",
   bangs: "none",
   bangsLength: "none",
   hairTexture: "straight",
@@ -628,6 +630,34 @@ function composeFace(
       : shadeRgb(skinColor, 0.94);
   for (const x of [2, 3, 4, 5]) {
     put(overlay, x, 7, chin);
+  }
+  const jawShape =
+    style.jawShape ??
+    (style.faceShape === "angular" || style.faceShape === "square"
+      ? "square"
+      : style.faceShape === "round"
+        ? "rounded"
+        : "soft");
+  if (style.facialHair === "none") {
+    if (jawShape === "square") {
+      put(overlay, 1, 7, shadeRgb(skinColor, 0.86));
+      put(overlay, 6, 7, shadeRgb(skinColor, 0.86));
+      put(overlay, 2, 6, shadeRgb(skinColor, 0.92));
+      put(overlay, 5, 6, shadeRgb(skinColor, 0.92));
+    } else if (jawShape === "pointed") {
+      put(overlay, 2, 7, shadeRgb(skinColor, 0.98));
+      put(overlay, 5, 7, shadeRgb(skinColor, 0.98));
+      put(overlay, 3, 7, shadeRgb(skinColor, 0.88));
+      put(overlay, 4, 7, shadeRgb(skinColor, 0.88));
+    } else if (jawShape === "rounded") {
+      put(overlay, 1, 6, shadeRgb(skinColor, 0.98));
+      put(overlay, 6, 6, shadeRgb(skinColor, 0.98));
+      put(overlay, 2, 7, shadeRgb(skinColor, 0.96));
+      put(overlay, 5, 7, shadeRgb(skinColor, 0.96));
+    } else {
+      put(overlay, 2, 7, shadeRgb(skinColor, 0.95));
+      put(overlay, 5, 7, shadeRgb(skinColor, 0.95));
+    }
   }
 
   // 앞머리 overlay는 듬성한 가닥만 사용해 헬멧 같은 판을 만들지 않는다.

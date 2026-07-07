@@ -801,4 +801,38 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(rounded, over, 4, 5)).toBe(255);
     expect(alphaAt(straight, over, 4, 5)).toBe(0);
   });
+
+  it("jawShape 힌트를 8x8 얼굴의 턱 모서리와 턱끝 차이로 남긴다", () => {
+    const baseStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none" as const,
+      facialHair: "none",
+      glasses: "none",
+      faceShape: "oval" as const,
+    };
+    const square = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      jawShape: "square",
+    })!.atlas;
+    const pointed = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      jawShape: "pointed",
+    })!.atlas;
+    const rounded = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      jawShape: "rounded",
+    })!.atlas;
+    const soft = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      jawShape: "soft",
+    })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    expect(alphaAt(square, over, 1, 7)).toBe(255);
+    expect(alphaAt(pointed, over, 1, 7)).toBe(0);
+    expect(redAt(pointed, over, 3, 7)).toBeLessThan(redAt(square, over, 3, 7));
+    expect(alphaAt(rounded, over, 1, 6)).toBe(255);
+    expect(alphaAt(soft, over, 1, 6)).toBe(0);
+  });
 });

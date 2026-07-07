@@ -138,6 +138,7 @@ export async function generateSkin(
       eyebrowShape: analysis.renderHints.eyebrowShape,
       noseShape: analysis.renderHints.noseShape,
       mouthShape: analysis.renderHints.mouthShape,
+      jawShape: analysis.renderHints.jawShape,
       bangs: analysis.renderHints.bangs,
       bangsLength: analysis.renderHints.bangsLength,
       hairTexture: analysis.renderHints.hairTexture,
