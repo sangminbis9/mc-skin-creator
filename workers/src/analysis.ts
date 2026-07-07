@@ -27,6 +27,7 @@ export interface PixelRenderHints {
   eyeShape: "narrow" | "almond" | "round";
   eyeSpacing: "close" | "average" | "wide";
   eyebrowShape: "straight" | "arched" | "slanted" | "soft";
+  noseShape: "small" | "straight" | "rounded" | "prominent";
   mouthShape: "small" | "wide" | "full" | "thin";
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength: "none" | "short" | "brow" | "eye";
@@ -136,8 +137,9 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, eyebrow shape, mouth shape, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
+- noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
 - mouthShape means the visible mouth/lip impression: small/compact, wide, full/darker lips, or thin/subtle.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
@@ -195,6 +197,7 @@ Respond with ONLY a JSON object matching this shape:
     "eyeShape": "narrow" | "almond" | "round",
     "eyeSpacing": "close" | "average" | "wide",
     "eyebrowShape": "straight" | "arched" | "slanted" | "soft",
+    "noseShape": "small" | "straight" | "rounded" | "prominent",
     "mouthShape": "small" | "wide" | "full" | "thin",
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
     "bangsLength": "none" | "short" | "brow" | "eye",
@@ -292,6 +295,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["straight", "arched", "slanted", "soft"],
         },
+        noseShape: {
+          type: "string",
+          enum: ["small", "straight", "rounded", "prominent"],
+        },
         mouthShape: {
           type: "string",
           enum: ["small", "wide", "full", "thin"],
@@ -365,6 +372,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "eyeShape",
         "eyeSpacing",
         "eyebrowShape",
+        "noseShape",
         "mouthShape",
         "bangs",
         "bangsLength",
@@ -489,6 +497,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           eyeShape: "almond",
           eyeSpacing: "average",
           eyebrowShape: "straight",
+          noseShape: "small",
           mouthShape: "small",
           bangs: "none",
           bangsLength: "none",
@@ -610,6 +619,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.eyebrowShape,
       ["straight", "arched", "slanted", "soft"],
       "straight",
+    ),
+    noseShape: enumValue(
+      "renderHints.noseShape",
+      hints.noseShape,
+      ["small", "straight", "rounded", "prominent"],
+      "small",
     ),
     mouthShape: enumValue(
       "renderHints.mouthShape",

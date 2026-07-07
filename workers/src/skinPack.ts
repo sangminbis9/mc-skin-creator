@@ -39,6 +39,7 @@ export interface FaceStyle {
   eyeShape?: "narrow" | "almond" | "round";
   eyeSpacing?: "close" | "average" | "wide";
   eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
+  noseShape?: "small" | "straight" | "rounded" | "prominent";
   mouthShape?: "small" | "wide" | "full" | "thin";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
@@ -76,6 +77,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   eyeShape: "almond",
   eyeSpacing: "average",
   eyebrowShape: "straight",
+  noseShape: "small",
   mouthShape: "small",
   bangs: "none",
   bangsLength: "none",
@@ -504,7 +506,8 @@ function composeFace(
   const eyeHighlight = mixRgb(eye, [250, 244, 232], 0.58);
   const lowerEye = mixRgb(skinColor, shadeRgb(eye, 0.66), 0.24);
   const eyelid = mixRgb(skinColor, brow, style.eyeShape === "narrow" ? 0.48 : 0.34);
-  const noseX = style.faceShape === "long" ? 4 : 3;
+  const noseShape = style.noseShape ?? "small";
+  const noseX = style.faceShape === "long" || noseShape === "prominent" ? 4 : 3;
   const noseBridge = mixRgb(skinColor, [255, 238, 224], 0.24);
   const noseSide = shadeRgb(skinColor, 0.9);
 
@@ -524,9 +527,21 @@ function composeFace(
     }
   }
 
-  put(face, noseX, 4, noseBridge);
-  put(face, noseX, 5, skinShadow);
-  put(face, noseX === 3 ? 4 : 3, 5, noseSide);
+  if (noseShape === "small") {
+    put(face, noseX, 5, mixRgb(noseSide, skinColor, 0.38));
+  } else if (noseShape === "straight") {
+    put(face, noseX, 4, noseBridge);
+    put(face, noseX, 5, skinShadow);
+  } else if (noseShape === "rounded") {
+    put(face, noseX, 5, skinShadow);
+    put(overlay, noseX === 3 ? 4 : 3, 5, mixRgb(noseSide, skinColor, 0.24));
+    put(overlay, noseX, 4, mixRgb(noseBridge, skinColor, 0.38));
+  } else {
+    put(face, noseX, 4, shadeRgb(noseBridge, 1.04));
+    put(face, noseX, 5, shadeRgb(skinShadow, 0.92));
+    put(face, noseX === 3 ? 4 : 3, 5, shadeRgb(noseSide, 0.86));
+    put(overlay, noseX, 3, mixRgb(noseBridge, skinColor, 0.28));
+  }
 
   const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
   const mouthShape = style.mouthShape ?? "small";

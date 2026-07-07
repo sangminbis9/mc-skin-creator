@@ -44,6 +44,15 @@ function greenAt(
   return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 1];
 }
 
+function alphaAt(
+  atlas: RawImage,
+  rect: { x: number; y: number },
+  x: number,
+  y: number,
+): number {
+  return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
+}
+
 describe("packFrontViewToAtlas", () => {
   it("정면 뷰를 유효한 64x64 atlas로 pack한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView());
@@ -336,6 +345,7 @@ describe("packFrontViewToAtlas", () => {
       faceShape: "round",
       eyeShape: "round",
       eyeSpacing: "average",
+      noseShape: "straight",
       expression: "smile",
     })!;
     const atlas = packed.atlas;
@@ -757,5 +767,38 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(wide, face, 5, 6)).toBeLessThan(redAt(small, face, 5, 6));
     expect(greenAt(full, face, 3, 6)).toBeGreaterThan(greenAt(thin, face, 3, 6));
     expect(redAt(thin, face, 2, 6)).toBe(redAt(small, face, 2, 6));
+  });
+
+  it("noseShape 힌트를 8x8 얼굴의 코 길이와 코끝 차이로 남긴다", () => {
+    const baseStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none" as const,
+      glasses: "none",
+    };
+    const small = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      noseShape: "small",
+    })!.atlas;
+    const prominent = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      noseShape: "prominent",
+    })!.atlas;
+    const rounded = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      noseShape: "rounded",
+    })!.atlas;
+    const straight = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      noseShape: "straight",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    expect(redAt(prominent, face, 4, 4)).toBeGreaterThan(redAt(small, face, 4, 4));
+    expect(redAt(straight, face, 3, 5)).toBeLessThan(redAt(small, face, 3, 5));
+    expect(alphaAt(prominent, over, 4, 3)).toBe(255);
+    expect(alphaAt(rounded, over, 4, 5)).toBe(255);
+    expect(alphaAt(straight, over, 4, 5)).toBe(0);
   });
 });
