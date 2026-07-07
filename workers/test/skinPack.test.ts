@@ -83,6 +83,20 @@ describe("packFrontViewToAtlas", () => {
       atlas.rgba[(bodyOverlay.y * ATLAS_SIZE + bodyOverlay.x + 2) * 4 + 3];
     expect(collarAlpha).toBe(255);
 
+    // 볼·턱 라운딩: 얼굴 overlay가 불투명 피부색으로 채워져 둥글게 렌더된다.
+    const headOverlay = CLASSIC_LAYOUT.head.overlay.front;
+    const cheekIdx = ((headOverlay.y + 5) * ATLAS_SIZE + headOverlay.x) * 4;
+    const chinIdx = ((headOverlay.y + 7) * ATLAS_SIZE + headOverlay.x + 3) * 4;
+    expect(atlas.rgba[cheekIdx + 3]).toBe(255);
+    expect(atlas.rgba[cheekIdx]).toBeGreaterThan(100); // 피부 계열 (머리색 아님)
+    expect(atlas.rgba[chinIdx + 3]).toBe(255);
+
+    // 신발: 다리 overlay 발목/밑창이 채워져 발끝 두께를 만든다.
+    const legOverlay = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const ankleIdx =
+      ((legOverlay.y + legOverlay.h - 1) * ATLAS_SIZE + legOverlay.x) * 4;
+    expect(atlas.rgba[ankleIdx + 3]).toBe(255);
+
     // UV 규칙 준수
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -135,6 +149,38 @@ describe("packFrontViewToAtlas", () => {
     const bodyBackOver = CLASSIC_LAYOUT.body.overlay.back;
     const d = (bodyBackOver.y * 64 + bodyBackOver.x) * 4;
     expect(withHat.atlas.rgba[d + 3]).toBe(0);
+
+    // 대신 모자 overlay가 정수리 전체와 앞면 챙을 만든다.
+    const top = CLASSIC_LAYOUT.head.overlay.top;
+    const topCorner = (top.y * 64 + top.x) * 4;
+    expect(withHat.atlas.rgba[topCorner + 3]).toBe(255);
+    const headOver = CLASSIC_LAYOUT.head.overlay.front;
+    const brim = ((headOver.y + 2) * 64 + headOver.x + 3) * 4;
+    expect(withHat.atlas.rgba[brim + 3]).toBe(255);
+  });
+
+  it("겉옷은 몸통 overlay 옆면까지 둘러 3/4 각도에서 이어진다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      outerLayer: "heavy",
+      topType: "jacket",
+    })!;
+    const atlas = packed.atlas;
+    const side = CLASSIC_LAYOUT.body.overlay.right;
+    const mid = ((side.y + 5) * ATLAS_SIZE + side.x + 1) * 4;
+    expect(atlas.rgba[mid + 3]).toBe(255);
+    // 윗행(lit)이 밑단(hem)보다 밝다 — 그림자가 아니라 두께 큐
+    const litRow = avgOfRect(atlas, { x: side.x, y: side.y, w: side.w, h: 1 });
+    const hemRow = avgOfRect(atlas, {
+      x: side.x,
+      y: side.y + side.h - 1,
+      w: side.w,
+      h: 1,
+    });
+    expect(litRow[0]).toBeGreaterThan(hemRow[0]);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
   it("정면/뒷면 두 뷰를 구분하고 실제 뒤통수와 옷 뒷면을 사용한다", () => {

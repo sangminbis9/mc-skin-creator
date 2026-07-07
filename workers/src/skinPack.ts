@@ -488,6 +488,24 @@ function composeFace(
     }
   }
 
+  // 볼·턱·관자놀이 라운딩: overlay는 부풀린 박스로 렌더되므로 얼굴이 둥글게 읽힌다.
+  const cheek = shadeRgb(skinColor, 0.95);
+  put(overlay, 0, 2, shadeRgb(skinColor, 0.97));
+  put(overlay, 7, 2, shadeRgb(skinColor, 0.97));
+  for (const y of [5, 6]) {
+    put(overlay, 0, y, cheek);
+    put(overlay, 7, y, cheek);
+  }
+  const chin =
+    style.facialHair === "beard" ||
+    style.facialHair === "stubble" ||
+    style.facialHair === "goatee"
+      ? shadeRgb(hairColor, 0.9)
+      : shadeRgb(skinColor, 0.94);
+  for (const x of [2, 3, 4, 5]) {
+    put(overlay, x, 7, chin);
+  }
+
   // 앞머리 overlay는 듬성한 가닥만 사용해 헬멧 같은 판을 만들지 않는다.
   const fringe = (xs: number[], y: number) => {
     for (const x of xs) put(overlay, x, y, hairVolumePixel(hairColor, x, y));
@@ -791,6 +809,61 @@ function composeHair(
 }
 
 /**
+ * 모자 overlay 볼륨 (클라이언트 절차 생성기 drawHat의 검증된 좌표 이식).
+ * 모자 쓴 인물은 머리 상단 medianColor가 곧 모자 색이므로 hatColor로 그대로 쓴다.
+ * base에는 렌더의 모자가 눌린 그림으로 남고, overlay가 챙/접힌 단의 두께를 만든다.
+ */
+function composeHat(atlas: RawImage, hatColor: Rgb, style: FaceStyle): void {
+  if (style.hat === "none") {
+    return;
+  }
+  const over = CLASSIC_LAYOUT.head.overlay;
+  const put = (rect: Rect, x: number, y: number, c: Rgb) => {
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba[d] = c[0];
+    atlas.rgba[d + 1] = c[1];
+    atlas.rgba[d + 2] = c[2];
+    atlas.rgba[d + 3] = 255;
+  };
+  const fill = (rect: Rect, y0: number, h: number, shade = 1) => {
+    for (let y = y0; y < Math.min(rect.h, y0 + h); y++) {
+      for (let x = 0; x < rect.w; x++) {
+        put(rect, x, y, shadeRgb(hairPixel(hatColor, rect.x + x, rect.y + y, 0.04), shade));
+      }
+    }
+  };
+  const dark = 0.8;
+
+  fill(over.top, 0, 8);
+  if (style.hat === "cap") {
+    fill(over.front, 0, 2);
+    fill(over.front, 2, 1, dark); // 챙
+    fill(over.right, 0, 2);
+    fill(over.left, 0, 2);
+    fill(over.back, 0, 2);
+  } else if (style.hat === "beanie") {
+    for (const rect of [over.front, over.right, over.left, over.back]) {
+      fill(rect, 0, 2);
+      fill(rect, 2, 1, dark); // 접힌 밑단
+    }
+  } else {
+    // hood: 이마 + 옆/뒤 전체
+    fill(over.front, 0, 2);
+    fill(over.right, 0, 8);
+    fill(over.left, 0, 8);
+    fill(over.back, 0, 8);
+    // 옆면을 전부 덮으므로 안경 다리를 다시 그린다
+    if (style.glasses !== "none") {
+      const rim = hexToRgb(style.glassesColor, [34, 32, 30]);
+      put(over.right, 7, 3, rim);
+      put(over.right, 6, 3, rim);
+      put(over.left, 0, 3, rim);
+      put(over.left, 1, 3, rim);
+    }
+  }
+}
+
+/**
  * base는 피부/옷의 실제 표면, overlay는 두께가 있는 요소만 담당한다.
  * 이미지 모델이 만든 색과 뒷면을 유지하면서 분석 힌트로 카라·겉옷 가장자리·
  * 소매 끝·목걸이·재질 패턴을 보강한다.
@@ -817,6 +890,20 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   ) => put(dst, x, y, shadeRgb(sample(src, x, y), shade));
   const shadeBase = (rect: Rect, x: number, y: number, shade: number) => {
     put(rect, x, y, shadeRgb(sample(rect, x, y), shade));
+  };
+  // 두께 큐: base를 어둡게만 복사하면 그림자로 읽힌다. 윗행(lit)은 빛을 받아
+  // 밝게, 밑단(hem)만 어둡게 해서 overlay가 base 위의 옷감으로 분리돼 보이게 한다.
+  const volumeCopy = (
+    src: Rect,
+    dst: Rect,
+    x: number,
+    y: number,
+    tone: "lit" | "mid" | "hem",
+  ) => {
+    const hash = (((dst.x + x) * 83492791) ^ ((dst.y + y) * 2971215073)) >>> 0;
+    const jitter = 1 + ((hash % 9) - 4) / 100;
+    const f = tone === "lit" ? 1.09 : tone === "hem" ? 0.8 : 0.96;
+    put(dst, x, y, shadeRgb(sample(src, x, y), f * jitter));
   };
 
   const body = CLASSIC_LAYOUT.body;
@@ -860,20 +947,35 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     [4, 1],
     [5, 0],
   ] as const) {
-    copy(baseFront, front, x, y, 0.86);
+    volumeCopy(baseFront, front, x, y, y === 0 ? "lit" : "mid");
   }
 
   if (layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType)) {
     // 어깨 솔기와 밑단
-    for (let y = 1; y < front.h - 1; y++) {
-      copy(baseFront, front, 0, y, 0.88);
-      copy(baseFront, front, 7, y, 0.88);
-      copy(baseBack, back, 0, y, 0.84);
-      copy(baseBack, back, 7, y, 0.84);
+    for (let y = 0; y < front.h - 1; y++) {
+      const tone = y === 0 ? "lit" : "mid";
+      volumeCopy(baseFront, front, 0, y, tone);
+      volumeCopy(baseFront, front, 7, y, tone);
+      volumeCopy(baseBack, back, 0, y, tone);
+      volumeCopy(baseBack, back, 7, y, tone);
     }
     for (let x = 0; x < front.w; x++) {
-      copy(baseFront, front, x, front.h - 1, 0.82);
-      copy(baseBack, back, x, back.h - 1, 0.8);
+      volumeCopy(baseFront, front, x, front.h - 1, "hem");
+      volumeCopy(baseBack, back, x, back.h - 1, "hem");
+    }
+    // 측면 연속성: 3/4 각도에서 겉옷이 앞뒤 스티커처럼 끊기지 않게 옆면도 채운다.
+    for (const [srcRect, dstRect] of [
+      [body.base.right, body.overlay.right],
+      [body.base.left, body.overlay.left],
+    ] as const) {
+      for (let y = 0; y < dstRect.h - 1; y++) {
+        for (let x = 0; x < dstRect.w; x++) {
+          volumeCopy(srcRect, dstRect, x, y, y === 0 ? "lit" : "mid");
+        }
+      }
+      for (let x = 0; x < dstRect.w; x++) {
+        volumeCopy(srcRect, dstRect, x, dstRect.h - 1, "hem");
+      }
     }
   }
 
@@ -884,12 +986,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
   } else if (topType === "hoodie") {
     for (let x = 1; x < 7; x++) {
-      copy(baseBack, back, x, 0, 0.78);
-      copy(baseBack, back, x, 1, 0.82);
+      volumeCopy(baseBack, back, x, 0, "lit");
+      volumeCopy(baseBack, back, x, 1, "mid");
     }
-    for (let x = 1; x < 7; x++) copy(baseFront, front, x, 9, 0.8);
+    for (let x = 1; x < 7; x++) volumeCopy(baseFront, front, x, 9, "mid");
   } else if (topType === "sweater") {
-    for (let x = 1; x < 7; x++) copy(baseFront, front, x, 0, 0.8);
+    for (let x = 1; x < 7; x++) volumeCopy(baseFront, front, x, 0, "lit");
   }
 
   const necklace = style.necklace ?? "none";
@@ -925,29 +1027,40 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         const src = arm.base[faceName];
         const dst = arm.overlay[faceName];
         for (let x = 0; x < dst.w; x++) {
-          copy(src, dst, x, dst.h - 2, 0.82);
-          if (layer === "heavy") copy(src, dst, x, dst.h - 1, 0.75);
+          volumeCopy(src, dst, x, dst.h - 2, "lit");
+          if (layer === "heavy") volumeCopy(src, dst, x, dst.h - 1, "hem");
         }
       }
     }
   }
 
-  // 바지 허리/주머니와 신발 앞코도 필요한 부분만 overlay로 올린다.
+  // 바지 허리단은 4면으로 둘러 3/4 각도에서도 이어진다.
   if (style.bottomType === "jeans" || style.bottomType === "pants") {
     for (const part of ["rightLeg", "leftLeg"] as const) {
       const leg = CLASSIC_LAYOUT[part];
-      for (let x = 0; x < leg.overlay.front.w; x++) {
-        copy(leg.base.front, leg.overlay.front, x, 0, 0.82);
+      for (const faceName of ["front", "back", "right", "left"] as const) {
+        for (let x = 0; x < leg.overlay[faceName].w; x++) {
+          volumeCopy(leg.base[faceName], leg.overlay[faceName], x, 0, "lit");
+        }
       }
       copy(leg.base.front, leg.overlay.front, part === "rightLeg" ? 0 : 3, 2, 0.74);
-      for (let x = 0; x < leg.overlay.front.w; x++) {
-        copy(
-          leg.base.front,
-          leg.overlay.front,
-          x,
-          leg.overlay.front.h - 1,
-          0.9,
-        );
+    }
+  }
+
+  // 신발: 발목 둘레와 밑창을 overlay로 올려 발끝 두께를 만든다 (하의 종류 무관).
+  for (const part of ["rightLeg", "leftLeg"] as const) {
+    const leg = CLASSIC_LAYOUT[part];
+    for (const faceName of ["front", "back", "right", "left"] as const) {
+      const src = leg.base[faceName];
+      const dst = leg.overlay[faceName];
+      for (let x = 0; x < dst.w; x++) {
+        volumeCopy(src, dst, x, dst.h - 2, faceName === "front" ? "lit" : "mid");
+        volumeCopy(src, dst, x, dst.h - 1, "mid");
+      }
+    }
+    for (let y = 0; y < leg.overlay.bottom.h; y++) {
+      for (let x = 0; x < leg.overlay.bottom.w; x++) {
+        volumeCopy(leg.base.bottom, leg.overlay.bottom, x, y, "hem");
       }
     }
   }
@@ -1294,9 +1407,11 @@ export function packFrontViewToAtlas(
     }
   }
 
-  // ---------- 마감: 의상/액세서리 레이어 + 헤어스타일 구조 + 셰이딩 ----------
+  // ---------- 마감: 의상/액세서리 레이어 + 헤어/모자 구조 + 셰이딩 ----------
   composeGarmentLayers(atlas, faceStyle);
   composeHair(atlas, hairColor, faceStyle, back !== null);
+  // 모자 쓴 인물은 머리 상단 medianColor(hairColor)가 곧 모자 색
+  composeHat(atlas, hairColor, faceStyle);
   applyShading(atlas);
 
   return { atlas, problems, hasBackView: back !== null };
