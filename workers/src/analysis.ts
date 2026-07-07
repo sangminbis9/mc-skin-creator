@@ -26,6 +26,7 @@ export interface PixelRenderHints {
   faceShape: "round" | "oval" | "long" | "angular" | "square";
   eyeShape: "narrow" | "almond" | "round";
   eyeSpacing: "close" | "average" | "wide";
+  eyebrowShape: "straight" | "arched" | "slanted" | "soft";
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength: "none" | "short" | "brow" | "eye";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
@@ -134,7 +135,8 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, eyebrow shape, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
@@ -190,6 +192,7 @@ Respond with ONLY a JSON object matching this shape:
     "faceShape": "round" | "oval" | "long" | "angular" | "square",
     "eyeShape": "narrow" | "almond" | "round",
     "eyeSpacing": "close" | "average" | "wide",
+    "eyebrowShape": "straight" | "arched" | "slanted" | "soft",
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
     "bangsLength": "none" | "short" | "brow" | "eye",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
@@ -282,6 +285,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
         eyeShape: { type: "string", enum: ["narrow", "almond", "round"] },
         eyeSpacing: { type: "string", enum: ["close", "average", "wide"] },
+        eyebrowShape: {
+          type: "string",
+          enum: ["straight", "arched", "slanted", "soft"],
+        },
         bangs: {
           type: "string",
           enum: ["none", "straight", "side", "curtain", "wispy"],
@@ -350,6 +357,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "faceShape",
         "eyeShape",
         "eyeSpacing",
+        "eyebrowShape",
         "bangs",
         "bangsLength",
         "hairTexture",
@@ -472,6 +480,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           faceShape: "oval",
           eyeShape: "almond",
           eyeSpacing: "average",
+          eyebrowShape: "straight",
           bangs: "none",
           bangsLength: "none",
           hairTexture: "straight",
@@ -586,6 +595,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.eyeSpacing,
       ["close", "average", "wide"],
       "average",
+    ),
+    eyebrowShape: enumValue(
+      "renderHints.eyebrowShape",
+      hints.eyebrowShape,
+      ["straight", "arched", "slanted", "soft"],
+      "straight",
     ),
     bangs: enumValue(
       "renderHints.bangs",

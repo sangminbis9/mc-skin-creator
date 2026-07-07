@@ -38,6 +38,7 @@ export interface FaceStyle {
   faceShape?: "round" | "oval" | "long" | "angular" | "square";
   eyeShape?: "narrow" | "almond" | "round";
   eyeSpacing?: "close" | "average" | "wide";
+  eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
@@ -73,6 +74,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   faceShape: "oval",
   eyeShape: "almond",
   eyeSpacing: "average",
+  eyebrowShape: "straight",
   bangs: "none",
   bangsLength: "none",
   hairTexture: "straight",
@@ -458,6 +460,7 @@ function composeFace(
     style.eyebrowThickness === "thin"
       ? mixRgb(browColor, skinColor, 0.38)
       : browColor;
+  const eyebrowShape = style.eyebrowShape ?? "straight";
   for (const [outer, inner] of eyePairs) {
     put(face, outer, 3, brow);
     put(face, inner, 3, brow);
@@ -468,9 +471,31 @@ function composeFace(
       put(face, inner, 5, shadeRgb(eye, 0.78));
     }
   }
-  if (style.eyebrowThickness === "thick") {
-    put(face, eyePairs[0][0], 2, shadeRgb(brow, 0.96));
-    put(face, eyePairs[1][1], 2, shadeRgb(brow, 0.96));
+  const browAccent =
+    style.eyebrowThickness === "thin"
+      ? mixRgb(brow, skinColor, 0.26)
+      : shadeRgb(brow, 0.96);
+  const browShadow = shadeRgb(brow, 0.74);
+  const [[leftOuter, leftInner], [rightOuter, rightInner]] = eyePairs;
+  if (eyebrowShape === "arched") {
+    put(face, leftInner, 2, browAccent);
+    put(face, rightOuter, 2, browAccent);
+    put(overlay, leftOuter, 3, shadeRgb(brow, 0.9));
+    put(overlay, rightInner, 3, shadeRgb(brow, 0.9));
+  } else if (eyebrowShape === "slanted") {
+    put(face, leftOuter, 2, browAccent);
+    put(face, rightInner, 2, browAccent);
+    put(overlay, leftInner, 3, browShadow);
+    put(overlay, rightOuter, 3, browShadow);
+  } else if (eyebrowShape === "soft") {
+    const softBrow = mixRgb(brow, skinColor, 0.48);
+    for (const [outer, inner] of eyePairs) {
+      put(face, outer, 3, softBrow);
+      put(face, inner, 3, mixRgb(softBrow, brow, 0.22));
+    }
+  } else if (style.eyebrowThickness === "thick") {
+    put(face, leftOuter, 2, browAccent);
+    put(face, rightInner, 2, browAccent);
   }
 
   const skinShadow = shadeRgb(skinColor, 0.82);

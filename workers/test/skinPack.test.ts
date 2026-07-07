@@ -26,6 +26,15 @@ function avgOfRect(
   return [r / n, g / n, b / n];
 }
 
+function redAt(
+  atlas: RawImage,
+  rect: { x: number; y: number },
+  x: number,
+  y: number,
+): number {
+  return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4];
+}
+
 describe("packFrontViewToAtlas", () => {
   it("정면 뷰를 유효한 64x64 atlas로 pack한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView());
@@ -681,5 +690,31 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[bowLeft]).toBeGreaterThan(atlas.rgba[bowCenter]);
     expect(atlas.rgba[plaidDark + 3]).toBe(255);
     expect(atlas.rgba[plaidDark]).toBeLessThan(atlas.rgba[plaidLight]);
+  });
+
+  it("eyebrowShape 힌트를 8x8 얼굴의 눈썹 각도 차이로 남긴다", () => {
+    const baseStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none" as const,
+      eyeShape: "almond" as const,
+      eyeSpacing: "average" as const,
+      eyebrowThickness: "thick",
+      glasses: "none",
+    };
+    const arched = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      eyebrowShape: "arched",
+    })!.atlas;
+    const slanted = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      eyebrowShape: "slanted",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+
+    expect(redAt(arched, face, 2, 2)).toBeLessThan(redAt(slanted, face, 2, 2));
+    expect(redAt(arched, face, 5, 2)).toBeLessThan(redAt(slanted, face, 5, 2));
+    expect(redAt(slanted, face, 1, 2)).toBeLessThan(redAt(arched, face, 1, 2));
+    expect(redAt(slanted, face, 6, 2)).toBeLessThan(redAt(arched, face, 6, 2));
   });
 });
