@@ -39,6 +39,7 @@ export interface FaceStyle {
   eyeShape?: "narrow" | "almond" | "round";
   eyeSpacing?: "close" | "average" | "wide";
   eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
+  mouthShape?: "small" | "wide" | "full" | "thin";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
@@ -75,6 +76,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   eyeShape: "almond",
   eyeSpacing: "average",
   eyebrowShape: "straight",
+  mouthShape: "small",
   bangs: "none",
   bangsLength: "none",
   hairTexture: "straight",
@@ -527,13 +529,27 @@ function composeFace(
   put(face, noseX === 3 ? 4 : 3, 5, noseSide);
 
   const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
-  if (style.expression === "smile") {
-    put(face, 2, 6, shadeRgb(mouthColor, 1.1));
+  const mouthShape = style.mouthShape ?? "small";
+  const mouthDark = shadeRgb(mouthColor, style.expression === "serious" ? 0.76 : 0.88);
+  const lipFull = mixRgb(mouthColor, [188, 92, 78], 0.36);
+  const lipLight = mixRgb(lipFull, skinColor, 0.42);
+
+  if (mouthShape === "wide" || (style.expression === "smile" && mouthShape === "small")) {
+    put(face, 2, 6, style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark);
     put(face, 3, 6, mouthColor);
     put(face, 4, 6, mouthColor);
-    put(face, 5, 6, shadeRgb(mouthColor, 1.1));
-  } else if (style.expression === "serious") {
-    for (const x of [2, 3, 4, 5]) put(face, x, 6, shadeRgb(mouthColor, 0.82));
+    put(face, 5, 6, style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark);
+  } else if (mouthShape === "full") {
+    put(face, 3, 6, lipFull);
+    put(face, 4, 6, lipFull);
+    put(overlay, 3, 7, lipLight);
+    put(overlay, 4, 7, shadeRgb(lipFull, 0.9));
+  } else if (mouthShape === "thin" || style.expression === "serious") {
+    for (const x of [3, 4]) put(face, x, 6, mouthDark);
+    if (mouthShape === "thin" && style.expression === "smile") {
+      put(overlay, 2, 6, mixRgb(mouthDark, skinColor, 0.35));
+      put(overlay, 5, 6, mixRgb(mouthDark, skinColor, 0.35));
+    }
   } else {
     put(face, 3, 6, mouthColor);
     put(face, 4, 6, mouthColor);

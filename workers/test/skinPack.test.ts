@@ -35,6 +35,15 @@ function redAt(
   return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4];
 }
 
+function greenAt(
+  atlas: RawImage,
+  rect: { x: number; y: number },
+  x: number,
+  y: number,
+): number {
+  return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 1];
+}
+
 describe("packFrontViewToAtlas", () => {
   it("정면 뷰를 유효한 64x64 atlas로 pack한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView());
@@ -716,5 +725,37 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(arched, face, 5, 2)).toBeLessThan(redAt(slanted, face, 5, 2));
     expect(redAt(slanted, face, 1, 2)).toBeLessThan(redAt(arched, face, 1, 2));
     expect(redAt(slanted, face, 6, 2)).toBeLessThan(redAt(arched, face, 6, 2));
+  });
+
+  it("mouthShape 힌트를 8x8 얼굴의 입 폭과 입술 색 차이로 남긴다", () => {
+    const baseStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none" as const,
+      expression: "neutral",
+      glasses: "none",
+    };
+    const small = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      mouthShape: "small",
+    })!.atlas;
+    const wide = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      mouthShape: "wide",
+    })!.atlas;
+    const full = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      mouthShape: "full",
+    })!.atlas;
+    const thin = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      mouthShape: "thin",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+
+    expect(redAt(wide, face, 2, 6)).toBeLessThan(redAt(small, face, 2, 6));
+    expect(redAt(wide, face, 5, 6)).toBeLessThan(redAt(small, face, 5, 6));
+    expect(greenAt(full, face, 3, 6)).toBeGreaterThan(greenAt(thin, face, 3, 6));
+    expect(redAt(thin, face, 2, 6)).toBe(redAt(small, face, 2, 6));
   });
 });

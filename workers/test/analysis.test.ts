@@ -66,6 +66,7 @@ describe("validatePhotoAnalysis", () => {
   it("저해상도 렌더 힌트의 허용값을 검증한다", () => {
     const broken = makeAnalysis();
     broken.renderHints.eyebrowShape = "zigzag" as never;
+    broken.renderHints.mouthShape = "square" as never;
     broken.renderHints.bangs = "generic" as never;
     broken.renderHints.bangsLength = "forehead" as never;
     broken.renderHints.hairSilhouette = "generic" as never;
@@ -74,6 +75,7 @@ describe("validatePhotoAnalysis", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.join()).toContain("renderHints.eyebrowShape");
+      expect(result.errors.join()).toContain("renderHints.mouthShape");
       expect(result.errors.join()).toContain("renderHints.bangs");
       expect(result.errors.join()).toContain("renderHints.bangsLength");
       expect(result.errors.join()).toContain("renderHints.hairSilhouette");

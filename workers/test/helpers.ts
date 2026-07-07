@@ -45,6 +45,7 @@ export function makeAnalysis(
       eyeShape: "round",
       eyeSpacing: "average",
       eyebrowShape: "arched",
+      mouthShape: "wide",
       bangs: "side",
       bangsLength: "brow",
       hairTexture: "straight",
