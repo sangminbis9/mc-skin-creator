@@ -367,6 +367,30 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(over.top, 3, 3)).not.toBe(redAt(over.top, 2, 3));
   });
 
+  it("hairTexture=wavy adds directional strand highlights on top, front and side overlays", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "side",
+      hairTexture: "wavy",
+      hairPart: "right",
+      sideHairLength: "cheek",
+      hairVolume: "full",
+    })!;
+    const atlas = packed.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const pixel = (rect: { x: number; y: number }, x: number, y: number) => {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+    };
+
+    expect(pixel(over.top, 5, 2)[3]).toBe(255);
+    expect(pixel(over.front, 1, 2)[3]).toBe(255);
+    expect(pixel(over.right, 2, 1)[3]).toBe(255);
+    expect(pixel(over.right, 2, 1)[0]).not.toBe(pixel(over.right, 3, 2)[0]);
+    expect(pixel(over.top, 5, 2)[0]).not.toBe(pixel(over.top, 5, 3)[0]);
+  });
+
   it("tiny character returns null", () => {
     const tiny: RawImage = {
       width: 256,

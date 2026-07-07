@@ -912,6 +912,57 @@ function composeHair(
     }
   }
 
+  const strandLight = mixRgb(
+    hairColor,
+    [242, 232, 220],
+    style.hairTexture === "wavy" || style.hairTexture === "curly" ? 0.2 : 0.13,
+  );
+  const strandDark = shadeRgb(hairColor, 0.58);
+  const strandMid = shadeRgb(hairColor, 0.82);
+  const paintStrand = (rect: Rect, x: number, y: number, phase = 0) => {
+    putColor(rect, x, y, (x + y + phase) % 3 === 0 ? strandLight : strandDark);
+  };
+  if (style.hairTexture === "wavy" || style.hairTexture === "curly") {
+    for (const [rect, mirror] of [
+      [over.right, false],
+      [over.left, true],
+      [over.back, false],
+    ] as const) {
+      for (let y = 1; y < Math.min(rect.h, sideEdgeRows + 1); y++) {
+        const waveX = mirror ? 6 - (y % 3) : 1 + (y % 3);
+        paintStrand(rect, waveX, y, mirror ? 1 : 0);
+        if (y % 2 === 0) paintStrand(rect, mirror ? waveX - 1 : waveX + 1, y, 2);
+      }
+    }
+  } else {
+    for (const rect of [over.right, over.left, over.back]) {
+      for (let y = 1; y < Math.min(rect.h, sideEdgeRows + 1); y += 2) {
+        paintStrand(rect, 1, y);
+        paintStrand(rect, rect.w - 2, y + 1 < rect.h ? y + 1 : y, 1);
+      }
+    }
+  }
+  if (hairPart === "center") {
+    for (let y = 1; y < 6; y++) {
+      putColor(over.top, 2, y, y % 2 === 0 ? strandMid : strandLight);
+      putColor(over.top, 5, y, y % 2 === 0 ? strandLight : strandMid);
+    }
+  } else if (hairPart === "left" || hairPart === "right") {
+    const mirror = hairPart === "right";
+    for (let y = 1; y < 6; y++) {
+      const x = mirror ? 6 - Math.floor(y / 2) : 1 + Math.floor(y / 2);
+      putColor(over.top, x, y, y % 2 === 0 ? strandLight : strandMid);
+    }
+  }
+  for (const [x, y, color] of [
+    [1, 2, strandLight],
+    [3, 2, strandMid],
+    [5, 2, strandLight],
+    [6, 3, strandDark],
+  ] as const) {
+    putColor(over.front, x, y, color);
+  }
+
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
     const rows = s === "afro" ? 4 : 2;
     fill(over.front, 0, 0, 8, rows, true);
