@@ -140,6 +140,7 @@ export async function generateSkin(
       hairTexture: analysis.renderHints.hairTexture,
       hairVolume: analysis.renderHints.hairVolume,
       hairSilhouette: analysis.renderHints.hairSilhouette,
+      hairBackShape: analysis.renderHints.hairBackShape,
       hairPart: analysis.renderHints.hairPart,
       sideHairLength: analysis.renderHints.sideHairLength,
       garmentTexture: analysis.renderHints.garmentTexture,

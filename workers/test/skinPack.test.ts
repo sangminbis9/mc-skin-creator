@@ -508,6 +508,36 @@ describe("packFrontViewToAtlas", () => {
     expect(pixel(swept, over.top, 6, 4)[0]).not.toBe(pixel(rounded, over.top, 6, 4)[0]);
   });
 
+  it("hairBackShape controls inferred rear hair and connects it to side rear edges", () => {
+    const longBack = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      hairBackShape: "long",
+      sideHairLength: "jaw",
+    })!.atlas;
+    const tiedBack = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      hairBackShape: "tied",
+    })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const pixel = (
+      atlas: RawImage,
+      rect: { x: number; y: number },
+      x: number,
+      y: number,
+    ) => {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+    };
+
+    expect(pixel(longBack, over.back, 3, 7)[3]).toBe(255);
+    expect(pixel(longBack, over.back, 0, 5)[0]).toBe(pixel(longBack, over.right, 7, 5)[0]);
+    expect(pixel(longBack, over.back, 7, 5)[0]).toBe(pixel(longBack, over.left, 0, 5)[0]);
+    expect(pixel(tiedBack, over.back, 3, 6)[3]).toBe(255);
+    expect(pixel(tiedBack, over.back, 3, 6)[0]).not.toBe(pixel(longBack, over.back, 3, 6)[0]);
+  });
+
   it("tiny character returns null", () => {
     const tiny: RawImage = {
       width: 256,

@@ -43,6 +43,7 @@ export interface FaceStyle {
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   hairVolume?: "flat" | "normal" | "full";
   hairSilhouette?: "rounded" | "flat" | "swept" | "tousled" | "spiky";
+  hairBackShape?: "tapered" | "rounded" | "long" | "tied" | "undercut";
   hairPart?: "none" | "center" | "left" | "right";
   sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
   garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
@@ -77,6 +78,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   hairTexture: "straight",
   hairVolume: "normal",
   hairSilhouette: "rounded",
+  hairBackShape: "tapered",
   hairPart: "none",
   sideHairLength: "short",
   garmentTexture: "plain",
@@ -863,6 +865,64 @@ function composeHair(
     else backMask.push([0, 1, 2, 3, 4, 5, 6, 7]);
   }
   volumeMask(over.back, backMask);
+  const hairBackShape =
+    style.hairBackShape ??
+    (s === "long" || s === "twintails"
+      ? "long"
+      : s === "ponytail" || s === "bun"
+        ? "tied"
+        : s === "buzz"
+          ? "undercut"
+          : "tapered");
+  const backHairColor = (x: number, y: number, shade = 1) =>
+    shadeRgb(hairVolumePixel(hairColor, over.back.x + x, over.back.y + y), shade);
+  const connectBackEdge = (y: number) => {
+    const leftBack = backHairColor(0, y, 0.92);
+    const rightBack = backHairColor(7, y, 0.92);
+    putColor(over.back, 0, y, leftBack);
+    putColor(over.back, 7, y, rightBack);
+    putColor(over.right, 7, y, leftBack);
+    putColor(over.left, 0, y, rightBack);
+  };
+  if (hairBackShape === "rounded") {
+    for (let y = 1; y < Math.min(7, backVolumeRows + 1); y++) {
+      connectBackEdge(y);
+      if (y >= 4) {
+        putColor(over.back, 1, y, backHairColor(1, y, 0.86));
+        putColor(over.back, 6, y, backHairColor(6, y, 0.86));
+      }
+    }
+    for (const x of [2, 3, 4, 5]) putColor(over.back, x, 6, backHairColor(x, 6, 0.72));
+  } else if (hairBackShape === "long") {
+    for (let y = 2; y < 8; y++) {
+      connectBackEdge(y);
+      for (const x of [1, 2, 5, 6]) putColor(over.back, x, y, backHairColor(x, y, y >= 6 ? 0.68 : 0.9));
+      if (y >= 4) {
+        putColor(over.back, 3, y, backHairColor(3, y, 0.78));
+        putColor(over.back, 4, y, backHairColor(4, y, 0.78));
+      }
+    }
+  } else if (hairBackShape === "tied") {
+    for (let y = 2; y < 8; y++) {
+      putColor(over.back, 3, y, backHairColor(3, y, y === 4 ? 0.62 : 0.86));
+      putColor(over.back, 4, y, backHairColor(4, y, y === 4 ? 0.62 : 0.86));
+    }
+    for (const [x, y] of [[2, 3], [5, 3], [2, 4], [5, 4]] as const) {
+      putColor(over.back, x, y, backHairColor(x, y, 0.72));
+    }
+  } else if (hairBackShape === "undercut") {
+    for (let y = 0; y < Math.min(4, over.back.h); y++) {
+      for (let x = 0; x < over.back.w; x++) putColor(over.back, x, y, backHairColor(x, y, y === 3 ? 0.74 : 0.94));
+    }
+    for (const [x, y] of [[2, 4], [3, 4], [4, 4], [5, 4], [3, 5], [4, 5]] as const) {
+      putColor(over.back, x, y, backHairColor(x, y, 0.58));
+    }
+  } else {
+    for (let y = 2; y < Math.min(6, over.back.h); y++) connectBackEdge(y);
+    for (const [x, y] of [[2, 5], [3, 5], [4, 5], [5, 5], [3, 6], [4, 6]] as const) {
+      putColor(over.back, x, y, backHairColor(x, y, y === 6 ? 0.62 : 0.78));
+    }
+  }
 
   const sideEdgeRows =
     style.hairVolume === "flat"
@@ -985,6 +1045,11 @@ function composeHair(
       fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 2, 4, true);
       fill(CLASSIC_LAYOUT.body.overlay.left, 2, 0, 2, 4, true);
     }
+  }
+  if (hairBackShape === "long" || hairBackShape === "rounded" || hairBackShape === "tapered") {
+    const edgeRows =
+      hairBackShape === "long" ? 8 : hairBackShape === "rounded" ? 7 : Math.min(6, over.back.h);
+    for (let y = 2; y < edgeRows; y++) connectBackEdge(y);
   }
 
   const strandLight = mixRgb(

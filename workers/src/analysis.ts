@@ -31,6 +31,7 @@ export interface PixelRenderHints {
   hairTexture: "straight" | "wavy" | "curly" | "coily";
   hairVolume: "flat" | "normal" | "full";
   hairSilhouette: "rounded" | "flat" | "swept" | "tousled" | "spiky";
+  hairBackShape: "tapered" | "rounded" | "long" | "tied" | "undercut";
   hairPart: "none" | "center" | "left" | "right";
   sideHairLength: "none" | "short" | "cheek" | "jaw" | "shoulder";
   garmentTexture:
@@ -133,9 +134,10 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, bangs, bangs length, hair texture/volume, hair silhouette, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
+- hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
@@ -193,6 +195,7 @@ Respond with ONLY a JSON object matching this shape:
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
     "hairVolume": "flat" | "normal" | "full",
     "hairSilhouette": "rounded" | "flat" | "swept" | "tousled" | "spiky",
+    "hairBackShape": "tapered" | "rounded" | "long" | "tied" | "undercut",
     "hairPart": "none" | "center" | "left" | "right",
     "sideHairLength": "none" | "short" | "cheek" | "jaw" | "shoulder",
     "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
@@ -296,6 +299,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["rounded", "flat", "swept", "tousled", "spiky"],
         },
+        hairBackShape: {
+          type: "string",
+          enum: ["tapered", "rounded", "long", "tied", "undercut"],
+        },
         hairPart: {
           type: "string",
           enum: ["none", "center", "left", "right"],
@@ -348,6 +355,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "hairTexture",
         "hairVolume",
         "hairSilhouette",
+        "hairBackShape",
         "hairPart",
         "sideHairLength",
         "garmentTexture",
@@ -469,6 +477,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           hairTexture: "straight",
           hairVolume: "normal",
           hairSilhouette: "rounded",
+          hairBackShape: "tapered",
           hairPart: "none",
           sideHairLength: "short",
           garmentTexture: "plain",
@@ -607,6 +616,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.hairSilhouette,
       ["rounded", "flat", "swept", "tousled", "spiky"],
       "rounded",
+    ),
+    hairBackShape: enumValue(
+      "renderHints.hairBackShape",
+      hints.hairBackShape,
+      ["tapered", "rounded", "long", "tied", "undercut"],
+      "tapered",
     ),
     hairPart: enumValue(
       "renderHints.hairPart",
