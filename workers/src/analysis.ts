@@ -18,6 +18,28 @@ export interface InferredItem {
   rationale: string;
 }
 
+/**
+ * 64x64 스킨으로 축약할 때도 정체성을 보존하기 위한 저해상도 렌더 힌트.
+ * 자유 서술(identityPrompt)은 이미지 모델에, 이 구조화 값은 결정적 packer에 사용한다.
+ */
+export interface PixelRenderHints {
+  faceShape: "round" | "oval" | "long" | "angular" | "square";
+  eyeShape: "narrow" | "almond" | "round";
+  eyeSpacing: "close" | "average" | "wide";
+  bangs: "none" | "straight" | "side" | "curtain" | "wispy";
+  hairTexture: "straight" | "wavy" | "curly" | "coily";
+  hairVolume: "flat" | "normal" | "full";
+  garmentTexture:
+    | "plain"
+    | "knit"
+    | "denim"
+    | "leather"
+    | "striped"
+    | "patterned";
+  outerLayer: "none" | "light" | "heavy";
+  necklace: "none" | "silver" | "gold" | "dark";
+}
+
 /** 절차적 fallback 생성기용 팔레트 분류 (기존 계약 유지) */
 export interface FallbackFeatures {
   skinTone: string;
@@ -65,6 +87,7 @@ export interface PhotoAnalysis {
     lowerBody: InferredItem | null;
     shoes: InferredItem | null;
   };
+  renderHints: PixelRenderHints;
   identityPrompt: string;
   outfitPrompt: string;
   negativePrompt: string;
@@ -98,7 +121,12 @@ STEP 5 — prompts for an image generation model:
 - outfitPrompt: 1-3 sentences describing the COMPLETE head-to-toe outfit: visible garments first (preserve them faithfully), then inferred garments.
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
-STEP 6 — fallbackFeatures: classify into these fixed palettes (pick the CLOSEST option, never invent values):
+STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
+- Classify the visible face geometry, eye geometry, bangs, hair texture/volume, garment texture, outer-layer thickness, and necklace.
+- necklace means a clearly visible necklace/chain/pendant; otherwise "none".
+- outerLayer means whether clothing should visibly use Minecraft's second skin layer for volume (jacket/hoodie/heavy knit = heavy, shirt/light knit = light).
+
+STEP 7 — fallbackFeatures: classify into these fixed palettes (pick the CLOSEST option, never invent values):
 {
   "skinTone": "pale" | "light" | "medium" | "tan" | "brown" | "dark",
   "hairColor": "black" | "dark-brown" | "brown" | "light-brown" | "blonde" | "platinum" | "red" | "auburn" | "gray" | "white" | "dyed-blue" | "dyed-pink" | "dyed-purple" | "dyed-green",
@@ -134,6 +162,17 @@ Respond with ONLY a JSON object matching this shape:
     "upperBody": { "value": str, "rationale": str } | null,
     "lowerBody": { "value": str, "rationale": str } | null,
     "shoes": { "value": str, "rationale": str } | null
+  },
+  "renderHints": {
+    "faceShape": "round" | "oval" | "long" | "angular" | "square",
+    "eyeShape": "narrow" | "almond" | "round",
+    "eyeSpacing": "close" | "average" | "wide",
+    "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
+    "hairTexture": "straight" | "wavy" | "curly" | "coily",
+    "hairVolume": "flat" | "normal" | "full",
+    "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
+    "outerLayer": "none" | "light" | "heavy",
+    "necklace": "none" | "silver" | "gold" | "dark"
   },
   "identityPrompt": str,
   "outfitPrompt": str,
@@ -199,6 +238,43 @@ export const PHOTO_ANALYSIS_SCHEMA = {
       },
       required: ["hairBack", "upperBody", "lowerBody", "shoes"],
     },
+    renderHints: {
+      type: "object",
+      properties: {
+        faceShape: {
+          type: "string",
+          enum: ["round", "oval", "long", "angular", "square"],
+        },
+        eyeShape: { type: "string", enum: ["narrow", "almond", "round"] },
+        eyeSpacing: { type: "string", enum: ["close", "average", "wide"] },
+        bangs: {
+          type: "string",
+          enum: ["none", "straight", "side", "curtain", "wispy"],
+        },
+        hairTexture: {
+          type: "string",
+          enum: ["straight", "wavy", "curly", "coily"],
+        },
+        hairVolume: { type: "string", enum: ["flat", "normal", "full"] },
+        garmentTexture: {
+          type: "string",
+          enum: ["plain", "knit", "denim", "leather", "striped", "patterned"],
+        },
+        outerLayer: { type: "string", enum: ["none", "light", "heavy"] },
+        necklace: { type: "string", enum: ["none", "silver", "gold", "dark"] },
+      },
+      required: [
+        "faceShape",
+        "eyeShape",
+        "eyeSpacing",
+        "bangs",
+        "hairTexture",
+        "hairVolume",
+        "garmentTexture",
+        "outerLayer",
+        "necklace",
+      ],
+    },
     identityPrompt: { type: "string" },
     outfitPrompt: { type: "string" },
     negativePrompt: { type: "string" },
@@ -211,6 +287,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
     "visibleRegions",
     "observed",
     "inferred",
+    "renderHints",
     "identityPrompt",
     "outfitPrompt",
     "negativePrompt",
@@ -296,6 +373,17 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           lowerBody: null,
           shoes: null,
         },
+        renderHints: {
+          faceShape: "oval",
+          eyeShape: "almond",
+          eyeSpacing: "average",
+          bangs: "none",
+          hairTexture: "straight",
+          hairVolume: "normal",
+          garmentTexture: "plain",
+          outerLayer: "none",
+          necklace: "none",
+        },
         identityPrompt: "",
         outfitPrompt: "",
         negativePrompt: "",
@@ -360,6 +448,76 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     shoes: parseInferredItem("inferred.shoes", inf.shoes, true),
   };
 
+  const enumValue = <T extends string>(
+    path: string,
+    value: unknown,
+    allowed: readonly T[],
+    fallback: T,
+  ): T => {
+    if (typeof value === "string" && allowed.includes(value as T)) {
+      return value as T;
+    }
+    errors.push(`${path}: 허용되지 않은 값 ${JSON.stringify(value)}`);
+    return fallback;
+  };
+  const hints = (obj.renderHints ?? {}) as Record<string, unknown>;
+  const renderHints: PixelRenderHints = {
+    faceShape: enumValue(
+      "renderHints.faceShape",
+      hints.faceShape,
+      ["round", "oval", "long", "angular", "square"],
+      "oval",
+    ),
+    eyeShape: enumValue(
+      "renderHints.eyeShape",
+      hints.eyeShape,
+      ["narrow", "almond", "round"],
+      "almond",
+    ),
+    eyeSpacing: enumValue(
+      "renderHints.eyeSpacing",
+      hints.eyeSpacing,
+      ["close", "average", "wide"],
+      "average",
+    ),
+    bangs: enumValue(
+      "renderHints.bangs",
+      hints.bangs,
+      ["none", "straight", "side", "curtain", "wispy"],
+      "none",
+    ),
+    hairTexture: enumValue(
+      "renderHints.hairTexture",
+      hints.hairTexture,
+      ["straight", "wavy", "curly", "coily"],
+      "straight",
+    ),
+    hairVolume: enumValue(
+      "renderHints.hairVolume",
+      hints.hairVolume,
+      ["flat", "normal", "full"],
+      "normal",
+    ),
+    garmentTexture: enumValue(
+      "renderHints.garmentTexture",
+      hints.garmentTexture,
+      ["plain", "knit", "denim", "leather", "striped", "patterned"],
+      "plain",
+    ),
+    outerLayer: enumValue(
+      "renderHints.outerLayer",
+      hints.outerLayer,
+      ["none", "light", "heavy"],
+      "none",
+    ),
+    necklace: enumValue(
+      "renderHints.necklace",
+      hints.necklace,
+      ["none", "silver", "gold", "dark"],
+      "none",
+    ),
+  };
+
   const identityPrompt = str("identityPrompt", obj.identityPrompt);
   const outfitPrompt = str("outfitPrompt", obj.outfitPrompt);
   const negativePrompt = str("negativePrompt", obj.negativePrompt);
@@ -388,6 +546,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       visibleRegions,
       observed,
       inferred,
+      renderHints,
       identityPrompt,
       outfitPrompt,
       negativePrompt,
@@ -431,7 +590,7 @@ export async function runPhotoAnalysis(
     try {
       const result = (await env.AI.run(VISION_MODEL as never, {
         messages,
-        max_tokens: 1400,
+        max_tokens: 1700,
         response_format: responseFormat,
       } as never)) as { response?: string | Record<string, unknown> };
       if (result.response && typeof result.response === "object") {

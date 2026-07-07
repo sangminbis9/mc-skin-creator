@@ -44,7 +44,10 @@ describe("buildSkinPrompt framing 정책", () => {
     const prompt = buildFrontViewPrompt(makeAnalysis());
     expect(prompt).toContain("FRONT view");
     expect(prompt).toContain("BACK view");
+    expect(prompt).toContain("image 1 strictly as the composition and pose guide");
     expect(prompt).toContain("silver glasses"); // identityPrompt 반영
+    expect(prompt).toContain("knit garment texture");
+    expect(prompt).toContain("evidence-based completions");
     expect(prompt).toContain("more than two figures"); // 회피 목록
   });
 

@@ -5,6 +5,7 @@
  */
 
 import type { PhotoAnalysis } from "./analysis";
+import { buildFrontBackGuidePng } from "./assets/frontBackGuide";
 import { base64ToBytes, sniffImageSize } from "./png";
 import { buildFrontViewPrompt, buildSkinPrompt } from "./skinPrompt";
 import type { Env } from "./types";
@@ -32,7 +33,8 @@ export interface SkinGenerationProvider {
   generate(request: SkinGenerationRequest): Promise<SkinGenerationResult>;
 }
 
-const FLUX_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
+const FLUX_MODEL_BALANCED = "@cf/black-forest-labs/flux-2-klein-4b";
+const FLUX_MODEL_QUALITY = "@cf/black-forest-labs/flux-2-klein-9b";
 /** FLUX 입력 이미지 제약: 512x512보다 작아야 한다 */
 const MAX_INPUT_EDGE = 511;
 const MIN_INPUT_EDGE = 64;
@@ -115,9 +117,10 @@ export class FluxKleinProvider implements SkinGenerationProvider {
     let prompt: string;
     let images: Uint8Array[];
     if (request.mode === "front_view") {
-      // 정면 뷰 모드: 사용자 사진만 참조 (배치는 서버 코드가 책임진다)
+      // image0=인물 정체성, image1=정면/뒷면 블록 포즈 구조 가이드.
+      // 가이드가 두 뷰의 크기·간격을 안정화하고, 배치는 서버 코드가 최종 보장한다.
       prompt = buildFrontViewPrompt(request.analysis);
-      images = [photo.bytes];
+      images = [photo.bytes, await buildFrontBackGuidePng()];
     } else {
       const styleRef = await this.loadStyleRef();
       const hasStyleRef = styleRef !== null;
@@ -148,7 +151,11 @@ export class FluxKleinProvider implements SkinGenerationProvider {
 
     let image: unknown;
     try {
-      const result = (await this.env.AI.run(FLUX_MODEL as never, {
+      const model =
+        this.env.IMAGE_MODEL_TIER === "quality"
+          ? FLUX_MODEL_QUALITY
+          : FLUX_MODEL_BALANCED;
+      const result = (await this.env.AI.run(model as never, {
         multipart: {
           body: formResponse.body,
           contentType,

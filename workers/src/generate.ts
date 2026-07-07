@@ -132,6 +132,18 @@ export async function generateSkin(
       glasses: String(raw.glasses ?? DEFAULT_FACE_STYLE.glasses),
       hairstyle: String(raw.hairstyle ?? DEFAULT_FACE_STYLE.hairstyle),
       hat: String(raw.hat ?? DEFAULT_FACE_STYLE.hat),
+      faceShape: analysis.renderHints.faceShape,
+      eyeShape: analysis.renderHints.eyeShape,
+      eyeSpacing: analysis.renderHints.eyeSpacing,
+      bangs: analysis.renderHints.bangs,
+      hairTexture: analysis.renderHints.hairTexture,
+      hairVolume: analysis.renderHints.hairVolume,
+      garmentTexture: analysis.renderHints.garmentTexture,
+      outerLayer: analysis.renderHints.outerLayer,
+      necklace: analysis.renderHints.necklace,
+      topType: String(raw.topType ?? DEFAULT_FACE_STYLE.topType),
+      sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
+      bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
     };
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
@@ -190,6 +202,10 @@ async function postprocess(
       const packed = packFrontViewToAtlas(decoded, faceStyle);
       if (!packed) {
         console.log(`attempt ${attempt}: 정면 뷰에서 캐릭터를 분리하지 못함`);
+        return null;
+      }
+      if (!packed.hasBackView) {
+        console.log(`attempt ${attempt}: 뒷면 뷰가 없어 정체성 일관성 검증 실패`);
         return null;
       }
       atlas = packed.atlas;

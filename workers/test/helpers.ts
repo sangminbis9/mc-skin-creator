@@ -40,6 +40,17 @@ export function makeAnalysis(
         rationale: "casual outfit pairs with simple sneakers",
       },
     },
+    renderHints: {
+      faceShape: "round",
+      eyeShape: "round",
+      eyeSpacing: "average",
+      bangs: "side",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      garmentTexture: "knit",
+      outerLayer: "heavy",
+      necklace: "none",
+    },
     identityPrompt:
       "A person with a round face, short black hair with side-swept bangs, thick eyebrows and thin silver glasses, warm smile.",
     outfitPrompt:
@@ -124,6 +135,36 @@ export function makeFrontView(): RawImage {
   fill(196, 330, 316, 480, [40, 50, 90]); // 다리 (남색)
   fill(196, 455, 316, 480, [110, 70, 40]); // 신발 (갈색)
   return { width: W, height: W, rgba };
+}
+
+/** 정면과 뒷면이 좌우로 분리된 1024x512 캐릭터 시트 */
+export function makeFrontBackView(): RawImage {
+  const front = makeFrontView();
+  const width = front.width * 2;
+  const rgba = new Uint8Array(width * front.height * 4);
+  for (let y = 0; y < front.height; y++) {
+    for (let x = 0; x < width; x++) {
+      rgba.set([232, 232, 236, 255], (y * width + x) * 4);
+    }
+  }
+  const copy = (offsetX: number) => {
+    for (let y = 0; y < front.height; y++) {
+      for (let x = 0; x < front.width; x++) {
+        const s = (y * front.width + x) * 4;
+        const d = (y * width + offsetX + x) * 4;
+        rgba.set(front.rgba.subarray(s, s + 4), d);
+      }
+    }
+  };
+  copy(0);
+  copy(front.width);
+  // 뒷면 얼굴 영역은 뒤통수 머리카락으로 덮어 두 번째 front로 오인하지 않게 한다.
+  for (let y = 40; y < 180; y++) {
+    for (let x = front.width + 196; x < front.width + 316; x++) {
+      rgba.set([38, 30, 24, 255], (y * width + x) * 4);
+    }
+  }
+  return { width, height: front.height, rgba };
 }
 
 /** 64x64 → scale배 nearest 확대 (FLUX 512 출력 흉내) */

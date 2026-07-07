@@ -7,7 +7,12 @@ import type {
 } from "../src/skinProvider";
 import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
-import { makeAnalysis, makeFrontView, makeSyntheticAtlas, upscale } from "./helpers";
+import {
+  makeAnalysis,
+  makeFrontBackView,
+  makeSyntheticAtlas,
+  upscale,
+} from "./helpers";
 
 function makeEnv(
   analysis: unknown,
@@ -52,9 +57,9 @@ async function goodFluxOutput(): Promise<SkinGenerationResult> {
 describe("generateSkin", () => {
   it("front_view 전략(기본): 정면 뷰를 pack해 64x64 atlas를 반환한다", async () => {
     const env = makeEnv(makeAnalysis(), true, "front_view");
-    const frontPng = await encodePng(makeFrontView());
+    const frontPng = await encodePng(makeFrontBackView());
     const provider = providerOf([
-      { ok: true, imageBytes: frontPng, inputTiles: 1, outputTiles: 2 },
+      { ok: true, imageBytes: frontPng, inputTiles: 2, outputTiles: 2 },
     ]);
     const result = await generateSkin(env, await photoDataUrl(), provider);
 
@@ -66,8 +71,8 @@ describe("generateSkin", () => {
       ),
     );
     expect(validateFinalAtlas(decoded).ok).toBe(true);
-    // 분석 170 + (입력 1타일 x 6 + 출력 2타일 x 27) = 230
-    expect(result.neuronsSpent).toBe(230);
+    // 분석 170 + (사진+포즈가이드 2타일 x 6 + 출력 2타일 x 27) = 236
+    expect(result.neuronsSpent).toBe(236);
   });
 
   it("direct_atlas 전략: 이미지 생성 성공 → 64x64 유효 atlas + 비용 215 Neurons", async () => {

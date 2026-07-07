@@ -44,13 +44,25 @@ function framingPolicy(analysis: PhotoAnalysis, personRef: string): string {
  * 머리 뒷모습/옷 뒷면이 실제 렌더로 채워진다.
  */
 export function buildFrontViewPrompt(analysis: PhotoAnalysis): string {
+  const inferred = [
+    analysis.inferred.hairBack?.value,
+    analysis.inferred.upperBody?.value,
+    analysis.inferred.lowerBody?.value,
+    analysis.inferred.shoes?.value,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("; ");
   const lines = [
-    "Two views of the SAME blocky pixel-art video game character side by side: on the left the FRONT view, on the right the BACK view (seen from behind, showing the back of the head, hair and outfit). Both standing straight, arms at the sides, full body from head to feet, identical size and proportions.",
+    "Use image 1 strictly as the composition and pose guide: replace both guide figures with two views of the SAME blocky pixel-art character, preserving their exact left/right placement, gap, scale, straight pose and proportions.",
+    "On the left render the FRONT view. On the right render the true BACK view seen from behind, including the back of the head, inferred hair, garment construction and shoes. Never draw a second front view.",
     "Minecraft proportions: large cubic head (about a quarter of total height), rectangular torso, straight blocky arms and legs.",
     "Both views centered on a plain solid very light gray background with a clear gap between them. Nothing else in the image.",
     `Design the character after the subject of image 0: hairstyle silhouette, bangs, hair color, skin tone, accessories and visible clothing must be clearly readable. ${analysis.identityPrompt}`,
     framingPolicy(analysis, "Image 0"),
-    "Crisp pixel clusters, 3-6 shade ramps per material, deliberate single-pixel detailing.",
+    `For surfaces not visible in image 0, use these evidence-based completions consistently in the back view: ${inferred || analysis.outfitPrompt}.`,
+    `Low-resolution identity priorities: ${analysis.renderHints.faceShape} face, ${analysis.renderHints.eyeShape} eyes with ${analysis.renderHints.eyeSpacing} spacing, ${analysis.renderHints.bangs} bangs, ${analysis.renderHints.hairTexture} ${analysis.renderHints.hairVolume}-volume hair.`,
+    `Material priorities: ${analysis.renderHints.garmentTexture} garment texture, ${analysis.renderHints.outerLayer} outer-layer volume, ${analysis.renderHints.necklace} necklace.`,
+    "Crisp pixel clusters, hard edges, 3-6 shade ramps per material, deliberate high-contrast details. Make thin identity cues such as glasses, necklace, collar and garment pattern at least 2 source pixels thick so they survive downsampling.",
   ];
   const avoid = [
     "more than two figures",

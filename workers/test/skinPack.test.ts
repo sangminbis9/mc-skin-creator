@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RawImage } from "../src/png";
-import { packFrontViewToAtlas } from "../src/skinPack";
+import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
 import { applyUvMask, validateFinalAtlas } from "../src/skinPost";
 import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 
-import { makeFrontView } from "./helpers";
+import { makeFrontBackView, makeFrontView } from "./helpers";
 
 function avgOfRect(
   atlas: RawImage,
@@ -61,15 +61,27 @@ describe("packFrontViewToAtlas", () => {
       atlas.rgba[(12 * ATLAS_SIZE + 12) * 4]) / 2;
     expect(edge).toBeLessThan(center);
 
-    // 구조적 얼굴: 눈(3행)은 흰자+눈동자 구조 — 1열은 흰자(밝음), 2열은 눈동자(어두움)
-    const eyeWhite = atlas.rgba[(11 * ATLAS_SIZE + 9) * 4];
-    const iris = atlas.rgba[(11 * ATLAS_SIZE + 10) * 4];
-    expect(eyeWhite).toBeGreaterThan(200);
-    expect(iris).toBeLessThan(120);
+    // 생성 렌더에 없던 고정 흰자 템플릿을 새로 만들지 않는다.
+    let forcedWhitePixels = 0;
+    for (let y = 11; y < 13; y++) {
+      for (let x = 8; x < 16; x++) {
+        const d = (y * ATLAS_SIZE + x) * 4;
+        if (
+          atlas.rgba[d] > 240 &&
+          atlas.rgba[d + 1] > 240 &&
+          atlas.rgba[d + 2] > 240
+        ) {
+          forcedWhitePixels++;
+        }
+      }
+    }
+    expect(forcedWhitePixels).toBe(0);
 
-    // overlay 볼 라운딩: 머리 overlay 앞면(40,8)의 볼 위치가 불투명 피부색
-    const cheekAlpha = atlas.rgba[((8 + 5) * ATLAS_SIZE + 40 + 0) * 4 + 3];
-    expect(cheekAlpha).toBe(255);
+    // 옷 목선은 overlay에 분리되어 실제 두께를 갖는다.
+    const bodyOverlay = CLASSIC_LAYOUT.body.overlay.front;
+    const collarAlpha =
+      atlas.rgba[(bodyOverlay.y * ATLAS_SIZE + bodyOverlay.x + 2) * 4 + 3];
+    expect(collarAlpha).toBe(255);
 
     // UV 규칙 준수
     applyUvMask(atlas);
@@ -123,6 +135,101 @@ describe("packFrontViewToAtlas", () => {
     const bodyBackOver = CLASSIC_LAYOUT.body.overlay.back;
     const d = (bodyBackOver.y * 64 + bodyBackOver.x) * 4;
     expect(withHat.atlas.rgba[d + 3]).toBe(0);
+  });
+
+  it("정면/뒷면 두 뷰를 구분하고 실제 뒤통수와 옷 뒷면을 사용한다", () => {
+    const packed = packFrontViewToAtlas(makeFrontBackView())!;
+    expect(packed.hasBackView).toBe(true);
+    const back = avgOfRect(packed.atlas, CLASSIC_LAYOUT.head.base.back);
+    expect(back[0]).toBeLessThan(80);
+  });
+
+  it("분석 힌트로 앞머리·니트·목걸이·소매를 overlay에 분리한다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bangs: "straight",
+      hairTexture: "straight",
+      hairVolume: "full",
+      garmentTexture: "knit",
+      outerLayer: "heavy",
+      necklace: "silver",
+      topType: "sweater",
+      sleeveLength: "long",
+      bottomType: "pants",
+    })!;
+    const atlas = packed.atlas;
+    const headOver = CLASSIC_LAYOUT.head.overlay.front;
+    const fringeAlpha =
+      atlas.rgba[((headOver.y + 2) * ATLAS_SIZE + headOver.x + 3) * 4 + 3];
+    expect(fringeAlpha).toBe(255);
+
+    const bodyOver = CLASSIC_LAYOUT.body.overlay.front;
+    const pendant =
+      ((bodyOver.y + 4) * ATLAS_SIZE + bodyOver.x + 3) * 4;
+    expect(atlas.rgba[pendant]).toBeGreaterThan(170);
+    expect(atlas.rgba[pendant + 2]).toBeGreaterThan(170);
+
+    const armOver = CLASSIC_LAYOUT.rightArm.overlay.front;
+    const cuffAlpha =
+      atlas.rgba[((armOver.y + armOver.h - 2) * ATLAS_SIZE + armOver.x) * 4 + 3];
+    expect(cuffAlpha).toBe(255);
+  });
+
+  it("얼굴 옆 검은 기둥 없이 눈·코·입과 둥근 머리 볼륨을 만든다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      faceShape: "oval",
+      eyeShape: "almond",
+      eyeSpacing: "average",
+      bangs: "straight",
+      hairVolume: "normal",
+      expression: "neutral",
+    })!;
+    const atlas = packed.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const leftCheek = ((face.y + 6) * ATLAS_SIZE + face.x) * 4;
+    expect(atlas.rgba[leftCheek]).toBeGreaterThan(120);
+
+    const mouth = ((face.y + 6) * ATLAS_SIZE + face.x + 3) * 4;
+    expect(atlas.rgba[mouth]).toBeLessThan(atlas.rgba[leftCheek]);
+
+    const top = CLASSIC_LAYOUT.head.overlay.top;
+    const topCornerAlpha = atlas.rgba[(top.y * ATLAS_SIZE + top.x) * 4 + 3];
+    const topCenterAlpha =
+      atlas.rgba[((top.y + 3) * ATLAS_SIZE + top.x + 3) * 4 + 3];
+    expect(topCornerAlpha).toBe(0);
+    expect(topCenterAlpha).toBe(255);
+  });
+
+  it("중간 길이 머리는 외곽 레이어가 정수리·관자놀이·뒤통수로 이어지고 색 램프를 쓴다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "straight",
+      hairTexture: "straight",
+      hairVolume: "normal",
+    })!;
+    const atlas = packed.atlas;
+    const right = CLASSIC_LAYOUT.head.overlay.right;
+    const back = CLASSIC_LAYOUT.head.overlay.back;
+    const templeAlpha =
+      atlas.rgba[((right.y + 4) * ATLAS_SIZE + right.x) * 4 + 3];
+    const backLowerAlpha =
+      atlas.rgba[((back.y + 5) * ATLAS_SIZE + back.x + 2) * 4 + 3];
+    expect(templeAlpha).toBe(255);
+    expect(backLowerAlpha).toBe(255);
+
+    const colors = new Set<string>();
+    for (const rect of Object.values(CLASSIC_LAYOUT.head.overlay)) {
+      for (let y = rect.y; y < rect.y + rect.h; y++) {
+        for (let x = rect.x; x < rect.x + rect.w; x++) {
+          const d = (y * ATLAS_SIZE + x) * 4;
+          if (atlas.rgba[d + 3] === 0) continue;
+          colors.add(`${atlas.rgba[d]},${atlas.rgba[d + 1]},${atlas.rgba[d + 2]}`);
+        }
+      }
+    }
+    expect(colors.size).toBeGreaterThan(3);
   });
 
   it("캐릭터가 너무 작으면 null", () => {

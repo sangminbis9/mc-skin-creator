@@ -63,6 +63,16 @@ describe("validatePhotoAnalysis", () => {
     }
   });
 
+  it("저해상도 렌더 힌트의 허용값을 검증한다", () => {
+    const broken = makeAnalysis();
+    broken.renderHints.bangs = "generic" as never;
+    const result = validatePhotoAnalysis(broken);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join()).toContain("renderHints.bangs");
+    }
+  });
+
   it("객체가 아닌 응답은 즉시 실패한다", () => {
     expect(validatePhotoAnalysis("json이 아님").ok).toBe(false);
     expect(validatePhotoAnalysis(null).ok).toBe(false);

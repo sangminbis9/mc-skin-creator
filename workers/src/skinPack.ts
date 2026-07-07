@@ -18,6 +18,7 @@ import {
 export interface PackResult {
   atlas: RawImage;
   problems: string[];
+  hasBackView: boolean;
 }
 
 /**
@@ -34,6 +35,18 @@ export interface FaceStyle {
   /** bald | buzz | short | medium | long | ponytail | bun | twintails | curly | afro */
   hairstyle: string;
   hat: string; // none | cap | beanie | hood
+  faceShape?: "round" | "oval" | "long" | "angular" | "square";
+  eyeShape?: "narrow" | "almond" | "round";
+  eyeSpacing?: "close" | "average" | "wide";
+  bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
+  hairTexture?: "straight" | "wavy" | "curly" | "coily";
+  hairVolume?: "flat" | "normal" | "full";
+  garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
+  outerLayer?: "none" | "light" | "heavy";
+  necklace?: "none" | "silver" | "gold" | "dark";
+  topType?: string;
+  sleeveLength?: string;
+  bottomType?: string;
 }
 
 export const DEFAULT_FACE_STYLE: FaceStyle = {
@@ -45,6 +58,18 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   glasses: "none",
   hairstyle: "short",
   hat: "none",
+  faceShape: "oval",
+  eyeShape: "almond",
+  eyeSpacing: "average",
+  bangs: "none",
+  hairTexture: "straight",
+  hairVolume: "normal",
+  garmentTexture: "plain",
+  outerLayer: "none",
+  necklace: "none",
+  topType: "tshirt",
+  sleeveLength: "short",
+  bottomType: "pants",
 };
 
 type Rgb = [number, number, number];
@@ -328,20 +353,15 @@ function applyShading(atlas: RawImage): void {
 }
 
 /**
- * 얼굴 구조적 합성.
+ * 구조화된 저해상도 얼굴 합성.
  *
- * 샘플링만으로 만든 8x8 얼굴은 코·입 그림자가 검은 얼룩으로 증폭되거나
- * 앞머리에 눈이 묻히는 문제가 있었다(실측). 대신:
- * - 렌더에서 가져오는 것: 앞머리 실루엣(열별 내려온 깊이)과 머리카락 질감, 피부색
- * - 분석 특징으로 그리는 것: 눈썹(2행)·눈(3-4행)·코(5행)·입(6행)·수염,
- *   안경은 overlay(2-5행) — 클라이언트 절차 생성기와 동일한 검증된 좌표
- * - 피부에는 이마→턱·중앙→가장자리 명암, overlay에 볼(5-6행)·턱(7행) 라운딩
+ * FLUX가 그린 작은 얼굴은 8x8 축소 시 검은 얼룩과 머리 가장자리 노이즈가 된다.
+ * 생성 이미지에서는 피부/머리 팔레트만 가져오고, 형태는 분석 단계의 얼굴·눈·앞머리
+ * 힌트로 다시 그린다. 모든 사람에게 같은 큰 흰자 템플릿을 쓰지 않고 눈 간격·눈매·
+ * 눈썹 굵기·표정·앞머리 유형을 8x8 제약 안에서 구분한다.
  */
 function composeFace(
   atlas: RawImage,
-  src: RawImage,
-  headRegion: Region,
-  bg: [number, number, number],
   hairColor: Rgb,
   skinColor: Rgb,
   style: FaceStyle,
@@ -355,108 +375,97 @@ function composeFace(
     atlas.rgba[d + 2] = c[2];
     atlas.rgba[d + 3] = 255;
   };
+  const hair = (x: number, y: number, shade = 1) =>
+    put(face, x, y, shadeRgb(hairPixel(hairColor, x, y, 0.07), shade));
 
-  // 1) 8x8 셀 샘플 + 머리카락/피부 분류
-  const rw = headRegion.x1 - headRegion.x0;
-  const rh = headRegion.y1 - headRegion.y0;
-  const cellColor: Rgb[] = [];
-  for (let cy = 0; cy < 8; cy++) {
-    for (let cx = 0; cx < 8; cx++) {
-      cellColor.push(
-        featureColor(
-          src,
-          {
-            x0: headRegion.x0 + (cx / 8) * rw,
-            x1: headRegion.x0 + ((cx + 1) / 8) * rw,
-            y0: headRegion.y0 + (cy / 8) * rh,
-            y1: headRegion.y0 + ((cy + 1) / 8) * rh,
-          },
-          bg,
-        ),
-      );
-    }
-  }
-  const dist = (a: Rgb, b: Rgb) =>
-    Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
-  const isHairCell = (c: Rgb) =>
-    dist(c, hairColor) < dist(c, skinColor) && dist(c, hairColor) < 160;
-
-  // 앞머리 깊이: 열별로 위에서 연속된 머리카락 셀 수 (눈 행 보호를 위해 최대 3)
-  const hairDepth: number[] = [];
-  for (let cx = 0; cx < 8; cx++) {
-    let depth = 0;
-    while (depth < 3 && isHairCell(cellColor[depth * 8 + cx])) {
-      depth++;
-    }
-    hairDepth.push(depth);
-  }
-
-  // 2) 바탕: 머리카락(렌더 질감 유지) + 피부(명암 그라데이션)
+  // 1) 피부 바탕: 얼굴형에 따른 가장자리/턱 명암만 적용한다.
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
-      if (y < hairDepth[x]) {
-        const cell = cellColor[y * 8 + x];
-        put(face, x, y, isHairCell(cell) ? cell : hairColor);
-      } else {
-        let factor = 1.04 - (y / 7) * 0.09; // 이마 밝게 → 턱 어둡게
-        const centerDist = Math.abs(x - 3.5) / 3.5;
-        factor *= 1.03 - centerDist * 0.08; // 중앙 밝게 → 가장자리 어둡게
-        put(face, x, y, shadeRgb(skinColor, factor));
+      const edge = Math.abs(x - 3.5) / 3.5;
+      let factor = 1.035 - edge * 0.075 - (y / 7) * 0.035;
+      if (
+        y >= 6 &&
+        (style.faceShape === "angular" || style.faceShape === "square")
+      ) {
+        factor *= 0.91;
+      } else if (y === 7 && style.faceShape === "round") {
+        factor *= x === 0 || x === 7 ? 0.88 : 0.95;
+      } else if (y === 7 && style.faceShape === "long") {
+        factor *= 0.9;
       }
+      put(face, x, y, shadeRgb(skinColor, factor));
     }
   }
 
-  // 3) 이목구비 (클라이언트 절차 생성기의 검증된 좌표)
-  const browColor = shadeRgb(hairColor, 0.8);
-  if (style.eyebrowThickness === "thick") {
-    for (const x of [0, 1, 2, 5, 6, 7]) {
-      if (hairDepth[x] <= 2) put(face, x, 2, browColor);
-    }
+  // 2) base 앞머리: 얼굴 옆의 검은 노이즈를 버리고 명시적인 실루엣만 그린다.
+  for (let x = 0; x < 8; x++) hair(x, 0);
+  if (style.hairstyle !== "buzz") {
+    for (let x = 0; x < 8; x++) hair(x, 1, x === 0 || x === 7 ? 0.92 : 1);
+  }
+  const bangs = style.bangs ?? "none";
+  if (bangs === "straight") {
+    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) hair(x, 2);
+    for (const x of [0, 2, 5, 7]) hair(x, 3, 0.96);
+  } else if (bangs === "side") {
+    for (const x of [0, 1, 2, 3, 4, 5]) hair(x, 2);
+    for (const x of [0, 1, 2]) hair(x, 3, 0.96);
+  } else if (bangs === "curtain") {
+    for (const x of [0, 1, 2, 5, 6, 7]) hair(x, 2);
+    hair(0, 3, 0.94);
+    hair(7, 3, 0.94);
+  } else if (bangs === "wispy") {
+    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) hair(x, 1);
+    for (const x of [1, 3, 5, 7]) hair(x, 2, 0.96);
   } else {
-    const c =
-      style.eyebrowThickness === "thin"
-        ? mixRgb(browColor, skinColor, 0.35)
-        : browColor;
-    for (const x of [1, 2, 5, 6]) {
-      if (hairDepth[x] <= 2) put(face, x, 2, c);
-    }
+    hair(0, 2, 0.94);
+    hair(7, 2, 0.94);
   }
 
-  const white: Rgb = [245, 245, 240];
+  // 3) 눈썹·눈·코·입: 1픽셀 검은 사각형으로 끝나지 않도록 작은 색 군집을 만든다.
+  const browColor = shadeRgb(hairColor, 0.8);
   const eye = hexToRgb(style.eyeColor, [74, 55, 40]);
-  for (const [wx, ix] of [
-    [1, 2],
-    [6, 5],
-  ] as const) {
-    put(face, wx, 3, white);
-    put(face, wx, 4, shadeRgb(white, 0.92));
-    put(face, ix, 3, eye);
-    put(face, ix, 4, shadeRgb(eye, 0.75));
+  const eyePairs =
+    style.eyeSpacing === "wide"
+      ? ([[0, 1], [6, 7]] as const)
+      : style.eyeSpacing === "close"
+        ? ([[1, 2], [4, 5]] as const)
+        : ([[1, 2], [5, 6]] as const);
+  const brow =
+    style.eyebrowThickness === "thin"
+      ? mixRgb(browColor, skinColor, 0.38)
+      : browColor;
+  for (const [outer, inner] of eyePairs) {
+    put(face, outer, 3, brow);
+    put(face, inner, 3, brow);
+    const sclera = mixRgb(skinColor, [238, 232, 222], 0.58);
+    put(face, outer, 4, sclera);
+    put(face, inner, 4, eye);
+    if (style.eyeShape === "round") {
+      put(face, inner, 5, shadeRgb(eye, 0.78));
+    }
+  }
+  if (style.eyebrowThickness === "thick") {
+    put(face, eyePairs[0][0], 2, shadeRgb(brow, 0.96));
+    put(face, eyePairs[1][1], 2, shadeRgb(brow, 0.96));
   }
 
   const skinShadow = shadeRgb(skinColor, 0.82);
-  put(face, 3, 5, skinShadow);
-  put(face, 4, 5, skinShadow);
+  put(face, style.faceShape === "long" ? 4 : 3, 5, skinShadow);
 
   const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
   if (style.expression === "smile") {
+    put(face, 2, 6, shadeRgb(mouthColor, 1.1));
     put(face, 3, 6, mouthColor);
     put(face, 4, 6, mouthColor);
-    put(face, 2, 6, shadeRgb(mouthColor, 1.15));
-    put(face, 5, 6, shadeRgb(mouthColor, 1.15));
-    const blush = mixRgb(skinColor, [255, 138, 128], 0.35);
-    put(face, 0, 5, blush);
-    put(face, 7, 5, blush);
+    put(face, 5, 6, shadeRgb(mouthColor, 1.1));
   } else if (style.expression === "serious") {
-    for (const x of [2, 3, 4, 5]) {
-      put(face, x, 6, shadeRgb(mouthColor, 0.8));
-    }
+    for (const x of [2, 3, 4, 5]) put(face, x, 6, shadeRgb(mouthColor, 0.82));
   } else {
     put(face, 3, 6, mouthColor);
     put(face, 4, 6, mouthColor);
   }
 
-  // 수염
+  // 4) 수염과 안경은 실제 돌출 요소이므로 overlay를 활용한다.
   if (style.facialHair !== "none") {
     const beard =
       style.facialHair === "stubble"
@@ -479,19 +488,24 @@ function composeFace(
     }
   }
 
-  // 4) overlay: 볼(5-6행)·턱(7행) 라운딩 — 안경보다 먼저 그린다 (안경이 위에 얹힘)
-  const cheek = shadeRgb(skinColor, 0.92);
-  for (const y of [5, 6]) {
-    put(overlay, 0, y, cheek);
-    put(overlay, 7, y, cheek);
-  }
-  if (style.facialHair === "none" || style.facialHair === "mustache") {
-    for (const x of [2, 3, 4, 5]) {
-      put(overlay, x, 7, cheek);
-    }
+  // 앞머리 overlay는 듬성한 가닥만 사용해 헬멧 같은 판을 만들지 않는다.
+  const fringe = (xs: number[], y: number) => {
+    for (const x of xs) put(overlay, x, y, hairVolumePixel(hairColor, x, y));
+  };
+  if (style.bangs === "straight") {
+    fringe([0, 2, 5, 7], 1);
+    fringe([1, 3, 4, 6], 2);
+  } else if (style.bangs === "side") {
+    fringe([0, 2, 4, 6], 1);
+    fringe([0, 1, 3], 2);
+  } else if (style.bangs === "curtain") {
+    fringe([0, 2, 5, 7], 1);
+    fringe([1, 6], 2);
+  } else if (style.bangs === "wispy") {
+    fringe([1, 4, 7], 1);
+    fringe([2, 5], 2);
   }
 
-  // 5) 안경 (overlay, 클라이언트와 동일 좌표)
   if (style.glasses !== "none") {
     const rim = hexToRgb(style.glassesColor, [34, 32, 30]);
     const lens = style.glasses === "sunglasses" ? shadeRgb(rim, 0.55) : null;
@@ -534,6 +548,27 @@ function hairPixel(color: Rgb, gx: number, gy: number, jitter: number): Rgb {
 }
 
 /**
+ * 외곽 머리 전용 4단계 색 램프.
+ * 검은 머리는 단순 곱셈으로 명암을 줘도 모두 검게 뭉치므로, 따뜻한 중성색을
+ * 소량 혼합해 base와 overlay의 높이 차가 3D 뷰에서 읽히게 한다.
+ */
+function hairVolumePixel(color: Rgb, gx: number, gy: number): Rgb {
+  const hash = ((gx * 83492791) ^ (gy * 2971215073)) >>> 0;
+  switch (hash % 7) {
+    case 0:
+      return mixRgb(shadeRgb(color, 0.76), [0, 0, 0], 0.12);
+    case 1:
+    case 2:
+      return shadeRgb(color, 0.9);
+    case 3:
+    case 4:
+      return mixRgb(color, [112, 104, 98], 0.09);
+    default:
+      return mixRgb(color, [132, 122, 114], 0.17);
+  }
+}
+
+/**
  * 헤어스타일 구조적 합성 (클라이언트 절차 생성기의 검증된 구조 이식).
  *
  * 렌더가 실제로 보여주는 곳은 렌더를 우선한다:
@@ -556,17 +591,38 @@ function composeHair(
   const base = CLASSIC_LAYOUT.head.base;
   const over = CLASSIC_LAYOUT.head.overlay;
   const s = style.hairstyle;
-  const jitter = s === "curly" || s === "afro" ? 0.12 : 0.06;
+  const textured =
+    s === "curly" ||
+    s === "afro" ||
+    style.hairTexture === "curly" ||
+    style.hairTexture === "coily";
+  const jitter = textured ? 0.12 : style.hairTexture === "wavy" ? 0.085 : 0.06;
 
-  const fill = (rect: Rect, x0: number, y0: number, w: number, h: number) => {
+  const fill = (
+    rect: Rect,
+    x0: number,
+    y0: number,
+    w: number,
+    h: number,
+    volume = false,
+  ) => {
     for (let y = y0; y < Math.min(rect.h, y0 + h); y++) {
       for (let x = x0; x < Math.min(rect.w, x0 + w); x++) {
         const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
-        const c = hairPixel(hairColor, rect.x + x, rect.y + y, jitter);
+        const c = volume
+          ? hairVolumePixel(hairColor, rect.x + x, rect.y + y)
+          : hairPixel(hairColor, rect.x + x, rect.y + y, jitter);
         atlas.rgba[d] = c[0];
         atlas.rgba[d + 1] = c[1];
         atlas.rgba[d + 2] = c[2];
         atlas.rgba[d + 3] = 255;
+      }
+    }
+  };
+  const volumeMask = (rect: Rect, rows: number[][]) => {
+    for (let y = 0; y < Math.min(rect.h, rows.length); y++) {
+      for (const x of rows[y]) {
+        if (x >= 0 && x < rect.w) fill(rect, x, y, 1, 1, true);
       }
     }
   };
@@ -613,39 +669,108 @@ function composeHair(
   }
 
   // ---- overlay 볼륨 ----
-  fill(over.top, 0, 0, 8, 8);
-  fill(over.front, 0, 0, 8, 1);
-  fill(over.right, 0, 0, 8, 1);
-  fill(over.left, 0, 0, 8, 1);
-  fill(over.back, 0, 0, 8, 1);
+  // 정수리→관자놀이→뒤통수가 한 덩어리로 읽히도록 각 면의 경계 픽셀을 연결한다.
+  // 모서리와 마지막 행은 비대칭 계단형으로 비워 블록형 헬멧 실루엣을 피한다.
+  if (style.hairVolume === "full") {
+    volumeMask(over.top, [
+      [1, 2, 3, 4, 5, 6],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [1, 2, 3, 5, 6],
+    ]);
+  } else if (style.hairVolume === "flat") {
+    volumeMask(over.top, [
+      [],
+      [],
+      [2, 3, 4, 5],
+      [1, 2, 3, 4, 5, 6],
+      [1, 2, 3, 4, 5, 6],
+      [2, 3, 4, 5],
+    ]);
+  } else {
+    volumeMask(over.top, [
+      [1, 2, 3, 4, 5, 6],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [1, 2, 4, 5, 6],
+    ]);
+  }
+  volumeMask(over.front, [[1, 2, 3, 4, 5, 6]]);
 
-  if (s === "afro" || s === "curly") {
+  const sideVolumeRows =
+    s === "buzz"
+      ? 1
+      : s === "short"
+        ? 3
+        : s === "medium" || s === "curly"
+          ? 5
+          : Math.min(7, sideRows);
+  const sideMask: number[][] = [
+    [1, 2, 3, 4, 5, 6],
+    [0, 1, 2, 3, 4, 5, 6, 7],
+    [0, 1, 2, 5, 6, 7],
+    [0, 1, 6, 7],
+    [0, 7],
+    [1, 7],
+    [1, 6],
+  ].slice(0, style.hairVolume === "flat" ? Math.min(2, sideVolumeRows) : sideVolumeRows);
+  volumeMask(over.right, sideMask);
+  volumeMask(
+    over.left,
+    sideMask.map((row) => row.map((x) => 7 - x)),
+  );
+
+  const backVolumeRows =
+    s === "buzz"
+      ? 2
+      : s === "short"
+        ? 4
+        : s === "medium" || s === "curly"
+          ? 6
+          : Math.min(8, backRows);
+  const backMask: number[][] = [];
+  for (let y = 0; y < backVolumeRows; y++) {
+    if (y === 0) backMask.push([1, 2, 3, 4, 5, 6]);
+    else if (y === backVolumeRows - 1) backMask.push([1, 2, 3, 5, 6]);
+    else backMask.push([0, 1, 2, 3, 4, 5, 6, 7]);
+  }
+  volumeMask(over.back, backMask);
+
+  if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
     const rows = s === "afro" ? 4 : 2;
-    fill(over.front, 0, 0, 8, rows);
-    fill(over.right, 0, 0, 8, rows + 1);
-    fill(over.left, 0, 0, 8, rows + 1);
-    fill(over.back, 0, 0, 8, rows + 1);
+    fill(over.front, 0, 0, 8, rows, true);
+    fill(over.right, 0, 0, 8, rows + 1, true);
+    fill(over.left, 0, 0, 8, rows + 1, true);
+    fill(over.back, 0, 0, 8, rows + 1, true);
   }
   if (s === "long") {
     // 어깨까지 내려오는 뒷머리 (몸통 뒤 overlay) + 옆 볼륨
-    fill(CLASSIC_LAYOUT.body.overlay.back, 0, 0, 8, 4);
-    fill(CLASSIC_LAYOUT.body.overlay.back, 1, 4, 6, 1);
-    fill(over.right, 0, 0, 8, 6);
-    fill(over.left, 0, 0, 8, 6);
+    fill(CLASSIC_LAYOUT.body.overlay.back, 0, 0, 8, 4, true);
+    fill(CLASSIC_LAYOUT.body.overlay.back, 1, 4, 6, 1, true);
+    fill(over.right, 0, 0, 8, 6, true);
+    fill(over.left, 0, 0, 8, 6, true);
   }
   if (s === "ponytail") {
-    fill(over.back, 2, 1, 4, 7);
-    fill(CLASSIC_LAYOUT.body.overlay.back, 3, 0, 2, 4);
+    fill(over.back, 2, 1, 4, 7, true);
+    fill(CLASSIC_LAYOUT.body.overlay.back, 3, 0, 2, 4, true);
   }
   if (s === "bun") {
-    fill(over.back, 2, 0, 4, 3);
-    fill(over.top, 2, 5, 4, 3);
+    fill(over.back, 2, 0, 4, 3, true);
+    fill(over.top, 2, 5, 4, 3, true);
   }
   if (s === "twintails") {
-    fill(over.right, 5, 0, 3, 8);
-    fill(over.left, 0, 0, 3, 8);
-    fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 4, 4);
-    fill(CLASSIC_LAYOUT.body.overlay.left, 0, 0, 4, 4);
+    fill(over.right, 5, 0, 3, 8, true);
+    fill(over.left, 0, 0, 3, 8, true);
+    fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 4, 4, true);
+    fill(CLASSIC_LAYOUT.body.overlay.left, 0, 0, 4, 4, true);
   }
 
   // 옆면 overlay를 머리로 채우며 안경 다리가 덮였을 수 있어 다시 그린다
@@ -662,6 +787,169 @@ function composeHair(
     put(over.right, 6, 3);
     put(over.left, 0, 3);
     put(over.left, 1, 3);
+  }
+}
+
+/**
+ * base는 피부/옷의 실제 표면, overlay는 두께가 있는 요소만 담당한다.
+ * 이미지 모델이 만든 색과 뒷면을 유지하면서 분석 힌트로 카라·겉옷 가장자리·
+ * 소매 끝·목걸이·재질 패턴을 보강한다.
+ */
+function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
+  const sample = (rect: Rect, x: number, y: number): Rgb => {
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2]];
+  };
+  const put = (rect: Rect, x: number, y: number, color: Rgb, alpha = 255) => {
+    if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return;
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba[d] = color[0];
+    atlas.rgba[d + 1] = color[1];
+    atlas.rgba[d + 2] = color[2];
+    atlas.rgba[d + 3] = alpha;
+  };
+  const copy = (
+    src: Rect,
+    dst: Rect,
+    x: number,
+    y: number,
+    shade = 0.94,
+  ) => put(dst, x, y, shadeRgb(sample(src, x, y), shade));
+  const shadeBase = (rect: Rect, x: number, y: number, shade: number) => {
+    put(rect, x, y, shadeRgb(sample(rect, x, y), shade));
+  };
+
+  const body = CLASSIC_LAYOUT.body;
+  const texture = style.garmentTexture ?? "plain";
+  for (const rect of [body.base.front, body.base.back]) {
+    if (texture === "knit") {
+      for (let y = 1; y < rect.h - 1; y++) {
+        for (const x of [1, 3, 4, 6]) {
+          shadeBase(rect, x, y, (x + y) % 3 === 0 ? 1.09 : 0.91);
+        }
+      }
+    } else if (texture === "striped") {
+      for (let y = 2; y < rect.h; y += 3) {
+        for (let x = 0; x < rect.w; x++) shadeBase(rect, x, y, 0.86);
+      }
+    } else if (texture === "denim" || texture === "leather") {
+      for (let y = 0; y < rect.h; y++) {
+        shadeBase(rect, 0, y, 0.84);
+        shadeBase(rect, rect.w - 1, y, texture === "leather" ? 1.08 : 0.9);
+      }
+    } else if (texture === "patterned") {
+      for (let y = 1; y < rect.h; y += 3) {
+        for (let x = Math.floor(y / 3) % 2; x < rect.w; x += 3) {
+          shadeBase(rect, x, y, 0.82);
+        }
+      }
+    }
+  }
+
+  const front = body.overlay.front;
+  const back = body.overlay.back;
+  const baseFront = body.base.front;
+  const baseBack = body.base.back;
+  const layer = style.outerLayer ?? "none";
+  const topType = style.topType ?? "tshirt";
+
+  // 카라/목선: 가벼운 상의도 실제 옷 두께를 느낄 수 있는 최소 레이어.
+  for (const [x, y] of [
+    [2, 0],
+    [3, 1],
+    [4, 1],
+    [5, 0],
+  ] as const) {
+    copy(baseFront, front, x, y, 0.86);
+  }
+
+  if (layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType)) {
+    // 어깨 솔기와 밑단
+    for (let y = 1; y < front.h - 1; y++) {
+      copy(baseFront, front, 0, y, 0.88);
+      copy(baseFront, front, 7, y, 0.88);
+      copy(baseBack, back, 0, y, 0.84);
+      copy(baseBack, back, 7, y, 0.84);
+    }
+    for (let x = 0; x < front.w; x++) {
+      copy(baseFront, front, x, front.h - 1, 0.82);
+      copy(baseBack, back, x, back.h - 1, 0.8);
+    }
+  }
+
+  if (topType === "jacket") {
+    for (let y = 0; y < front.h; y++) {
+      copy(baseFront, front, 2, y, 0.78);
+      copy(baseFront, front, 5, y, 0.78);
+    }
+  } else if (topType === "hoodie") {
+    for (let x = 1; x < 7; x++) {
+      copy(baseBack, back, x, 0, 0.78);
+      copy(baseBack, back, x, 1, 0.82);
+    }
+    for (let x = 1; x < 7; x++) copy(baseFront, front, x, 9, 0.8);
+  } else if (topType === "sweater") {
+    for (let x = 1; x < 7; x++) copy(baseFront, front, x, 0, 0.8);
+  }
+
+  const necklace = style.necklace ?? "none";
+  if (necklace !== "none") {
+    const chain: Rgb =
+      necklace === "silver"
+        ? [205, 211, 218]
+        : necklace === "gold"
+          ? [224, 181, 67]
+          : [65, 60, 58];
+    for (const [x, y] of [
+      [2, 1],
+      [5, 1],
+      [3, 2],
+      [4, 2],
+      [3, 3],
+      [4, 3],
+    ] as const) {
+      put(front, x, y, chain);
+    }
+    put(front, 3, 4, shadeRgb(chain, 1.08));
+    put(front, 4, 4, shadeRgb(chain, 0.82));
+  }
+
+  // 긴 소매의 커프는 팔 overlay로 분리해 몸통과 팔의 입체 경계를 만든다.
+  if (
+    style.sleeveLength === "long" ||
+    ["sweater", "hoodie", "jacket"].includes(topType)
+  ) {
+    for (const part of ["rightArm", "leftArm"] as const) {
+      const arm = CLASSIC_LAYOUT[part];
+      for (const faceName of ["front", "back", "right", "left"] as const) {
+        const src = arm.base[faceName];
+        const dst = arm.overlay[faceName];
+        for (let x = 0; x < dst.w; x++) {
+          copy(src, dst, x, dst.h - 2, 0.82);
+          if (layer === "heavy") copy(src, dst, x, dst.h - 1, 0.75);
+        }
+      }
+    }
+  }
+
+  // 바지 허리/주머니와 신발 앞코도 필요한 부분만 overlay로 올린다.
+  if (style.bottomType === "jeans" || style.bottomType === "pants") {
+    for (const part of ["rightLeg", "leftLeg"] as const) {
+      const leg = CLASSIC_LAYOUT[part];
+      for (let x = 0; x < leg.overlay.front.w; x++) {
+        copy(leg.base.front, leg.overlay.front, x, 0, 0.82);
+      }
+      copy(leg.base.front, leg.overlay.front, part === "rightLeg" ? 0 : 3, 2, 0.74);
+      for (let x = 0; x < leg.overlay.front.w; x++) {
+        copy(
+          leg.base.front,
+          leg.overlay.front,
+          x,
+          leg.overlay.front.h - 1,
+          0.9,
+        );
+      }
+    }
   }
 }
 
@@ -913,8 +1201,8 @@ export function packFrontViewToAtlas(
     },
     bg,
   );
-  // 얼굴: 렌더의 앞머리 실루엣·색 + 분석 특징 기반 이목구비 구조적 합성
-  composeFace(atlas, src, front.head, bg, hairColor, skinColor, faceStyle);
+  // 얼굴: 렌더에서는 팔레트만 사용하고, 분석 힌트로 안정적인 8x8 구조를 합성
+  composeFace(atlas, hairColor, skinColor, faceStyle);
 
   // 옆면은 front 가장자리 확장 (얼굴 반전 금지)
   fillRectFromRect(
@@ -1006,9 +1294,10 @@ export function packFrontViewToAtlas(
     }
   }
 
-  // ---------- 마감: 헤어스타일 구조 + 셰이딩 ----------
+  // ---------- 마감: 의상/액세서리 레이어 + 헤어스타일 구조 + 셰이딩 ----------
+  composeGarmentLayers(atlas, faceStyle);
   composeHair(atlas, hairColor, faceStyle, back !== null);
   applyShading(atlas);
 
-  return { atlas, problems };
+  return { atlas, problems, hasBackView: back !== null };
 }
