@@ -310,6 +310,36 @@ describe("packFrontViewToAtlas", () => {
     expect(colors.size).toBeGreaterThan(3);
   });
 
+  it("adds readable 8x8 face micro details on the overlay and base face", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      glasses: "none",
+      facialHair: "none",
+      faceShape: "round",
+      eyeShape: "round",
+      eyeSpacing: "average",
+      expression: "smile",
+    })!;
+    const atlas = packed.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+    const idx = (rect: { x: number; y: number }, x: number, y: number) =>
+      ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+
+    const eyeHighlight = idx(over, 2, 4);
+    const cheekBlush = idx(over, 1, 5);
+    const noseBridge = idx(face, 3, 4);
+    const noseShadow = idx(face, 3, 5);
+
+    expect(atlas.rgba[eyeHighlight + 3]).toBe(255);
+    expect(atlas.rgba[cheekBlush + 3]).toBe(255);
+    expect(atlas.rgba[cheekBlush]).toBeGreaterThan(atlas.rgba[cheekBlush + 1]);
+    expect(atlas.rgba[noseShadow]).toBeLessThan(atlas.rgba[noseBridge]);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("hair overlay side edges connect to adjacent head faces without transparent seams", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

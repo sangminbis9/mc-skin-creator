@@ -468,7 +468,32 @@ function composeFace(
   }
 
   const skinShadow = shadeRgb(skinColor, 0.82);
-  put(face, style.faceShape === "long" ? 4 : 3, 5, skinShadow);
+  const eyeHighlight = mixRgb(eye, [250, 244, 232], 0.58);
+  const lowerEye = mixRgb(skinColor, shadeRgb(eye, 0.66), 0.24);
+  const eyelid = mixRgb(skinColor, brow, style.eyeShape === "narrow" ? 0.48 : 0.34);
+  const noseX = style.faceShape === "long" ? 4 : 3;
+  const noseBridge = mixRgb(skinColor, [255, 238, 224], 0.24);
+  const noseSide = shadeRgb(skinColor, 0.9);
+
+  if (style.glasses === "none") {
+    for (const [outer, inner] of eyePairs) {
+      if (style.eyeShape === "round") {
+        put(overlay, inner, 4, eyeHighlight);
+        put(overlay, outer, 5, lowerEye);
+      } else if (style.eyeShape === "narrow") {
+        put(overlay, outer, 3, eyelid);
+        put(overlay, inner, 3, shadeRgb(eyelid, 0.86));
+        put(overlay, inner, 4, shadeRgb(eye, 0.82));
+      } else {
+        put(overlay, inner, 4, eyeHighlight);
+        put(overlay, inner, 5, lowerEye);
+      }
+    }
+  }
+
+  put(face, noseX, 4, noseBridge);
+  put(face, noseX, 5, skinShadow);
+  put(face, noseX === 3 ? 4 : 3, 5, noseSide);
 
   const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
   if (style.expression === "smile") {
@@ -513,6 +538,25 @@ function composeFace(
   for (const y of [5, 6]) {
     put(overlay, 0, y, cheek);
     put(overlay, 7, y, cheek);
+  }
+  if (style.facialHair === "none") {
+    const blush = mixRgb(
+      skinColor,
+      [222, 128, 116],
+      style.expression === "smile" ? 0.17 : 0.1,
+    );
+    put(overlay, 1, 5, blush);
+    put(overlay, 6, 5, shadeRgb(blush, 0.98));
+  }
+  if (style.faceShape === "angular" || style.faceShape === "square") {
+    put(overlay, 1, 7, shadeRgb(skinColor, 0.88));
+    put(overlay, 6, 7, shadeRgb(skinColor, 0.88));
+  } else if (style.faceShape === "long") {
+    put(overlay, 3, 7, shadeRgb(skinColor, 0.9));
+    put(overlay, 4, 7, shadeRgb(skinColor, 0.9));
+  } else if (style.faceShape === "round") {
+    put(overlay, 1, 6, shadeRgb(skinColor, 0.97));
+    put(overlay, 6, 6, shadeRgb(skinColor, 0.97));
   }
   const chin =
     style.facialHair === "beard" ||
