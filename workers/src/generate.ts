@@ -140,11 +140,19 @@ export async function generateSkin(
       hairVolume: analysis.renderHints.hairVolume,
       garmentTexture: analysis.renderHints.garmentTexture,
       outerLayer: analysis.renderHints.outerLayer,
+      outerGarment: analysis.renderHints.outerGarment,
       necklace: analysis.renderHints.necklace,
+      hairAccessory: analysis.renderHints.hairAccessory,
+      neckAccessory: analysis.renderHints.neckAccessory,
+      bottomPattern: analysis.renderHints.bottomPattern,
+      bottomAccent: analysis.renderHints.bottomAccent,
+      legwear: analysis.renderHints.legwear,
+      legwearAsymmetry: analysis.renderHints.legwearAsymmetry,
       topType: String(raw.topType ?? DEFAULT_FACE_STYLE.topType),
       sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
       bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
     };
+    completeInferredLowerDetails(analysis, faceStyle);
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
       const generated = await provider.generate({
@@ -326,6 +334,46 @@ function paletteHex(
     }
   }
   return fallback;
+}
+
+function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+  if (analysis.visibleRegions.lowerBody) {
+    return;
+  }
+
+  const topType = style.topType ?? "tshirt";
+  const bottomType = style.bottomType ?? "pants";
+  const smartCasualTop =
+    ["shirt", "sweater", "jacket", "dress"].includes(topType) ||
+    (style.outerGarment !== undefined && style.outerGarment !== "none") ||
+    (style.neckAccessory !== undefined && style.neckAccessory !== "none");
+
+  if ((style.bottomAccent ?? "none") === "none") {
+    style.bottomAccent = smartCasualTop
+      ? "belt"
+      : topType === "hoodie"
+        ? "cuffs"
+        : "side_stripe";
+  }
+
+  if (
+    (bottomType === "skirt" || bottomType === "shorts") &&
+    (style.bottomPattern ?? "plain") === "plain" &&
+    smartCasualTop
+  ) {
+    style.bottomPattern = style.neckAccessory === "bow" || style.neckAccessory === "collar"
+      ? "pleated"
+      : "striped";
+  }
+
+  if (
+    (style.legwear ?? "none") === "none" &&
+    (bottomType === "skirt" || bottomType === "shorts") &&
+    (style.outerGarment === "cardigan" || style.neckAccessory === "bow")
+  ) {
+    style.legwear = "socks";
+    style.legwearAsymmetry = "both";
+  }
 }
 
 export function fallbackFeaturesToHex(

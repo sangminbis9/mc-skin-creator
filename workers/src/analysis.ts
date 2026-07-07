@@ -37,7 +37,14 @@ export interface PixelRenderHints {
     | "striped"
     | "patterned";
   outerLayer: "none" | "light" | "heavy";
+  outerGarment: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
   necklace: "none" | "silver" | "gold" | "dark";
+  hairAccessory: "none" | "flower" | "bow" | "ribbon" | "clip";
+  neckAccessory: "none" | "bow" | "tie" | "scarf" | "collar";
+  bottomPattern: "plain" | "plaid" | "striped" | "pleated" | "lace";
+  bottomAccent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
+  legwear: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
+  legwearAsymmetry: "none" | "left" | "right" | "both";
 }
 
 /** 절차적 fallback 생성기용 팔레트 분류 (기존 계약 유지) */
@@ -124,7 +131,13 @@ STEP 5 — prompts for an image generation model:
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
 - Classify the visible face geometry, eye geometry, bangs, hair texture/volume, garment texture, outer-layer thickness, and necklace.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
+- hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none".
+- neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue.
+- bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
+- bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
+- legwear captures visible socks, stockings, leg warmers or thigh-highs. legwearAsymmetry is "left" or "right" when only one leg has the distinctive legwear, "both" when both legs do, and "none" when no legwear is visible.
 - outerLayer means whether clothing should visibly use Minecraft's second skin layer for volume (jacket/hoodie/heavy knit = heavy, shirt/light knit = light).
+- outerGarment captures a visible open cardigan, open jacket, coat, or vest silhouette. Use "none" for a single closed top.
 
 STEP 7 — fallbackFeatures: classify into these fixed palettes (pick the CLOSEST option, never invent values):
 {
@@ -172,7 +185,14 @@ Respond with ONLY a JSON object matching this shape:
     "hairVolume": "flat" | "normal" | "full",
     "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
     "outerLayer": "none" | "light" | "heavy",
-    "necklace": "none" | "silver" | "gold" | "dark"
+    "outerGarment": "none" | "cardigan" | "open_jacket" | "coat" | "vest",
+    "necklace": "none" | "silver" | "gold" | "dark",
+    "hairAccessory": "none" | "flower" | "bow" | "ribbon" | "clip",
+    "neckAccessory": "none" | "bow" | "tie" | "scarf" | "collar",
+    "bottomPattern": "plain" | "plaid" | "striped" | "pleated" | "lace",
+    "bottomAccent": "none" | "belt" | "cuffs" | "side_stripe" | "ribbon",
+    "legwear": "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs",
+    "legwearAsymmetry": "none" | "left" | "right" | "both"
   },
   "identityPrompt": str,
   "outfitPrompt": str,
@@ -261,7 +281,35 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           enum: ["plain", "knit", "denim", "leather", "striped", "patterned"],
         },
         outerLayer: { type: "string", enum: ["none", "light", "heavy"] },
+        outerGarment: {
+          type: "string",
+          enum: ["none", "cardigan", "open_jacket", "coat", "vest"],
+        },
         necklace: { type: "string", enum: ["none", "silver", "gold", "dark"] },
+        hairAccessory: {
+          type: "string",
+          enum: ["none", "flower", "bow", "ribbon", "clip"],
+        },
+        neckAccessory: {
+          type: "string",
+          enum: ["none", "bow", "tie", "scarf", "collar"],
+        },
+        bottomPattern: {
+          type: "string",
+          enum: ["plain", "plaid", "striped", "pleated", "lace"],
+        },
+        bottomAccent: {
+          type: "string",
+          enum: ["none", "belt", "cuffs", "side_stripe", "ribbon"],
+        },
+        legwear: {
+          type: "string",
+          enum: ["none", "socks", "stockings", "leg_warmers", "thigh_highs"],
+        },
+        legwearAsymmetry: {
+          type: "string",
+          enum: ["none", "left", "right", "both"],
+        },
       },
       required: [
         "faceShape",
@@ -272,7 +320,14 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "hairVolume",
         "garmentTexture",
         "outerLayer",
+        "outerGarment",
         "necklace",
+        "hairAccessory",
+        "neckAccessory",
+        "bottomPattern",
+        "bottomAccent",
+        "legwear",
+        "legwearAsymmetry",
       ],
     },
     identityPrompt: { type: "string" },
@@ -382,7 +437,14 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           hairVolume: "normal",
           garmentTexture: "plain",
           outerLayer: "none",
+          outerGarment: "none",
           necklace: "none",
+          hairAccessory: "none",
+          neckAccessory: "none",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
         },
         identityPrompt: "",
         outfitPrompt: "",
@@ -510,10 +572,52 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       ["none", "light", "heavy"],
       "none",
     ),
+    outerGarment: enumValue(
+      "renderHints.outerGarment",
+      hints.outerGarment,
+      ["none", "cardigan", "open_jacket", "coat", "vest"],
+      "none",
+    ),
     necklace: enumValue(
       "renderHints.necklace",
       hints.necklace,
       ["none", "silver", "gold", "dark"],
+      "none",
+    ),
+    hairAccessory: enumValue(
+      "renderHints.hairAccessory",
+      hints.hairAccessory,
+      ["none", "flower", "bow", "ribbon", "clip"],
+      "none",
+    ),
+    neckAccessory: enumValue(
+      "renderHints.neckAccessory",
+      hints.neckAccessory,
+      ["none", "bow", "tie", "scarf", "collar"],
+      "none",
+    ),
+    bottomPattern: enumValue(
+      "renderHints.bottomPattern",
+      hints.bottomPattern,
+      ["plain", "plaid", "striped", "pleated", "lace"],
+      "plain",
+    ),
+    bottomAccent: enumValue(
+      "renderHints.bottomAccent",
+      hints.bottomAccent,
+      ["none", "belt", "cuffs", "side_stripe", "ribbon"],
+      "none",
+    ),
+    legwear: enumValue(
+      "renderHints.legwear",
+      hints.legwear,
+      ["none", "socks", "stockings", "leg_warmers", "thigh_highs"],
+      "none",
+    ),
+    legwearAsymmetry: enumValue(
+      "renderHints.legwearAsymmetry",
+      hints.legwearAsymmetry,
+      ["none", "left", "right", "both"],
       "none",
     ),
   };

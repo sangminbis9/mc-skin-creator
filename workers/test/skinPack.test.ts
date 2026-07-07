@@ -183,7 +183,39 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
-  it("정면/뒷면 두 뷰를 구분하고 실제 뒤통수와 옷 뒷면을 사용한다", () => {
+  it("outerGarment=cardigan keeps an open front and connected side/back/sleeve layers", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      outerGarment: "cardigan",
+      topType: "shirt",
+      sleeveLength: "long",
+    })!;
+    const atlas = packed.atlas;
+    const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
+    const bodySide = CLASSIC_LAYOUT.body.overlay.right;
+    const bodyBack = CLASSIC_LAYOUT.body.overlay.back;
+    const armFront = CLASSIC_LAYOUT.rightArm.overlay.front;
+
+    const panel = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 1) * 4;
+    const trim = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 2) * 4;
+    const openCenter = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 3) * 4;
+    const side = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + 1) * 4;
+    const back = ((bodyBack.y + 5) * ATLAS_SIZE + bodyBack.x + 4) * 4;
+    const sleeve = ((armFront.y + 4) * ATLAS_SIZE + armFront.x + 1) * 4;
+
+    expect(atlas.rgba[panel + 3]).toBe(255);
+    expect(atlas.rgba[trim + 3]).toBe(255);
+    expect(atlas.rgba[openCenter + 3]).toBe(0);
+    expect(atlas.rgba[trim]).toBeLessThan(atlas.rgba[panel]);
+    expect(atlas.rgba[side + 3]).toBe(255);
+    expect(atlas.rgba[back + 3]).toBe(255);
+    expect(atlas.rgba[sleeve + 3]).toBe(255);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("front/back views use the actual back view", () => {
     const packed = packFrontViewToAtlas(makeFrontBackView())!;
     expect(packed.hasBackView).toBe(true);
     const back = avgOfRect(packed.atlas, CLASSIC_LAYOUT.head.base.back);
@@ -278,6 +310,39 @@ describe("packFrontViewToAtlas", () => {
     expect(colors.size).toBeGreaterThan(3);
   });
 
+  it("hair overlay side edges connect to adjacent head faces without transparent seams", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "straight",
+      hairTexture: "straight",
+      hairVolume: "normal",
+    })!;
+    const atlas = packed.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const alphaAt = (rect: { x: number; y: number }, x: number, y: number) =>
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
+
+    for (let y = 0; y < 5; y++) {
+      expect(alphaAt(over.right, 7, y)).toBe(255);
+      expect(alphaAt(over.left, 0, y)).toBe(255);
+      expect(alphaAt(over.right, 0, y)).toBe(255);
+      expect(alphaAt(over.left, 7, y)).toBe(255);
+    }
+    for (let y = 0; y < 4; y++) {
+      expect(alphaAt(over.front, 0, y)).toBe(255);
+      expect(alphaAt(over.front, 7, y)).toBe(255);
+    }
+    for (let y = 0; y < 5; y++) {
+      expect(alphaAt(over.back, 0, y)).toBe(255);
+      expect(alphaAt(over.back, 7, y)).toBe(255);
+    }
+    for (let x = 1; x < 7; x++) {
+      expect(alphaAt(over.top, x, 0)).toBe(255);
+      expect(alphaAt(over.top, x, 7)).toBe(255);
+    }
+  });
+
   it("캐릭터가 너무 작으면 null", () => {
     const tiny: RawImage = {
       width: 256,
@@ -306,5 +371,120 @@ describe("packFrontViewToAtlas", () => {
     const bodyA = avgOfRect(a.atlas, CLASSIC_LAYOUT.body.base.front);
     const bodyB = avgOfRect(b.atlas, CLASSIC_LAYOUT.body.base.front);
     expect(Math.abs(bodyA[1] - bodyB[1])).toBeGreaterThan(50);
+  });
+
+  it("bottomType=skirt이면 몸통 하단과 다리 상단 overlay로 치마 밑단과 주름을 만든다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "skirt",
+    })!;
+    const atlas = packed.atlas;
+    const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
+
+    const bodyHem =
+      ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
+    const rightLegTop = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
+    const leftLegTop = (leftLegFront.y * ATLAS_SIZE + leftLegFront.x + 1) * 4;
+
+    expect(atlas.rgba[bodyHem + 3]).toBe(255);
+    expect(atlas.rgba[rightLegTop + 3]).toBe(255);
+    expect(atlas.rgba[leftLegTop + 3]).toBe(255);
+    expect(atlas.rgba[bodyHem]).toBeLessThan(atlas.rgba[rightLegTop]);
+
+    const shades = new Set<number>();
+    for (let x = 0; x < bodyFront.w; x++) {
+      const d =
+        ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + x) * 4;
+      shades.add(atlas.rgba[d]);
+    }
+    expect(shades.size).toBeGreaterThan(1);
+  });
+
+  it("bottomAccent adds inferred lower-body details even when the lower garment is plain", () => {
+    const withBelt = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "pants",
+      bottomAccent: "belt",
+    })!;
+    const beltBody = CLASSIC_LAYOUT.body.overlay.front;
+    const beltPixel =
+      ((beltBody.y + beltBody.h - 3) * ATLAS_SIZE + beltBody.x + 3) * 4;
+    expect(withBelt.atlas.rgba[beltPixel + 3]).toBe(255);
+
+    const withStripe = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "pants",
+      bottomAccent: "side_stripe",
+    })!;
+    const leg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const stripePixel = ((leg.y + 4) * ATLAS_SIZE + leg.x) * 4;
+    expect(withStripe.atlas.rgba[stripePixel + 3]).toBe(255);
+
+    applyUvMask(withStripe.atlas);
+    expect(validateFinalAtlas(withStripe.atlas).ok).toBe(true);
+  });
+
+  it("hairAccessory=flower이면 head overlay 앞/옆면에 꽃과 잎 디테일을 남긴다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairAccessory: "flower",
+      hairstyle: "long",
+      hairVolume: "full",
+    })!;
+    const atlas = packed.atlas;
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const side = CLASSIC_LAYOUT.head.overlay.right;
+    const petal = ((front.y + 2) * ATLAS_SIZE + front.x + 1) * 4;
+    const leaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
+    const sidePetal = ((side.y + 2) * ATLAS_SIZE + side.x + 6) * 4;
+
+    expect(atlas.rgba[petal + 3]).toBe(255);
+    expect(atlas.rgba[petal]).toBeGreaterThan(atlas.rgba[petal + 1]);
+    expect(atlas.rgba[leaf + 1]).toBeGreaterThan(atlas.rgba[leaf]);
+    expect(atlas.rgba[sidePetal + 3]).toBe(255);
+  });
+
+  it("legwear=leg_warmers와 한쪽 asymmetry이면 한쪽 다리 레그워머와 반대쪽 리본을 그린다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "skirt",
+      legwear: "leg_warmers",
+      legwearAsymmetry: "left",
+    })!;
+    const atlas = packed.atlas;
+    const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const right = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const warmer = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
+    const bow = ((right.y + 2) * ATLAS_SIZE + right.x) * 4;
+    const bareSameRow = ((right.y + 4) * ATLAS_SIZE + right.x + 1) * 4;
+
+    expect(atlas.rgba[warmer + 3]).toBe(255);
+    expect(atlas.rgba[bow + 3]).toBe(255);
+    expect(atlas.rgba[bow]).toBeGreaterThan(220);
+    expect(atlas.rgba[bareSameRow + 3]).toBe(0);
+  });
+
+  it("neckAccessory=bow와 bottomPattern=plaid이면 목 리본과 체크 하의를 overlay에 보존한다", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "skirt",
+      bottomPattern: "plaid",
+      neckAccessory: "bow",
+    })!;
+    const atlas = packed.atlas;
+    const body = CLASSIC_LAYOUT.body.overlay.front;
+    const bowLeft = ((body.y + 1) * ATLAS_SIZE + body.x + 2) * 4;
+    const bowCenter = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
+    const plaidDark =
+      ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 1) * 4;
+    const plaidLight =
+      ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 2) * 4;
+
+    expect(atlas.rgba[bowLeft + 3]).toBe(255);
+    expect(atlas.rgba[bowLeft]).toBeGreaterThan(atlas.rgba[bowCenter]);
+    expect(atlas.rgba[plaidDark + 3]).toBe(255);
+    expect(atlas.rgba[plaidDark]).toBeLessThan(atlas.rgba[plaidLight]);
   });
 });

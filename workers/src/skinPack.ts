@@ -43,7 +43,14 @@ export interface FaceStyle {
   hairVolume?: "flat" | "normal" | "full";
   garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
   outerLayer?: "none" | "light" | "heavy";
+  outerGarment?: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
   necklace?: "none" | "silver" | "gold" | "dark";
+  hairAccessory?: "none" | "flower" | "bow" | "ribbon" | "clip";
+  neckAccessory?: "none" | "bow" | "tie" | "scarf" | "collar";
+  bottomPattern?: "plain" | "plaid" | "striped" | "pleated" | "lace";
+  bottomAccent?: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
+  legwear?: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
+  legwearAsymmetry?: "none" | "left" | "right" | "both";
   topType?: string;
   sleeveLength?: string;
   bottomType?: string;
@@ -66,7 +73,14 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   hairVolume: "normal",
   garmentTexture: "plain",
   outerLayer: "none",
+  outerGarment: "none",
   necklace: "none",
+  hairAccessory: "none",
+  neckAccessory: "none",
+  bottomPattern: "plain",
+  bottomAccent: "none",
+  legwear: "none",
+  legwearAsymmetry: "none",
   topType: "tshirt",
   sleeveLength: "short",
   bottomType: "pants",
@@ -644,6 +658,14 @@ function composeHair(
       }
     }
   };
+  const putColor = (rect: Rect, x: number, y: number, color: Rgb) => {
+    if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return;
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba[d] = color[0];
+    atlas.rgba[d + 1] = color[1];
+    atlas.rgba[d + 2] = color[2];
+    atlas.rgba[d + 3] = 255;
+  };
 
   // 스타일별 옆/뒷머리 길이 (클라이언트와 동일 값)
   const sideRows =
@@ -731,15 +753,32 @@ function composeHair(
         : s === "medium" || s === "curly"
           ? 5
           : Math.min(7, sideRows);
-  const sideMask: number[][] = [
-    [1, 2, 3, 4, 5, 6],
-    [0, 1, 2, 3, 4, 5, 6, 7],
-    [0, 1, 2, 5, 6, 7],
-    [0, 1, 6, 7],
-    [0, 7],
-    [1, 7],
-    [1, 6],
-  ].slice(0, style.hairVolume === "flat" ? Math.min(2, sideVolumeRows) : sideVolumeRows);
+  const sideMaskTemplate =
+    style.hairVolume === "full"
+      ? [
+          [0, 1, 2, 3, 4, 5, 6, 7],
+          [0, 1, 2, 3, 4, 5, 6, 7],
+          [0, 1, 2, 3, 4, 5, 6, 7],
+          [0, 1, 2, 3, 5, 6, 7],
+          [0, 1, 2, 5, 6, 7],
+          [0, 1, 6, 7],
+          [0, 7],
+        ]
+      : style.hairVolume === "flat"
+        ? [
+            [1, 2, 3, 4, 5, 6],
+            [0, 1, 2, 3, 4, 5, 6, 7],
+          ]
+        : [
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            [0, 1, 2, 5, 6, 7],
+            [0, 1, 2, 6, 7],
+            [0, 1, 6, 7],
+            [0, 7],
+            [0, 7],
+          ];
+  const sideMask: number[][] = sideMaskTemplate.slice(0, sideVolumeRows);
   volumeMask(over.right, sideMask);
   volumeMask(
     over.left,
@@ -761,6 +800,55 @@ function composeHair(
     else backMask.push([0, 1, 2, 3, 4, 5, 6, 7]);
   }
   volumeMask(over.back, backMask);
+
+  const sideEdgeRows =
+    style.hairVolume === "flat"
+      ? Math.min(2, sideVolumeRows)
+      : Math.min(7, Math.max(sideVolumeRows, s === "medium" || s === "curly" ? 5 : sideRows));
+  const templeRows =
+    s === "buzz"
+      ? 1
+      : s === "short" || s === "bun" || s === "ponytail"
+        ? 3
+        : s === "medium" || s === "curly" || s === "afro"
+          ? 4
+          : 6;
+  const frontSeamRows =
+    style.hairVolume === "flat"
+      ? Math.min(2, templeRows)
+      : Math.min(6, Math.max(1, Math.min(templeRows, sideEdgeRows)));
+  const backSeamRows = Math.min(backVolumeRows, Math.max(2, sideEdgeRows));
+
+  // UV seam guard: the head overlay is rendered as a slightly larger cube.
+  // If one face's edge is transparent while the adjacent face has hair,
+  // the 3D preview shows a visible crack. Paint matching edge bands on
+  // front/right/left/back/top so side hair reads as one continuous volume.
+  for (let y = 0; y < sideEdgeRows; y++) {
+    fill(over.right, 0, y, 1, 1, true);
+    fill(over.right, 7, y, 1, 1, true);
+    fill(over.left, 0, y, 1, 1, true);
+    fill(over.left, 7, y, 1, 1, true);
+  }
+  for (let y = 0; y < frontSeamRows; y++) {
+    fill(over.front, 0, y, 1, 1, true);
+    fill(over.front, 7, y, 1, 1, true);
+    if (y <= 1 && s !== "buzz") {
+      fill(over.front, 1, y, 1, 1, true);
+      fill(over.front, 6, y, 1, 1, true);
+    }
+  }
+  for (let y = 0; y < backSeamRows; y++) {
+    fill(over.back, 0, y, 1, 1, true);
+    fill(over.back, 7, y, 1, 1, true);
+  }
+  for (let x = 1; x < 7; x++) {
+    fill(over.top, x, 0, 1, 1, true);
+    fill(over.top, x, 7, 1, 1, true);
+  }
+  for (let y = 1; y < 7; y++) {
+    fill(over.top, 0, y, 1, 1, true);
+    fill(over.top, 7, y, 1, 1, true);
+  }
 
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
     const rows = s === "afro" ? 4 : 2;
@@ -789,6 +877,52 @@ function composeHair(
     fill(over.left, 0, 0, 3, 8, true);
     fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 4, 4, true);
     fill(CLASSIC_LAYOUT.body.overlay.left, 0, 0, 4, 4, true);
+  }
+
+  const accessory = style.hairAccessory ?? "none";
+  if (accessory !== "none") {
+    const flowerPetal: Rgb = [236, 184, 192];
+    const flowerShade: Rgb = [205, 138, 153];
+    const flowerCenter: Rgb = [238, 213, 166];
+    const leaf: Rgb = [126, 151, 126];
+    const ribbon: Rgb = [228, 184, 198];
+    const ribbonDark: Rgb = [174, 116, 134];
+    const clip: Rgb = [220, 210, 196];
+    const drawFlower = (rect: Rect, cx: number, cy: number) => {
+      putColor(rect, cx, cy - 1, flowerPetal);
+      putColor(rect, cx - 1, cy, flowerPetal);
+      putColor(rect, cx + 1, cy, flowerShade);
+      putColor(rect, cx, cy + 1, flowerShade);
+      putColor(rect, cx, cy, flowerCenter);
+    };
+    const drawRibbon = (rect: Rect, cx: number, cy: number) => {
+      putColor(rect, cx - 1, cy, ribbon);
+      putColor(rect, cx + 1, cy, ribbon);
+      putColor(rect, cx, cy, ribbonDark);
+      putColor(rect, cx - 2, cy - 1, shadeRgb(ribbon, 1.06));
+      putColor(rect, cx + 2, cy - 1, shadeRgb(ribbon, 0.92));
+    };
+
+    if (accessory === "flower") {
+      drawFlower(over.front, 1, 2);
+      drawFlower(over.front, 0, 4);
+      putColor(over.front, 2, 1, leaf);
+      putColor(over.front, 1, 4, leaf);
+      drawFlower(over.right, 6, 2);
+      putColor(over.right, 5, 1, leaf);
+      putColor(over.top, 1, 6, flowerPetal);
+      putColor(over.top, 2, 6, leaf);
+    } else if (accessory === "bow" || accessory === "ribbon") {
+      drawRibbon(over.front, 1, 2);
+      drawRibbon(over.right, 6, 2);
+      putColor(over.top, 1, 6, ribbon);
+    } else if (accessory === "clip") {
+      for (const [x, y] of [[0, 2], [1, 2], [2, 2], [1, 3]] as const) {
+        putColor(over.front, x, y, clip);
+      }
+      putColor(over.right, 6, 2, clip);
+      putColor(over.right, 5, 2, shadeRgb(clip, 0.86));
+    }
   }
 
   // 옆면 overlay를 머리로 채우며 안경 다리가 덮였을 수 있어 다시 그린다
@@ -891,6 +1025,24 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const shadeBase = (rect: Rect, x: number, y: number, shade: number) => {
     put(rect, x, y, shadeRgb(sample(rect, x, y), shade));
   };
+  const averageRect = (rect: Rect, y0 = 0, h = rect.h): Rgb => {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (let y = Math.max(0, y0); y < Math.min(rect.h, y0 + h); y++) {
+      for (let x = 0; x < rect.w; x++) {
+        const c = sample(rect, x, y);
+        r += c[0];
+        g += c[1];
+        b += c[2];
+        n++;
+      }
+    }
+    return n === 0
+      ? [96, 88, 88]
+      : [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+  };
   // 두께 큐: base를 어둡게만 복사하면 그림자로 읽힌다. 윗행(lit)은 빛을 받아
   // 밝게, 밑단(hem)만 어둡게 해서 overlay가 base 위의 옷감으로 분리돼 보이게 한다.
   const volumeCopy = (
@@ -939,6 +1091,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const baseBack = body.base.back;
   const layer = style.outerLayer ?? "none";
   const topType = style.topType ?? "tshirt";
+  const outerGarment = style.outerGarment ?? "none";
 
   // 카라/목선: 가벼운 상의도 실제 옷 두께를 느낄 수 있는 최소 레이어.
   for (const [x, y] of [
@@ -979,7 +1132,85 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
   }
 
-  if (topType === "jacket") {
+  if (outerGarment !== "none") {
+    const sideSample = mixRgb(sample(baseFront, 1, 5), sample(baseFront, 6, 5), 0.5);
+    const backSample = averageRect(baseBack, 2, 6);
+    const panelBase = mixRgb(sideSample, backSample, 0.42);
+    const panelColor =
+      outerGarment === "cardigan"
+        ? mixRgb(panelBase, [236, 202, 204], 0.18)
+        : outerGarment === "coat"
+          ? shadeRgb(panelBase, 0.82)
+          : outerGarment === "vest"
+            ? shadeRgb(panelBase, 0.96)
+            : shadeRgb(panelBase, 0.9);
+    const trimColor = shadeRgb(panelColor, outerGarment === "cardigan" ? 0.74 : 0.68);
+    const litPanel = shadeRgb(panelColor, 1.1);
+    const hemPanel = shadeRgb(panelColor, 0.72);
+
+    const panelXs = [0, 1, 2, 5, 6, 7] as const;
+    for (let y = 0; y < front.h; y++) {
+      for (const x of panelXs) {
+        const edge = x === 0 || x === 7;
+        const opening = x === 2 || x === 5;
+        const shade =
+          y === front.h - 1 ? 0.72 : y === 0 ? 1.08 : edge ? 0.86 : opening ? 0.78 : 0.98;
+        put(front, x, y, shadeRgb(panelColor, shade));
+      }
+      put(front, 2, y, y % 3 === 0 ? trimColor : shadeRgb(trimColor, 1.08));
+      put(front, 5, y, y % 3 === 0 ? shadeRgb(trimColor, 0.86) : trimColor);
+    }
+    for (const x of [0, 1, 2, 5, 6, 7] as const) {
+      put(front, x, front.h - 1, hemPanel);
+    }
+    if (outerGarment === "cardigan" || outerGarment === "coat") {
+      for (const [x, y] of [
+        [1, 2],
+        [6, 2],
+        [1, 5],
+        [6, 5],
+        [1, 8],
+        [6, 8],
+      ] as const) {
+        put(front, x, y, shadeRgb(panelColor, 0.82));
+      }
+    }
+
+    for (let y = 0; y < back.h; y++) {
+      for (let x = 0; x < back.w; x++) {
+        const shade = y === back.h - 1 ? 0.72 : x === 0 || x === back.w - 1 ? 0.82 : 0.94;
+        put(back, x, y, shadeRgb(panelColor, shade));
+      }
+    }
+    for (const rect of [body.overlay.right, body.overlay.left]) {
+      for (let y = 0; y < rect.h; y++) {
+        for (let x = 0; x < rect.w; x++) {
+          const shade = y === rect.h - 1 ? 0.72 : x === 0 || x === rect.w - 1 ? 0.82 : 0.96;
+          put(rect, x, y, shadeRgb(panelColor, shade));
+        }
+      }
+      for (let x = 0; x < rect.w; x++) put(rect, x, 0, litPanel);
+    }
+
+    if (outerGarment !== "vest") {
+      for (const part of ["rightArm", "leftArm"] as const) {
+        const arm = CLASSIC_LAYOUT[part];
+        for (const faceName of ["front", "back", "right", "left"] as const) {
+          const dst = arm.overlay[faceName];
+          for (let y = 0; y < dst.h; y++) {
+            for (let x = 0; x < dst.w; x++) {
+              const cuff = y >= dst.h - 2;
+              const edge = x === 0 || x === dst.w - 1;
+              const shade = cuff ? 0.72 : y === 0 ? 1.06 : edge ? 0.84 : 0.96;
+              put(dst, x, y, shadeRgb(panelColor, shade));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (topType === "jacket" && outerGarment === "none") {
     for (let y = 0; y < front.h; y++) {
       copy(baseFront, front, 2, y, 0.78);
       copy(baseFront, front, 5, y, 0.78);
@@ -992,6 +1223,41 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     for (let x = 1; x < 7; x++) volumeCopy(baseFront, front, x, 9, "mid");
   } else if (topType === "sweater") {
     for (let x = 1; x < 7; x++) volumeCopy(baseFront, front, x, 0, "lit");
+  }
+
+  const neckAccessory = style.neckAccessory ?? "none";
+  if (neckAccessory !== "none") {
+    const paleAccent = mixRgb(averageRect(baseFront, 0, 2), [255, 250, 242], 0.72);
+    const accentShadow = shadeRgb(paleAccent, 0.72);
+    const darkAccent = shadeRgb(averageRect(baseFront, 2, 3), 0.48);
+    if (neckAccessory === "bow") {
+      put(front, 2, 1, paleAccent);
+      put(front, 5, 1, paleAccent);
+      put(front, 3, 1, accentShadow);
+      put(front, 4, 1, accentShadow);
+      put(front, 2, 2, shadeRgb(paleAccent, 0.92));
+      put(front, 5, 2, shadeRgb(paleAccent, 0.86));
+      put(front, 3, 3, paleAccent);
+      put(front, 4, 3, shadeRgb(paleAccent, 0.9));
+    } else if (neckAccessory === "tie") {
+      put(front, 3, 1, darkAccent);
+      put(front, 4, 1, darkAccent);
+      put(front, 3, 2, shadeRgb(darkAccent, 1.08));
+      put(front, 4, 2, darkAccent);
+      put(front, 3, 3, darkAccent);
+      put(front, 4, 3, shadeRgb(darkAccent, 0.82));
+      put(front, 3, 4, shadeRgb(darkAccent, 0.72));
+    } else if (neckAccessory === "scarf") {
+      for (const [x, y] of [[2, 0], [3, 0], [4, 0], [5, 0], [2, 1], [5, 1]] as const) {
+        put(front, x, y, paleAccent);
+      }
+      put(front, 3, 2, accentShadow);
+      put(front, 4, 3, accentShadow);
+    } else if (neckAccessory === "collar") {
+      for (const [x, y] of [[1, 0], [2, 0], [5, 0], [6, 0], [2, 1], [5, 1]] as const) {
+        put(front, x, y, paleAccent);
+      }
+    }
   }
 
   const necklace = style.necklace ?? "none";
@@ -1047,6 +1313,150 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
   }
 
+  if (style.bottomType === "skirt" || style.bottomType === "shorts") {
+    const bottomPattern = style.bottomPattern ?? "plain";
+    const rightLeg = CLASSIC_LAYOUT.rightLeg;
+    const leftLeg = CLASSIC_LAYOUT.leftLeg;
+    const rightLegTop = averageRect(rightLeg.base.front, 0, 2);
+    const leftLegTop = averageRect(leftLeg.base.front, 0, 2);
+    const legTop = mixRgb(rightLegTop, leftLegTop, 0.5);
+    const bodyLower = mixRgb(
+      averageRect(body.base.front, body.base.front.h - 2, 2),
+      averageRect(body.base.back, body.base.back.h - 2, 2),
+      0.5,
+    );
+    const bottomColor = mixRgb(legTop, bodyLower, style.bottomType === "skirt" ? 0.22 : 0.12);
+    const hemColor = shadeRgb(bottomColor, 0.78);
+    const litColor = shadeRgb(bottomColor, 1.08);
+
+    const paintLowerTorso = (rect: Rect, rows: number) => {
+      for (let y = rect.h - rows; y < rect.h; y++) {
+        for (let x = 0; x < rect.w; x++) {
+          const localY = y - (rect.h - rows);
+          const pleat =
+            (style.bottomType === "skirt" || bottomPattern === "pleated") && x % 3 === 1
+              ? 0.86
+              : x % 4 === 0
+                ? 1.06
+                : 0.96;
+          let color = shadeRgb(bottomColor, y === rect.h - 1 ? 0.72 : pleat);
+          if (bottomPattern === "plaid") {
+            if (x === 1 || x === 5) color = shadeRgb(bottomColor, 0.66);
+            if (localY === 1 || localY === rows - 1) color = mixRgb(color, [238, 224, 214], 0.28);
+            if ((x === 1 || x === 5) && localY === 1) color = shadeRgb(bottomColor, 0.5);
+          } else if (bottomPattern === "striped" && localY % 2 === 1) {
+            color = shadeRgb(bottomColor, 0.72);
+          } else if (bottomPattern === "lace" && y === rect.h - 1 && x % 2 === 0) {
+            color = mixRgb(bottomColor, [255, 248, 240], 0.55);
+          }
+          put(rect, x, y, color);
+        }
+      }
+    };
+
+    const torsoRows = style.bottomType === "skirt" ? 4 : 2;
+    paintLowerTorso(front, torsoRows);
+    paintLowerTorso(back, torsoRows);
+    for (const rect of [body.overlay.right, body.overlay.left]) {
+      for (let y = rect.h - torsoRows; y < rect.h; y++) {
+        for (let x = 0; x < rect.w; x++) {
+          put(rect, x, y, shadeRgb(bottomColor, y === rect.h - 1 ? 0.74 : 0.92));
+        }
+      }
+    }
+
+    for (const part of ["rightLeg", "leftLeg"] as const) {
+      const leg = CLASSIC_LAYOUT[part];
+      const coverRows = style.bottomType === "skirt" ? 3 : 2;
+      for (const faceName of ["front", "back", "right", "left"] as const) {
+        const dst = leg.overlay[faceName];
+        for (let y = 0; y < coverRows; y++) {
+          for (let x = 0; x < dst.w; x++) {
+            const tone = y === 0 ? litColor : y === coverRows - 1 ? hemColor : bottomColor;
+            let color = tone;
+            if (bottomPattern === "plaid" && (x === 1 || y === 1)) {
+              color = x === 1 && y === 1 ? shadeRgb(bottomColor, 0.52) : shadeRgb(tone, 0.72);
+            } else if (bottomPattern === "pleated" && x % 2 === 1) {
+              color = shadeRgb(tone, 0.76);
+            } else if (bottomPattern === "lace" && y === coverRows - 1 && x % 2 === 0) {
+              color = mixRgb(tone, [255, 248, 240], 0.55);
+            }
+            put(dst, x, y, color);
+          }
+        }
+      }
+      const frontLeg = leg.overlay.front;
+      for (let y = 0; y < coverRows; y++) {
+        const seamX = part === "rightLeg" ? frontLeg.w - 1 : 0;
+        put(frontLeg, seamX, y, shadeRgb(bottomColor, 0.66));
+      }
+    }
+  }
+
+  const bottomAccent = style.bottomAccent ?? "none";
+  if (bottomAccent !== "none") {
+    const waistColor = shadeRgb(
+      mixRgb(averageRect(body.base.front, body.base.front.h - 2, 2), averageRect(body.base.back, body.base.back.h - 2, 2), 0.5),
+      0.48,
+    );
+    const accentLight = mixRgb(waistColor, [238, 230, 218], 0.34);
+    const paintBelt = (rect: Rect) => {
+      const y = Math.max(0, rect.h - 3);
+      for (let x = 0; x < rect.w; x++) {
+        put(rect, x, y, x === 3 || x === 4 ? accentLight : waistColor);
+      }
+      put(rect, 3, y + 1, accentLight);
+      put(rect, 4, y + 1, shadeRgb(accentLight, 0.72));
+    };
+    if (bottomAccent === "belt") {
+      paintBelt(front);
+      paintBelt(back);
+      for (const rect of [body.overlay.right, body.overlay.left]) {
+        const y = Math.max(0, rect.h - 3);
+        for (let x = 0; x < rect.w; x++) put(rect, x, y, waistColor);
+      }
+    } else if (bottomAccent === "side_stripe") {
+      const stripe = mixRgb(accentLight, [255, 255, 255], 0.18);
+      for (const part of ["rightLeg", "leftLeg"] as const) {
+        const leg = CLASSIC_LAYOUT[part];
+        const outerX = part === "rightLeg" ? 0 : leg.overlay.front.w - 1;
+        for (let y = 1; y < leg.overlay.front.h - 2; y++) {
+          put(leg.overlay.front, outerX, y, y % 3 === 0 ? shadeRgb(stripe, 0.78) : stripe);
+        }
+        for (const rect of [leg.overlay.right, leg.overlay.left]) {
+          for (let y = 1; y < rect.h - 2; y++) put(rect, 0, y, stripe);
+        }
+      }
+    } else if (bottomAccent === "cuffs") {
+      for (const part of ["rightLeg", "leftLeg"] as const) {
+        const leg = CLASSIC_LAYOUT[part];
+        for (const faceName of ["front", "back", "right", "left"] as const) {
+          const rect = leg.overlay[faceName];
+          for (let y = rect.h - 4; y < rect.h - 2; y++) {
+            for (let x = 0; x < rect.w; x++) {
+              put(rect, x, y, y % 2 === 0 ? accentLight : shadeRgb(accentLight, 0.76));
+            }
+          }
+        }
+      }
+    } else if (bottomAccent === "ribbon") {
+      const ribbon: Rgb = [238, 204, 214];
+      const ribbonDark = shadeRgb(ribbon, 0.72);
+      for (const leg of [CLASSIC_LAYOUT.rightLeg, CLASSIC_LAYOUT.leftLeg]) {
+        const rect = leg.overlay.front;
+        for (const [x, y, color] of [
+          [0, 2, ribbon],
+          [1, 1, ribbon],
+          [1, 2, ribbonDark],
+          [2, 2, ribbon],
+          [1, 3, ribbonDark],
+        ] as const) {
+          put(rect, x, y, color);
+        }
+      }
+    }
+  }
+
   // 신발: 발목 둘레와 밑창을 overlay로 올려 발끝 두께를 만든다 (하의 종류 무관).
   for (const part of ["rightLeg", "leftLeg"] as const) {
     const leg = CLASSIC_LAYOUT[part];
@@ -1061,6 +1471,79 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     for (let y = 0; y < leg.overlay.bottom.h; y++) {
       for (let x = 0; x < leg.overlay.bottom.w; x++) {
         volumeCopy(leg.base.bottom, leg.overlay.bottom, x, y, "hem");
+      }
+    }
+  }
+
+  const legwear = style.legwear ?? "none";
+  if (legwear !== "none") {
+    const asym = style.legwearAsymmetry ?? "none";
+    const targetParts =
+      asym === "left"
+        ? (["leftLeg"] as const)
+        : asym === "right"
+          ? (["rightLeg"] as const)
+          : (["rightLeg", "leftLeg"] as const);
+    const legwearRows =
+      legwear === "socks"
+        ? { start: 7, end: 9 }
+        : legwear === "stockings"
+          ? { start: 0, end: 9 }
+          : legwear === "thigh_highs"
+            ? { start: 0, end: 8 }
+            : { start: 2, end: 9 };
+
+    const drawLegwear = (part: "rightLeg" | "leftLeg") => {
+      const leg = CLASSIC_LAYOUT[part];
+      const skinish = averageRect(leg.base.front, 2, 5);
+      const garment = mixRgb(
+        averageRect(body.base.front, body.base.front.h - 3, 3),
+        [238, 224, 218],
+        0.45,
+      );
+      const baseColor =
+        legwear === "stockings"
+          ? mixRgb(skinish, [95, 72, 76], 0.52)
+          : legwear === "leg_warmers"
+            ? mixRgb(garment, [244, 232, 226], 0.38)
+            : mixRgb(skinish, [246, 240, 232], 0.68);
+      const topLace = shadeRgb(mixRgb(baseColor, [255, 250, 244], 0.55), 1.08);
+      for (const faceName of ["front", "back", "right", "left"] as const) {
+        const baseRect = leg.base[faceName];
+        const overRect = leg.overlay[faceName];
+        for (let y = legwearRows.start; y <= legwearRows.end; y++) {
+          for (let x = 0; x < baseRect.w; x++) {
+            const wrinkle =
+              legwear === "leg_warmers" && y % 2 === 0
+                ? 0.82
+                : x === 0 || x === baseRect.w - 1
+                  ? 0.9
+                  : 1.02;
+            put(baseRect, x, y, shadeRgb(baseColor, wrinkle));
+            put(overRect, x, y, shadeRgb(baseColor, y % 2 === 0 ? 0.9 : 1.08));
+          }
+        }
+        for (let x = 0; x < overRect.w; x++) {
+          put(overRect, x, legwearRows.start, x % 2 === 0 ? topLace : shadeRgb(topLace, 0.82));
+        }
+      }
+    };
+
+    for (const part of targetParts) drawLegwear(part);
+
+    if (asym === "left" || asym === "right") {
+      const opposite = asym === "left" ? CLASSIC_LAYOUT.rightLeg : CLASSIC_LAYOUT.leftLeg;
+      const bow: Rgb = [248, 242, 232];
+      const bowShade: Rgb = [212, 192, 184];
+      const frontLeg = opposite.overlay.front;
+      for (const [x, y, color] of [
+        [0, 2, bow],
+        [1, 1, bow],
+        [1, 2, bowShade],
+        [2, 2, bow],
+        [1, 3, bowShade],
+      ] as const) {
+        put(frontLeg, x, y, color);
       }
     }
   }
