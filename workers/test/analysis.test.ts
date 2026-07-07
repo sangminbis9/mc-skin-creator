@@ -67,11 +67,13 @@ describe("validatePhotoAnalysis", () => {
     const broken = makeAnalysis();
     broken.renderHints.bangs = "generic" as never;
     broken.renderHints.bangsLength = "forehead" as never;
+    broken.renderHints.hairSilhouette = "generic" as never;
     const result = validatePhotoAnalysis(broken);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.join()).toContain("renderHints.bangs");
       expect(result.errors.join()).toContain("renderHints.bangsLength");
+      expect(result.errors.join()).toContain("renderHints.hairSilhouette");
     }
   });
 

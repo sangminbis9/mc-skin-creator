@@ -30,6 +30,7 @@ export interface PixelRenderHints {
   bangsLength: "none" | "short" | "brow" | "eye";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
   hairVolume: "flat" | "normal" | "full";
+  hairSilhouette: "rounded" | "flat" | "swept" | "tousled" | "spiky";
   hairPart: "none" | "center" | "left" | "right";
   sideHairLength: "none" | "short" | "cheek" | "jaw" | "shoulder";
   garmentTexture:
@@ -132,8 +133,9 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, bangs, bangs length, hair texture/volume, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, bangs, bangs length, hair texture/volume, hair silhouette, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
+- hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
@@ -190,6 +192,7 @@ Respond with ONLY a JSON object matching this shape:
     "bangsLength": "none" | "short" | "brow" | "eye",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
     "hairVolume": "flat" | "normal" | "full",
+    "hairSilhouette": "rounded" | "flat" | "swept" | "tousled" | "spiky",
     "hairPart": "none" | "center" | "left" | "right",
     "sideHairLength": "none" | "short" | "cheek" | "jaw" | "shoulder",
     "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
@@ -289,6 +292,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           enum: ["straight", "wavy", "curly", "coily"],
         },
         hairVolume: { type: "string", enum: ["flat", "normal", "full"] },
+        hairSilhouette: {
+          type: "string",
+          enum: ["rounded", "flat", "swept", "tousled", "spiky"],
+        },
         hairPart: {
           type: "string",
           enum: ["none", "center", "left", "right"],
@@ -340,6 +347,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "bangsLength",
         "hairTexture",
         "hairVolume",
+        "hairSilhouette",
         "hairPart",
         "sideHairLength",
         "garmentTexture",
@@ -460,6 +468,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           bangsLength: "none",
           hairTexture: "straight",
           hairVolume: "normal",
+          hairSilhouette: "rounded",
           hairPart: "none",
           sideHairLength: "short",
           garmentTexture: "plain",
@@ -592,6 +601,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.hairVolume,
       ["flat", "normal", "full"],
       "normal",
+    ),
+    hairSilhouette: enumValue(
+      "renderHints.hairSilhouette",
+      hints.hairSilhouette,
+      ["rounded", "flat", "swept", "tousled", "spiky"],
+      "rounded",
     ),
     hairPart: enumValue(
       "renderHints.hairPart",

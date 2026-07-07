@@ -474,6 +474,40 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(4, 4)).toBeLessThan(redAt(3, 2));
   });
 
+  it("hairSilhouette changes the outer hair outline on top, front and side overlays", () => {
+    const rounded = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "none",
+      hairVolume: "normal",
+      hairSilhouette: "rounded",
+    })!.atlas;
+    const swept = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "none",
+      hairVolume: "normal",
+      hairSilhouette: "swept",
+      hairPart: "left",
+    })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const pixel = (
+      atlas: RawImage,
+      rect: { x: number; y: number },
+      x: number,
+      y: number,
+    ) => {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+    };
+
+    expect(pixel(rounded, over.top, 2, 0)[3]).toBe(255);
+    expect(pixel(rounded, over.right, 1, 1)[3]).toBe(255);
+    expect(pixel(swept, over.top, 6, 4)[3]).toBe(255);
+    expect(pixel(swept, over.front, 3, 2)[3]).toBe(255);
+    expect(pixel(swept, over.top, 6, 4)[0]).not.toBe(pixel(rounded, over.top, 6, 4)[0]);
+  });
+
   it("tiny character returns null", () => {
     const tiny: RawImage = {
       width: 256,

@@ -42,6 +42,7 @@ export interface FaceStyle {
   bangsLength?: "none" | "short" | "brow" | "eye";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   hairVolume?: "flat" | "normal" | "full";
+  hairSilhouette?: "rounded" | "flat" | "swept" | "tousled" | "spiky";
   hairPart?: "none" | "center" | "left" | "right";
   sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
   garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
@@ -75,6 +76,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   bangsLength: "none",
   hairTexture: "straight",
   hairVolume: "normal",
+  hairSilhouette: "rounded",
   hairPart: "none",
   sideHairLength: "short",
   garmentTexture: "plain",
@@ -995,6 +997,55 @@ function composeHair(
   const paintStrand = (rect: Rect, x: number, y: number, phase = 0) => {
     putColor(rect, x, y, (x + y + phase) % 3 === 0 ? strandLight : strandDark);
   };
+  const hairSilhouette =
+    style.hairSilhouette ?? (style.hairVolume === "flat" ? "flat" : "rounded");
+  const outlineLight = mixRgb(hairColor, strandLight, 0.28);
+  const outlineDark = shadeRgb(hairColor, 0.54);
+  const outlineMid = shadeRgb(hairColor, 0.76);
+  if (hairSilhouette === "rounded") {
+    for (const [rect, points] of [
+      [over.top, [[1, 1], [2, 0], [3, 0], [4, 0], [5, 0], [6, 1], [0, 2], [7, 2]]],
+      [over.front, [[0, 0], [1, 0], [6, 0], [7, 0], [0, 1], [7, 1]]],
+      [over.right, [[0, 0], [1, 0], [0, 1], [1, 1]]],
+      [over.left, [[6, 0], [7, 0], [6, 1], [7, 1]]],
+    ] as const) {
+      for (const [x, y] of points) putColor(rect, x, y, outlineLight);
+    }
+  } else if (hairSilhouette === "flat") {
+    for (let x = 1; x < 7; x++) {
+      putColor(over.top, x, 1, x % 2 === 0 ? outlineMid : outlineDark);
+      putColor(over.front, x, 0, outlineDark);
+    }
+  } else if (hairSilhouette === "swept") {
+    const mirror = style.hairPart === "right";
+    const px = (x: number) => (mirror ? 7 - x : x);
+    for (const [x, y, color] of [
+      [1, 1, outlineLight],
+      [2, 1, outlineLight],
+      [3, 2, outlineMid],
+      [4, 2, outlineMid],
+      [5, 3, outlineDark],
+      [6, 4, outlineDark],
+    ] as const) {
+      putColor(over.top, px(x), y, color);
+    }
+    for (const [x, y] of [[0, 1], [1, 1], [2, 2], [3, 2]] as const) {
+      putColor(over.front, px(x), y, x <= 1 ? outlineLight : outlineMid);
+    }
+    putColor(mirror ? over.left : over.right, mirror ? 7 : 0, 2, outlineDark);
+    putColor(mirror ? over.left : over.right, mirror ? 6 : 1, 3, outlineDark);
+  } else if (hairSilhouette === "tousled" || hairSilhouette === "spiky") {
+    const tufts =
+      hairSilhouette === "spiky"
+        ? ([[1, 0], [2, 1], [4, 0], [5, 1], [6, 0]] as const)
+        : ([[1, 1], [2, 0], [4, 1], [5, 0], [6, 2]] as const);
+    for (const [x, y] of tufts) {
+      putColor(over.top, x, y, (x + y) % 2 === 0 ? outlineLight : outlineDark);
+      putColor(over.front, x, Math.min(2, y + 1), outlineMid);
+    }
+    putColor(over.right, 0, 1, outlineDark);
+    putColor(over.left, 7, 1, outlineDark);
+  }
   if (style.hairTexture === "wavy" || style.hairTexture === "curly") {
     for (const [rect, mirror] of [
       [over.right, false],

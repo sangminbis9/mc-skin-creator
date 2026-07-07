@@ -48,6 +48,7 @@ export function makeAnalysis(
       bangsLength: "brow",
       hairTexture: "straight",
       hairVolume: "normal",
+      hairSilhouette: "rounded",
       hairPart: "right",
       sideHairLength: "short",
       garmentTexture: "knit",
