@@ -427,6 +427,30 @@ describe("packFrontViewToAtlas", () => {
     expect(pixel(over.top, 5, 2)[0]).not.toBe(pixel(over.top, 5, 3)[0]);
   });
 
+  it("straight bangs create layered front hair that wraps into temple side layers", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "straight",
+      hairTexture: "straight",
+      hairVolume: "full",
+      sideHairLength: "cheek",
+    })!;
+    const atlas = packed.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const pixel = (rect: { x: number; y: number }, x: number, y: number) => {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+    };
+
+    expect(pixel(over.front, 3, 2)[3]).toBe(255);
+    expect(pixel(over.front, 2, 3)[3]).toBe(255);
+    expect(pixel(over.front, 0, 3)[0]).toBe(pixel(over.right, 0, 3)[0]);
+    expect(pixel(over.front, 7, 3)[0]).toBe(pixel(over.left, 7, 3)[0]);
+    expect(pixel(over.top, 0, 4)[3]).toBe(255);
+    expect(pixel(over.front, 2, 3)[0]).not.toBe(pixel(over.front, 3, 2)[0]);
+  });
+
   it("tiny character returns null", () => {
     const tiny: RawImage = {
       width: 256,

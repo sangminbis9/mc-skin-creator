@@ -1034,6 +1034,52 @@ function composeHair(
     putColor(over.front, x, y, color);
   }
 
+  const bangTone = (x: number, y: number) => {
+    const baseTone = hairVolumePixel(hairColor, over.front.x + x, over.front.y + y);
+    if ((x + y) % 4 === 0) return mixRgb(baseTone, strandLight, 0.32);
+    if ((x + y) % 3 === 0) return shadeRgb(baseTone, 0.7);
+    return baseTone;
+  };
+  const paintBang = (x: number, y: number, shade = 1) =>
+    putColor(over.front, x, y, shadeRgb(bangTone(x, y), shade));
+  const wrapTemple = (y: number, leftShade = 0.92, rightShade = 0.92) => {
+    const left = shadeRgb(bangTone(0, y), leftShade);
+    const right = shadeRgb(bangTone(7, y), rightShade);
+    putColor(over.front, 0, y, left);
+    putColor(over.front, 7, y, right);
+    putColor(over.right, 0, y, left);
+    putColor(over.left, 7, y, right);
+    putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
+    putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
+  };
+  if (style.bangs === "straight") {
+    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) paintBang(x, 1);
+    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) paintBang(x, 2, x === 3 || x === 4 ? 0.84 : 0.96);
+    for (const x of [0, 2, 5, 7]) paintBang(x, 3, 0.74);
+    wrapTemple(2);
+    wrapTemple(3, 0.76, 0.76);
+  } else if (style.bangs === "side") {
+    const mirror = style.hairPart === "right";
+    const px = (x: number) => (mirror ? 7 - x : x);
+    for (const x of [0, 1, 2, 3, 4, 5, 6]) paintBang(px(x), 1, x < 3 ? 1.04 : 0.9);
+    for (const x of [0, 1, 2, 3, 4]) paintBang(px(x), 2, x < 2 ? 0.86 : 0.98);
+    for (const x of [0, 1, 2]) paintBang(px(x), 3, 0.72);
+    wrapTemple(2, mirror ? 0.78 : 1, mirror ? 1 : 0.78);
+  } else if (style.bangs === "curtain") {
+    for (const x of [0, 1, 2, 5, 6, 7]) paintBang(x, 1);
+    for (const x of [0, 1, 6, 7]) paintBang(x, 2, 0.88);
+    for (const x of [0, 7]) paintBang(x, 3, 0.74);
+    putColor(over.front, 3, 1, partAccent);
+    putColor(over.front, 4, 1, partShadow);
+    wrapTemple(2);
+    wrapTemple(3, 0.78, 0.78);
+  } else if (style.bangs === "wispy") {
+    for (const x of [1, 3, 5, 7]) paintBang(x, 1, 1.06);
+    for (const x of [2, 5]) paintBang(x, 2, 0.9);
+    for (const x of [1, 4, 7]) paintBang(x, 3, 0.74);
+    wrapTemple(2, 0.82, 0.82);
+  }
+
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
     const rows = s === "afro" ? 4 : 2;
     fill(over.front, 0, 0, 8, rows, true);
