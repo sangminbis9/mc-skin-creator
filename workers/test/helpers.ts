@@ -47,6 +47,8 @@ export function makeAnalysis(
       bangs: "side",
       hairTexture: "straight",
       hairVolume: "normal",
+      hairPart: "right",
+      sideHairLength: "short",
       garmentTexture: "knit",
       outerLayer: "heavy",
       outerGarment: "none",

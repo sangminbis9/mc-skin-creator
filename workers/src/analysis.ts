@@ -29,6 +29,8 @@ export interface PixelRenderHints {
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
   hairVolume: "flat" | "normal" | "full";
+  hairPart: "none" | "center" | "left" | "right";
+  sideHairLength: "none" | "short" | "cheek" | "jaw" | "shoulder";
   garmentTexture:
     | "plain"
     | "knit"
@@ -129,7 +131,9 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, bangs, hair texture/volume, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, bangs, hair texture/volume, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
+- sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
 - hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none".
 - neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue.
@@ -183,6 +187,8 @@ Respond with ONLY a JSON object matching this shape:
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
     "hairVolume": "flat" | "normal" | "full",
+    "hairPart": "none" | "center" | "left" | "right",
+    "sideHairLength": "none" | "short" | "cheek" | "jaw" | "shoulder",
     "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
     "outerLayer": "none" | "light" | "heavy",
     "outerGarment": "none" | "cardigan" | "open_jacket" | "coat" | "vest",
@@ -276,6 +282,14 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           enum: ["straight", "wavy", "curly", "coily"],
         },
         hairVolume: { type: "string", enum: ["flat", "normal", "full"] },
+        hairPart: {
+          type: "string",
+          enum: ["none", "center", "left", "right"],
+        },
+        sideHairLength: {
+          type: "string",
+          enum: ["none", "short", "cheek", "jaw", "shoulder"],
+        },
         garmentTexture: {
           type: "string",
           enum: ["plain", "knit", "denim", "leather", "striped", "patterned"],
@@ -318,6 +332,8 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "bangs",
         "hairTexture",
         "hairVolume",
+        "hairPart",
+        "sideHairLength",
         "garmentTexture",
         "outerLayer",
         "outerGarment",
@@ -435,6 +451,8 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           bangs: "none",
           hairTexture: "straight",
           hairVolume: "normal",
+          hairPart: "none",
+          sideHairLength: "short",
           garmentTexture: "plain",
           outerLayer: "none",
           outerGarment: "none",
@@ -559,6 +577,18 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.hairVolume,
       ["flat", "normal", "full"],
       "normal",
+    ),
+    hairPart: enumValue(
+      "renderHints.hairPart",
+      hints.hairPart,
+      ["none", "center", "left", "right"],
+      "none",
+    ),
+    sideHairLength: enumValue(
+      "renderHints.sideHairLength",
+      hints.sideHairLength,
+      ["none", "short", "cheek", "jaw", "shoulder"],
+      "short",
     ),
     garmentTexture: enumValue(
       "renderHints.garmentTexture",

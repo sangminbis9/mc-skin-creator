@@ -343,7 +343,31 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
-  it("캐릭터가 너무 작으면 null", () => {
+  it("hairPart and sideHairLength connect parting and jaw-length side hair across head overlay faces", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "curtain",
+      hairPart: "center",
+      sideHairLength: "jaw",
+      hairVolume: "normal",
+    })!;
+    const atlas = packed.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const alphaAt = (rect: { x: number; y: number }, x: number, y: number) =>
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
+    const redAt = (rect: { x: number; y: number }, x: number, y: number) =>
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4];
+
+    expect(alphaAt(over.top, 3, 3)).toBe(255);
+    expect(alphaAt(over.front, 0, 5)).toBe(255);
+    expect(alphaAt(over.front, 7, 5)).toBe(255);
+    expect(alphaAt(over.right, 1, 5)).toBe(255);
+    expect(alphaAt(over.left, 6, 5)).toBe(255);
+    expect(redAt(over.top, 3, 3)).not.toBe(redAt(over.top, 2, 3));
+  });
+
+  it("tiny character returns null", () => {
     const tiny: RawImage = {
       width: 256,
       height: 256,

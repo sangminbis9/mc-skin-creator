@@ -41,6 +41,8 @@ export interface FaceStyle {
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   hairVolume?: "flat" | "normal" | "full";
+  hairPart?: "none" | "center" | "left" | "right";
+  sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
   garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
   outerLayer?: "none" | "light" | "heavy";
   outerGarment?: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
@@ -71,6 +73,8 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   bangs: "none",
   hairTexture: "straight",
   hairVolume: "normal",
+  hairPart: "none",
+  sideHairLength: "short",
   garmentTexture: "plain",
   outerLayer: "none",
   outerGarment: "none",
@@ -668,7 +672,7 @@ function composeHair(
   };
 
   // 스타일별 옆/뒷머리 길이 (클라이언트와 동일 값)
-  const sideRows =
+  const baseSideRows =
     s === "buzz"
       ? 1
       : s === "short"
@@ -680,6 +684,17 @@ function composeHair(
             : s === "afro"
               ? 3
               : 8; // long, twintails
+  const sideHairRowsFromHint =
+    style.sideHairLength === "none"
+      ? 1
+      : style.sideHairLength === "cheek"
+        ? 4
+        : style.sideHairLength === "jaw"
+          ? 6
+          : style.sideHairLength === "shoulder"
+            ? 8
+            : 3;
+  const sideRows = Math.max(baseSideRows, sideHairRowsFromHint);
   const backRows =
     s === "buzz"
       ? 2
@@ -848,6 +863,53 @@ function composeHair(
   for (let y = 1; y < 7; y++) {
     fill(over.top, 0, y, 1, 1, true);
     fill(over.top, 7, y, 1, 1, true);
+  }
+
+  const partAccent = mixRgb(hairColor, [238, 220, 198], 0.22);
+  const partShadow = shadeRgb(hairColor, 0.66);
+  const hairPart = style.hairPart ?? "none";
+  if (hairPart === "center") {
+    for (let y = 1; y < 6; y++) {
+      putColor(over.top, 3, y, y % 2 === 0 ? partAccent : partShadow);
+      putColor(over.top, 4, y, y % 2 === 0 ? partShadow : partAccent);
+    }
+    putColor(over.front, 3, 0, partAccent);
+    putColor(over.front, 4, 0, partShadow);
+  } else if (hairPart === "left" || hairPart === "right") {
+    const mirror = hairPart === "right";
+    const px = (x: number) => (mirror ? 7 - x : x);
+    for (const [x, y, light] of [
+      [2, 1, true],
+      [3, 2, true],
+      [3, 3, false],
+      [4, 4, false],
+    ] as const) {
+      putColor(over.top, px(x), y, light ? partAccent : partShadow);
+    }
+    putColor(over.front, px(2), 0, partAccent);
+    putColor(over.front, px(3), 1, partShadow);
+  }
+
+  const sideHairLength = style.sideHairLength ?? "short";
+  if (sideHairLength === "cheek" || sideHairLength === "jaw" || sideHairLength === "shoulder") {
+    const lockRows =
+      sideHairLength === "cheek" ? 4 : sideHairLength === "jaw" ? 6 : 8;
+    for (let y = 2; y < Math.min(8, lockRows); y++) {
+      putColor(over.front, 0, y, hairVolumePixel(hairColor, over.front.x, over.front.y + y));
+      putColor(over.front, 7, y, hairVolumePixel(hairColor, over.front.x + 7, over.front.y + y));
+      putColor(over.right, 0, y, hairVolumePixel(hairColor, over.right.x, over.right.y + y));
+      putColor(over.left, 7, y, hairVolumePixel(hairColor, over.left.x + 7, over.left.y + y));
+      if (y >= 4) {
+        putColor(over.right, 1, y, shadeRgb(hairVolumePixel(hairColor, over.right.x + 1, over.right.y + y), 0.82));
+        putColor(over.left, 6, y, shadeRgb(hairVolumePixel(hairColor, over.left.x + 6, over.left.y + y), 0.82));
+      }
+    }
+    if (sideHairLength === "shoulder") {
+      fill(CLASSIC_LAYOUT.body.overlay.front, 0, 0, 1, 4, true);
+      fill(CLASSIC_LAYOUT.body.overlay.front, 7, 0, 1, 4, true);
+      fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 2, 4, true);
+      fill(CLASSIC_LAYOUT.body.overlay.left, 2, 0, 2, 4, true);
+    }
   }
 
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
