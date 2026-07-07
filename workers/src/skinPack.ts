@@ -938,14 +938,41 @@ function composeHair(
   if (sideHairLength === "cheek" || sideHairLength === "jaw" || sideHairLength === "shoulder") {
     const lockRows =
       sideHairLength === "cheek" ? 4 : sideHairLength === "jaw" ? 6 : 8;
+    const maxDepth =
+      sideHairLength === "cheek" ? 2 : sideHairLength === "jaw" ? 3 : 4;
+    const sideLockColor = (seed: number, y: number, x = 0, shade = 1) =>
+      shadeRgb(hairVolumePixel(hairColor, seed + x, over.front.y + y), shade);
+    const sideDepthForRow = (y: number) => {
+      if (sideHairLength === "cheek") return y <= 3 ? 2 : 1;
+      const taper = y >= lockRows - 1 ? 1 : 0;
+      return Math.max(1, maxDepth - taper);
+    };
+
     for (let y = 2; y < Math.min(8, lockRows); y++) {
-      putColor(over.front, 0, y, hairVolumePixel(hairColor, over.front.x, over.front.y + y));
-      putColor(over.front, 7, y, hairVolumePixel(hairColor, over.front.x + 7, over.front.y + y));
-      putColor(over.right, 0, y, hairVolumePixel(hairColor, over.right.x, over.right.y + y));
-      putColor(over.left, 7, y, hairVolumePixel(hairColor, over.left.x + 7, over.left.y + y));
+      const depth = sideDepthForRow(y);
+      const leftLock = sideLockColor(1301, y);
+      const rightLock = sideLockColor(1703, y);
+      const leftShadow = shadeRgb(leftLock, 0.76);
+      const rightShadow = shadeRgb(rightLock, 0.76);
+
+      putColor(over.front, 0, y, leftLock);
+      putColor(over.front, 7, y, rightLock);
+      if (depth >= 3 && y >= 4) {
+        putColor(over.front, 1, y, leftShadow);
+        putColor(over.front, 6, y, rightShadow);
+      }
+      for (let x = 0; x < depth; x++) {
+        const shade = x === 0 ? 1 : x === 1 ? 0.88 : 0.72;
+        putColor(over.right, x, y, sideLockColor(1301, y, x, shade));
+        putColor(over.left, 7 - x, y, sideLockColor(1703, y, x, shade));
+      }
+      putColor(over.back, 7, y, shadeRgb(leftLock, 0.72));
+      putColor(over.back, 0, y, shadeRgb(rightLock, 0.72));
+      putColor(over.top, 0, Math.min(7, y), shadeRgb(leftLock, 1.04));
+      putColor(over.top, 7, Math.min(7, y), shadeRgb(rightLock, 1.04));
       if (y >= 4) {
-        putColor(over.right, 1, y, shadeRgb(hairVolumePixel(hairColor, over.right.x + 1, over.right.y + y), 0.82));
-        putColor(over.left, 6, y, shadeRgb(hairVolumePixel(hairColor, over.left.x + 6, over.left.y + y), 0.82));
+        putColor(over.right, Math.min(depth, 3), y, shadeRgb(leftShadow, 0.82));
+        putColor(over.left, Math.max(4, 7 - depth), y, shadeRgb(rightShadow, 0.82));
       }
     }
     if (sideHairLength === "shoulder") {
