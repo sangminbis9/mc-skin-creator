@@ -27,6 +27,7 @@ export interface PixelRenderHints {
   eyeShape: "narrow" | "almond" | "round";
   eyeSpacing: "close" | "average" | "wide";
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
+  bangsLength: "none" | "short" | "brow" | "eye";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
   hairVolume: "flat" | "normal" | "full";
   hairPart: "none" | "center" | "left" | "right";
@@ -131,7 +132,8 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, bangs, hair texture/volume, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, bangs, bangs length, hair texture/volume, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
@@ -185,6 +187,7 @@ Respond with ONLY a JSON object matching this shape:
     "eyeShape": "narrow" | "almond" | "round",
     "eyeSpacing": "close" | "average" | "wide",
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
+    "bangsLength": "none" | "short" | "brow" | "eye",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
     "hairVolume": "flat" | "normal" | "full",
     "hairPart": "none" | "center" | "left" | "right",
@@ -277,6 +280,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["none", "straight", "side", "curtain", "wispy"],
         },
+        bangsLength: {
+          type: "string",
+          enum: ["none", "short", "brow", "eye"],
+        },
         hairTexture: {
           type: "string",
           enum: ["straight", "wavy", "curly", "coily"],
@@ -330,6 +337,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "eyeShape",
         "eyeSpacing",
         "bangs",
+        "bangsLength",
         "hairTexture",
         "hairVolume",
         "hairPart",
@@ -449,6 +457,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           eyeShape: "almond",
           eyeSpacing: "average",
           bangs: "none",
+          bangsLength: "none",
           hairTexture: "straight",
           hairVolume: "normal",
           hairPart: "none",
@@ -564,6 +573,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       "renderHints.bangs",
       hints.bangs,
       ["none", "straight", "side", "curtain", "wispy"],
+      "none",
+    ),
+    bangsLength: enumValue(
+      "renderHints.bangsLength",
+      hints.bangsLength,
+      ["none", "short", "brow", "eye"],
       "none",
     ),
     hairTexture: enumValue(

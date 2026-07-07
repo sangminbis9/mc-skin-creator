@@ -66,10 +66,12 @@ describe("validatePhotoAnalysis", () => {
   it("저해상도 렌더 힌트의 허용값을 검증한다", () => {
     const broken = makeAnalysis();
     broken.renderHints.bangs = "generic" as never;
+    broken.renderHints.bangsLength = "forehead" as never;
     const result = validatePhotoAnalysis(broken);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.join()).toContain("renderHints.bangs");
+      expect(result.errors.join()).toContain("renderHints.bangsLength");
     }
   });
 

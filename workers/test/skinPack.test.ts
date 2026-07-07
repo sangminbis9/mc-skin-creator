@@ -432,6 +432,7 @@ describe("packFrontViewToAtlas", () => {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "medium",
       bangs: "straight",
+      bangsLength: "brow",
       hairTexture: "straight",
       hairVolume: "full",
       sideHairLength: "cheek",
@@ -449,6 +450,28 @@ describe("packFrontViewToAtlas", () => {
     expect(pixel(over.front, 7, 3)[0]).toBe(pixel(over.left, 7, 3)[0]);
     expect(pixel(over.top, 0, 4)[3]).toBe(255);
     expect(pixel(over.front, 2, 3)[0]).not.toBe(pixel(over.front, 3, 2)[0]);
+  });
+
+  it("bangsLength=eye lets long fringe overlap the eye row on the head overlay", () => {
+    const packed = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "straight",
+      bangsLength: "eye",
+      hairTexture: "straight",
+      hairVolume: "full",
+      sideHairLength: "cheek",
+    })!;
+    const atlas = packed.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+    const alphaAt = (x: number, y: number) =>
+      atlas.rgba[((over.y + y) * ATLAS_SIZE + over.x + x) * 4 + 3];
+    const redAt = (x: number, y: number) =>
+      atlas.rgba[((over.y + y) * ATLAS_SIZE + over.x + x) * 4];
+
+    expect(alphaAt(2, 4)).toBe(255);
+    expect(alphaAt(4, 4)).toBe(255);
+    expect(redAt(4, 4)).toBeLessThan(redAt(3, 2));
   });
 
   it("tiny character returns null", () => {

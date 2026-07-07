@@ -39,6 +39,7 @@ export interface FaceStyle {
   eyeShape?: "narrow" | "almond" | "round";
   eyeSpacing?: "close" | "average" | "wide";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
+  bangsLength?: "none" | "short" | "brow" | "eye";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   hairVolume?: "flat" | "normal" | "full";
   hairPart?: "none" | "center" | "left" | "right";
@@ -71,6 +72,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   eyeShape: "almond",
   eyeSpacing: "average",
   bangs: "none",
+  bangsLength: "none",
   hairTexture: "straight",
   hairVolume: "normal",
   hairPart: "none",
@@ -1078,6 +1080,37 @@ function composeHair(
     for (const x of [2, 5]) paintBang(x, 2, 0.9);
     for (const x of [1, 4, 7]) paintBang(x, 3, 0.74);
     wrapTemple(2, 0.82, 0.82);
+  }
+  const bangsLength =
+    style.bangs === "none" ? "none" : (style.bangsLength ?? "brow");
+  if (bangsLength === "brow" || bangsLength === "eye") {
+    if (style.bangs === "straight") {
+      for (const x of [1, 3, 4, 6]) paintBang(x, 3, 0.66);
+      wrapTemple(3, 0.72, 0.72);
+      if (bangsLength === "eye") {
+        for (const x of [2, 3, 5]) paintBang(x, 4, 0.58);
+        putColor(over.front, 4, 4, shadeRgb(bangTone(4, 4), 0.52));
+      }
+    } else if (style.bangs === "side") {
+      const mirror = style.hairPart === "right";
+      const px = (x: number) => (mirror ? 7 - x : x);
+      for (const x of [0, 1, 3]) paintBang(px(x), 3, x === 0 ? 0.62 : 0.78);
+      if (bangsLength === "eye") {
+        for (const x of [0, 2]) paintBang(px(x), 4, x === 0 ? 0.54 : 0.64);
+      }
+      wrapTemple(3, mirror ? 0.68 : 0.9, mirror ? 0.9 : 0.68);
+    } else if (style.bangs === "curtain") {
+      for (const x of [0, 1, 6, 7]) paintBang(x, 3, 0.66);
+      if (bangsLength === "eye") {
+        for (const x of [1, 6]) paintBang(x, 4, 0.56);
+      }
+      wrapTemple(3, 0.7, 0.7);
+    } else if (style.bangs === "wispy") {
+      for (const x of [1, 4, 7]) paintBang(x, 3, 0.62);
+      if (bangsLength === "eye") {
+        for (const x of [2, 5]) paintBang(x, 4, 0.56);
+      }
+    }
   }
 
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
