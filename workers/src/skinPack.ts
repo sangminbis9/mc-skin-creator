@@ -1900,10 +1900,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     const accentShadow = shadeRgb(paleAccent, 0.72);
     const darkAccent = shadeRgb(averageRect(baseFront, 2, 3), 0.48);
     if (neckAccessory === "bow") {
+      put(front, 2, 0, shadeRgb(paleAccent, 1.04));
+      put(front, 5, 0, shadeRgb(paleAccent, 0.96));
       put(front, 2, 1, paleAccent);
       put(front, 5, 1, paleAccent);
       put(front, 3, 1, accentShadow);
       put(front, 4, 1, accentShadow);
+      put(front, 1, 2, shadeRgb(paleAccent, 1.08));
+      put(front, 6, 2, shadeRgb(paleAccent, 0.88));
       put(front, 2, 2, shadeRgb(paleAccent, 0.92));
       put(front, 5, 2, shadeRgb(paleAccent, 0.86));
       put(front, 3, 3, paleAccent);
@@ -1916,10 +1920,20 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       put(front, 4, 4, accentShadow);
       put(front, 2, 5, shadeRgb(paleAccent, 0.86));
       put(front, 4, 5, shadeRgb(accentShadow, 0.9));
+      put(front, 3, 6, shadeRgb(paleAccent, 0.82));
+      put(front, 4, 6, shadeRgb(accentShadow, 0.78));
+      put(body.overlay.top, 2, body.overlay.top.h - 1, shadeRgb(paleAccent, 1.04));
+      put(body.overlay.top, 3, body.overlay.top.h - 1, paleAccent);
+      put(body.overlay.top, 4, body.overlay.top.h - 1, accentShadow);
+      put(body.overlay.top, 5, body.overlay.top.h - 1, shadeRgb(paleAccent, 0.94));
       put(body.overlay.right, 0, 1, shadeRgb(paleAccent, 0.88));
       put(body.overlay.right, 1, 1, shadeRgb(paleAccent, 0.76));
+      put(body.overlay.right, 0, 2, shadeRgb(paleAccent, 0.82));
+      put(body.overlay.right, 1, 3, shadeRgb(accentShadow, 0.86));
       put(body.overlay.left, body.overlay.left.w - 1, 1, shadeRgb(paleAccent, 0.88));
       put(body.overlay.left, body.overlay.left.w - 2, 1, shadeRgb(paleAccent, 0.76));
+      put(body.overlay.left, body.overlay.left.w - 1, 2, shadeRgb(paleAccent, 0.82));
+      put(body.overlay.left, body.overlay.left.w - 2, 3, shadeRgb(accentShadow, 0.86));
     } else if (neckAccessory === "tie") {
       put(front, 3, 1, darkAccent);
       put(front, 4, 1, darkAccent);

@@ -915,6 +915,7 @@ describe("packFrontViewToAtlas", () => {
     })!;
     const atlas = packed.atlas;
     const body = CLASSIC_LAYOUT.body.overlay.front;
+    const top = CLASSIC_LAYOUT.body.overlay.top;
     const side = CLASSIC_LAYOUT.body.overlay.right;
     const leftSide = CLASSIC_LAYOUT.body.overlay.left;
     const back = CLASSIC_LAYOUT.body.overlay.back;
@@ -922,8 +923,13 @@ describe("packFrontViewToAtlas", () => {
     const bowCenter = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
     const bowTail = ((body.y + 5) * ATLAS_SIZE + body.x + 2) * 4;
     const bowTailShadow = ((body.y + 5) * ATLAS_SIZE + body.x + 4) * 4;
+    const bowLongTail = ((body.y + 6) * ATLAS_SIZE + body.x + 3) * 4;
+    const bowTop = ((top.y + top.h - 1) * ATLAS_SIZE + top.x + 3) * 4;
+    const bowTopShadow = ((top.y + top.h - 1) * ATLAS_SIZE + top.x + 4) * 4;
     const sideBowWrap = ((side.y + 1) * ATLAS_SIZE + side.x) * 4;
+    const sideBowTail = ((side.y + 3) * ATLAS_SIZE + side.x + 1) * 4;
     const leftSideBowWrap = ((leftSide.y + 1) * ATLAS_SIZE + leftSide.x + leftSide.w - 1) * 4;
+    const leftSideBowTail = ((leftSide.y + 3) * ATLAS_SIZE + leftSide.x + leftSide.w - 2) * 4;
     const plaidDark =
       ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 1) * 4;
     const plaidLight =
@@ -942,8 +948,13 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[bowTail + 3]).toBe(255);
     expect(atlas.rgba[bowTailShadow + 3]).toBe(255);
     expect(atlas.rgba[bowTail]).toBeGreaterThan(atlas.rgba[bowTailShadow]);
+    expect(atlas.rgba[bowLongTail + 3]).toBe(255);
+    expect(atlas.rgba[bowTop + 3]).toBe(255);
+    expect(atlas.rgba[bowTop]).toBeGreaterThan(atlas.rgba[bowTopShadow]);
     expect(atlas.rgba[sideBowWrap + 3]).toBe(255);
+    expect(atlas.rgba[sideBowTail + 3]).toBe(255);
     expect(atlas.rgba[leftSideBowWrap + 3]).toBe(255);
+    expect(atlas.rgba[leftSideBowTail + 3]).toBe(255);
     expect(atlas.rgba[plaidDark + 3]).toBe(255);
     expect(atlas.rgba[plaidDark]).toBeLessThan(atlas.rgba[plaidLight]);
     expect(atlas.rgba[sidePlaidDark + 3]).toBe(255);
