@@ -389,11 +389,14 @@ describe("packFrontViewToAtlas", () => {
       ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
 
     const eyeHighlight = idx(over, 2, 4);
+    const eyeCorner = idx(over, 1, 4);
     const cheekBlush = idx(over, 1, 5);
     const noseBridge = idx(face, 3, 4);
     const noseShadow = idx(face, 3, 5);
 
     expect(atlas.rgba[eyeHighlight + 3]).toBe(255);
+    expect(atlas.rgba[eyeCorner + 3]).toBe(255);
+    expect(atlas.rgba[eyeCorner]).toBeLessThan(atlas.rgba[eyeHighlight]);
     expect(atlas.rgba[cheekBlush + 3]).toBe(255);
     expect(atlas.rgba[cheekBlush]).toBeGreaterThan(atlas.rgba[cheekBlush + 1]);
     expect(atlas.rgba[noseShadow]).toBeLessThan(atlas.rgba[noseBridge]);

@@ -508,6 +508,8 @@ function composeFace(
   const eyeHighlight = mixRgb(eye, [250, 244, 232], 0.58);
   const lowerEye = mixRgb(skinColor, shadeRgb(eye, 0.66), 0.24);
   const eyelid = mixRgb(skinColor, brow, style.eyeShape === "narrow" ? 0.48 : 0.34);
+  const eyeCorner = mixRgb(shadeRgb(eye, 0.62), skinColor, 0.18);
+  const lowerLid = mixRgb(shadeRgb(skinColor, 0.78), eye, style.eyeShape === "round" ? 0.12 : 0.2);
   const noseShape = style.noseShape ?? "small";
   const noseX = style.faceShape === "long" || noseShape === "prominent" ? 4 : 3;
   const noseBridge = mixRgb(skinColor, [255, 238, 224], 0.24);
@@ -517,14 +519,18 @@ function composeFace(
     for (const [outer, inner] of eyePairs) {
       if (style.eyeShape === "round") {
         put(overlay, inner, 4, eyeHighlight);
+        put(overlay, outer, 4, mixRgb(eyeCorner, skinColor, 0.16));
         put(overlay, outer, 5, lowerEye);
       } else if (style.eyeShape === "narrow") {
         put(overlay, outer, 3, eyelid);
         put(overlay, inner, 3, shadeRgb(eyelid, 0.86));
         put(overlay, inner, 4, shadeRgb(eye, 0.82));
+        put(overlay, outer, 4, eyeCorner);
       } else {
+        put(overlay, outer, 3, shadeRgb(eyelid, 0.92));
+        put(overlay, outer, 4, eyeCorner);
         put(overlay, inner, 4, eyeHighlight);
-        put(overlay, inner, 5, lowerEye);
+        put(overlay, inner, 5, lowerLid);
       }
     }
   }
