@@ -2044,6 +2044,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     const bottomColor = mixRgb(legTop, bodyLower, style.bottomType === "skirt" ? 0.22 : 0.12);
     const hemColor = shadeRgb(bottomColor, 0.78);
     const litColor = shadeRgb(bottomColor, 1.08);
+    const plaidThread = mixRgb(bottomColor, [244, 231, 218], 0.42);
+    const plaidShadow = shadeRgb(bottomColor, 0.58);
+    const plaidCross = shadeRgb(bottomColor, 0.46);
 
     const paintLowerTorso = (rect: Rect, rows: number) => {
       for (let y = rect.h - rows; y < rect.h; y++) {
@@ -2057,9 +2060,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                 : 0.96;
           let color = shadeRgb(bottomColor, y === rect.h - 1 ? 0.72 : pleat);
           if (bottomPattern === "plaid") {
-            if (x === 1 || x === 5) color = shadeRgb(bottomColor, 0.66);
-            if (localY === 1 || localY === rows - 1) color = mixRgb(color, [238, 224, 214], 0.28);
-            if ((x === 1 || x === 5) && localY === 1) color = shadeRgb(bottomColor, 0.5);
+            if (x === 1 || x === 5) color = plaidShadow;
+            if (x === 3 || x === 6) color = mixRgb(color, plaidThread, 0.42);
+            if (localY === 1 || localY === rows - 1) color = mixRgb(color, plaidThread, 0.38);
+            if ((x === 1 || x === 5) && localY === 1) color = plaidCross;
+            if ((x === 3 || x === 6) && localY === rows - 1) color = shadeRgb(plaidThread, 0.82);
           } else if (bottomPattern === "striped" && localY % 2 === 1) {
             color = shadeRgb(bottomColor, 0.72);
           } else if (bottomPattern === "lace" && y === rect.h - 1 && x % 2 === 0) {
@@ -2084,12 +2089,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             y === rect.h - 1 ? 0.74 : edgePleat ? 0.82 : centerPleat ? 0.94 : 1.04,
           );
           if (bottomPattern === "plaid") {
-            if (x === 1 || x === rect.w - 2) color = shadeRgb(bottomColor, 0.66);
+            if (x === 1 || x === rect.w - 2) color = plaidShadow;
+            if (x === 0 || x === rect.w - 1) color = mixRgb(color, plaidThread, 0.34);
             if (localY === 1 || localY === rows - 1) {
-              color = mixRgb(color, [238, 224, 214], 0.28);
+              color = mixRgb(color, plaidThread, 0.36);
             }
             if ((x === 1 || x === rect.w - 2) && localY === 1) {
-              color = shadeRgb(bottomColor, 0.5);
+              color = plaidCross;
             }
           } else if (bottomPattern === "striped" && localY % 2 === 1) {
             color = shadeRgb(bottomColor, 0.72);
@@ -2115,11 +2121,18 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             const tone = y === 0 ? litColor : y === coverRows - 1 ? hemColor : bottomColor;
             let color = tone;
             if (bottomPattern === "plaid" && (x === 1 || y === 1)) {
-              color = x === 1 && y === 1 ? shadeRgb(bottomColor, 0.52) : shadeRgb(tone, 0.72);
+              color = x === 1 && y === 1 ? plaidCross : shadeRgb(tone, 0.72);
+            } else if (bottomPattern === "plaid" && x === 2 && (faceName === "front" || faceName === "back")) {
+              color = mixRgb(tone, plaidThread, 0.45);
+            } else if (bottomPattern === "plaid" && x === 0 && (faceName === "right" || faceName === "left")) {
+              color = mixRgb(tone, plaidThread, 0.34);
             } else if (bottomPattern === "pleated" && x % 2 === 1) {
               color = shadeRgb(tone, 0.76);
             } else if (bottomPattern === "lace" && y === coverRows - 1 && x % 2 === 0) {
               color = mixRgb(tone, [255, 248, 240], 0.55);
+            }
+            if (bottomPattern === "plaid" && y === coverRows - 1 && x % 2 === 0) {
+              color = mixRgb(color, plaidThread, 0.24);
             }
             put(dst, x, y, color);
           }

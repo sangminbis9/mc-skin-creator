@@ -919,6 +919,8 @@ describe("packFrontViewToAtlas", () => {
     const side = CLASSIC_LAYOUT.body.overlay.right;
     const leftSide = CLASSIC_LAYOUT.body.overlay.left;
     const back = CLASSIC_LAYOUT.body.overlay.back;
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightLegSide = CLASSIC_LAYOUT.rightLeg.overlay.right;
     const bowLeft = ((body.y + 1) * ATLAS_SIZE + body.x + 2) * 4;
     const bowCenter = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
     const bowTail = ((body.y + 5) * ATLAS_SIZE + body.x + 2) * 4;
@@ -942,6 +944,11 @@ describe("packFrontViewToAtlas", () => {
       ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 1) * 4;
     const backPlaidLight =
       ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 2) * 4;
+    const legPlaidDark = ((rightLeg.y) * ATLAS_SIZE + rightLeg.x + 1) * 4;
+    const legPlaidLight = ((rightLeg.y) * ATLAS_SIZE + rightLeg.x + 2) * 4;
+    const legPlaidCross = ((rightLeg.y + 1) * ATLAS_SIZE + rightLeg.x + 1) * 4;
+    const legPlaidSideLight = ((rightLegSide.y) * ATLAS_SIZE + rightLegSide.x) * 4;
+    const legPlaidSideDark = ((rightLegSide.y + 1) * ATLAS_SIZE + rightLegSide.x + 1) * 4;
 
     expect(atlas.rgba[bowLeft + 3]).toBe(255);
     expect(atlas.rgba[bowLeft]).toBeGreaterThan(atlas.rgba[bowCenter]);
@@ -961,6 +968,11 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sidePlaidDark]).toBeLessThan(atlas.rgba[sidePlaidLight]);
     expect(atlas.rgba[backPlaidDark + 3]).toBe(255);
     expect(atlas.rgba[backPlaidDark]).toBeLessThan(atlas.rgba[backPlaidLight]);
+    expect(atlas.rgba[legPlaidDark + 3]).toBe(255);
+    expect(atlas.rgba[legPlaidDark]).toBeLessThan(atlas.rgba[legPlaidLight]);
+    expect(atlas.rgba[legPlaidCross]).toBeLessThan(atlas.rgba[legPlaidDark]);
+    expect(atlas.rgba[legPlaidSideLight + 3]).toBe(255);
+    expect(atlas.rgba[legPlaidSideDark]).toBeLessThan(atlas.rgba[legPlaidSideLight]);
   });
 
   it("eyebrowShape 힌트를 8x8 얼굴의 눈썹 각도 차이로 남긴다", () => {
