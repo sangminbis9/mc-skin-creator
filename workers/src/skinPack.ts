@@ -1670,6 +1670,15 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       ] as const) {
         put(front, x, y, shadeRgb(panelColor, 0.82));
       }
+      for (let y = front.h - 4; y < front.h; y++) {
+        const lowerShade = y === front.h - 1 ? 0.62 : y % 2 === 0 ? 0.82 : 0.94;
+        put(front, 0, y, shadeRgb(panelColor, lowerShade));
+        put(front, 1, y, shadeRgb(panelColor, lowerShade + 0.08));
+        put(front, 6, y, shadeRgb(panelColor, lowerShade + 0.04));
+        put(front, 7, y, shadeRgb(panelColor, lowerShade - 0.04));
+        put(front, 2, y, shadeRgb(trimColor, y === front.h - 1 ? 0.68 : 0.9));
+        put(front, 5, y, shadeRgb(trimColor, y === front.h - 1 ? 0.62 : 0.84));
+      }
     }
 
     for (let y = 0; y < back.h; y++) {
@@ -1677,12 +1686,20 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         const shade = y === back.h - 1 ? 0.72 : x === 0 || x === back.w - 1 ? 0.82 : 0.94;
         put(back, x, y, shadeRgb(panelColor, shade));
       }
+      if (outerGarment === "cardigan" || outerGarment === "coat") {
+        put(back, 3, y, shadeRgb(panelColor, y >= back.h - 3 ? 0.7 : 0.84));
+        put(back, 4, y, shadeRgb(panelColor, y >= back.h - 3 ? 0.64 : 0.78));
+      }
     }
     for (const rect of [body.overlay.right, body.overlay.left]) {
       for (let y = 0; y < rect.h; y++) {
         for (let x = 0; x < rect.w; x++) {
           const shade = y === rect.h - 1 ? 0.72 : x === 0 || x === rect.w - 1 ? 0.82 : 0.96;
           put(rect, x, y, shadeRgb(panelColor, shade));
+        }
+        if ((outerGarment === "cardigan" || outerGarment === "coat") && y >= rect.h - 4) {
+          put(rect, 0, y, shadeRgb(trimColor, y === rect.h - 1 ? 0.58 : 0.78));
+          put(rect, rect.w - 1, y, shadeRgb(panelColor, y === rect.h - 1 ? 0.62 : 0.82));
         }
       }
       for (let x = 0; x < rect.w; x++) put(rect, x, 0, litPanel);
