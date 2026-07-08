@@ -422,12 +422,22 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(over.front, 7, 5)).toBe(255);
     expect(alphaAt(over.right, 1, 5)).toBe(255);
     expect(alphaAt(over.left, 6, 5)).toBe(255);
+    expect(alphaAt(over.front, 0, 6)).toBe(255);
+    expect(alphaAt(over.front, 7, 6)).toBe(255);
+    expect(alphaAt(over.right, 1, 6)).toBe(255);
+    expect(alphaAt(over.left, 6, 6)).toBe(255);
     expect(alphaAt(over.back, 0, 5)).toBe(255);
     expect(alphaAt(over.back, 7, 5)).toBe(255);
+    expect(alphaAt(over.back, 0, 6)).toBe(255);
+    expect(alphaAt(over.back, 7, 6)).toBe(255);
     expect(alphaAt(over.top, 0, 5)).toBe(255);
     expect(alphaAt(over.top, 7, 5)).toBe(255);
+    expect(alphaAt(over.top, 0, 6)).toBe(255);
+    expect(alphaAt(over.top, 7, 6)).toBe(255);
     expect(redAt(over.front, 0, 5)).toBe(redAt(over.right, 0, 5));
     expect(redAt(over.front, 7, 5)).toBe(redAt(over.left, 7, 5));
+    expect(redAt(over.right, 7, 6)).not.toBe(redAt(over.right, 3, 6));
+    expect(redAt(over.left, 0, 6)).not.toBe(redAt(over.left, 4, 6));
     expect(redAt(over.top, 3, 3)).not.toBe(redAt(over.top, 2, 3));
   });
 
