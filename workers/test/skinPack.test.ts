@@ -691,14 +691,27 @@ describe("packFrontViewToAtlas", () => {
     const atlas = packed.atlas;
     const front = CLASSIC_LAYOUT.head.overlay.front;
     const side = CLASSIC_LAYOUT.head.overlay.right;
+    const top = CLASSIC_LAYOUT.head.overlay.top;
+    const back = CLASSIC_LAYOUT.head.overlay.back;
     const petal = ((front.y + 2) * ATLAS_SIZE + front.x + 1) * 4;
     const leaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
     const sidePetal = ((side.y + 2) * ATLAS_SIZE + side.x + 6) * 4;
+    const sideLowerPetal = ((side.y + 4) * ATLAS_SIZE + side.x + 7) * 4;
+    const topPetal = ((top.y + 5) * ATLAS_SIZE + top.x + 2) * 4;
+    const topLeaf = ((top.y + 6) * ATLAS_SIZE + top.x + 3) * 4;
+    const backPetal = ((back.y + 4) * ATLAS_SIZE + back.x) * 4;
+    const backLeaf = ((back.y + 3) * ATLAS_SIZE + back.x + 1) * 4;
 
     expect(atlas.rgba[petal + 3]).toBe(255);
     expect(atlas.rgba[petal]).toBeGreaterThan(atlas.rgba[petal + 1]);
     expect(atlas.rgba[leaf + 1]).toBeGreaterThan(atlas.rgba[leaf]);
     expect(atlas.rgba[sidePetal + 3]).toBe(255);
+    expect(atlas.rgba[sideLowerPetal + 3]).toBe(255);
+    expect(atlas.rgba[topPetal + 3]).toBe(255);
+    expect(atlas.rgba[topPetal]).toBeGreaterThan(atlas.rgba[topPetal + 1]);
+    expect(atlas.rgba[topLeaf + 1]).toBeGreaterThan(atlas.rgba[topLeaf]);
+    expect(atlas.rgba[backPetal + 3]).toBe(255);
+    expect(atlas.rgba[backLeaf + 1]).toBeGreaterThan(atlas.rgba[backLeaf]);
   });
 
   it("legwear=leg_warmers와 한쪽 asymmetry이면 한쪽 다리 레그워머와 반대쪽 리본을 그린다", () => {

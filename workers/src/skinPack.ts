@@ -1395,9 +1395,19 @@ function composeHair(
       putColor(over.front, 2, 1, leaf);
       putColor(over.front, 1, 4, leaf);
       drawFlower(over.right, 6, 2);
+      drawFlower(over.right, 6, 4);
       putColor(over.right, 5, 1, leaf);
+      putColor(over.right, 5, 3, leaf);
+      putColor(over.right, 7, 4, flowerShade);
+      drawFlower(over.top, 2, 5);
+      putColor(over.top, 1, 4, leaf);
       putColor(over.top, 1, 6, flowerPetal);
       putColor(over.top, 2, 6, leaf);
+      putColor(over.top, 3, 6, leaf);
+      putColor(over.top, 2, 7, flowerShade);
+      putColor(over.back, 0, 3, flowerPetal);
+      putColor(over.back, 0, 4, flowerShade);
+      putColor(over.back, 1, 3, leaf);
     } else if (accessory === "bow" || accessory === "ribbon") {
       drawRibbon(over.front, 1, 2);
       drawRibbon(over.right, 6, 2);
