@@ -871,6 +871,30 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(thin, face, 2, 6)).toBe(redAt(small, face, 2, 6));
   });
 
+  it("clean faces keep low-res landmark shadows for under-eye, philtrum, mouth corners and chin", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      glasses: "none",
+      facialHair: "none",
+      eyeShape: "almond",
+      mouthShape: "wide",
+      noseShape: "straight",
+      jawShape: "soft",
+    })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    expect(alphaAt(atlas, over, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, over, 3, 5)).toBe(255);
+    expect(alphaAt(atlas, over, 4, 5)).toBe(255);
+    expect(alphaAt(atlas, over, 2, 6)).toBe(255);
+    expect(alphaAt(atlas, over, 5, 6)).toBe(255);
+    expect(alphaAt(atlas, over, 3, 7)).toBe(255);
+    expect(redAt(atlas, over, 3, 5)).toBeLessThan(redAt(atlas, over, 3, 7));
+    expect(redAt(atlas, over, 5, 6)).toBeLessThan(redAt(atlas, over, 3, 7));
+  });
+
   it("noseShape 힌트를 8x8 얼굴의 코 길이와 코끝 차이로 남긴다", () => {
     const baseStyle = {
       ...DEFAULT_FACE_STYLE,
@@ -901,7 +925,8 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(straight, face, 3, 5)).toBeLessThan(redAt(small, face, 3, 5));
     expect(alphaAt(prominent, over, 4, 3)).toBe(255);
     expect(alphaAt(rounded, over, 4, 5)).toBe(255);
-    expect(alphaAt(straight, over, 4, 5)).toBe(0);
+    expect(alphaAt(straight, over, 4, 5)).toBe(255);
+    expect(redAt(rounded, over, 4, 5)).not.toBe(redAt(straight, over, 4, 5));
   });
 
   it("jawShape 힌트를 8x8 얼굴의 턱 모서리와 턱끝 차이로 남긴다", () => {

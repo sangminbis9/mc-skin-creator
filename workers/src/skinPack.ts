@@ -661,6 +661,44 @@ function composeFace(
   }
 
   // 앞머리 overlay는 듬성한 가닥만 사용해 헬멧 같은 판을 만들지 않는다.
+  if (style.facialHair === "none" && style.glasses === "none") {
+    const underEyeShade = mixRgb(
+      shadeRgb(skinColor, style.eyeShape === "narrow" ? 0.78 : 0.84),
+      eye,
+      style.eyeShape === "round" ? 0.1 : 0.16,
+    );
+    put(overlay, leftOuter, 5, underEyeShade);
+    put(overlay, rightOuter, 5, shadeRgb(underEyeShade, 0.98));
+
+    const philtrum = mixRgb(shadeRgb(skinColor, 0.78), mouthDark, 0.18);
+    put(overlay, noseX, 5, mixRgb(philtrum, skinColor, 0.28));
+    if (noseShape !== "rounded") {
+      put(overlay, noseX === 3 ? 4 : 3, 5, mixRgb(philtrum, skinColor, 0.46));
+    }
+
+    const mouthCorner = mixRgb(mouthDark, skinColor, mouthShape === "thin" ? 0.18 : 0.28);
+    if (mouthShape === "wide") {
+      put(overlay, 2, 6, shadeRgb(mouthCorner, 0.86));
+      put(overlay, 5, 6, shadeRgb(mouthCorner, 0.86));
+    } else if (mouthShape === "full") {
+      put(overlay, 2, 6, mixRgb(lipFull, skinColor, 0.2));
+      put(overlay, 5, 6, shadeRgb(lipFull, 0.86));
+    } else {
+      put(overlay, 3, 6, mouthCorner);
+      put(overlay, 4, 6, shadeRgb(mouthCorner, 0.94));
+    }
+
+    const chinLight = mixRgb(skinColor, [255, 238, 226], 0.16);
+    const chinShadow = shadeRgb(skinColor, jawShape === "pointed" ? 0.8 : 0.88);
+    if (jawShape === "pointed") {
+      put(overlay, 3, 7, chinShadow);
+      put(overlay, 4, 7, shadeRgb(chinShadow, 0.96));
+    } else {
+      put(overlay, 3, 7, chinLight);
+      put(overlay, 4, 7, chinShadow);
+    }
+  }
+
   const fringe = (xs: number[], y: number) => {
     for (const x of xs) put(overlay, x, y, hairVolumePixel(hairColor, x, y));
   };
