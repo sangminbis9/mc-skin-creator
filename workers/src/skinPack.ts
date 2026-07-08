@@ -2322,17 +2322,27 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       );
       const shoeAccent = mixRgb(shoeBase, [255, 250, 238], 0.52);
       const shoeShadow = shadeRgb(shoeBase, 0.72);
+      const shoeBright = mixRgb(shoeAccent, [255, 255, 255], 0.3);
+      const bowShadow = shadeRgb(shoeAccent, 0.64);
       const front = leg.overlay.front;
       put(front, 1, front.h - 2, shoeAccent);
       put(front, 2, front.h - 2, shadeRgb(shoeAccent, 0.88));
       put(front, 1, front.h - 1, shadeRgb(shoeAccent, 0.96));
       put(front, 2, front.h - 1, shoeShadow);
+      put(front, 0, front.h - 2, shoeBright);
+      put(front, 3, front.h - 2, shadeRgb(shoeBright, 0.88));
+      put(front, 1, front.h - 3, shoeBright);
+      put(front, 2, front.h - 3, bowShadow);
       for (const side of [leg.overlay.right, leg.overlay.left]) {
         put(side, 0, side.h - 2, shoeAccent);
         put(side, 1, side.h - 2, shadeRgb(shoeAccent, 0.88));
         put(side, side.w - 1, side.h - 1, shoeShadow);
+        put(side, side.w - 1, side.h - 3, shoeBright);
+        put(side, 0, side.h - 3, bowShadow);
       }
       for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.9));
+      put(leg.overlay.back, 0, leg.overlay.back.h - 2, shoeBright);
+      put(leg.overlay.back, 3, leg.overlay.back.h - 2, bowShadow);
     }
   }
 
