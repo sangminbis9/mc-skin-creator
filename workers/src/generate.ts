@@ -152,6 +152,7 @@ export async function generateSkin(
       outerGarment: analysis.renderHints.outerGarment,
       necklace: analysis.renderHints.necklace,
       hairAccessory: analysis.renderHints.hairAccessory,
+      hairAccessorySide: analysis.renderHints.hairAccessorySide,
       neckAccessory: analysis.renderHints.neckAccessory,
       bottomPattern: analysis.renderHints.bottomPattern,
       bottomAccent: analysis.renderHints.bottomAccent,

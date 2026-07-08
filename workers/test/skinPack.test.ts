@@ -892,6 +892,34 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[backTrailingLeaf + 1]).toBeGreaterThan(atlas.rgba[backTrailingLeaf]);
   });
 
+  it("hairAccessorySide=right이면 꽃 장식을 반대쪽 head overlay 면으로 옮긴다", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairAccessory: "flower",
+      hairAccessorySide: "right",
+      hairstyle: "long",
+      hairVolume: "full",
+    })!.atlas;
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const side = CLASSIC_LAYOUT.head.overlay.left;
+    const top = CLASSIC_LAYOUT.head.overlay.top;
+    const back = CLASSIC_LAYOUT.head.overlay.back;
+
+    const rightFrontPetal = ((front.y + 2) * ATLAS_SIZE + front.x + 6) * 4;
+    const oldLeftFrontPetal = ((front.y + 2) * ATLAS_SIZE + front.x + 1) * 4;
+    const rightSidePetal = ((side.y + 2) * ATLAS_SIZE + side.x + 1) * 4;
+    const rightTopPetal = ((top.y + 5) * ATLAS_SIZE + top.x + 5) * 4;
+    const rightBackPetal = ((back.y + 4) * ATLAS_SIZE + back.x + 7) * 4;
+
+    expect(atlas.rgba[rightFrontPetal + 3]).toBe(255);
+    expect(atlas.rgba[rightFrontPetal]).toBeGreaterThan(atlas.rgba[rightFrontPetal + 1]);
+    expect(atlas.rgba[rightFrontPetal]).toBeGreaterThan(atlas.rgba[oldLeftFrontPetal]);
+    expect(atlas.rgba[rightSidePetal + 3]).toBe(255);
+    expect(atlas.rgba[rightSidePetal]).toBeGreaterThan(atlas.rgba[rightSidePetal + 1]);
+    expect(atlas.rgba[rightTopPetal + 3]).toBe(255);
+    expect(atlas.rgba[rightBackPetal + 3]).toBe(255);
+  });
+
   it("legwear=leg_warmers와 한쪽 asymmetry이면 한쪽 다리 레그워머와 반대쪽 리본을 그린다", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

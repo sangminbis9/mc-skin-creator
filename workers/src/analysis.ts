@@ -49,6 +49,7 @@ export interface PixelRenderHints {
   outerGarment: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
   necklace: "none" | "silver" | "gold" | "dark";
   hairAccessory: "none" | "flower" | "bow" | "ribbon" | "clip";
+  hairAccessorySide: "left" | "right" | "center";
   neckAccessory: "none" | "bow" | "tie" | "scarf" | "collar";
   bottomPattern: "plain" | "plaid" | "striped" | "pleated" | "lace";
   bottomAccent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
@@ -149,7 +150,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
-- hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none".
+- hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center.
 - neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue.
 - bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
 - bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
@@ -215,6 +216,7 @@ Respond with ONLY a JSON object matching this shape:
     "outerGarment": "none" | "cardigan" | "open_jacket" | "coat" | "vest",
     "necklace": "none" | "silver" | "gold" | "dark",
     "hairAccessory": "none" | "flower" | "bow" | "ribbon" | "clip",
+    "hairAccessorySide": "left" | "right" | "center",
     "neckAccessory": "none" | "bow" | "tie" | "scarf" | "collar",
     "bottomPattern": "plain" | "plaid" | "striped" | "pleated" | "lace",
     "bottomAccent": "none" | "belt" | "cuffs" | "side_stripe" | "ribbon",
@@ -353,6 +355,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["none", "flower", "bow", "ribbon", "clip"],
         },
+        hairAccessorySide: {
+          type: "string",
+          enum: ["left", "right", "center"],
+        },
         neckAccessory: {
           type: "string",
           enum: ["none", "bow", "tie", "scarf", "collar"],
@@ -395,6 +401,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "outerGarment",
         "necklace",
         "hairAccessory",
+        "hairAccessorySide",
         "neckAccessory",
         "bottomPattern",
         "bottomAccent",
@@ -521,6 +528,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           outerGarment: "none",
           necklace: "none",
           hairAccessory: "none",
+          hairAccessorySide: "left",
           neckAccessory: "none",
           bottomPattern: "plain",
           bottomAccent: "none",
@@ -724,6 +732,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.hairAccessory,
       ["none", "flower", "bow", "ribbon", "clip"],
       "none",
+    ),
+    hairAccessorySide: enumValue(
+      "renderHints.hairAccessorySide",
+      hints.hairAccessorySide,
+      ["left", "right", "center"],
+      "left",
     ),
     neckAccessory: enumValue(
       "renderHints.neckAccessory",

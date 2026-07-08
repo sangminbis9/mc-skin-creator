@@ -55,6 +55,7 @@ export interface FaceStyle {
   outerGarment?: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
   necklace?: "none" | "silver" | "gold" | "dark";
   hairAccessory?: "none" | "flower" | "bow" | "ribbon" | "clip";
+  hairAccessorySide?: "left" | "right" | "center";
   neckAccessory?: "none" | "bow" | "tie" | "scarf" | "collar";
   bottomPattern?: "plain" | "plaid" | "striped" | "pleated" | "lace";
   bottomAccent?: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
@@ -94,6 +95,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   outerGarment: "none",
   necklace: "none",
   hairAccessory: "none",
+  hairAccessorySide: "left",
   neckAccessory: "none",
   bottomPattern: "plain",
   bottomAccent: "none",
@@ -1587,69 +1589,107 @@ function composeHair(
       putColor(rect, cx - 2, cy - 1, shadeRgb(ribbon, 1.06));
       putColor(rect, cx + 2, cy - 1, shadeRgb(ribbon, 0.92));
     };
+    const accessorySide = style.hairAccessorySide ?? "left";
+    const mirrorAccessory = accessorySide === "right";
+    const sideFace = mirrorAccessory ? over.left : over.right;
+    const mx = (x: number) => (mirrorAccessory ? 7 - x : x);
+    const sx = (x: number) => (mirrorAccessory ? 7 - x : x);
+    const putFrontAccessory = (x: number, y: number, color: Rgb) =>
+      putColor(over.front, mx(x), y, color);
+    const putSideAccessory = (x: number, y: number, color: Rgb) =>
+      putColor(sideFace, sx(x), y, color);
+    const putTopAccessory = (x: number, y: number, color: Rgb) =>
+      putColor(over.top, mx(x), y, color);
+    const putBackAccessory = (x: number, y: number, color: Rgb) =>
+      putColor(over.back, mx(x), y, color);
+    const drawFrontFlower = (cx: number, cy: number) => drawFlower(over.front, mx(cx), cy);
+    const drawSideFlower = (cx: number, cy: number) => drawFlower(sideFace, sx(cx), cy);
+    const drawTopFlower = (cx: number, cy: number) => drawFlower(over.top, mx(cx), cy);
+    const drawFrontRibbon = (cx: number, cy: number) => drawRibbon(over.front, mx(cx), cy);
+    const drawSideRibbon = (cx: number, cy: number) => drawRibbon(sideFace, sx(cx), cy);
 
     if (accessory === "flower") {
-      drawFlower(over.front, 1, 2);
-      drawFlower(over.front, 0, 4);
-      putColor(over.front, 2, 2, flowerLight);
-      putColor(over.front, 3, 2, flowerPetal);
-      putColor(over.front, 2, 3, flowerShade);
-      putColor(over.front, 3, 3, flowerCenter);
-      putColor(over.front, 4, 3, flowerShade);
-      putColor(over.front, 2, 1, leaf);
-      putColor(over.front, 1, 4, leaf);
-      putColor(over.front, 3, 1, leafDark);
-      putColor(over.front, 4, 2, leaf);
-      putColor(over.front, 2, 5, leafDark);
-      putColor(over.front, 4, 1, flowerLight);
-      putColor(over.front, 5, 2, flowerShade);
-      putColor(over.front, 5, 3, leafDark);
-      putColor(over.front, 4, 4, leaf);
-      drawFlower(over.right, 6, 2);
-      drawFlower(over.right, 6, 4);
-      drawFlower(over.right, 3, 3);
-      putColor(over.right, 4, 2, flowerLight);
-      putColor(over.right, 4, 3, flowerPetal);
-      putColor(over.right, 5, 4, flowerCenter);
-      putColor(over.right, 5, 1, leaf);
-      putColor(over.right, 5, 3, leaf);
-      putColor(over.right, 7, 4, flowerShade);
-      putColor(over.right, 4, 1, leafDark);
-      putColor(over.right, 4, 5, leaf);
-      putColor(over.right, 3, 1, leafDark);
-      putColor(over.right, 2, 2, leaf);
-      putColor(over.right, 2, 4, flowerShade);
-      putColor(over.right, 3, 5, leaf);
-      drawFlower(over.top, 2, 5);
-      drawFlower(over.top, 4, 5);
-      putColor(over.top, 1, 4, leaf);
-      putColor(over.top, 1, 6, flowerPetal);
-      putColor(over.top, 2, 6, leaf);
-      putColor(over.top, 3, 6, leaf);
-      putColor(over.top, 4, 6, flowerLight);
-      putColor(over.top, 5, 6, leafDark);
-      putColor(over.top, 2, 7, flowerShade);
-      putColor(over.top, 3, 4, flowerLight);
-      putColor(over.top, 5, 4, flowerShade);
-      putColor(over.top, 6, 5, leaf);
-      putColor(over.top, 6, 6, leafDark);
-      putColor(over.back, 0, 3, flowerPetal);
-      putColor(over.back, 0, 4, flowerShade);
-      putColor(over.back, 1, 3, leaf);
-      putColor(over.back, 1, 4, flowerCenter);
-      putColor(over.back, 2, 4, leafDark);
-      putColor(over.back, 2, 3, leaf);
-      putColor(over.back, 3, 4, leafDark);
-    } else if (accessory === "bow" || accessory === "ribbon") {
-      drawRibbon(over.front, 1, 2);
-      drawRibbon(over.right, 6, 2);
-      putColor(over.top, 1, 6, ribbon);
-    } else if (accessory === "clip") {
-      for (const [x, y] of [[0, 2], [1, 2], [2, 2], [1, 3]] as const) {
-        putColor(over.front, x, y, clip);
+      if (accessorySide === "center") {
+        drawFlower(over.front, 3, 2);
+        drawFlower(over.top, 3, 5);
+        putColor(over.front, 2, 3, leaf);
+        putColor(over.front, 4, 3, leafDark);
+        putColor(over.top, 2, 6, flowerLight);
+        putColor(over.top, 4, 6, flowerShade);
+      } else {
+        drawFrontFlower(1, 2);
+        drawFrontFlower(0, 4);
+        putFrontAccessory(2, 2, flowerLight);
+        putFrontAccessory(3, 2, flowerPetal);
+        putFrontAccessory(2, 3, flowerShade);
+        putFrontAccessory(3, 3, flowerCenter);
+        putFrontAccessory(4, 3, flowerShade);
+        putFrontAccessory(2, 1, leaf);
+        putFrontAccessory(1, 4, leaf);
+        putFrontAccessory(3, 1, leafDark);
+        putFrontAccessory(4, 2, leaf);
+        putFrontAccessory(2, 5, leafDark);
+        putFrontAccessory(4, 1, flowerLight);
+        putFrontAccessory(5, 2, flowerShade);
+        putFrontAccessory(5, 3, leafDark);
+        putFrontAccessory(4, 4, leaf);
+        drawSideFlower(6, 2);
+        drawSideFlower(6, 4);
+        drawSideFlower(3, 3);
+        putSideAccessory(4, 2, flowerLight);
+        putSideAccessory(4, 3, flowerPetal);
+        putSideAccessory(5, 4, flowerCenter);
+        putSideAccessory(5, 1, leaf);
+        putSideAccessory(5, 3, leaf);
+        putSideAccessory(7, 4, flowerShade);
+        putSideAccessory(4, 1, leafDark);
+        putSideAccessory(4, 5, leaf);
+        putSideAccessory(3, 1, leafDark);
+        putSideAccessory(2, 2, leaf);
+        putSideAccessory(2, 4, flowerShade);
+        putSideAccessory(3, 5, leaf);
+        drawTopFlower(2, 5);
+        drawTopFlower(4, 5);
+        putTopAccessory(1, 4, leaf);
+        putTopAccessory(1, 6, flowerPetal);
+        putTopAccessory(2, 6, leaf);
+        putTopAccessory(3, 6, leaf);
+        putTopAccessory(4, 6, flowerLight);
+        putTopAccessory(5, 6, leafDark);
+        putTopAccessory(2, 7, flowerShade);
+        putTopAccessory(3, 4, flowerLight);
+        putTopAccessory(5, 4, flowerShade);
+        putTopAccessory(6, 5, leaf);
+        putTopAccessory(6, 6, leafDark);
+        putBackAccessory(0, 3, flowerPetal);
+        putBackAccessory(0, 4, flowerShade);
+        putBackAccessory(1, 3, leaf);
+        putBackAccessory(1, 4, flowerCenter);
+        putBackAccessory(2, 4, leafDark);
+        putBackAccessory(2, 3, leaf);
+        putBackAccessory(3, 4, leafDark);
       }
-      putColor(over.right, 6, 2, clip);
-      putColor(over.right, 5, 2, shadeRgb(clip, 0.86));
+    } else if (accessory === "bow" || accessory === "ribbon") {
+      if (accessorySide === "center") {
+        drawRibbon(over.front, 3, 2);
+        putColor(over.top, 3, 6, ribbon);
+      } else {
+        drawFrontRibbon(1, 2);
+        drawSideRibbon(6, 2);
+        putTopAccessory(1, 6, ribbon);
+      }
+    } else if (accessory === "clip") {
+      const clipPoints =
+        accessorySide === "center"
+          ? ([[3, 2], [4, 2], [3, 3], [4, 3]] as const)
+          : ([[0, 2], [1, 2], [2, 2], [1, 3]] as const);
+      for (const [x, y] of clipPoints) {
+        putColor(over.front, accessorySide === "center" ? x : mx(x), y, clip);
+      }
+      if (accessorySide !== "center") {
+        putSideAccessory(6, 2, clip);
+        putSideAccessory(5, 2, shadeRgb(clip, 0.86));
+      }
     }
   }
 
