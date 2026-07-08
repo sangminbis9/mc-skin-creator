@@ -1141,6 +1141,25 @@ function composeHair(
       const taper = y >= lastLockRow - 1 ? 1 : 0;
       return Math.max(1, maxDepth - taper);
     };
+    const paintTopSideCap = (y: number, depth: number, leftLock: Rgb, rightLock: Rgb) => {
+      const capY = Math.min(7, y);
+      const capWidth =
+        sideHairLength === "shoulder"
+          ? Math.min(3, depth)
+          : sideHairLength === "jaw"
+            ? Math.min(2, depth)
+            : 1;
+      for (let x = 0; x <= capWidth; x++) {
+        const shade = x === 0 ? 1.04 : x === capWidth ? 0.76 : 0.9;
+        putColor(over.top, x, capY, shadeRgb(leftLock, shade));
+        putColor(over.top, 7 - x, capY, shadeRgb(rightLock, shade));
+      }
+      if (sideHairLength !== "cheek" && y >= 4) {
+        const rootY = Math.max(1, capY - 1);
+        putColor(over.top, Math.min(3, capWidth + 1), rootY, shadeRgb(leftLock, 0.72));
+        putColor(over.top, Math.max(4, 6 - capWidth), rootY, shadeRgb(rightLock, 0.72));
+      }
+    };
 
     for (let y = 2; y <= lastLockRow; y++) {
       const depth = sideDepthForRow(y);
@@ -1166,6 +1185,7 @@ function composeHair(
       putColor(over.back, 0, y, shadeRgb(rightLock, 0.72));
       putColor(over.top, 0, Math.min(7, y), shadeRgb(leftLock, 1.04));
       putColor(over.top, 7, Math.min(7, y), shadeRgb(rightLock, 1.04));
+      paintTopSideCap(y, depth, leftLock, rightLock);
       if (y >= 4) {
         putColor(over.right, Math.min(depth, 3), y, shadeRgb(leftShadow, 0.82));
         putColor(over.left, Math.max(4, 7 - depth), y, shadeRgb(rightShadow, 0.82));

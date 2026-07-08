@@ -506,12 +506,16 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.left, 4, 5)).toBe(255);
     expect(alphaAt(atlas, over.left, 2, 6)).toBe(255);
     expect(alphaAt(atlas, over.top, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, over.top, 2, 5)).toBe(255);
+    expect(alphaAt(atlas, over.top, 5, 5)).toBe(255);
     expect(alphaAt(atlas, over.top, 6, 5)).toBe(255);
     expect(alphaAt(atlas, over.back, 6, 6)).toBe(255);
     expect(alphaAt(atlas, over.back, 1, 6)).toBe(255);
     expect(redAt(atlas, over.right, 3, 5)).not.toBe(redAt(atlas, over.right, 0, 5));
     expect(redAt(atlas, over.left, 4, 5)).not.toBe(redAt(atlas, over.left, 7, 5));
     expect(redAt(atlas, over.back, 6, 6)).not.toBe(redAt(atlas, over.back, 7, 6));
+    expect(redAt(atlas, over.top, 2, 5)).not.toBe(redAt(atlas, over.top, 3, 5));
+    expect(redAt(atlas, over.top, 5, 5)).not.toBe(redAt(atlas, over.top, 4, 5));
   });
 
   it("hairTexture=wavy adds directional strand highlights on top, front and side overlays", () => {
