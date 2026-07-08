@@ -2058,6 +2058,20 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       ] as const) {
         put(frontLeg, x, y, color);
       }
+      for (const rect of [opposite.overlay.right, opposite.overlay.left, opposite.overlay.back]) {
+        for (let x = 0; x < rect.w; x++) {
+          put(rect, x, 2, x % 2 === 0 ? bow : bowShade);
+        }
+      }
+      const outerSide = asym === "left" ? opposite.overlay.right : opposite.overlay.left;
+      for (const [x, y, color] of [
+        [0, 1, bow],
+        [1, 2, bowShade],
+        [0, 3, bowShade],
+        [1, 3, bow],
+      ] as const) {
+        put(outerSide, x, y, color);
+      }
     }
   }
 }

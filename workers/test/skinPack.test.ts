@@ -735,14 +735,23 @@ describe("packFrontViewToAtlas", () => {
     const atlas = packed.atlas;
     const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const right = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightSide = CLASSIC_LAYOUT.rightLeg.overlay.right;
+    const rightBack = CLASSIC_LAYOUT.rightLeg.overlay.back;
     const warmer = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
     const bow = ((right.y + 2) * ATLAS_SIZE + right.x) * 4;
     const bareSameRow = ((right.y + 4) * ATLAS_SIZE + right.x + 1) * 4;
+    const sideBand = ((rightSide.y + 2) * ATLAS_SIZE + rightSide.x + 1) * 4;
+    const sideTail = ((rightSide.y + 3) * ATLAS_SIZE + rightSide.x) * 4;
+    const backBand = ((rightBack.y + 2) * ATLAS_SIZE + rightBack.x + 2) * 4;
 
     expect(atlas.rgba[warmer + 3]).toBe(255);
     expect(atlas.rgba[bow + 3]).toBe(255);
     expect(atlas.rgba[bow]).toBeGreaterThan(220);
     expect(atlas.rgba[bareSameRow + 3]).toBe(0);
+    expect(atlas.rgba[sideBand + 3]).toBe(255);
+    expect(atlas.rgba[sideTail + 3]).toBe(255);
+    expect(atlas.rgba[backBand + 3]).toBe(255);
+    expect(atlas.rgba[sideBand]).toBeGreaterThan(atlas.rgba[sideBand + 1]);
   });
 
   it("neckAccessory=bow와 bottomPattern=plaid이면 목 리본과 체크 하의를 overlay에 보존한다", () => {
