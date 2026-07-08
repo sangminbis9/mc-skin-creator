@@ -1565,8 +1565,13 @@ function composeHair(
       putColor(over.front, 3, 1, leafDark);
       putColor(over.front, 4, 2, leaf);
       putColor(over.front, 2, 5, leafDark);
+      putColor(over.front, 4, 1, flowerLight);
+      putColor(over.front, 5, 2, flowerShade);
+      putColor(over.front, 5, 3, leafDark);
+      putColor(over.front, 4, 4, leaf);
       drawFlower(over.right, 6, 2);
       drawFlower(over.right, 6, 4);
+      drawFlower(over.right, 3, 3);
       putColor(over.right, 4, 2, flowerLight);
       putColor(over.right, 4, 3, flowerPetal);
       putColor(over.right, 5, 4, flowerCenter);
@@ -1575,6 +1580,10 @@ function composeHair(
       putColor(over.right, 7, 4, flowerShade);
       putColor(over.right, 4, 1, leafDark);
       putColor(over.right, 4, 5, leaf);
+      putColor(over.right, 3, 1, leafDark);
+      putColor(over.right, 2, 2, leaf);
+      putColor(over.right, 2, 4, flowerShade);
+      putColor(over.right, 3, 5, leaf);
       drawFlower(over.top, 2, 5);
       drawFlower(over.top, 4, 5);
       putColor(over.top, 1, 4, leaf);
@@ -1584,11 +1593,17 @@ function composeHair(
       putColor(over.top, 4, 6, flowerLight);
       putColor(over.top, 5, 6, leafDark);
       putColor(over.top, 2, 7, flowerShade);
+      putColor(over.top, 3, 4, flowerLight);
+      putColor(over.top, 5, 4, flowerShade);
+      putColor(over.top, 6, 5, leaf);
+      putColor(over.top, 6, 6, leafDark);
       putColor(over.back, 0, 3, flowerPetal);
       putColor(over.back, 0, 4, flowerShade);
       putColor(over.back, 1, 3, leaf);
       putColor(over.back, 1, 4, flowerCenter);
       putColor(over.back, 2, 4, leafDark);
+      putColor(over.back, 2, 3, leaf);
+      putColor(over.back, 3, 4, leafDark);
     } else if (accessory === "bow" || accessory === "ribbon") {
       drawRibbon(over.front, 1, 2);
       drawRibbon(over.right, 6, 2);
