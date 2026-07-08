@@ -2449,6 +2449,23 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           put(overRect, x, legwearRows.start, x % 2 === 0 ? topLace : shadeRgb(topLace, 0.82));
         }
         if (legwear === "leg_warmers") {
+          const laceY = Math.max(0, legwearRows.start - 1);
+          const scallopA = shadeRgb(topLace, 1.08);
+          const scallopB = shadeRgb(topLace, 0.76);
+          for (let x = 0; x < overRect.w; x++) {
+            const edge = x === 0 || x === overRect.w - 1;
+            put(overRect, x, laceY, x % 2 === 0 ? scallopA : scallopB);
+            if (!edge && (faceName === "front" || faceName === "back")) {
+              put(overRect, x, legwearRows.start + 1, x % 2 === 0 ? shadeRgb(scallopA, 0.94) : ribShadow);
+            }
+          }
+          if (faceName === "right" || faceName === "left") {
+            const outerX = faceName === "right" ? 0 : overRect.w - 1;
+            const innerX = faceName === "right" ? 1 : overRect.w - 2;
+            put(overRect, outerX, laceY, scallopA);
+            put(overRect, innerX, laceY, scallopB);
+            put(overRect, outerX, legwearRows.start + 1, shadeRgb(scallopB, 0.82));
+          }
           for (let y = legwearRows.start + 1; y <= legwearRows.end; y += 2) {
             put(overRect, 0, y, shadeRgb(ribShadow, 0.74));
             put(overRect, overRect.w - 1, y, shadeRgb(ribShadow, 0.74));
@@ -2462,14 +2479,19 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     if (asym === "left" || asym === "right") {
       const opposite = asym === "left" ? CLASSIC_LAYOUT.rightLeg : CLASSIC_LAYOUT.leftLeg;
       const bow: Rgb = [248, 242, 232];
+      const bowLight = shadeRgb(bow, 1.06);
       const bowShade: Rgb = [212, 192, 184];
+      const bowDeep = shadeRgb(bowShade, 0.72);
       const frontLeg = opposite.overlay.front;
       for (const [x, y, color] of [
-        [0, 2, bow],
+        [0, 2, bowLight],
         [1, 1, bow],
-        [1, 2, bowShade],
-        [2, 2, bow],
-        [1, 3, bowShade],
+        [1, 2, bowDeep],
+        [2, 2, bowLight],
+        [0, 3, bowShade],
+        [1, 3, bow],
+        [2, 3, bowShade],
+        [1, 4, bowDeep],
       ] as const) {
         put(frontLeg, x, y, color);
       }
@@ -2477,13 +2499,17 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         for (let x = 0; x < rect.w; x++) {
           put(rect, x, 2, x % 2 === 0 ? bow : bowShade);
         }
+        put(rect, 0, 3, bowShade);
+        put(rect, rect.w - 1, 3, bowDeep);
       }
       const outerSide = asym === "left" ? opposite.overlay.right : opposite.overlay.left;
       for (const [x, y, color] of [
-        [0, 1, bow],
-        [1, 2, bowShade],
+        [0, 1, bowLight],
+        [1, 1, bow],
+        [1, 2, bowDeep],
         [0, 3, bowShade],
         [1, 3, bow],
+        [0, 4, bowDeep],
       ] as const) {
         put(outerSide, x, y, color);
       }
