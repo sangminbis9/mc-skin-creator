@@ -1184,6 +1184,34 @@ function composeHair(
         }
       }
     }
+    for (const y of [Math.max(3, lastLockRow - 1), lastLockRow] as const) {
+      const depth = sideDepthForRow(y);
+      const leftTip = sideLockColor(2503, y, 0, y === lastLockRow ? 0.58 : 0.68);
+      const rightTip = sideLockColor(2909, y, 0, y === lastLockRow ? 0.58 : 0.68);
+      const leftInnerX = Math.min(3, depth + 1);
+      const rightInnerX = Math.max(4, 6 - depth);
+
+      putColor(over.front, 0, y, leftTip);
+      putColor(over.front, 7, y, rightTip);
+      if (sideHairLength !== "cheek") {
+        putColor(over.front, 1, y, shadeRgb(leftTip, 0.74));
+        putColor(over.front, 6, y, shadeRgb(rightTip, 0.74));
+      }
+      putColor(over.right, 0, y, leftTip);
+      putColor(over.right, leftInnerX, y, shadeRgb(leftTip, 0.78));
+      putColor(over.left, 7, y, rightTip);
+      putColor(over.left, rightInnerX, y, shadeRgb(rightTip, 0.78));
+      if (y > 3) {
+        putColor(over.right, 1, y - 1, sideLockColor(2519, y, 1, 1.12));
+        putColor(over.left, 6, y - 1, sideLockColor(2917, y, 1, 1.12));
+      }
+      putColor(over.back, 7, y, shadeRgb(leftTip, 0.7));
+      putColor(over.back, 0, y, shadeRgb(rightTip, 0.7));
+      if (sideHairLength !== "cheek") {
+        putColor(over.back, 6, y, shadeRgb(leftTip, 0.62));
+        putColor(over.back, 1, y, shadeRgb(rightTip, 0.62));
+      }
+    }
     if (sideHairLength === "shoulder") {
       const bodyOver = CLASSIC_LAYOUT.body.overlay;
       const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
