@@ -576,6 +576,28 @@ describe("packFrontViewToAtlas", () => {
     expect(pixel(tiedBack, over.back, 3, 6)[0]).not.toBe(pixel(longBack, over.back, 3, 6)[0]);
   });
 
+  it("shoulder-length side hair continues onto torso overlay as visible front and back strands", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      bangs: "curtain",
+      hairTexture: "wavy",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+    })!.atlas;
+    const body = CLASSIC_LAYOUT.body.overlay;
+
+    expect(alphaAt(atlas, body.front, 0, 6)).toBe(255);
+    expect(alphaAt(atlas, body.front, 7, 6)).toBe(255);
+    expect(alphaAt(atlas, body.front, 2, 4)).toBe(255);
+    expect(alphaAt(atlas, body.front, 5, 4)).toBe(255);
+    expect(alphaAt(atlas, body.right, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, body.left, 2, 5)).toBe(255);
+    expect(alphaAt(atlas, body.back, 3, 7)).toBe(255);
+    expect(alphaAt(atlas, body.back, 4, 7)).toBe(255);
+    expect(redAt(atlas, body.front, 0, 6)).not.toBe(redAt(atlas, body.front, 3, 6));
+  });
+
   it("tiny character returns null", () => {
     const tiny: RawImage = {
       width: 256,

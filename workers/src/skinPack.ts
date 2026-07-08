@@ -1128,10 +1128,29 @@ function composeHair(
       }
     }
     if (sideHairLength === "shoulder") {
-      fill(CLASSIC_LAYOUT.body.overlay.front, 0, 0, 1, 4, true);
-      fill(CLASSIC_LAYOUT.body.overlay.front, 7, 0, 1, 4, true);
-      fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 2, 4, true);
-      fill(CLASSIC_LAYOUT.body.overlay.left, 2, 0, 2, 4, true);
+      const bodyOver = CLASSIC_LAYOUT.body.overlay;
+      const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
+        shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
+      for (let y = 0; y < 7; y++) {
+        const leftX = y % 3 === 1 ? 1 : 0;
+        const rightX = y % 3 === 1 ? 6 : 7;
+        putColor(bodyOver.front, leftX, y, bodyHair(bodyOver.front, leftX, y, y >= 5 ? 0.72 : 0.94));
+        putColor(bodyOver.front, rightX, y, bodyHair(bodyOver.front, rightX, y, y >= 5 ? 0.72 : 0.94));
+        if (y <= 4 || y % 2 === 0) {
+          putColor(bodyOver.front, Math.min(2, leftX + 1), y, bodyHair(bodyOver.front, Math.min(2, leftX + 1), y, 0.74));
+          putColor(bodyOver.front, Math.max(5, rightX - 1), y, bodyHair(bodyOver.front, Math.max(5, rightX - 1), y, 0.74));
+        }
+        putColor(bodyOver.right, y % 2, y, bodyHair(bodyOver.right, y % 2, y, 0.82));
+        putColor(bodyOver.left, 3 - (y % 2), y, bodyHair(bodyOver.left, 3 - (y % 2), y, 0.82));
+      }
+      for (let y = 0; y < 8; y++) {
+        putColor(bodyOver.back, 0, y, bodyHair(bodyOver.back, 0, y, y >= 6 ? 0.62 : 0.86));
+        putColor(bodyOver.back, 7, y, bodyHair(bodyOver.back, 7, y, y >= 6 ? 0.62 : 0.86));
+        if (hairBackShape === "long" && y >= 2) {
+          putColor(bodyOver.back, 3, y, bodyHair(bodyOver.back, 3, y, y >= 6 ? 0.6 : 0.78));
+          putColor(bodyOver.back, 4, y, bodyHair(bodyOver.back, 4, y, y >= 6 ? 0.6 : 0.78));
+        }
+      }
     }
   }
   if (hairBackShape === "long" || hairBackShape === "rounded" || hairBackShape === "tapered") {
