@@ -1426,6 +1426,34 @@ function composeHair(
       }
     }
   }
+  if (
+    sideHairLength === "short" &&
+    s !== "buzz" &&
+    s !== "afro" &&
+    style.hairTexture !== "coily"
+  ) {
+    const lastTempleRow = bangsLength === "eye" ? 5 : 4;
+    for (let y = 2; y <= lastTempleRow; y++) {
+      const tip = y === lastTempleRow;
+      const left = shadeRgb(bangTone(0, y), tip ? 0.58 : y === 3 ? 0.74 : 0.9);
+      const right = shadeRgb(bangTone(7, y), tip ? 0.58 : y === 3 ? 0.74 : 0.9);
+      const leftInner = shadeRgb(left, tip ? 0.76 : 0.86);
+      const rightInner = shadeRgb(right, tip ? 0.76 : 0.86);
+
+      putColor(over.front, 0, y, left);
+      putColor(over.front, 7, y, right);
+      putColor(over.right, 0, y, left);
+      putColor(over.left, 7, y, right);
+      putColor(over.right, 1, y, leftInner);
+      putColor(over.left, 6, y, rightInner);
+      if (y <= 3) {
+        putColor(over.back, 7, y, shadeRgb(left, 0.72));
+        putColor(over.back, 0, y, shadeRgb(right, 0.72));
+      }
+      putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
+      putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
+    }
+  }
 
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
     const rows = s === "afro" ? 4 : 2;
