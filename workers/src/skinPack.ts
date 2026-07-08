@@ -2284,6 +2284,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             ? mixRgb(garment, [244, 232, 226], 0.38)
             : mixRgb(skinish, [246, 240, 232], 0.68);
       const topLace = shadeRgb(mixRgb(baseColor, [255, 250, 244], 0.55), 1.08);
+      const ribLight = shadeRgb(mixRgb(baseColor, [255, 248, 240], 0.45), 1.08);
+      const ribShadow = shadeRgb(baseColor, 0.66);
       for (const faceName of ["front", "back", "right", "left"] as const) {
         const baseRect = leg.base[faceName];
         const overRect = leg.overlay[faceName];
@@ -2298,9 +2300,29 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             put(baseRect, x, y, shadeRgb(baseColor, wrinkle));
             put(overRect, x, y, shadeRgb(baseColor, y % 2 === 0 ? 0.9 : 1.08));
           }
+          if (legwear === "leg_warmers") {
+            const ribbed = y % 2 === 1 || y === legwearRows.end;
+            if (ribbed) {
+              for (let x = 0; x < overRect.w; x++) {
+                const sideEdge = x === 0 || x === overRect.w - 1;
+                put(overRect, x, y, sideEdge ? shadeRgb(ribShadow, 0.9) : ribShadow);
+              }
+            } else if (faceName === "front" || faceName === "back") {
+              for (const x of [1, 2]) put(overRect, x, y, ribLight);
+            } else {
+              put(overRect, faceName === "right" ? 0 : overRect.w - 1, y, ribLight);
+              put(overRect, faceName === "right" ? 1 : overRect.w - 2, y, shadeRgb(ribLight, 0.9));
+            }
+          }
         }
         for (let x = 0; x < overRect.w; x++) {
           put(overRect, x, legwearRows.start, x % 2 === 0 ? topLace : shadeRgb(topLace, 0.82));
+        }
+        if (legwear === "leg_warmers") {
+          for (let y = legwearRows.start + 1; y <= legwearRows.end; y += 2) {
+            put(overRect, 0, y, shadeRgb(ribShadow, 0.74));
+            put(overRect, overRect.w - 1, y, shadeRgb(ribShadow, 0.74));
+          }
         }
       }
     };
