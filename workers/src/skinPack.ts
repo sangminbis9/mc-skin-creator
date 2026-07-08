@@ -1809,6 +1809,18 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       put(front, 5, 2, shadeRgb(paleAccent, 0.86));
       put(front, 3, 3, paleAccent);
       put(front, 4, 3, shadeRgb(paleAccent, 0.9));
+      put(front, 1, 1, shadeRgb(paleAccent, 1.04));
+      put(front, 6, 1, shadeRgb(paleAccent, 0.94));
+      put(front, 3, 2, shadeRgb(paleAccent, 1.06));
+      put(front, 4, 2, accentShadow);
+      put(front, 3, 4, shadeRgb(paleAccent, 0.94));
+      put(front, 4, 4, accentShadow);
+      put(front, 2, 5, shadeRgb(paleAccent, 0.86));
+      put(front, 4, 5, shadeRgb(accentShadow, 0.9));
+      put(body.overlay.right, 0, 1, shadeRgb(paleAccent, 0.88));
+      put(body.overlay.right, 1, 1, shadeRgb(paleAccent, 0.76));
+      put(body.overlay.left, body.overlay.left.w - 1, 1, shadeRgb(paleAccent, 0.88));
+      put(body.overlay.left, body.overlay.left.w - 2, 1, shadeRgb(paleAccent, 0.76));
     } else if (neckAccessory === "tie") {
       put(front, 3, 1, darkAccent);
       put(front, 4, 1, darkAccent);
