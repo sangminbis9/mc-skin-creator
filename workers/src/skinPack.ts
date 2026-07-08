@@ -2051,6 +2051,46 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
   }
 
+  // 긴 외투 tail: 치마/바지 위쪽 다리 overlay에 열린 앞판과 뒤판을 이어서 허리 아래로 내려온 실루엣을 만든다.
+  if (outerGarment === "cardigan" || outerGarment === "coat" || outerGarment === "open_jacket") {
+    const sideSample = mixRgb(sample(baseFront, 1, 5), sample(baseFront, 6, 5), 0.5);
+    const backSample = averageRect(baseBack, 2, 6);
+    const panelBase = mixRgb(sideSample, backSample, 0.42);
+    const tailColor =
+      outerGarment === "cardigan"
+        ? mixRgb(panelBase, [236, 202, 204], 0.18)
+        : outerGarment === "coat"
+          ? shadeRgb(panelBase, 0.82)
+          : shadeRgb(panelBase, 0.9);
+    const tailRows = outerGarment === "coat" ? 4 : outerGarment === "cardigan" ? 3 : 2;
+    const trimColor = shadeRgb(tailColor, outerGarment === "cardigan" ? 0.72 : 0.66);
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay;
+    const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay;
+
+    for (let y = 0; y < tailRows; y++) {
+      const lower = y === tailRows - 1;
+      const shade = lower ? 0.68 : y === 0 ? 1.02 : 0.88;
+      put(rightLeg.front, 0, y, shadeRgb(tailColor, shade));
+      put(rightLeg.front, 1, y, y % 2 === 0 ? trimColor : shadeRgb(trimColor, 1.08));
+      put(leftLeg.front, 2, y, y % 2 === 0 ? shadeRgb(trimColor, 0.88) : trimColor);
+      put(leftLeg.front, 3, y, shadeRgb(tailColor, shade - 0.02));
+
+      for (const rect of [rightLeg.right, rightLeg.left, leftLeg.right, leftLeg.left]) {
+        for (let x = 0; x < rect.w; x++) {
+          const edge = x === 0 || x === rect.w - 1;
+          put(rect, x, y, shadeRgb(tailColor, lower ? 0.68 : edge ? 0.78 : 0.9));
+        }
+      }
+      for (const rect of [rightLeg.back, leftLeg.back]) {
+        for (let x = 0; x < rect.w; x++) {
+          const edge = x === 0 || x === rect.w - 1;
+          put(rect, x, y, shadeRgb(tailColor, lower ? 0.66 : edge ? 0.76 : 0.88));
+        }
+        put(rect, rect.w - 1, y, shadeRgb(trimColor, lower ? 0.62 : 0.78));
+      }
+    }
+  }
+
   // 신발: 발목 둘레와 밑창을 overlay로 올려 발끝 두께를 만든다 (하의 종류 무관).
   for (const part of ["rightLeg", "leftLeg"] as const) {
     const leg = CLASSIC_LAYOUT[part];
