@@ -1222,6 +1222,8 @@ function composeHair(
       const bodyOver = CLASSIC_LAYOUT.body.overlay;
       const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
         shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
+      const torsoStrandLight = mixRgb(hairColor, [242, 226, 214], style.hairTexture === "wavy" ? 0.24 : 0.16);
+      const torsoStrandDark = shadeRgb(hairColor, 0.52);
       for (let y = 0; y < 7; y++) {
         const leftX = y % 3 === 1 ? 1 : 0;
         const rightX = y % 3 === 1 ? 6 : 7;
@@ -1234,6 +1236,22 @@ function composeHair(
         putColor(bodyOver.right, y % 2, y, bodyHair(bodyOver.right, y % 2, y, 0.82));
         putColor(bodyOver.left, 3 - (y % 2), y, bodyHair(bodyOver.left, 3 - (y % 2), y, 0.82));
       }
+      for (const [x, y, color] of [
+        [1, 2, torsoStrandLight],
+        [2, 3, shadeRgb(torsoStrandLight, 0.86)],
+        [1, 5, torsoStrandDark],
+        [0, 6, shadeRgb(torsoStrandDark, 0.86)],
+        [6, 2, shadeRgb(torsoStrandLight, 0.94)],
+        [5, 4, shadeRgb(torsoStrandLight, 0.82)],
+        [6, 6, torsoStrandDark],
+        [7, 5, shadeRgb(torsoStrandDark, 0.9)],
+      ] as const) {
+        putColor(bodyOver.front, x, y, color);
+      }
+      putColor(bodyOver.right, 1, 3, shadeRgb(torsoStrandLight, 0.82));
+      putColor(bodyOver.right, 0, 6, torsoStrandDark);
+      putColor(bodyOver.left, 2, 3, shadeRgb(torsoStrandLight, 0.82));
+      putColor(bodyOver.left, 3, 6, torsoStrandDark);
       for (let y = 0; y < 8; y++) {
         putColor(bodyOver.back, 0, y, bodyHair(bodyOver.back, 0, y, y >= 6 ? 0.62 : 0.86));
         putColor(bodyOver.back, 7, y, bodyHair(bodyOver.back, 7, y, y >= 6 ? 0.62 : 0.86));
@@ -1242,6 +1260,10 @@ function composeHair(
           putColor(bodyOver.back, 4, y, bodyHair(bodyOver.back, 4, y, y >= 6 ? 0.6 : 0.78));
         }
       }
+      putColor(bodyOver.back, 2, 4, shadeRgb(torsoStrandLight, 0.78));
+      putColor(bodyOver.back, 5, 4, shadeRgb(torsoStrandLight, 0.78));
+      putColor(bodyOver.back, 3, 7, shadeRgb(torsoStrandDark, 0.82));
+      putColor(bodyOver.back, 4, 7, torsoStrandDark);
     }
   }
   if (hairBackShape === "long" || hairBackShape === "rounded" || hairBackShape === "tapered") {

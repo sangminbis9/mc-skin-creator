@@ -699,6 +699,14 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.back, 3, 7)).toBe(255);
     expect(alphaAt(atlas, body.back, 4, 7)).toBe(255);
     expect(redAt(atlas, body.front, 0, 6)).not.toBe(redAt(atlas, body.front, 3, 6));
+    expect(alphaAt(atlas, body.front, 1, 2)).toBe(255);
+    expect(alphaAt(atlas, body.front, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, body.front, 6, 6)).toBe(255);
+    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(redAt(atlas, body.front, 1, 5));
+    expect(redAt(atlas, body.front, 6, 2)).toBeGreaterThan(redAt(atlas, body.front, 6, 6));
+    expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
+    expect(alphaAt(atlas, body.left, 2, 3)).toBe(255);
+    expect(redAt(atlas, body.back, 2, 4)).toBeGreaterThan(redAt(atlas, body.back, 4, 7));
   });
 
   it("tiny character returns null", () => {
