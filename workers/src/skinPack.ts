@@ -1932,11 +1932,32 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     for (const part of ["rightLeg", "leftLeg"] as const) {
       const leg = CLASSIC_LAYOUT[part];
       for (const faceName of ["front", "back", "right", "left"] as const) {
-        for (let x = 0; x < leg.overlay[faceName].w; x++) {
-          volumeCopy(leg.base[faceName], leg.overlay[faceName], x, 0, "lit");
+        const src = leg.base[faceName];
+        const dst = leg.overlay[faceName];
+        for (let x = 0; x < dst.w; x++) {
+          volumeCopy(src, dst, x, 0, "lit");
+        }
+        for (const foldY of [4, 7] as const) {
+          for (let x = 0; x < dst.w; x++) {
+            const edge = x === 0 || x === dst.w - 1;
+            put(
+              dst,
+              x,
+              foldY,
+              shadeRgb(sample(src, x, foldY), faceName === "front" ? (edge ? 0.78 : 0.86) : edge ? 0.7 : 0.8),
+            );
+          }
+          const highlightX = part === "rightLeg" ? 1 : dst.w - 2;
+          put(dst, highlightX, Math.min(dst.h - 1, foldY + 1), shadeRgb(sample(src, highlightX, foldY), 1.08));
         }
       }
       copy(leg.base.front, leg.overlay.front, part === "rightLeg" ? 0 : 3, 2, 0.74);
+      const outerFace = part === "rightLeg" ? leg.overlay.right : leg.overlay.left;
+      const outerBase = part === "rightLeg" ? leg.base.right : leg.base.left;
+      const seamX = part === "rightLeg" ? 0 : outerFace.w - 1;
+      for (let y = 1; y < outerFace.h - 2; y++) {
+        put(outerFace, seamX, y, shadeRgb(sample(outerBase, seamX, y), y % 3 === 0 ? 0.62 : 0.74));
+      }
     }
   }
 

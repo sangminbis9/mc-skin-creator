@@ -744,6 +744,27 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(withStripe.atlas).ok).toBe(true);
   });
 
+  it("pants and jeans add connected knee folds and outer seams on leg overlays", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "pants",
+    })!.atlas;
+    const right = CLASSIC_LAYOUT.rightLeg.overlay;
+    const left = CLASSIC_LAYOUT.leftLeg.overlay;
+    const rightFrontFold = ((right.front.y + 4) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const rightSideFold = ((right.right.y + 4) * ATLAS_SIZE + right.right.x + 1) * 4;
+    const rightSideSeam = ((right.right.y + 5) * ATLAS_SIZE + right.right.x) * 4;
+    const leftSideSeam = ((left.left.y + 5) * ATLAS_SIZE + left.left.x + left.left.w - 1) * 4;
+    const rightHighlight = ((right.front.y + 5) * ATLAS_SIZE + right.front.x + 1) * 4;
+
+    expect(atlas.rgba[rightFrontFold + 3]).toBe(255);
+    expect(atlas.rgba[rightSideFold + 3]).toBe(255);
+    expect(atlas.rgba[rightSideSeam + 3]).toBe(255);
+    expect(atlas.rgba[leftSideSeam + 3]).toBe(255);
+    expect(atlas.rgba[rightHighlight]).toBeGreaterThan(atlas.rgba[rightFrontFold]);
+    expect(atlas.rgba[rightSideSeam]).toBeLessThan(atlas.rgba[rightSideFold]);
+  });
+
   it("hairAccessory=flower이면 head overlay 앞/옆면에 꽃과 잎 디테일을 남긴다", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
