@@ -2223,6 +2223,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           : shadeRgb(panelBase, 0.9);
     const tailRows = outerGarment === "coat" ? 4 : outerGarment === "cardigan" ? 3 : 2;
     const trimColor = shadeRgb(tailColor, outerGarment === "cardigan" ? 0.72 : 0.66);
+    const foldLight = shadeRgb(tailColor, 1.12);
+    const foldShadow = shadeRgb(tailColor, outerGarment === "cardigan" ? 0.56 : 0.5);
     const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay;
     const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay;
 
@@ -2247,6 +2249,20 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         }
         put(rect, rect.w - 1, y, shadeRgb(trimColor, lower ? 0.62 : 0.78));
       }
+    }
+    if (tailRows >= 3) {
+      put(rightLeg.front, 0, 1, foldLight);
+      put(rightLeg.front, 1, 2, foldShadow);
+      put(leftLeg.front, 3, 1, shadeRgb(foldLight, 0.96));
+      put(leftLeg.front, 2, 2, shadeRgb(foldShadow, 0.92));
+      put(rightLeg.right, 0, 2, foldShadow);
+      put(rightLeg.left, rightLeg.left.w - 1, 2, shadeRgb(foldShadow, 0.9));
+      put(leftLeg.right, 0, 2, shadeRgb(foldShadow, 0.9));
+      put(leftLeg.left, leftLeg.left.w - 1, 2, foldShadow);
+      put(rightLeg.back, 0, 2, shadeRgb(foldShadow, 0.86));
+      put(leftLeg.back, leftLeg.back.w - 1, 2, shadeRgb(foldShadow, 0.86));
+      put(rightLeg.back, 1, 1, shadeRgb(foldLight, 0.9));
+      put(leftLeg.back, leftLeg.back.w - 2, 1, shadeRgb(foldLight, 0.9));
     }
   }
 

@@ -245,8 +245,14 @@ describe("packFrontViewToAtlas", () => {
     const rightTailTrim = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
     const leftTailTrim = (leftLegFront.y * ATLAS_SIZE + leftLegFront.x + 2) * 4;
     const openLegCenter = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 3) * 4;
+    const rightTailFoldLight = ((rightLegFront.y + 1) * ATLAS_SIZE + rightLegFront.x) * 4;
+    const rightTailFoldShadow = ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x + 1) * 4;
+    const leftTailFoldLight = ((leftLegFront.y + 1) * ATLAS_SIZE + leftLegFront.x + 3) * 4;
+    const leftTailFoldShadow = ((leftLegFront.y + 2) * ATLAS_SIZE + leftLegFront.x + 2) * 4;
     const sideTail = ((rightLegSide.y + 1) * ATLAS_SIZE + rightLegSide.x + 1) * 4;
+    const sideTailFold = ((rightLegSide.y + 2) * ATLAS_SIZE + rightLegSide.x) * 4;
     const backTail = ((leftLegBack.y + 2) * ATLAS_SIZE + leftLegBack.x + 3) * 4;
+    const backTailHighlight = ((leftLegBack.y + 1) * ATLAS_SIZE + leftLegBack.x + leftLegBack.w - 2) * 4;
 
     expect(atlas.rgba[panel + 3]).toBe(255);
     expect(atlas.rgba[trim + 3]).toBe(255);
@@ -269,8 +275,12 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[leftTailTrim + 3]).toBe(255);
     expect(atlas.rgba[openLegCenter]).not.toBe(atlas.rgba[rightTailPanel]);
     expect(atlas.rgba[rightTailTrim]).toBeLessThan(atlas.rgba[rightTailPanel]);
+    expect(atlas.rgba[rightTailFoldLight]).toBeGreaterThan(atlas.rgba[rightTailFoldShadow]);
+    expect(atlas.rgba[leftTailFoldLight]).toBeGreaterThan(atlas.rgba[leftTailFoldShadow]);
     expect(atlas.rgba[sideTail + 3]).toBe(255);
+    expect(atlas.rgba[sideTailFold]).toBeLessThan(atlas.rgba[sideTail]);
     expect(atlas.rgba[backTail + 3]).toBe(255);
+    expect(atlas.rgba[backTailHighlight]).toBeGreaterThan(atlas.rgba[backTail]);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
