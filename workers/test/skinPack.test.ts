@@ -794,6 +794,30 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sideBand]).toBeGreaterThan(atlas.rgba[sideBand + 1]);
   });
 
+  it("dressy skirt outfits add visible shoe straps across front and side foot overlays", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "skirt",
+      outerGarment: "cardigan",
+      neckAccessory: "bow",
+      bottomAccent: "ribbon",
+    })!.atlas;
+    const right = CLASSIC_LAYOUT.rightLeg.overlay;
+    const left = CLASSIC_LAYOUT.leftLeg.overlay;
+    const rightFrontStrap = ((right.front.y + right.front.h - 2) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const rightFrontToe = ((right.front.y + right.front.h - 1) * ATLAS_SIZE + right.front.x + 2) * 4;
+    const rightSideStrap = ((right.right.y + right.right.h - 2) * ATLAS_SIZE + right.right.x) * 4;
+    const leftSideStrap = ((left.left.y + left.left.h - 2) * ATLAS_SIZE + left.left.x + 1) * 4;
+    const backStrap = ((left.back.y + left.back.h - 2) * ATLAS_SIZE + left.back.x + 2) * 4;
+
+    expect(atlas.rgba[rightFrontStrap + 3]).toBe(255);
+    expect(atlas.rgba[rightFrontToe + 3]).toBe(255);
+    expect(atlas.rgba[rightSideStrap + 3]).toBe(255);
+    expect(atlas.rgba[leftSideStrap + 3]).toBe(255);
+    expect(atlas.rgba[backStrap + 3]).toBe(255);
+    expect(atlas.rgba[rightFrontStrap]).toBeGreaterThan(atlas.rgba[rightFrontToe]);
+  });
+
   it("neckAccessory=bow와 bottomPattern=plaid이면 목 리본과 체크 하의를 overlay에 보존한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

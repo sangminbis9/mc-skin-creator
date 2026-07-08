@@ -2109,6 +2109,36 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
   }
 
+  const dressyShoes =
+    style.bottomType === "skirt" ||
+    style.bottomType === "shorts" ||
+    outerGarment === "cardigan" ||
+    style.neckAccessory === "bow" ||
+    style.bottomAccent === "ribbon";
+  if (dressyShoes) {
+    for (const part of ["rightLeg", "leftLeg"] as const) {
+      const leg = CLASSIC_LAYOUT[part];
+      const shoeBase = mixRgb(
+        averageRect(leg.base.front, leg.base.front.h - 2, 2),
+        [255, 244, 226],
+        0.42,
+      );
+      const shoeAccent = mixRgb(shoeBase, [255, 250, 238], 0.52);
+      const shoeShadow = shadeRgb(shoeBase, 0.72);
+      const front = leg.overlay.front;
+      put(front, 1, front.h - 2, shoeAccent);
+      put(front, 2, front.h - 2, shadeRgb(shoeAccent, 0.88));
+      put(front, 1, front.h - 1, shadeRgb(shoeAccent, 0.96));
+      put(front, 2, front.h - 1, shoeShadow);
+      for (const side of [leg.overlay.right, leg.overlay.left]) {
+        put(side, 0, side.h - 2, shoeAccent);
+        put(side, 1, side.h - 2, shadeRgb(shoeAccent, 0.88));
+        put(side, side.w - 1, side.h - 1, shoeShadow);
+      }
+      for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.9));
+    }
+  }
+
   const legwear = style.legwear ?? "none";
   if (legwear !== "none") {
     const asym = style.legwearAsymmetry ?? "none";
