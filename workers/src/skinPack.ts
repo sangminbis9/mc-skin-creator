@@ -1487,9 +1487,11 @@ function composeHair(
   const accessory = style.hairAccessory ?? "none";
   if (accessory !== "none") {
     const flowerPetal: Rgb = [236, 184, 192];
+    const flowerLight: Rgb = [248, 216, 222];
     const flowerShade: Rgb = [205, 138, 153];
     const flowerCenter: Rgb = [238, 213, 166];
     const leaf: Rgb = [126, 151, 126];
+    const leafDark: Rgb = [86, 118, 96];
     const ribbon: Rgb = [228, 184, 198];
     const ribbonDark: Rgb = [174, 116, 134];
     const clip: Rgb = [220, 210, 196];
@@ -1511,22 +1513,40 @@ function composeHair(
     if (accessory === "flower") {
       drawFlower(over.front, 1, 2);
       drawFlower(over.front, 0, 4);
+      putColor(over.front, 2, 2, flowerLight);
+      putColor(over.front, 3, 2, flowerPetal);
+      putColor(over.front, 2, 3, flowerShade);
+      putColor(over.front, 3, 3, flowerCenter);
+      putColor(over.front, 4, 3, flowerShade);
       putColor(over.front, 2, 1, leaf);
       putColor(over.front, 1, 4, leaf);
+      putColor(over.front, 3, 1, leafDark);
+      putColor(over.front, 4, 2, leaf);
+      putColor(over.front, 2, 5, leafDark);
       drawFlower(over.right, 6, 2);
       drawFlower(over.right, 6, 4);
+      putColor(over.right, 4, 2, flowerLight);
+      putColor(over.right, 4, 3, flowerPetal);
+      putColor(over.right, 5, 4, flowerCenter);
       putColor(over.right, 5, 1, leaf);
       putColor(over.right, 5, 3, leaf);
       putColor(over.right, 7, 4, flowerShade);
+      putColor(over.right, 4, 1, leafDark);
+      putColor(over.right, 4, 5, leaf);
       drawFlower(over.top, 2, 5);
+      drawFlower(over.top, 4, 5);
       putColor(over.top, 1, 4, leaf);
       putColor(over.top, 1, 6, flowerPetal);
       putColor(over.top, 2, 6, leaf);
       putColor(over.top, 3, 6, leaf);
+      putColor(over.top, 4, 6, flowerLight);
+      putColor(over.top, 5, 6, leafDark);
       putColor(over.top, 2, 7, flowerShade);
       putColor(over.back, 0, 3, flowerPetal);
       putColor(over.back, 0, 4, flowerShade);
       putColor(over.back, 1, 3, leaf);
+      putColor(over.back, 1, 4, flowerCenter);
+      putColor(over.back, 2, 4, leafDark);
     } else if (accessory === "bow" || accessory === "ribbon") {
       drawRibbon(over.front, 1, 2);
       drawRibbon(over.right, 6, 2);
