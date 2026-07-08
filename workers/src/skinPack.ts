@@ -1775,6 +1775,23 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
               put(dst, x, y, shadeRgb(panelColor, shade));
             }
           }
+          for (const foldY of [3, 6, 9] as const) {
+            if (foldY >= dst.h - 2) continue;
+            for (let x = 0; x < dst.w; x++) {
+              const edge = x === 0 || x === dst.w - 1;
+              const shade =
+                faceName === "front" || faceName === "right"
+                  ? edge
+                    ? 0.72
+                    : 0.82
+                  : edge
+                    ? 0.66
+                    : 0.76;
+              put(dst, x, foldY, shadeRgb(panelColor, shade));
+            }
+            const highlightX = part === "rightArm" ? 1 : dst.w - 2;
+            put(dst, highlightX, foldY + 1, shadeRgb(panelColor, 1.1));
+          }
         }
       }
     }

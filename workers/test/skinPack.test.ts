@@ -222,6 +222,7 @@ describe("packFrontViewToAtlas", () => {
     const bodySide = CLASSIC_LAYOUT.body.overlay.right;
     const bodyBack = CLASSIC_LAYOUT.body.overlay.back;
     const armFront = CLASSIC_LAYOUT.rightArm.overlay.front;
+    const armSide = CLASSIC_LAYOUT.rightArm.overlay.right;
     const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const rightLegSide = CLASSIC_LAYOUT.rightLeg.overlay.right;
@@ -233,6 +234,8 @@ describe("packFrontViewToAtlas", () => {
     const side = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + 1) * 4;
     const back = ((bodyBack.y + 5) * ATLAS_SIZE + bodyBack.x + 4) * 4;
     const sleeve = ((armFront.y + 4) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveFold = ((armFront.y + 3) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveSideFold = ((armSide.y + 6) * ATLAS_SIZE + armSide.x + 1) * 4;
     const lowerLeftPanel = ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 1) * 4;
     const lowerTrim = ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 2) * 4;
     const lowerOpenCenter = ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 3) * 4;
@@ -252,6 +255,9 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[side + 3]).toBe(255);
     expect(atlas.rgba[back + 3]).toBe(255);
     expect(atlas.rgba[sleeve + 3]).toBe(255);
+    expect(atlas.rgba[sleeveFold + 3]).toBe(255);
+    expect(atlas.rgba[sleeveSideFold + 3]).toBe(255);
+    expect(atlas.rgba[sleeve]).toBeGreaterThan(atlas.rgba[sleeveFold]);
     expect(atlas.rgba[lowerLeftPanel + 3]).toBe(255);
     expect(atlas.rgba[lowerTrim + 3]).toBe(255);
     expect(atlas.rgba[lowerOpenCenter + 3]).toBe(0);
