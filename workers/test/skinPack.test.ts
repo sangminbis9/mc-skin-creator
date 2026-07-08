@@ -763,17 +763,31 @@ describe("packFrontViewToAtlas", () => {
     })!;
     const atlas = packed.atlas;
     const body = CLASSIC_LAYOUT.body.overlay.front;
+    const side = CLASSIC_LAYOUT.body.overlay.right;
+    const back = CLASSIC_LAYOUT.body.overlay.back;
     const bowLeft = ((body.y + 1) * ATLAS_SIZE + body.x + 2) * 4;
     const bowCenter = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
     const plaidDark =
       ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 1) * 4;
     const plaidLight =
       ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 2) * 4;
+    const sidePlaidDark =
+      ((side.y + side.h - 3) * ATLAS_SIZE + side.x + 1) * 4;
+    const sidePlaidLight =
+      ((side.y + side.h - 3) * ATLAS_SIZE + side.x) * 4;
+    const backPlaidDark =
+      ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 1) * 4;
+    const backPlaidLight =
+      ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 2) * 4;
 
     expect(atlas.rgba[bowLeft + 3]).toBe(255);
     expect(atlas.rgba[bowLeft]).toBeGreaterThan(atlas.rgba[bowCenter]);
     expect(atlas.rgba[plaidDark + 3]).toBe(255);
     expect(atlas.rgba[plaidDark]).toBeLessThan(atlas.rgba[plaidLight]);
+    expect(atlas.rgba[sidePlaidDark + 3]).toBe(255);
+    expect(atlas.rgba[sidePlaidDark]).toBeLessThan(atlas.rgba[sidePlaidLight]);
+    expect(atlas.rgba[backPlaidDark + 3]).toBe(255);
+    expect(atlas.rgba[backPlaidDark]).toBeLessThan(atlas.rgba[backPlaidLight]);
   });
 
   it("eyebrowShape 힌트를 8x8 얼굴의 눈썹 각도 차이로 남긴다", () => {

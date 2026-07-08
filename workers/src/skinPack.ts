@@ -1870,13 +1870,37 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     const torsoRows = style.bottomType === "skirt" ? 4 : 2;
     paintLowerTorso(front, torsoRows);
     paintLowerTorso(back, torsoRows);
-    for (const rect of [body.overlay.right, body.overlay.left]) {
-      for (let y = rect.h - torsoRows; y < rect.h; y++) {
+    const paintSideLowerTorso = (rect: Rect, rows: number) => {
+      for (let y = rect.h - rows; y < rect.h; y++) {
         for (let x = 0; x < rect.w; x++) {
-          put(rect, x, y, shadeRgb(bottomColor, y === rect.h - 1 ? 0.74 : 0.92));
+          const localY = y - (rect.h - rows);
+          const edgePleat = x === 0 || x === rect.w - 1;
+          const centerPleat = x % 2 === 1;
+          let color = shadeRgb(
+            bottomColor,
+            y === rect.h - 1 ? 0.74 : edgePleat ? 0.82 : centerPleat ? 0.94 : 1.04,
+          );
+          if (bottomPattern === "plaid") {
+            if (x === 1 || x === rect.w - 2) color = shadeRgb(bottomColor, 0.66);
+            if (localY === 1 || localY === rows - 1) {
+              color = mixRgb(color, [238, 224, 214], 0.28);
+            }
+            if ((x === 1 || x === rect.w - 2) && localY === 1) {
+              color = shadeRgb(bottomColor, 0.5);
+            }
+          } else if (bottomPattern === "striped" && localY % 2 === 1) {
+            color = shadeRgb(bottomColor, 0.72);
+          } else if (bottomPattern === "pleated" && centerPleat) {
+            color = shadeRgb(bottomColor, 0.74);
+          } else if (bottomPattern === "lace" && y === rect.h - 1 && x % 2 === 0) {
+            color = mixRgb(bottomColor, [255, 248, 240], 0.55);
+          }
+          put(rect, x, y, color);
         }
       }
-    }
+    };
+    paintSideLowerTorso(body.overlay.right, torsoRows);
+    paintSideLowerTorso(body.overlay.left, torsoRows);
 
     for (const part of ["rightLeg", "leftLeg"] as const) {
       const leg = CLASSIC_LAYOUT[part];
