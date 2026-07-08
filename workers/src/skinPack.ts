@@ -1284,6 +1284,42 @@ function composeHair(
       putColor(bodyOver.back, 5, 4, shadeRgb(torsoStrandLight, 0.78));
       putColor(bodyOver.back, 3, 7, shadeRgb(torsoStrandDark, 0.82));
       putColor(bodyOver.back, 4, 7, torsoStrandDark);
+
+      const rightArmOver = CLASSIC_LAYOUT.rightArm.overlay;
+      const leftArmOver = CLASSIC_LAYOUT.leftArm.overlay;
+      const armHair = (rect: Rect, x: number, y: number, shade = 1) =>
+        shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
+      const paintShoulderDrape = (
+        arm: typeof rightArmOver,
+        innerX: number,
+        outerX: number,
+        sideFace: Rect,
+        mirrorPhase: number,
+      ) => {
+        const topY = 0;
+        const lastY = Math.min(5, arm.front.h - 1);
+        for (let y = 0; y <= lastY; y++) {
+          const shade = y >= 4 ? 0.58 : y % 2 === mirrorPhase ? 0.82 : 0.7;
+          putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
+          if (y <= 3 || y % 2 === mirrorPhase) {
+            putColor(arm.front, outerX, y, armHair(arm.front, outerX, y, shade * 0.92));
+          }
+          putColor(sideFace, y % 2, y, armHair(sideFace, y % 2, y, shade * 0.9));
+        }
+        for (const [x, y, color] of [
+          [innerX, topY, torsoStrandLight],
+          [outerX, topY + 1, shadeRgb(torsoStrandLight, 0.86)],
+          [innerX, lastY, torsoStrandDark],
+        ] as const) {
+          putColor(arm.front, x, y, color);
+        }
+        if (arm.top.h > 0) {
+          putColor(arm.top, innerX, Math.min(arm.top.h - 1, 1), shadeRgb(torsoStrandLight, 0.9));
+          putColor(arm.top, outerX, Math.min(arm.top.h - 1, 2), shadeRgb(torsoStrandDark, 0.88));
+        }
+      };
+      paintShoulderDrape(rightArmOver, 0, rightArmOver.front.w - 1, rightArmOver.right, 0);
+      paintShoulderDrape(leftArmOver, leftArmOver.front.w - 1, 0, leftArmOver.left, 1);
     }
   }
   if (hairBackShape === "long" || hairBackShape === "rounded" || hairBackShape === "tapered") {
