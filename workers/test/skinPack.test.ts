@@ -452,6 +452,29 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(over.top, 3, 3)).not.toBe(redAt(over.top, 2, 3));
   });
 
+  it("jaw-length side hair fills the side overlay interior so front and rear locks read as one layer", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "straight",
+      bangsLength: "brow",
+      hairTexture: "straight",
+      hairVolume: "full",
+      hairBackShape: "rounded",
+      sideHairLength: "jaw",
+    })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+
+    expect(alphaAt(atlas, over.right, 3, 5)).toBe(255);
+    expect(alphaAt(atlas, over.right, 5, 6)).toBe(255);
+    expect(alphaAt(atlas, over.left, 4, 5)).toBe(255);
+    expect(alphaAt(atlas, over.left, 2, 6)).toBe(255);
+    expect(alphaAt(atlas, over.top, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, over.top, 6, 5)).toBe(255);
+    expect(redAt(atlas, over.right, 3, 5)).not.toBe(redAt(atlas, over.right, 0, 5));
+    expect(redAt(atlas, over.left, 4, 5)).not.toBe(redAt(atlas, over.left, 7, 5));
+  });
+
   it("hairTexture=wavy adds directional strand highlights on top, front and side overlays", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

@@ -1127,6 +1127,25 @@ function composeHair(
         putColor(over.left, Math.max(4, 7 - depth), y, shadeRgb(rightShadow, 0.82));
       }
     }
+    if (sideHairLength === "jaw" || sideHairLength === "shoulder") {
+      for (let y = 3; y <= lastLockRow; y++) {
+        const bridgeDepth =
+          sideHairLength === "shoulder" ? (y >= 5 ? 5 : 4) : y >= 5 ? 4 : 3;
+        const leftBridge = sideLockColor(1901, y, 0, y >= lastLockRow - 1 ? 0.66 : 0.78);
+        const rightBridge = sideLockColor(2309, y, 0, y >= lastLockRow - 1 ? 0.66 : 0.78);
+        for (let x = 2; x <= bridgeDepth; x++) {
+          const shade = x === bridgeDepth ? 0.64 : x % 2 === 0 ? 0.84 : 0.72;
+          putColor(over.right, x, y, shadeRgb(leftBridge, shade));
+          putColor(over.left, 7 - x, y, shadeRgb(rightBridge, shade));
+        }
+        putColor(over.right, Math.min(6, bridgeDepth + 1), y, shadeRgb(leftBridge, 0.7));
+        putColor(over.left, Math.max(1, 6 - bridgeDepth), y, shadeRgb(rightBridge, 0.7));
+        if (y >= 4) {
+          putColor(over.top, 1, Math.min(7, y), shadeRgb(leftBridge, 0.9));
+          putColor(over.top, 6, Math.min(7, y), shadeRgb(rightBridge, 0.9));
+        }
+      }
+    }
     if (sideHairLength === "shoulder") {
       const bodyOver = CLASSIC_LAYOUT.body.overlay;
       const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
