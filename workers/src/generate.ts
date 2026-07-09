@@ -163,6 +163,7 @@ export async function generateSkin(
       bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
     };
     completeInferredLowerDetails(analysis, faceStyle);
+    completeVisibleAccessoryDetails(analysis, faceStyle);
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
       const generated = await provider.generate({
@@ -539,6 +540,74 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
     style.shoeStyle = "sandals";
   } else if (/\b(sneakers|sneaker|trainers)\b/.test(visibleText)) {
     style.shoeStyle = "sneakers";
+  }
+}
+
+function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+  const accessoryText = [
+    analysis.observed.accessories,
+    analysis.observed.hair,
+    analysis.observed.clothing,
+    analysis.outfitPrompt,
+    analysis.identityPrompt,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  const hairAccessoryText = [
+    analysis.observed.accessories,
+    analysis.observed.hair,
+    analysis.identityPrompt,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  if ((style.hairAccessory ?? "none") === "none") {
+    if (
+      /\b(flower|floral)\b/.test(hairAccessoryText) &&
+      /\b(hair|head|clip|accessory|viewer-left|viewer-right|left|right)\b/.test(hairAccessoryText)
+    ) {
+      style.hairAccessory = "flower";
+    } else if (/\b(hair bow|bow in hair|head bow)\b/.test(hairAccessoryText)) {
+      style.hairAccessory = "bow";
+    } else if (/\b(hair ribbon|ribbon in hair|head ribbon)\b/.test(hairAccessoryText)) {
+      style.hairAccessory = "ribbon";
+    } else if (/\b(hair clip|barrette|hairpin|pin in hair)\b/.test(hairAccessoryText)) {
+      style.hairAccessory = "clip";
+    }
+  }
+
+  if ((style.hairAccessory ?? "none") !== "none") {
+    if (/\b(viewer-right|right side|right hair|right temple)\b/.test(hairAccessoryText)) {
+      style.hairAccessorySide = "right";
+    } else if (/\b(viewer-left|left side|left hair|left temple)\b/.test(hairAccessoryText)) {
+      style.hairAccessorySide = "left";
+    } else if (/\b(center|middle|top center)\b/.test(hairAccessoryText)) {
+      style.hairAccessorySide = "center";
+    }
+  }
+
+  if ((style.neckAccessory ?? "none") === "none") {
+    if (/\b(bow collar|neck bow|bow at the neck|bow tie)\b/.test(accessoryText)) {
+      style.neckAccessory = "bow";
+    } else if (/\b(necktie|tie)\b/.test(accessoryText)) {
+      style.neckAccessory = "tie";
+    } else if (/\b(scarf)\b/.test(accessoryText)) {
+      style.neckAccessory = "scarf";
+    } else if (/\b(distinct collar|large collar|white collar|collared shirt)\b/.test(accessoryText)) {
+      style.neckAccessory = "collar";
+    }
+  }
+
+  if ((style.necklace ?? "none") === "none") {
+    if (/\b(silver necklace|silver chain|silver pendant)\b/.test(accessoryText)) {
+      style.necklace = "silver";
+    } else if (/\b(gold necklace|gold chain|gold pendant)\b/.test(accessoryText)) {
+      style.necklace = "gold";
+    } else if (/\b(black necklace|dark necklace|dark chain)\b/.test(accessoryText)) {
+      style.necklace = "dark";
+    }
   }
 }
 

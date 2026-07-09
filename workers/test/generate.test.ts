@@ -7,6 +7,7 @@ import type {
 } from "../src/skinProvider";
 import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
+import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 import {
   makeAnalysis,
   makeFrontBackView,
@@ -73,6 +74,60 @@ describe("generateSkin", () => {
     expect(validateFinalAtlas(decoded).ok).toBe(true);
     // 분석 170 + (사진+포즈가이드 2타일 x 6 + 출력 2타일 x 27) = 236
     expect(result.neuronsSpent).toBe(236);
+  });
+
+  it("front_view preserves visible hair flower and neck bow from observed text when render hints miss them", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "long wavy brown hair with a large pink flower on viewer-left hair",
+          accessories: "large pink flower on viewer-left hair and a white bow collar",
+          clothing: "pink cardigan over a white bow collar",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairAccessory: "none",
+          hairAccessorySide: "center",
+          neckAccessory: "none",
+        },
+        identityPrompt:
+          "A person with long wavy brown hair and a large pink flower on viewer-left hair.",
+        outfitPrompt:
+          "Pink cardigan over a white bow collar, with the viewer-left hair flower preserved.",
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          hairstyle: "long",
+        },
+      }),
+      true,
+      "front_view",
+    );
+    const frontPng = await encodePng(makeFrontBackView());
+    const provider = providerOf([
+      { ok: true, imageBytes: frontPng, inputTiles: 2, outputTiles: 2 },
+    ]);
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const head = CLASSIC_LAYOUT.head.overlay.front;
+    const body = CLASSIC_LAYOUT.body.overlay.front;
+    const flowerPetal = ((head.y + 2) * ATLAS_SIZE + head.x + 1) * 4;
+    const flowerLeaf = ((head.y + 1) * ATLAS_SIZE + head.x + 2) * 4;
+    const bowWing = ((body.y + 1) * ATLAS_SIZE + body.x + 2) * 4;
+    const bowKnot = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[flowerPetal + 3]).toBe(255);
+    expect(decoded.rgba[flowerPetal]).toBeGreaterThan(decoded.rgba[flowerPetal + 1]);
+    expect(decoded.rgba[flowerLeaf + 1]).toBeGreaterThan(decoded.rgba[flowerLeaf]);
+    expect(decoded.rgba[bowWing + 3]).toBe(255);
+    expect(decoded.rgba[bowKnot + 3]).toBe(255);
+    expect(decoded.rgba[bowWing]).toBeGreaterThan(decoded.rgba[bowKnot]);
   });
 
   it("direct_atlas 전략: 이미지 생성 성공 → 64x64 유효 atlas + 비용 215 Neurons", async () => {
