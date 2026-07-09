@@ -2431,6 +2431,47 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         put(frontLeg, seamX, y, shadeRgb(bottomColor, 0.66));
       }
     }
+
+    if (bottomPattern === "plaid") {
+      const paintPlaidTorsoWrap = (rect: Rect) => {
+        const startY = rect.h - torsoRows;
+        const midY = Math.min(rect.h - 1, startY + 1);
+        const lowY = Math.max(startY, rect.h - 2);
+        for (let x = 0; x < rect.w; x++) {
+          const thread = x % 2 === 0 ? plaidThread : shadeRgb(plaidThread, 0.82);
+          put(rect, x, midY, x === 1 || x === rect.w - 2 ? plaidCross : thread);
+          if (x % 3 === 0) put(rect, x, lowY, shadeRgb(plaidThread, 0.9));
+        }
+        for (const x of [1, Math.max(1, rect.w - 2)] as const) {
+          for (let y = startY; y < rect.h; y++) {
+            put(rect, x, y, y === midY ? plaidCross : plaidShadow);
+          }
+        }
+      };
+      paintPlaidTorsoWrap(front);
+      paintPlaidTorsoWrap(back);
+      paintPlaidTorsoWrap(body.overlay.right);
+      paintPlaidTorsoWrap(body.overlay.left);
+
+      for (const part of ["rightLeg", "leftLeg"] as const) {
+        const leg = CLASSIC_LAYOUT[part];
+        for (const faceName of ["front", "back", "right", "left"] as const) {
+          const dst = leg.overlay[faceName];
+          const coverRows = style.bottomType === "skirt" ? 3 : 2;
+          const verticalX = Math.min(dst.w - 1, faceName === "front" || faceName === "back" ? 2 : 1);
+          const shadowX = Math.min(dst.w - 1, 1);
+          for (let y = 0; y < coverRows; y++) {
+            put(dst, verticalX, y, y === 1 ? plaidCross : mixRgb(plaidThread, litColor, 0.18));
+            put(dst, shadowX, y, y === 1 ? plaidCross : plaidShadow);
+          }
+          if (coverRows > 1) {
+            for (let x = 0; x < dst.w; x++) {
+              put(dst, x, 1, x === verticalX || x === shadowX ? plaidCross : shadeRgb(plaidThread, x % 2 === 0 ? 0.94 : 0.78));
+            }
+          }
+        }
+      }
+    }
   }
 
   const bottomAccent = style.bottomAccent ?? "none";

@@ -1173,9 +1173,14 @@ describe("packFrontViewToAtlas", () => {
       ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 1) * 4;
     const backPlaidLight =
       ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 2) * 4;
+    const torsoPlaidLowThread =
+      ((body.y + body.h - 2) * ATLAS_SIZE + body.x + 3) * 4;
+    const leftSidePlaidWrap =
+      ((leftSide.y + leftSide.h - 3) * ATLAS_SIZE + leftSide.x + leftSide.w - 2) * 4;
     const legPlaidDark = ((rightLeg.y) * ATLAS_SIZE + rightLeg.x + 1) * 4;
     const legPlaidLight = ((rightLeg.y) * ATLAS_SIZE + rightLeg.x + 2) * 4;
     const legPlaidCross = ((rightLeg.y + 1) * ATLAS_SIZE + rightLeg.x + 1) * 4;
+    const legPlaidHorizontal = ((rightLeg.y + 1) * ATLAS_SIZE + rightLeg.x) * 4;
     const legPlaidSideLight = ((rightLegSide.y) * ATLAS_SIZE + rightLegSide.x) * 4;
     const legPlaidSideDark = ((rightLegSide.y + 1) * ATLAS_SIZE + rightLegSide.x + 1) * 4;
 
@@ -1197,9 +1202,15 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sidePlaidDark]).toBeLessThan(atlas.rgba[sidePlaidLight]);
     expect(atlas.rgba[backPlaidDark + 3]).toBe(255);
     expect(atlas.rgba[backPlaidDark]).toBeLessThan(atlas.rgba[backPlaidLight]);
+    expect(atlas.rgba[torsoPlaidLowThread + 3]).toBe(255);
+    expect(atlas.rgba[torsoPlaidLowThread]).toBeGreaterThan(atlas.rgba[plaidDark]);
+    expect(atlas.rgba[leftSidePlaidWrap + 3]).toBe(255);
+    expect(atlas.rgba[leftSidePlaidWrap]).toBeLessThan(atlas.rgba[sidePlaidLight]);
     expect(atlas.rgba[legPlaidDark + 3]).toBe(255);
     expect(atlas.rgba[legPlaidDark]).toBeLessThan(atlas.rgba[legPlaidLight]);
     expect(atlas.rgba[legPlaidCross]).toBeLessThan(atlas.rgba[legPlaidDark]);
+    expect(atlas.rgba[legPlaidHorizontal + 3]).toBe(255);
+    expect(atlas.rgba[legPlaidHorizontal]).toBeGreaterThan(atlas.rgba[legPlaidCross]);
     expect(atlas.rgba[legPlaidSideLight + 3]).toBe(255);
     expect(atlas.rgba[legPlaidSideDark]).toBeLessThan(atlas.rgba[legPlaidSideLight]);
   });
