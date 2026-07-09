@@ -699,6 +699,32 @@ describe("packFrontViewToAtlas", () => {
     expect(pixel(tiedBack, over.back, 3, 6)[0]).not.toBe(pixel(longBack, over.back, 3, 6)[0]);
   });
 
+  it("long inferred back hair continues onto torso overlay even when side hair is jaw length", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "curtain",
+      hairTexture: "wavy",
+      hairBackShape: "long",
+      sideHairLength: "jaw",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head.overlay;
+    const body = CLASSIC_LAYOUT.body.overlay;
+
+    expect(alphaAt(atlas, head.back, 3, 7)).toBe(255);
+    expect(alphaAt(atlas, body.back, 2, 1)).toBe(255);
+    expect(alphaAt(atlas, body.back, 3, 5)).toBe(255);
+    expect(alphaAt(atlas, body.right, 0, 4)).toBe(255);
+    expect(alphaAt(atlas, body.left, body.left.w - 1, 4)).toBe(255);
+    expect(alphaAt(atlas, body.front, 0, 3)).toBe(255);
+    expect(alphaAt(atlas, body.front, 7, 3)).toBe(255);
+    expect(redAt(atlas, body.back, 2, 1)).toBeGreaterThan(redAt(atlas, body.back, 3, 5));
+    expect(redAt(atlas, body.right, 1, 2)).toBeGreaterThan(redAt(atlas, body.right, 0, 4));
+    expect(redAt(atlas, body.left, body.left.w - 2, 2)).toBeGreaterThan(
+      redAt(atlas, body.left, body.left.w - 1, 4),
+    );
+  });
+
   it("shoulder-length side hair continues onto torso overlay as visible front and back strands", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

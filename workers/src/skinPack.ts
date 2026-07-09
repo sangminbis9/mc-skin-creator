@@ -1380,6 +1380,42 @@ function composeHair(
       }
     }
   }
+  if (hairBackShape === "long" && sideHairLength !== "shoulder") {
+    const bodyOver = CLASSIC_LAYOUT.body.overlay;
+    const backDrapeLight = mixRgb(hairColor, [242, 226, 214], style.hairTexture === "wavy" ? 0.22 : 0.14);
+    const backDrapeDark = shadeRgb(hairColor, 0.52);
+    const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
+      shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
+
+    for (let y = 0; y < 6; y++) {
+      const row =
+        y < 2
+          ? ([2, 3, 4, 5] as const)
+          : y < 4
+            ? ([1, 2, 3, 4, 5, 6] as const)
+            : ([2, 3, 4, 5] as const);
+      for (const x of row) {
+        const shade = y >= 4 ? 0.62 : x === 2 || x === 5 ? 0.82 : 0.72;
+        putColor(bodyOver.back, x, y, bodyHair(bodyOver.back, x, y, shade));
+      }
+      putColor(bodyOver.right, 0, y, bodyHair(bodyOver.right, 0, y, y >= 4 ? 0.58 : 0.78));
+      putColor(bodyOver.left, bodyOver.left.w - 1, y, bodyHair(bodyOver.left, bodyOver.left.w - 1, y, y >= 4 ? 0.58 : 0.78));
+      if (y <= 3 && sideHairLength === "jaw") {
+        putColor(bodyOver.front, 0, y, bodyHair(bodyOver.front, 0, y, y === 3 ? 0.64 : 0.82));
+        putColor(bodyOver.front, 7, y, bodyHair(bodyOver.front, 7, y, y === 3 ? 0.64 : 0.82));
+      }
+    }
+    for (const [rect, x, y, color] of [
+      [bodyOver.back, 2, 1, backDrapeLight],
+      [bodyOver.back, 5, 2, shadeRgb(backDrapeLight, 0.9)],
+      [bodyOver.back, 3, 5, backDrapeDark],
+      [bodyOver.back, 4, 5, shadeRgb(backDrapeDark, 0.9)],
+      [bodyOver.right, 1, 2, shadeRgb(backDrapeLight, 0.84)],
+      [bodyOver.left, bodyOver.left.w - 2, 2, shadeRgb(backDrapeLight, 0.84)],
+    ] as const) {
+      putColor(rect, x, y, color);
+    }
+  }
   if (hairBackShape === "long" || hairBackShape === "rounded" || hairBackShape === "tapered") {
     const edgeRows =
       hairBackShape === "long" ? 8 : hairBackShape === "rounded" ? 7 : Math.min(6, over.back.h);
