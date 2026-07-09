@@ -348,6 +348,7 @@ function paletteHex(
 
 function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
   if (analysis.visibleRegions.lowerBody) {
+    completeVisibleLowerDetails(analysis, style);
     return;
   }
 
@@ -459,6 +460,85 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
   ) {
     style.legwear = "socks";
     style.legwearAsymmetry = "both";
+  }
+}
+
+function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+  const visibleText = [
+    analysis.observed.clothing,
+    analysis.outfitPrompt,
+    analysis.identityPrompt,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt|miniskirt|mini skirt)\b/.test(visibleText)) {
+    style.bottomType = "skirt";
+  } else if (/\b(shorts|short pants|culottes)\b/.test(visibleText)) {
+    style.bottomType = "shorts";
+  } else if (/\b(jeans|denim)\b/.test(visibleText)) {
+    style.bottomType = "jeans";
+  } else if (/\b(pants|trousers|slacks|chinos|joggers)\b/.test(visibleText)) {
+    style.bottomType = "pants";
+  } else if (
+    (style.bottomType ?? "pants") === "pants" &&
+    (analysis.renderHints.bottomPattern === "pleated" ||
+      analysis.renderHints.bottomAccent === "ribbon") &&
+    (analysis.renderHints.neckAccessory === "bow" ||
+      analysis.renderHints.outerGarment === "cardigan")
+  ) {
+    style.bottomType = "skirt";
+  }
+
+  if (/\b(plaid|checkered|checked|tartan)\b/.test(visibleText)) {
+    style.bottomPattern = "plaid";
+  } else if (/\b(pleated|pleats|pleat)\b/.test(visibleText)) {
+    style.bottomPattern = "pleated";
+  } else if (/\b(striped|stripes)\b/.test(visibleText)) {
+    style.bottomPattern = "striped";
+  } else if (/\b(lace|lacy)\b/.test(visibleText)) {
+    style.bottomPattern = "lace";
+  }
+
+  if (/\b(ribbon|bow)\b/.test(visibleText) && (style.bottomAccent ?? "none") === "none") {
+    style.bottomAccent = "ribbon";
+  } else if (/\b(belt|belted)\b/.test(visibleText)) {
+    style.bottomAccent = "belt";
+  } else if (/\b(cuff|cuffed|cuffs)\b/.test(visibleText)) {
+    style.bottomAccent = "cuffs";
+  } else if (/\b(side stripe|side stripes)\b/.test(visibleText)) {
+    style.bottomAccent = "side_stripe";
+  }
+
+  if (/\b(leg warmer|leg warmers)\b/.test(visibleText)) {
+    style.legwear = "leg_warmers";
+  } else if (/\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(visibleText)) {
+    style.legwear = "thigh_highs";
+  } else if (/\b(stockings|stocking|tights)\b/.test(visibleText)) {
+    style.legwear = "stockings";
+  } else if (/\b(socks|sock)\b/.test(visibleText)) {
+    style.legwear = "socks";
+  }
+
+  if (/\b(one|single|asymmetric|asymmetrical|left|right)\b/.test(visibleText)) {
+    if (/\bleft\b/.test(visibleText)) {
+      style.legwearAsymmetry = "left";
+    } else if (/\bright\b/.test(visibleText)) {
+      style.legwearAsymmetry = "right";
+    } else if ((style.legwear ?? "none") !== "none") {
+      style.legwearAsymmetry = style.legwearAsymmetry === "none" ? "left" : style.legwearAsymmetry;
+    }
+  }
+
+  if (/\b(dress shoes|mary jane|mary janes|loafers)\b/.test(visibleText)) {
+    style.shoeStyle = "dress_shoes";
+  } else if (/\b(boots|boot)\b/.test(visibleText)) {
+    style.shoeStyle = "boots";
+  } else if (/\b(sandals|sandal)\b/.test(visibleText)) {
+    style.shoeStyle = "sandals";
+  } else if (/\b(sneakers|sneaker|trainers)\b/.test(visibleText)) {
+    style.shoeStyle = "sneakers";
   }
 }
 

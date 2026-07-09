@@ -42,6 +42,79 @@ async function photoDataUrl(): Promise<string> {
 }
 
 describe("inferred lower-body completion", () => {
+  it("corrects visible lower-body style from observed outfit text when fallback says pants", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: true,
+          feet: true,
+        },
+        observed: {
+          ...base.observed,
+          clothing:
+            "pink cardigan with a bow collar, dark pleated plaid skirt, one left leg warmer and white Mary Jane dress shoes",
+        },
+        renderHints: {
+          ...base.renderHints,
+          outerGarment: "cardigan",
+          neckAccessory: "bow",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          bottomType: "pants",
+        },
+        outfitPrompt:
+          "Preserve the visible pink cardigan, bow collar, dark pleated plaid skirt, one left leg warmer and white Mary Jane dress shoes.",
+      }),
+    );
+    const frontPng = await encodePng(makeFrontBackView());
+    const provider = providerOf({
+      ok: true,
+      imageBytes: frontPng,
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightShoe = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const bodyHem =
+      ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
+    const plaidDark =
+      ((bodyFront.y + bodyFront.h - 3) * ATLAS_SIZE + bodyFront.x + 1) * 4;
+    const plaidLight =
+      ((bodyFront.y + bodyFront.h - 3) * ATLAS_SIZE + bodyFront.x + 2) * 4;
+    const leftWarmer =
+      ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
+    const oppositeBow =
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+    const shoeBow =
+      ((rightShoe.y + rightShoe.h - 3) * ATLAS_SIZE + rightShoe.x + 1) * 4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[bodyHem + 3]).toBe(255);
+    expect(decoded.rgba[plaidDark + 3]).toBe(255);
+    expect(decoded.rgba[plaidDark]).toBeLessThan(decoded.rgba[plaidLight]);
+    expect(decoded.rgba[leftWarmer + 3]).toBe(255);
+    expect(decoded.rgba[oppositeBow + 3]).toBe(255);
+    expect(decoded.rgba[shoeBow + 3]).toBe(255);
+    expect(decoded.rgba[shoeBow]).toBeGreaterThan(220);
+  });
+
   it("renders inferred skirt, plaid pattern and socks even when fallback bottomType is pants", async () => {
     const base = makeAnalysis();
     const env = makeEnv(
