@@ -125,7 +125,7 @@ export interface PhotoAnalysis {
 const CLOTHING_COLOR_ENUM =
   '"black" | "white" | "gray" | "light-gray" | "red" | "orange" | "yellow" | "green" | "dark-green" | "blue" | "navy" | "sky-blue" | "purple" | "pink" | "brown" | "beige" | "denim" | "khaki"';
 
-const ANALYSIS_PROMPT = `You are a character designer analyzing a photo to build a Minecraft-style avatar that closely resembles the person in it.
+export const ANALYSIS_PROMPT = `You are a character designer analyzing a photo to build a Minecraft-style avatar that closely resembles the person in it.
 
 STEP 1 — photo quality:
 - "fail" + failReason "no_face" if there is no real human face clearly visible (this includes blank images, objects, landscapes, drawings without a real person).
@@ -138,6 +138,8 @@ If multiple people appear, analyze only the most prominent/central person.
 STEP 2 — framing: how much of the person is visible: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
 
 STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logos.
+- If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs), legwear asymmetry from the viewer's perspective, and shoe type/color.
+- Preserve side-specific details using viewer-left/viewer-right wording for one-sided flowers, bows, leg warmers, thigh bows, side stripes, straps or shoe details.
 
 STEP 4 — inferred: for body parts and clothing NOT visible, design choices that stay coherent with the observed colors, style and mood. Each inferred item needs a short rationale grounded in observed evidence. Rules:
 - Never base clothing choices on gender presentation or facial stereotypes; use only visible clothing cues, colors and mood.
@@ -147,7 +149,7 @@ STEP 4 — inferred: for body parts and clothing NOT visible, design choices tha
 
 STEP 5 — prompts for an image generation model:
 - identityPrompt: 2-4 sentences capturing the recognizable identity, as SPECIFIC as possible: face shape (round/oval/angular), skin tone, hair (exact color shade, parting direction, bangs style, length, texture like straight/wavy/curly), eye shape and color, eyebrow shape, nose/mouth impression, facial hair, glasses shape/color, hat, earrings, and any distinctive features. Avoid generic phrases — describe what makes THIS person recognizable.
-- outfitPrompt: 1-3 sentences describing the COMPLETE head-to-toe outfit: visible garments first (preserve them faithfully), then inferred garments.
+- outfitPrompt: 1-3 sentences describing the COMPLETE head-to-toe outfit: visible garments first (preserve them faithfully), then inferred garments. When lower body or feet are visible, explicitly include the lower garment, legwear/asymmetry and shoe details instead of summarizing them as "bottoms" or omitting them.
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
@@ -167,6 +169,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
 - bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
 - legwear captures visible socks, stockings, leg warmers or thigh-highs. legwearAsymmetry is "left" or "right" when only one leg has the distinctive legwear, "both" when both legs do, and "none" when no legwear is visible.
+- For full_body photos, renderHints.bottomPattern, bottomAccent, legwear and legwearAsymmetry must be based on the visible lower body whenever visible; do not default to plain/none if plaid, pleats, lace, ribbons, socks, stockings, leg warmers or asymmetric details are visible.
 - outerLayer means whether clothing should visibly use Minecraft's second skin layer for volume (jacket/hoodie/heavy knit = heavy, shirt/light knit = light).
 - outerGarment captures a visible open cardigan, open jacket, coat, or vest silhouette. Use "none" for a single closed top.
 
@@ -192,6 +195,7 @@ STEP 7 — fallbackFeatures: classify into these fixed palettes (pick the CLOSES
   "bottomColor": CLOTHING_COLOR,
   "shoesColor": CLOTHING_COLOR
 }
+For fallbackFeatures.bottomType, use the visible lower garment when it is visible; never default to "pants" for a visible skirt or shorts.
 CLOTHING_COLOR must be one of: ${CLOTHING_COLOR_ENUM}
 
 Respond with ONLY a JSON object matching this shape:

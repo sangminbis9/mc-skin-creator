@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { validatePhotoAnalysis } from "../src/analysis";
+import { ANALYSIS_PROMPT, validatePhotoAnalysis } from "../src/analysis";
 import { makeAnalysis } from "./helpers";
 
 describe("validatePhotoAnalysis", () => {
+  it("analysis prompt requires visible lower-body, legwear asymmetry and shoe details", () => {
+    expect(ANALYSIS_PROMPT).toContain("lower garment type");
+    expect(ANALYSIS_PROMPT).toContain("legwear asymmetry from the viewer's perspective");
+    expect(ANALYSIS_PROMPT).toContain("shoe type/color");
+    expect(ANALYSIS_PROMPT).toContain("viewer-left/viewer-right");
+    expect(ANALYSIS_PROMPT).toContain("renderHints.bottomPattern");
+    expect(ANALYSIS_PROMPT).toContain("never default to \"pants\" for a visible skirt or shorts");
+  });
+
   it("유효한 분석은 통과한다", () => {
     const result = validatePhotoAnalysis(makeAnalysis());
     expect(result.ok).toBe(true);
