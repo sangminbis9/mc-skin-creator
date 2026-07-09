@@ -2763,6 +2763,17 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
               put(overRect, faceName === "right" ? 0 : overRect.w - 1, y, ribLight);
               put(overRect, faceName === "right" ? 1 : overRect.w - 2, y, shadeRgb(ribLight, 0.9));
             }
+            if (faceName === "front" || faceName === "back") {
+              const foldX = y % 2 === 0 ? 2 : 1;
+              const liftX = foldX === 1 ? 2 : 1;
+              put(overRect, foldX, y, ribbed ? shadeRgb(ribShadow, 0.82) : shadeRgb(ribLight, 0.96));
+              put(overRect, liftX, y, ribbed ? shadeRgb(ribLight, 0.72) : shadeRgb(ribLight, 1.12));
+            } else {
+              const outerX = faceName === "right" ? 0 : overRect.w - 1;
+              const innerX = faceName === "right" ? 1 : overRect.w - 2;
+              put(overRect, outerX, y, ribbed ? shadeRgb(ribShadow, 0.72) : ribLight);
+              put(overRect, innerX, y, ribbed ? shadeRgb(ribShadow, 0.9) : shadeRgb(ribLight, 0.94));
+            }
           }
         }
         for (let x = 0; x < overRect.w; x++) {
@@ -2804,18 +2815,26 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const bowDeep = shadeRgb(bowShade, 0.72);
       const frontLeg = opposite.overlay.front;
       for (const [x, y, color] of [
+        [0, 1, bowShade],
         [0, 2, bowLight],
         [1, 1, bow],
         [1, 2, bowDeep],
+        [2, 1, bowLight],
         [2, 2, bowLight],
+        [3, 2, bow],
         [0, 3, bowShade],
         [1, 3, bow],
         [2, 3, bowShade],
+        [3, 3, bowShade],
         [1, 4, bowDeep],
+        [2, 4, bowShade],
       ] as const) {
         put(frontLeg, x, y, color);
       }
       for (const rect of [opposite.overlay.right, opposite.overlay.left, opposite.overlay.back]) {
+        for (let x = 0; x < rect.w; x++) {
+          put(rect, x, 1, x % 2 === 0 ? bowLight : shadeRgb(bow, 0.9));
+        }
         for (let x = 0; x < rect.w; x++) {
           put(rect, x, 2, x % 2 === 0 ? bow : bowShade);
         }

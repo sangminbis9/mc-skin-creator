@@ -1006,12 +1006,18 @@ describe("packFrontViewToAtlas", () => {
     const warmerSideLace = ((leftSide.y + 1) * ATLAS_SIZE + leftSide.x) * 4;
     const warmerBackRidge = ((leftBack.y + 7) * ATLAS_SIZE + leftBack.x + 2) * 4;
     const warmerBackLift = ((leftBack.y + 6) * ATLAS_SIZE + leftBack.x + 2) * 4;
+    const warmerExtraFold = ((left.y + 6) * ATLAS_SIZE + left.x + 2) * 4;
+    const warmerExtraLift = ((left.y + 6) * ATLAS_SIZE + left.x + 1) * 4;
     const bow = ((right.y + 2) * ATLAS_SIZE + right.x) * 4;
+    const bowTopBand = ((right.y + 1) * ATLAS_SIZE + right.x + 2) * 4;
+    const bowOuterWing = ((right.y + 2) * ATLAS_SIZE + right.x + 3) * 4;
     const bowTail = ((right.y + 4) * ATLAS_SIZE + right.x + 1) * 4;
     const bareLowerLeg = ((right.y + 5) * ATLAS_SIZE + right.x + 3) * 4;
+    const sideTopBand = ((rightSide.y + 1) * ATLAS_SIZE + rightSide.x) * 4;
     const sideBand = ((rightSide.y + 2) * ATLAS_SIZE + rightSide.x + 1) * 4;
     const sideTail = ((rightSide.y + 3) * ATLAS_SIZE + rightSide.x) * 4;
     const sideLongTail = ((rightSide.y + 4) * ATLAS_SIZE + rightSide.x) * 4;
+    const backTopBand = ((rightBack.y + 1) * ATLAS_SIZE + rightBack.x + 2) * 4;
     const backBand = ((rightBack.y + 2) * ATLAS_SIZE + rightBack.x + 2) * 4;
 
     expect(atlas.rgba[warmer + 3]).toBe(255);
@@ -1027,11 +1033,17 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sideBand + 3]).toBe(255);
     expect(atlas.rgba[sideTail + 3]).toBe(255);
     expect(atlas.rgba[sideLongTail + 3]).toBe(255);
+    expect(atlas.rgba[sideTopBand + 3]).toBe(255);
+    expect(atlas.rgba[backTopBand + 3]).toBe(255);
     expect(atlas.rgba[backBand + 3]).toBe(255);
     expect(atlas.rgba[sideBand]).toBeGreaterThan(atlas.rgba[sideBand + 1]);
+    expect(atlas.rgba[bowTopBand + 3]).toBe(255);
+    expect(atlas.rgba[bowOuterWing + 3]).toBe(255);
+    expect(atlas.rgba[bowOuterWing]).toBeGreaterThan(atlas.rgba[bowTail]);
     expect(atlas.rgba[warmerRidge]).toBeLessThan(atlas.rgba[warmerLift]);
     expect(atlas.rgba[warmerSideRidge]).toBeLessThan(atlas.rgba[warmerSideLift]);
     expect(atlas.rgba[warmerBackRidge]).toBeLessThan(atlas.rgba[warmerBackLift]);
+    expect(atlas.rgba[warmerExtraFold]).toBeLessThan(atlas.rgba[warmerExtraLift]);
   });
 
   it("dressy skirt outfits add visible shoe straps across front and side foot overlays", () => {
