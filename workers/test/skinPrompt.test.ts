@@ -50,6 +50,9 @@ describe("buildSkinPrompt framing 정책", () => {
     expect(prompt).toContain("side hair");
     expect(prompt).toContain("lower-body accent");
     expect(prompt).toContain("evidence-based completions");
+    expect(prompt).toContain("Minecraft second skin layer logic");
+    expect(prompt).toContain("Connect adjacent UV faces visually");
+    expect(prompt).toContain("infer a complete lower-body design");
     expect(prompt).toContain("more than two figures"); // 회피 목록
   });
 
@@ -67,6 +70,17 @@ describe("buildSkinPrompt framing 정책", () => {
     expect(promptA).not.toBe(promptB);
     expect(promptA).toContain("silver glasses");
     expect(promptB).toContain("auburn hair");
+  });
+
+  it("UV atlas 프롬프트가 outer layer, seam, 하의 추론을 강제한다", () => {
+    const prompt = buildSkinPrompt(makeAnalysis({ framing: "upper_body" }), {
+      hasStyleRef: true,
+    });
+    expect(prompt).toContain("overlay (second layer) rectangles deliberately");
+    expect(prompt).toContain("front, back, left and right UV faces connected");
+    expect(prompt).toContain("coherent lower-body outfit");
+    expect(prompt).toContain("side hair");
+    expect(prompt).toContain("legwear bands");
   });
 
   it("negativePrompt가 회피 목록에 합쳐진다", () => {
