@@ -76,7 +76,7 @@ describe("generateSkin", () => {
     expect(result.neuronsSpent).toBe(236);
   });
 
-  it("front_view preserves visible hair flower and neck bow from observed text when render hints miss them", async () => {
+  it("front_view preserves visible cardigan, hair flower and neck bow from observed text when render hints miss them", async () => {
     const base = makeAnalysis();
     const env = makeEnv(
       makeAnalysis({
@@ -84,10 +84,13 @@ describe("generateSkin", () => {
           ...base.observed,
           hair: "long wavy brown hair with a large pink flower on viewer-left hair",
           accessories: "large pink flower on viewer-left hair and a white bow collar",
-          clothing: "pink cardigan over a white bow collar",
+          clothing: "long-sleeve pink cardigan over a white bow collar",
         },
         renderHints: {
           ...base.renderHints,
+          outerGarment: "none",
+          outerLayer: "none",
+          garmentTexture: "plain",
           hairAccessory: "none",
           hairAccessorySide: "center",
           neckAccessory: "none",
@@ -95,10 +98,12 @@ describe("generateSkin", () => {
         identityPrompt:
           "A person with long wavy brown hair and a large pink flower on viewer-left hair.",
         outfitPrompt:
-          "Pink cardigan over a white bow collar, with the viewer-left hair flower preserved.",
+          "Long-sleeve pink cardigan over a white bow collar, with the viewer-left hair flower preserved.",
         fallbackFeatures: {
           ...base.fallbackFeatures,
           hairstyle: "long",
+          topType: "tshirt",
+          sleeveLength: "short",
         },
       }),
       true,
@@ -116,10 +121,18 @@ describe("generateSkin", () => {
     );
     const head = CLASSIC_LAYOUT.head.overlay.front;
     const body = CLASSIC_LAYOUT.body.overlay.front;
+    const bodySide = CLASSIC_LAYOUT.body.overlay.right;
+    const armFront = CLASSIC_LAYOUT.rightArm.overlay.front;
     const flowerPetal = ((head.y + 2) * ATLAS_SIZE + head.x + 1) * 4;
     const flowerLeaf = ((head.y + 1) * ATLAS_SIZE + head.x + 2) * 4;
     const bowWing = ((body.y + 1) * ATLAS_SIZE + body.x + 2) * 4;
     const bowKnot = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
+    const cardiganPanel = ((body.y + 5) * ATLAS_SIZE + body.x + 1) * 4;
+    const cardiganTrim = ((body.y + 5) * ATLAS_SIZE + body.x + 2) * 4;
+    const cardiganOpenCenter = ((body.y + 5) * ATLAS_SIZE + body.x + 3) * 4;
+    const cardiganSidePanel = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + 1) * 4;
+    const sleeve = ((armFront.y + 4) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveFold = ((armFront.y + 3) * ATLAS_SIZE + armFront.x + 1) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[flowerPetal + 3]).toBe(255);
@@ -128,6 +141,14 @@ describe("generateSkin", () => {
     expect(decoded.rgba[bowWing + 3]).toBe(255);
     expect(decoded.rgba[bowKnot + 3]).toBe(255);
     expect(decoded.rgba[bowWing]).toBeGreaterThan(decoded.rgba[bowKnot]);
+    expect(decoded.rgba[cardiganPanel + 3]).toBe(255);
+    expect(decoded.rgba[cardiganTrim + 3]).toBe(255);
+    expect(decoded.rgba[cardiganOpenCenter + 3]).toBe(0);
+    expect(decoded.rgba[cardiganTrim]).toBeLessThan(decoded.rgba[cardiganPanel]);
+    expect(decoded.rgba[cardiganSidePanel + 3]).toBe(255);
+    expect(decoded.rgba[sleeve + 3]).toBe(255);
+    expect(decoded.rgba[sleeveFold + 3]).toBe(255);
+    expect(decoded.rgba[sleeve]).toBeGreaterThan(decoded.rgba[sleeveFold]);
   });
 
   it("direct_atlas 전략: 이미지 생성 성공 → 64x64 유효 atlas + 비용 215 Neurons", async () => {

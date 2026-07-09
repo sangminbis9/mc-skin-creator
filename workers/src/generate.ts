@@ -162,8 +162,9 @@ export async function generateSkin(
       sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
       bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
     };
-    completeInferredLowerDetails(analysis, faceStyle);
+    completeVisibleUpperDetails(analysis, faceStyle);
     completeVisibleAccessoryDetails(analysis, faceStyle);
+    completeInferredLowerDetails(analysis, faceStyle);
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
       const generated = await provider.generate({
@@ -461,6 +462,52 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
   ) {
     style.legwear = "socks";
     style.legwearAsymmetry = "both";
+  }
+}
+
+function completeVisibleUpperDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+  const upperText = [
+    analysis.observed.clothing,
+    analysis.observed.accessories,
+    analysis.outfitPrompt,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  if (/\b(cardigan|open cardigan)\b/.test(upperText)) {
+    style.outerGarment = "cardigan";
+    style.topType = style.topType === "tshirt" ? "shirt" : style.topType;
+    style.outerLayer = style.outerLayer === "none" ? "heavy" : style.outerLayer;
+  } else if (/\b(open jacket|unbuttoned jacket|jacket)\b/.test(upperText)) {
+    style.outerGarment = "open_jacket";
+    style.topType = "jacket";
+    style.outerLayer = style.outerLayer === "none" ? "heavy" : style.outerLayer;
+  } else if (/\b(coat|long coat|overcoat)\b/.test(upperText)) {
+    style.outerGarment = "coat";
+    style.topType = "jacket";
+    style.outerLayer = "heavy";
+  } else if (/\b(vest|waistcoat)\b/.test(upperText)) {
+    style.outerGarment = "vest";
+    style.topType = style.topType === "tshirt" ? "shirt" : style.topType;
+    style.outerLayer = style.outerLayer === "none" ? "light" : style.outerLayer;
+  }
+
+  if (/\b(knit|knitted|cable knit|sweater)\b/.test(upperText)) {
+    style.garmentTexture = "knit";
+    if (style.topType === "tshirt") style.topType = "sweater";
+  } else if (/\b(denim)\b/.test(upperText)) {
+    style.garmentTexture = "denim";
+  } else if (/\b(leather)\b/.test(upperText)) {
+    style.garmentTexture = "leather";
+  } else if (/\b(striped|stripes)\b/.test(upperText)) {
+    style.garmentTexture = "striped";
+  } else if (/\b(patterned|floral|plaid|checkered|checked)\b/.test(upperText)) {
+    style.garmentTexture = "patterned";
+  }
+
+  if (/\b(long sleeve|long-sleeve|long sleeves|sleeved cardigan|sleeved jacket)\b/.test(upperText)) {
+    style.sleeveLength = "long";
   }
 }
 
