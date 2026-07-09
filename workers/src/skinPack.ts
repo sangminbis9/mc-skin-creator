@@ -61,6 +61,7 @@ export interface FaceStyle {
   bottomAccent?: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
   legwear?: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
   legwearAsymmetry?: "none" | "left" | "right" | "both";
+  shoeStyle?: "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals";
   topType?: string;
   sleeveLength?: string;
   bottomType?: string;
@@ -101,6 +102,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   bottomAccent: "none",
   legwear: "none",
   legwearAsymmetry: "none",
+  shoeStyle: undefined,
   topType: "tshirt",
   sleeveLength: "short",
   bottomType: "pants",
@@ -2467,7 +2469,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     outerGarment === "cardigan" ||
     style.neckAccessory === "bow" ||
     style.bottomAccent === "ribbon";
-  if (dressyShoes) {
+  const explicitShoeStyle = style.shoeStyle;
+  const shoeStyle = explicitShoeStyle ?? (dressyShoes ? "dress_shoes" : "sneakers");
+  if (explicitShoeStyle || dressyShoes) {
     for (const part of ["rightLeg", "leftLeg"] as const) {
       const leg = CLASSIC_LAYOUT[part];
       const shoeBase = mixRgb(
@@ -2480,24 +2484,95 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const shoeBright = mixRgb(shoeAccent, [255, 255, 255], 0.3);
       const bowShadow = shadeRgb(shoeAccent, 0.64);
       const front = leg.overlay.front;
-      put(front, 1, front.h - 2, shoeAccent);
-      put(front, 2, front.h - 2, shadeRgb(shoeAccent, 0.88));
-      put(front, 1, front.h - 1, shadeRgb(shoeAccent, 0.96));
-      put(front, 2, front.h - 1, shoeShadow);
-      put(front, 0, front.h - 2, shoeBright);
-      put(front, 3, front.h - 2, shadeRgb(shoeBright, 0.88));
-      put(front, 1, front.h - 3, shoeBright);
-      put(front, 2, front.h - 3, bowShadow);
-      for (const side of [leg.overlay.right, leg.overlay.left]) {
-        put(side, 0, side.h - 2, shoeAccent);
-        put(side, 1, side.h - 2, shadeRgb(shoeAccent, 0.88));
-        put(side, side.w - 1, side.h - 1, shoeShadow);
-        put(side, side.w - 1, side.h - 3, shoeBright);
-        put(side, 0, side.h - 3, bowShadow);
+
+      if (shoeStyle === "boots") {
+        const boot = shadeRgb(mixRgb(shoeBase, [42, 35, 32], 0.5), 0.78);
+        const bootLight = mixRgb(boot, [136, 112, 90], 0.34);
+        const bootDeep = shadeRgb(boot, 0.58);
+        for (const faceName of ["front", "back", "right", "left"] as const) {
+          const rect = leg.overlay[faceName];
+          for (let y = rect.h - 4; y < rect.h; y++) {
+            for (let x = 0; x < rect.w; x++) {
+              const edge = x === 0 || x === rect.w - 1;
+              const ankle = y === rect.h - 4;
+              put(rect, x, y, ankle ? bootLight : edge ? bootDeep : boot);
+            }
+          }
+        }
+        put(front, 1, front.h - 1, bootDeep);
+        put(front, 2, front.h - 1, shadeRgb(bootDeep, 0.86));
+        put(front, 1, front.h - 3, bootLight);
+        put(front, 2, front.h - 3, shadeRgb(bootLight, 0.88));
+      } else if (shoeStyle === "loafers") {
+        const leather = shadeRgb(mixRgb(shoeBase, [58, 42, 34], 0.46), 0.72);
+        const leatherLight = mixRgb(leather, [164, 126, 86], 0.34);
+        const strap = shadeRgb(leather, 0.52);
+        put(front, 0, front.h - 2, leatherLight);
+        put(front, 1, front.h - 2, leather);
+        put(front, 2, front.h - 2, leather);
+        put(front, 3, front.h - 2, shadeRgb(leather, 0.84));
+        put(front, 1, front.h - 3, leatherLight);
+        put(front, 2, front.h - 3, strap);
+        put(front, 1, front.h - 1, strap);
+        put(front, 2, front.h - 1, shadeRgb(strap, 0.84));
+        for (const side of [leg.overlay.right, leg.overlay.left]) {
+          put(side, 0, side.h - 2, leatherLight);
+          put(side, 1, side.h - 2, leather);
+          put(side, side.w - 1, side.h - 2, strap);
+          put(side, side.w - 1, side.h - 1, shadeRgb(strap, 0.82));
+        }
+        for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, leather);
+      } else if (shoeStyle === "sandals") {
+        const strap = shadeRgb(mixRgb(shoeBase, [92, 64, 44], 0.42), 0.76);
+        const sole = mixRgb(shoeBase, [232, 208, 178], 0.5);
+        for (const x of [0, 3]) put(front, x, front.h - 2, strap);
+        put(front, 1, front.h - 1, sole);
+        put(front, 2, front.h - 1, shadeRgb(sole, 0.88));
+        put(front, 1, front.h - 3, strap);
+        put(front, 2, front.h - 3, strap);
+        for (const side of [leg.overlay.right, leg.overlay.left]) {
+          put(side, 0, side.h - 2, strap);
+          put(side, 1, side.h - 1, sole);
+          put(side, side.w - 1, side.h - 3, strap);
+        }
+      } else if (shoeStyle === "sneakers") {
+        const lace = mixRgb(shoeAccent, [255, 255, 255], 0.62);
+        const sole = shadeRgb(mixRgb(shoeBase, [245, 245, 238], 0.5), 0.86);
+        put(front, 0, front.h - 2, shoeBright);
+        put(front, 1, front.h - 2, shoeAccent);
+        put(front, 2, front.h - 2, shoeAccent);
+        put(front, 3, front.h - 2, shadeRgb(shoeAccent, 0.82));
+        put(front, 1, front.h - 3, lace);
+        put(front, 2, front.h - 3, shadeRgb(lace, 0.86));
+        put(front, 1, front.h - 1, sole);
+        put(front, 2, front.h - 1, shadeRgb(sole, 0.84));
+        for (const side of [leg.overlay.right, leg.overlay.left]) {
+          put(side, 0, side.h - 2, shoeAccent);
+          put(side, 1, side.h - 2, shadeRgb(shoeAccent, 0.88));
+          put(side, side.w - 1, side.h - 1, sole);
+          put(side, side.w - 1, side.h - 3, lace);
+        }
+        for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.88));
+      } else {
+        put(front, 1, front.h - 2, shoeAccent);
+        put(front, 2, front.h - 2, shadeRgb(shoeAccent, 0.88));
+        put(front, 1, front.h - 1, shadeRgb(shoeAccent, 0.96));
+        put(front, 2, front.h - 1, shoeShadow);
+        put(front, 0, front.h - 2, shoeBright);
+        put(front, 3, front.h - 2, shadeRgb(shoeBright, 0.88));
+        put(front, 1, front.h - 3, shoeBright);
+        put(front, 2, front.h - 3, bowShadow);
+        for (const side of [leg.overlay.right, leg.overlay.left]) {
+          put(side, 0, side.h - 2, shoeAccent);
+          put(side, 1, side.h - 2, shadeRgb(shoeAccent, 0.88));
+          put(side, side.w - 1, side.h - 1, shoeShadow);
+          put(side, side.w - 1, side.h - 3, shoeBright);
+          put(side, 0, side.h - 3, bowShadow);
+        }
+        for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.9));
+        put(leg.overlay.back, 0, leg.overlay.back.h - 2, shoeBright);
+        put(leg.overlay.back, 3, leg.overlay.back.h - 2, bowShadow);
       }
-      for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.9));
-      put(leg.overlay.back, 0, leg.overlay.back.h - 2, shoeBright);
-      put(leg.overlay.back, 3, leg.overlay.back.h - 2, bowShadow);
     }
   }
 

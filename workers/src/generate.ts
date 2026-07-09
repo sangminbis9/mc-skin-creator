@@ -351,6 +351,16 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     return;
   }
 
+  const structuredLower = analysis.inferred.lowerBodyDesign;
+  if (structuredLower) {
+    style.bottomType = structuredLower.bottomType;
+    style.bottomPattern = structuredLower.bottomPattern;
+    style.bottomAccent = structuredLower.bottomAccent;
+    style.legwear = structuredLower.legwear;
+    style.legwearAsymmetry = structuredLower.legwearAsymmetry;
+    style.shoeStyle = structuredLower.shoeStyle;
+  }
+
   const lowerText = [
     analysis.inferred.lowerBody?.value,
     analysis.inferred.lowerBody?.rationale,
@@ -376,51 +386,53 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     (style.outerGarment === "cardigan" || style.outerGarment === "vest") &&
     (style.neckAccessory === "bow" || style.neckAccessory === "collar");
 
-  if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt)\b/.test(inferredText)) {
-    style.bottomType = "skirt";
-  } else if (/\b(shorts|short pants|culottes)\b/.test(inferredText)) {
-    style.bottomType = "shorts";
-  } else if (/\b(jeans|denim)\b/.test(inferredText)) {
-    style.bottomType = "jeans";
-  } else if (/\b(pants|trousers|slacks|chinos|joggers)\b/.test(inferredText)) {
-    style.bottomType = "pants";
-  } else if ((style.bottomType ?? "pants") === "pants" && preppyTop) {
-    style.bottomType = "skirt";
-  }
+  if (!structuredLower) {
+    if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt)\b/.test(inferredText)) {
+      style.bottomType = "skirt";
+    } else if (/\b(shorts|short pants|culottes)\b/.test(inferredText)) {
+      style.bottomType = "shorts";
+    } else if (/\b(jeans|denim)\b/.test(inferredText)) {
+      style.bottomType = "jeans";
+    } else if (/\b(pants|trousers|slacks|chinos|joggers)\b/.test(inferredText)) {
+      style.bottomType = "pants";
+    } else if ((style.bottomType ?? "pants") === "pants" && preppyTop) {
+      style.bottomType = "skirt";
+    }
 
-  if (/\b(plaid|checkered|checked|tartan)\b/.test(inferredText)) {
-    style.bottomPattern = "plaid";
-  } else if (/\b(pleated|pleats|pleat)\b/.test(inferredText)) {
-    style.bottomPattern = "pleated";
-  } else if (/\b(striped|stripes)\b/.test(inferredText)) {
-    style.bottomPattern = "striped";
-  } else if (/\b(lace|lacy)\b/.test(inferredText)) {
-    style.bottomPattern = "lace";
-  }
+    if (/\b(plaid|checkered|checked|tartan)\b/.test(inferredText)) {
+      style.bottomPattern = "plaid";
+    } else if (/\b(pleated|pleats|pleat)\b/.test(inferredText)) {
+      style.bottomPattern = "pleated";
+    } else if (/\b(striped|stripes)\b/.test(inferredText)) {
+      style.bottomPattern = "striped";
+    } else if (/\b(lace|lacy)\b/.test(inferredText)) {
+      style.bottomPattern = "lace";
+    }
 
-  if (/\b(ribbon|bow)\b/.test(lowerText)) {
-    style.bottomAccent = "ribbon";
-  } else if (/\b(belt|belted)\b/.test(lowerText)) {
-    style.bottomAccent = "belt";
-  } else if (/\b(cuff|cuffed|cuffs)\b/.test(lowerText)) {
-    style.bottomAccent = "cuffs";
-  } else if (/\b(side stripe|side stripes)\b/.test(lowerText)) {
-    style.bottomAccent = "side_stripe";
-  }
+    if (/\b(ribbon|bow)\b/.test(lowerText)) {
+      style.bottomAccent = "ribbon";
+    } else if (/\b(belt|belted)\b/.test(lowerText)) {
+      style.bottomAccent = "belt";
+    } else if (/\b(cuff|cuffed|cuffs)\b/.test(lowerText)) {
+      style.bottomAccent = "cuffs";
+    } else if (/\b(side stripe|side stripes)\b/.test(lowerText)) {
+      style.bottomAccent = "side_stripe";
+    }
 
-  if (/\b(leg warmer|leg warmers)\b/.test(inferredText)) {
-    style.legwear = "leg_warmers";
-  } else if (/\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(inferredText)) {
-    style.legwear = "thigh_highs";
-  } else if (/\b(stockings|stocking|tights)\b/.test(inferredText)) {
-    style.legwear = "stockings";
-  } else if (/\b(socks|sock)\b/.test(inferredText)) {
-    style.legwear = "socks";
+    if (/\b(leg warmer|leg warmers)\b/.test(inferredText)) {
+      style.legwear = "leg_warmers";
+    } else if (/\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(inferredText)) {
+      style.legwear = "thigh_highs";
+    } else if (/\b(stockings|stocking|tights)\b/.test(inferredText)) {
+      style.legwear = "stockings";
+    } else if (/\b(socks|sock)\b/.test(inferredText)) {
+      style.legwear = "socks";
+    }
   }
 
   const bottomType = style.bottomType ?? "pants";
 
-  if ((style.bottomAccent ?? "none") === "none") {
+  if (!structuredLower && (style.bottomAccent ?? "none") === "none") {
     style.bottomAccent = smartCasualTop
       ? "belt"
       : topType === "hoodie"
@@ -431,7 +443,8 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
   if (
     (bottomType === "skirt" || bottomType === "shorts") &&
     (style.bottomPattern ?? "plain") === "plain" &&
-    smartCasualTop
+    smartCasualTop &&
+    !structuredLower
   ) {
     style.bottomPattern = style.neckAccessory === "bow" || style.neckAccessory === "collar"
       ? "pleated"
@@ -441,7 +454,8 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
   if (
     (style.legwear ?? "none") === "none" &&
     (bottomType === "skirt" || bottomType === "shorts") &&
-    (style.outerGarment === "cardigan" || style.neckAccessory === "bow")
+    (style.outerGarment === "cardigan" || style.neckAccessory === "bow") &&
+    !structuredLower
   ) {
     style.legwear = "socks";
     style.legwearAsymmetry = "both";

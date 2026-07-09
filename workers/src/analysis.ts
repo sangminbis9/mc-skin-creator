@@ -18,6 +18,16 @@ export interface InferredItem {
   rationale: string;
 }
 
+export interface InferredLowerBodyDesign {
+  bottomType: "pants" | "jeans" | "shorts" | "skirt";
+  bottomPattern: "plain" | "plaid" | "striped" | "pleated" | "lace";
+  bottomAccent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
+  legwear: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
+  legwearAsymmetry: "none" | "left" | "right" | "both";
+  shoeStyle: "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals";
+  rationale: string;
+}
+
 /**
  * 64x64 스킨으로 축약할 때도 정체성을 보존하기 위한 저해상도 렌더 힌트.
  * 자유 서술(identityPrompt)은 이미지 모델에, 이 구조화 값은 결정적 packer에 사용한다.
@@ -102,6 +112,7 @@ export interface PhotoAnalysis {
     hairBack: InferredItem;
     upperBody: InferredItem | null;
     lowerBody: InferredItem | null;
+    lowerBodyDesign?: InferredLowerBodyDesign | null;
     shoes: InferredItem | null;
   };
   renderHints: PixelRenderHints;
@@ -132,6 +143,7 @@ STEP 4 — inferred: for body parts and clothing NOT visible, design choices tha
 - Never base clothing choices on gender presentation or facial stereotypes; use only visible clothing cues, colors and mood.
 - If there are no clothing cues at all, choose neutral casual wear that harmonizes with skin/hair colors. Vary between shirt, knit, hoodie or light jacket depending on the photo's mood — do not always default to a plain t-shirt.
 - If a region IS visible in the photo, set its inferred entry to null.
+- If the lower body is NOT visible, also fill inferred.lowerBodyDesign with concrete Minecraft-ready choices for bottomType, pattern, accent, legwear, asymmetry and shoe style. If the lower body IS visible, set inferred.lowerBodyDesign to null. Prefer a detailed but coherent design over a generic plain lower half.
 
 STEP 5 — prompts for an image generation model:
 - identityPrompt: 2-4 sentences capturing the recognizable identity, as SPECIFIC as possible: face shape (round/oval/angular), skin tone, hair (exact color shade, parting direction, bangs style, length, texture like straight/wavy/curly), eye shape and color, eyebrow shape, nose/mouth impression, facial hair, glasses shape/color, hat, earrings, and any distinctive features. Avoid generic phrases — describe what makes THIS person recognizable.
@@ -193,6 +205,15 @@ Respond with ONLY a JSON object matching this shape:
     "hairBack": { "value": str, "rationale": str },
     "upperBody": { "value": str, "rationale": str } | null,
     "lowerBody": { "value": str, "rationale": str } | null,
+    "lowerBodyDesign": {
+      "bottomType": "pants" | "jeans" | "shorts" | "skirt",
+      "bottomPattern": "plain" | "plaid" | "striped" | "pleated" | "lace",
+      "bottomAccent": "none" | "belt" | "cuffs" | "side_stripe" | "ribbon",
+      "legwear": "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs",
+      "legwearAsymmetry": "none" | "left" | "right" | "both",
+      "shoeStyle": "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals",
+      "rationale": str
+    } | null,
     "shoes": { "value": str, "rationale": str } | null
   },
   "renderHints": {
@@ -239,6 +260,46 @@ const INFERRED_ITEM_SCHEMA = {
   required: ["value", "rationale"],
 };
 
+const LOWER_BODY_DESIGN_SCHEMA = {
+  type: ["object", "null"],
+  properties: {
+    bottomType: {
+      type: "string",
+      enum: ["pants", "jeans", "shorts", "skirt"],
+    },
+    bottomPattern: {
+      type: "string",
+      enum: ["plain", "plaid", "striped", "pleated", "lace"],
+    },
+    bottomAccent: {
+      type: "string",
+      enum: ["none", "belt", "cuffs", "side_stripe", "ribbon"],
+    },
+    legwear: {
+      type: "string",
+      enum: ["none", "socks", "stockings", "leg_warmers", "thigh_highs"],
+    },
+    legwearAsymmetry: {
+      type: "string",
+      enum: ["none", "left", "right", "both"],
+    },
+    shoeStyle: {
+      type: "string",
+      enum: ["sneakers", "dress_shoes", "boots", "loafers", "sandals"],
+    },
+    rationale: { type: "string" },
+  },
+  required: [
+    "bottomType",
+    "bottomPattern",
+    "bottomAccent",
+    "legwear",
+    "legwearAsymmetry",
+    "shoeStyle",
+    "rationale",
+  ],
+};
+
 export const PHOTO_ANALYSIS_SCHEMA = {
   type: "object",
   properties: {
@@ -283,9 +344,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
         upperBody: INFERRED_ITEM_SCHEMA,
         lowerBody: INFERRED_ITEM_SCHEMA,
+        lowerBodyDesign: LOWER_BODY_DESIGN_SCHEMA,
         shoes: INFERRED_ITEM_SCHEMA,
       },
-      required: ["hairBack", "upperBody", "lowerBody", "shoes"],
+      required: ["hairBack", "upperBody", "lowerBody", "lowerBodyDesign", "shoes"],
     },
     renderHints: {
       type: "object",
@@ -505,6 +567,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           hairBack: { value: "", rationale: "" },
           upperBody: null,
           lowerBody: null,
+          lowerBodyDesign: null,
           shoes: null,
         },
         renderHints: {
@@ -591,11 +654,71 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     };
   };
 
+  const parseLowerBodyDesign = (
+    path: string,
+    value: unknown,
+  ): InferredLowerBodyDesign | null => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      errors.push(`${path}: 媛앹껜媛 ?꾨떂`);
+      return null;
+    }
+    const item = value as Record<string, unknown>;
+    const enumField = <T extends string>(
+      key: string,
+      allowed: readonly T[],
+      fallback: T,
+    ): T => {
+      const fieldValue = item[key];
+      if (typeof fieldValue === "string" && allowed.includes(fieldValue as T)) {
+        return fieldValue as T;
+      }
+      errors.push(`${path}.${key}: ?덉슜?섏? ?딆? 媛?${JSON.stringify(fieldValue)}`);
+      return fallback;
+    };
+
+    return {
+      bottomType: enumField("bottomType", ["pants", "jeans", "shorts", "skirt"], "pants"),
+      bottomPattern: enumField(
+        "bottomPattern",
+        ["plain", "plaid", "striped", "pleated", "lace"],
+        "plain",
+      ),
+      bottomAccent: enumField(
+        "bottomAccent",
+        ["none", "belt", "cuffs", "side_stripe", "ribbon"],
+        "none",
+      ),
+      legwear: enumField(
+        "legwear",
+        ["none", "socks", "stockings", "leg_warmers", "thigh_highs"],
+        "none",
+      ),
+      legwearAsymmetry: enumField(
+        "legwearAsymmetry",
+        ["none", "left", "right", "both"],
+        "none",
+      ),
+      shoeStyle: enumField(
+        "shoeStyle",
+        ["sneakers", "dress_shoes", "boots", "loafers", "sandals"],
+        "sneakers",
+      ),
+      rationale: str(`${path}.rationale`, item.rationale),
+    };
+  };
+
   const inf = (obj.inferred ?? {}) as Record<string, unknown>;
   const inferred = {
     hairBack: parseInferredItem("inferred.hairBack", inf.hairBack, false) as InferredItem,
     upperBody: parseInferredItem("inferred.upperBody", inf.upperBody, true),
     lowerBody: parseInferredItem("inferred.lowerBody", inf.lowerBody, true),
+    lowerBodyDesign: parseLowerBodyDesign(
+      "inferred.lowerBodyDesign",
+      inf.lowerBodyDesign,
+    ),
     shoes: parseInferredItem("inferred.shoes", inf.shoes, true),
   };
 

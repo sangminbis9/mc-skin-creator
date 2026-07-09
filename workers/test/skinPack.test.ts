@@ -1024,6 +1024,34 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[rightFrontStrap]).toBeGreaterThan(atlas.rgba[rightFrontToe]);
   });
 
+  it("explicit shoeStyle=boots paints taller boot cuffs without a dressy outfit", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "pants",
+      outerGarment: "none",
+      neckAccessory: "none",
+      bottomAccent: "none",
+      shoeStyle: "boots",
+    })!.atlas;
+    const right = CLASSIC_LAYOUT.rightLeg.overlay;
+    const frontUpperBoot =
+      ((right.front.y + right.front.h - 4) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const frontBootEdge =
+      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x) * 4;
+    const frontBootCenter =
+      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const sideUpperBoot =
+      ((right.right.y + right.right.h - 4) * ATLAS_SIZE + right.right.x + 1) * 4;
+    const sideSole =
+      ((right.right.y + right.right.h - 1) * ATLAS_SIZE + right.right.x + right.right.w - 1) * 4;
+
+    expect(atlas.rgba[frontUpperBoot + 3]).toBe(255);
+    expect(atlas.rgba[frontBootEdge + 3]).toBe(255);
+    expect(atlas.rgba[sideUpperBoot + 3]).toBe(255);
+    expect(atlas.rgba[sideSole + 3]).toBe(255);
+    expect(atlas.rgba[frontBootEdge]).toBeLessThan(atlas.rgba[frontBootCenter]);
+  });
+
   it("neckAccessory=bow와 bottomPattern=plaid이면 목 리본과 체크 하의를 overlay에 보존한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
