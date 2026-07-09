@@ -709,15 +709,24 @@ describe("packFrontViewToAtlas", () => {
       sideHairLength: "shoulder",
     })!.atlas;
     const body = CLASSIC_LAYOUT.body.overlay;
+    const head = CLASSIC_LAYOUT.head.overlay;
     const rightArm = CLASSIC_LAYOUT.rightArm.overlay;
     const leftArm = CLASSIC_LAYOUT.leftArm.overlay;
 
+    expect(alphaAt(atlas, head.right, 1, 2)).toBe(255);
+    expect(alphaAt(atlas, head.right, 3, 7)).toBe(255);
+    expect(alphaAt(atlas, head.left, 6, 2)).toBe(255);
+    expect(alphaAt(atlas, head.back, 3, 7)).toBe(255);
+    expect(redAt(atlas, head.right, 1, 2)).toBeGreaterThan(redAt(atlas, head.right, 3, 7));
+    expect(redAt(atlas, head.left, 6, 2)).toBeGreaterThan(redAt(atlas, head.left, 4, 7));
     expect(alphaAt(atlas, body.front, 0, 6)).toBe(255);
     expect(alphaAt(atlas, body.front, 7, 6)).toBe(255);
     expect(alphaAt(atlas, body.front, 2, 4)).toBe(255);
     expect(alphaAt(atlas, body.front, 5, 4)).toBe(255);
     expect(alphaAt(atlas, body.right, 1, 5)).toBe(255);
     expect(alphaAt(atlas, body.left, 2, 5)).toBe(255);
+    expect(alphaAt(atlas, body.right, 0, 7)).toBe(255);
+    expect(alphaAt(atlas, body.left, body.left.w - 1, 7)).toBe(255);
     expect(alphaAt(atlas, body.back, 3, 7)).toBe(255);
     expect(alphaAt(atlas, body.back, 4, 7)).toBe(255);
     expect(redAt(atlas, body.front, 0, 6)).not.toBe(redAt(atlas, body.front, 3, 6));

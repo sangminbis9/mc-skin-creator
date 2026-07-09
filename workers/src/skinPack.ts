@@ -1324,6 +1324,50 @@ function composeHair(
       };
       paintShoulderDrape(rightArmOver, 0, rightArmOver.front.w - 1, rightArmOver.right, 0);
       paintShoulderDrape(leftArmOver, leftArmOver.front.w - 1, 0, leftArmOver.left, 1);
+
+      if (style.hairTexture === "wavy" || style.hairTexture === "curly") {
+        const layerLight = mixRgb(hairColor, [246, 226, 214], 0.28);
+        const layerMid = shadeRgb(hairColor, 0.72);
+        const layerDark = shadeRgb(hairColor, 0.48);
+        const paintLayerPixel = (rect: Rect, x: number, y: number, color: Rgb) => {
+          if (x >= 0 && x < rect.w && y >= 0 && y < rect.h) putColor(rect, x, y, color);
+        };
+        const paintSideLayer = (rect: Rect, mirror: boolean) => {
+          for (const [x, y, color] of [
+            [mirror ? 6 : 1, 2, layerLight],
+            [mirror ? 5 : 2, 3, layerMid],
+            [mirror ? 4 : 3, 4, layerDark],
+            [mirror ? 5 : 2, 5, shadeRgb(layerLight, 0.86)],
+            [mirror ? 6 : 1, 6, layerMid],
+            [mirror ? 4 : 3, 7, layerDark],
+          ] as const) {
+            paintLayerPixel(rect, x, y, color);
+          }
+        };
+        paintSideLayer(over.right, false);
+        paintSideLayer(over.left, true);
+        for (const [x, y, color] of [
+          [1, 5, layerLight],
+          [2, 6, layerMid],
+          [3, 7, layerDark],
+          [6, 5, shadeRgb(layerLight, 0.92)],
+          [5, 6, layerMid],
+          [4, 7, layerDark],
+        ] as const) {
+          paintLayerPixel(over.back, x, y, color);
+        }
+        for (const [rect, edgeX, innerX] of [
+          [bodyOver.right, 0, 1],
+          [bodyOver.left, bodyOver.left.w - 1, bodyOver.left.w - 2],
+        ] as const) {
+          for (let y = 1; y < 8; y++) {
+            const waveColor =
+              y % 3 === 1 ? layerLight : y % 3 === 2 ? layerMid : layerDark;
+            paintLayerPixel(rect, edgeX, y, waveColor);
+            if (y >= 3 && y <= 6) paintLayerPixel(rect, innerX, y, shadeRgb(waveColor, 0.82));
+          }
+        }
+      }
     }
   }
   if (hairBackShape === "long" || hairBackShape === "rounded" || hairBackShape === "tapered") {
