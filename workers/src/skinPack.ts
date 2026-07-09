@@ -1611,6 +1611,8 @@ function composeHair(
       const right = shadeRgb(bangTone(7, y), tip ? 0.58 : y === 3 ? 0.74 : 0.9);
       const leftInner = shadeRgb(left, tip ? 0.76 : 0.86);
       const rightInner = shadeRgb(right, tip ? 0.76 : 0.86);
+      const leftDepth = shadeRgb(left, tip ? 0.62 : 0.74);
+      const rightDepth = shadeRgb(right, tip ? 0.62 : 0.74);
 
       putColor(over.front, 0, y, left);
       putColor(over.front, 7, y, right);
@@ -1618,12 +1620,28 @@ function composeHair(
       putColor(over.left, 7, y, right);
       putColor(over.right, 1, y, leftInner);
       putColor(over.left, 6, y, rightInner);
+      if (y >= 3) {
+        putColor(over.front, 1, y, leftInner);
+        putColor(over.front, 6, y, rightInner);
+        putColor(over.right, 2, y, leftDepth);
+        putColor(over.left, 5, y, rightDepth);
+      }
       if (y <= 3) {
         putColor(over.back, 7, y, shadeRgb(left, 0.72));
         putColor(over.back, 0, y, shadeRgb(right, 0.72));
       }
+      if (tip) {
+        putColor(over.back, 7, y, shadeRgb(left, 0.64));
+        putColor(over.back, 0, y, shadeRgb(right, 0.64));
+        putColor(over.right, 3, y, shadeRgb(left, 0.54));
+        putColor(over.left, 4, y, shadeRgb(right, 0.54));
+      }
       putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
       putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
+      if (y >= 4) {
+        putColor(over.top, 1, Math.min(7, y + 1), shadeRgb(leftInner, 0.92));
+        putColor(over.top, 6, Math.min(7, y + 1), shadeRgb(rightInner, 0.92));
+      }
     }
   }
 

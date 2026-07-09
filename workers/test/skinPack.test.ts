@@ -602,15 +602,25 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.front, 7, 4)).toBe(255);
     expect(alphaAt(atlas, over.right, 0, 4)).toBe(255);
     expect(alphaAt(atlas, over.right, 1, 4)).toBe(255);
+    expect(alphaAt(atlas, over.right, 2, 4)).toBe(255);
+    expect(alphaAt(atlas, over.right, 3, 4)).toBe(255);
     expect(alphaAt(atlas, over.left, 7, 4)).toBe(255);
     expect(alphaAt(atlas, over.left, 6, 4)).toBe(255);
+    expect(alphaAt(atlas, over.left, 5, 4)).toBe(255);
+    expect(alphaAt(atlas, over.left, 4, 4)).toBe(255);
     expect(alphaAt(atlas, over.top, 0, 5)).toBe(255);
+    expect(alphaAt(atlas, over.top, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, over.top, 6, 5)).toBe(255);
     expect(alphaAt(atlas, over.top, 7, 5)).toBe(255);
     expect(alphaAt(atlas, over.back, 7, 3)).toBe(255);
     expect(alphaAt(atlas, over.back, 0, 3)).toBe(255);
+    expect(alphaAt(atlas, over.back, 7, 4)).toBe(255);
+    expect(alphaAt(atlas, over.back, 0, 4)).toBe(255);
     expect(redAt(atlas, over.front, 0, 4)).toBe(redAt(atlas, over.right, 0, 4));
     expect(redAt(atlas, over.front, 7, 4)).toBe(redAt(atlas, over.left, 7, 4));
     expect(redAt(atlas, over.right, 1, 4)).toBeLessThanOrEqual(redAt(atlas, over.right, 0, 4));
+    expect(redAt(atlas, over.right, 3, 4)).toBeLessThan(redAt(atlas, over.right, 1, 4));
+    expect(redAt(atlas, over.left, 4, 4)).toBeLessThan(redAt(atlas, over.left, 6, 4));
   });
 
   it("bangsLength=eye lets long fringe overlap the eye row on the head overlay", () => {
