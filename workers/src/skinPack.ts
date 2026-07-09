@@ -672,6 +672,12 @@ function composeFace(
 
   // 앞머리 overlay는 듬성한 가닥만 사용해 헬멧 같은 판을 만들지 않는다.
   if (style.facialHair === "none" && style.glasses === "none") {
+    const catchLight = mixRgb(eyeHighlight, [255, 255, 255], 0.24);
+    if (style.eyeShape !== "narrow") {
+      put(overlay, leftInner, 4, catchLight);
+      put(overlay, rightInner, 4, shadeRgb(catchLight, 0.94));
+    }
+
     const underEyeShade = mixRgb(
       shadeRgb(skinColor, style.eyeShape === "narrow" ? 0.78 : 0.84),
       eye,
@@ -690,9 +696,13 @@ function composeFace(
     if (mouthShape === "wide") {
       put(overlay, 2, 6, shadeRgb(mouthCorner, 0.86));
       put(overlay, 5, 6, shadeRgb(mouthCorner, 0.86));
+      put(overlay, 3, 6, mixRgb(mouthColor, skinColor, 0.2));
+      put(overlay, 4, 6, mixRgb(mouthColor, skinColor, 0.28));
     } else if (mouthShape === "full") {
       put(overlay, 2, 6, mixRgb(lipFull, skinColor, 0.2));
       put(overlay, 5, 6, shadeRgb(lipFull, 0.86));
+      put(overlay, 3, 6, mixRgb(lipLight, lipFull, 0.26));
+      put(overlay, 4, 6, shadeRgb(lipFull, 0.88));
     } else {
       put(overlay, 3, 6, mouthCorner);
       put(overlay, 4, 6, shadeRgb(mouthCorner, 0.94));

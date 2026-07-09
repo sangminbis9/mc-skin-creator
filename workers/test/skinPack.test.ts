@@ -1229,11 +1229,16 @@ describe("packFrontViewToAtlas", () => {
     const over = CLASSIC_LAYOUT.head.overlay.front;
 
     expect(alphaAt(atlas, over, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, over, 2, 4)).toBe(255);
+    expect(alphaAt(atlas, over, 6, 4)).toBe(255);
     expect(alphaAt(atlas, over, 3, 5)).toBe(255);
     expect(alphaAt(atlas, over, 4, 5)).toBe(255);
     expect(alphaAt(atlas, over, 2, 6)).toBe(255);
+    expect(alphaAt(atlas, over, 3, 6)).toBe(255);
+    expect(alphaAt(atlas, over, 4, 6)).toBe(255);
     expect(alphaAt(atlas, over, 5, 6)).toBe(255);
     expect(alphaAt(atlas, over, 3, 7)).toBe(255);
+    expect(redAt(atlas, over, 2, 4)).toBeGreaterThan(redAt(atlas, over, 1, 5));
     expect(redAt(atlas, over, 3, 5)).toBeLessThan(redAt(atlas, over, 3, 7));
     expect(redAt(atlas, over, 5, 6)).toBeLessThan(redAt(atlas, over, 3, 7));
   });
