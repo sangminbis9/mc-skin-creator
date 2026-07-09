@@ -2486,6 +2486,23 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       put(leftLeg.back, leftLeg.back.w - 1, 2, shadeRgb(foldShadow, 0.86));
       put(rightLeg.back, 1, 1, shadeRgb(foldLight, 0.9));
       put(leftLeg.back, leftLeg.back.w - 2, 1, shadeRgb(foldLight, 0.9));
+
+      if (outerGarment === "cardigan" && (style.bottomType === "skirt" || style.bottomType === "shorts")) {
+        const longHemLight = mixRgb(tailColor, [255, 234, 230], 0.18);
+        const longHemShadow = shadeRgb(trimColor, 0.58);
+        put(rightLeg.front, 0, 3, shadeRgb(tailColor, 0.64));
+        put(rightLeg.front, 1, 3, longHemShadow);
+        put(rightLeg.front, 0, 4, shadeRgb(longHemShadow, 0.86));
+        put(leftLeg.front, 3, 3, shadeRgb(tailColor, 0.6));
+        put(leftLeg.front, 2, 3, shadeRgb(longHemLight, 0.78));
+        put(leftLeg.front, 3, 4, shadeRgb(longHemShadow, 0.82));
+        put(rightLeg.right, 0, 3, longHemShadow);
+        put(rightLeg.right, 1, 3, shadeRgb(longHemLight, 0.78));
+        put(leftLeg.left, leftLeg.left.w - 1, 3, longHemShadow);
+        put(leftLeg.left, leftLeg.left.w - 2, 3, shadeRgb(longHemLight, 0.74));
+        put(rightLeg.back, 0, 3, shadeRgb(longHemShadow, 0.86));
+        put(leftLeg.back, leftLeg.back.w - 1, 3, shadeRgb(longHemShadow, 0.82));
+      }
     }
   }
 

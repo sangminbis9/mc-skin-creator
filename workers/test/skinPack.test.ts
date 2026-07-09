@@ -1033,6 +1033,32 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[rightFrontStrap]).toBeGreaterThan(atlas.rgba[rightFrontToe]);
   });
 
+  it("cardigan skirt outfits extend asymmetric long hems onto upper leg overlays", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "skirt",
+      outerGarment: "cardigan",
+      neckAccessory: "bow",
+    })!.atlas;
+    const right = CLASSIC_LAYOUT.rightLeg.overlay;
+    const left = CLASSIC_LAYOUT.leftLeg.overlay;
+    const rightLongHem = ((right.front.y + 3) * ATLAS_SIZE + right.front.x) * 4;
+    const rightLongTrim = ((right.front.y + 4) * ATLAS_SIZE + right.front.x) * 4;
+    const leftLongHem = ((left.front.y + 3) * ATLAS_SIZE + left.front.x + 3) * 4;
+    const leftLongTrim = ((left.front.y + 4) * ATLAS_SIZE + left.front.x + 3) * 4;
+    const rightSideHem = ((right.right.y + 3) * ATLAS_SIZE + right.right.x) * 4;
+    const leftSideHem = ((left.left.y + 3) * ATLAS_SIZE + left.left.x + left.left.w - 1) * 4;
+
+    expect(atlas.rgba[rightLongHem + 3]).toBe(255);
+    expect(atlas.rgba[rightLongTrim + 3]).toBe(255);
+    expect(atlas.rgba[leftLongHem + 3]).toBe(255);
+    expect(atlas.rgba[leftLongTrim + 3]).toBe(255);
+    expect(atlas.rgba[rightSideHem + 3]).toBe(255);
+    expect(atlas.rgba[leftSideHem + 3]).toBe(255);
+    expect(atlas.rgba[rightLongTrim]).toBeLessThan(atlas.rgba[rightLongHem]);
+    expect(atlas.rgba[leftLongTrim]).toBeLessThan(atlas.rgba[leftLongHem]);
+  });
+
   it("explicit shoeStyle=boots paints taller boot cuffs without a dressy outfit", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
