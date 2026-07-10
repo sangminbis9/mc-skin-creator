@@ -1416,6 +1416,12 @@ function composeHair(
         const bodySideInnerX = accessoryOnRight ? bodySide.w - 2 : 1;
         const armInnerX = accessoryOnRight ? armOver.front.w - 1 : 0;
         const armOuterX = accessoryOnRight ? 0 : armOver.front.w - 1;
+        const bodyTop = bodyOver.top;
+        const bodyTopOuterX = accessoryOnRight ? bodyTop.w - 1 : 0;
+        const bodyTopInnerX = accessoryOnRight ? bodyTop.w - 2 : 1;
+        const bodyTopAccentX = accessoryOnRight ? Math.max(0, bodyTop.w - 3) : Math.min(bodyTop.w - 1, 2);
+        const bodyTopFrontY = Math.max(0, bodyTop.h - 1);
+        const bodyTopMidY = Math.max(0, bodyTopFrontY - 1);
 
         for (let y = 4; y < 8; y++) {
           const color = y % 2 === 0 ? decoratedMid : decoratedDark;
@@ -1446,6 +1452,11 @@ function composeHair(
         putColor(bodyOver.front, frontEdgeX, 7, decoratedDark);
         putColor(bodySide, bodySideOuterX, 1, accessoryLeaf);
         putColor(bodySide, bodySideInnerX, 3, accessoryPetal);
+        putColor(bodyTop, bodyTopOuterX, bodyTopFrontY, accessoryLeafDark);
+        putColor(bodyTop, bodyTopInnerX, bodyTopFrontY, accessoryPetal);
+        putColor(bodyTop, bodyTopAccentX, bodyTopMidY, accessoryLeaf);
+        putColor(bodyTop, bodyTopOuterX, 0, shadeRgb(decoratedDark, 0.9));
+        putColor(bodyTop, bodyTopInnerX, 0, decoratedMid);
 
         for (let y = 0; y <= 4; y++) {
           const color = y <= 1 ? decoratedLight : y >= 4 ? decoratedDark : decoratedMid;
@@ -1455,6 +1466,10 @@ function composeHair(
         }
         putColor(armOver.front, armInnerX, 1, accessoryLeaf);
         putColor(armSide, accessoryOnRight ? Math.max(0, armSide.w - 2) : 1, 2, accessoryPetal);
+        if (armOver.top.h > 0) {
+          putColor(armOver.top, armInnerX, Math.min(armOver.top.h - 1, 1), accessoryLeaf);
+          putColor(armOver.top, armOuterX, Math.min(armOver.top.h - 1, 2), accessoryPetal);
+        }
       }
     }
   }

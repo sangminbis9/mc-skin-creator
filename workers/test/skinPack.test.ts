@@ -861,10 +861,18 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.front, 1, 2)).toBe(255);
     expect(alphaAt(atlas, body.right, 0, 1)).toBe(255);
     expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
+    expect(alphaAt(atlas, body.top, 0, body.top.h - 1)).toBe(255);
+    expect(alphaAt(atlas, body.top, 1, body.top.h - 1)).toBe(255);
+    expect(alphaAt(atlas, body.top, 2, Math.max(0, body.top.h - 2))).toBe(255);
     expect(alphaAt(atlas, arm.front, 0, 1)).toBe(255);
     expect(alphaAt(atlas, arm.right, 1, 2)).toBe(255);
+    expect(alphaAt(atlas, arm.top, 0, 1)).toBe(255);
+    expect(alphaAt(atlas, arm.top, arm.top.w - 1, 2)).toBe(255);
     expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(redAt(atlas, body.front, 1, 1));
     expect(redAt(atlas, body.front, 1, 1)).toBeLessThan(redAt(atlas, body.front, 1, 2));
+    expect(redAt(atlas, body.top, 1, body.top.h - 1)).toBeGreaterThan(
+      redAt(atlas, body.top, 0, body.top.h - 1),
+    );
     expect(redAt(atlas, body.front, 0, 0)).toBeGreaterThan(redAt(atlas, body.front, 0, 7));
     expect(redAt(atlas, body.right, 1, 3)).toBeGreaterThan(redAt(atlas, body.right, 0, 7));
   });
