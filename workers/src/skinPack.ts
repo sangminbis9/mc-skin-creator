@@ -2595,6 +2595,27 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       paintPlaidTorsoWrap(back);
       paintPlaidTorsoWrap(body.overlay.right);
       paintPlaidTorsoWrap(body.overlay.left);
+      const bodyTop = body.overlay.top;
+      const topFrontY = Math.max(0, bodyTop.h - 1);
+      const topBackY = 0;
+      for (let x = 0; x < bodyTop.w; x++) {
+        const edgeThread = x % 2 === 0 ? plaidThread : shadeRgb(plaidThread, 0.78);
+        const preservesCenterBow =
+          (style.neckAccessory ?? "none") === "bow" && (x === 3 || x === 4);
+        if (!preservesCenterBow) {
+          put(bodyTop, x, topFrontY, x === 1 || x === bodyTop.w - 2 ? plaidCross : edgeThread);
+        }
+        put(bodyTop, x, topBackY, x === 1 || x === bodyTop.w - 2 ? plaidShadow : shadeRgb(edgeThread, 0.84));
+      }
+      for (const x of [1, Math.max(1, bodyTop.w - 2)] as const) {
+        for (let y = 0; y < bodyTop.h; y++) {
+          put(bodyTop, x, y, y === topFrontY ? plaidCross : plaidShadow);
+        }
+      }
+      const topMidY = Math.max(0, topFrontY - 1);
+      for (let x = 0; x < bodyTop.w; x += 3) {
+        put(bodyTop, x, topMidY, shadeRgb(plaidThread, 0.9));
+      }
 
       for (const part of ["rightLeg", "leftLeg"] as const) {
         const leg = CLASSIC_LAYOUT[part];
