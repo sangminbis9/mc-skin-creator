@@ -627,6 +627,7 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
     analysis.observed.accessories,
     analysis.observed.hair,
     analysis.identityPrompt,
+    analysis.outfitPrompt,
   ]
     .filter((value): value is string => typeof value === "string")
     .join(" ")

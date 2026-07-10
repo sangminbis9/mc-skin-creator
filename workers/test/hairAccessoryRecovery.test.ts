@@ -1,0 +1,87 @@
+import { describe, expect, it, vi } from "vitest";
+import { generateSkin } from "../src/generate";
+import { bytesToBase64, decodePng, encodePng } from "../src/png";
+import type {
+  SkinGenerationProvider,
+  SkinGenerationResult,
+} from "../src/skinProvider";
+import type { Env } from "../src/types";
+import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
+import { makeAnalysis, makeFrontBackView, makeSyntheticAtlas } from "./helpers";
+
+function makeEnv(analysis: unknown): Env {
+  return {
+    AI: {
+      run: vi.fn(async () => ({ response: analysis })),
+    } as unknown as Env["AI"],
+    MCSKIN_KV: {
+      get: vi.fn(async () => null),
+      put: vi.fn(async () => undefined),
+    } as unknown as Env["MCSKIN_KV"],
+    IMAGE_GENERATION_ENABLED: "true",
+    IMAGE_GEN_STRATEGY: "front_view",
+  };
+}
+
+function providerOf(result: SkinGenerationResult): SkinGenerationProvider {
+  return {
+    async generate(): Promise<SkinGenerationResult> {
+      return result;
+    },
+  };
+}
+
+async function photoDataUrl(): Promise<string> {
+  const bytes = await encodePng(makeSyntheticAtlas());
+  return `data:image/png;base64,${bytesToBase64(bytes)}`;
+}
+
+describe("hair accessory recovery", () => {
+  it("recovers a side-specific hair flower when only outfitPrompt preserves it", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "long wavy brown hair",
+          accessories: "white bow collar",
+          clothing: "pink cardigan over a white bow collar",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairAccessory: "none",
+          hairAccessorySide: "center",
+          neckAccessory: "none",
+        },
+        identityPrompt: "A person with long wavy brown hair.",
+        outfitPrompt:
+          "Pink cardigan and white bow collar, with a large pink flower on viewer-left hair preserved.",
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          hairstyle: "long",
+        },
+      }),
+    );
+    const frontPng = await encodePng(makeFrontBackView());
+    const provider = providerOf({
+      ok: true,
+      imageBytes: frontPng,
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const leftFlower = ((front.y + 2) * ATLAS_SIZE + front.x + 1) * 4;
+    const oldRightFlower = ((front.y + 2) * ATLAS_SIZE + front.x + 6) * 4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[leftFlower + 3]).toBe(255);
+    expect(decoded.rgba[leftFlower]).toBeGreaterThan(decoded.rgba[leftFlower + 1]);
+    expect(decoded.rgba[leftFlower]).toBeGreaterThan(decoded.rgba[oldRightFlower]);
+  });
+});
