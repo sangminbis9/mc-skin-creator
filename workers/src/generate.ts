@@ -397,7 +397,9 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     (style.shoeStyle ?? "sneakers") === "sneakers";
 
   if (!structuredLower) {
-    if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt)\b/.test(inferredText)) {
+    if (/\b(skort|skorts|culotte skirt|pleated culottes|plaid culottes|pleated shorts|plaid shorts)\b/.test(inferredText)) {
+      style.bottomType = "skirt";
+    } else if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt)\b/.test(inferredText)) {
       style.bottomType = "skirt";
     } else if (/\b(shorts|short pants|culottes)\b/.test(inferredText)) {
       style.bottomType = "shorts";
@@ -557,7 +559,9 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
     .join(" ")
     .toLowerCase();
 
-  if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt|miniskirt|mini skirt)\b/.test(visibleText)) {
+  if (/\b(skort|skorts|culotte skirt|pleated culottes|plaid culottes|pleated shorts|plaid shorts)\b/.test(visibleText)) {
+    style.bottomType = "skirt";
+  } else if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt|miniskirt|mini skirt)\b/.test(visibleText)) {
     style.bottomType = "skirt";
   } else if (/\b(shorts|short pants|culottes)\b/.test(visibleText)) {
     style.bottomType = "shorts";

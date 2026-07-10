@@ -138,7 +138,7 @@ If multiple people appear, analyze only the most prominent/central person.
 STEP 2 — framing: how much of the person is visible: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
 
 STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logos.
-- If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs), legwear asymmetry from the viewer's perspective, and shoe type/color.
+- If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans; describe skorts, pleated shorts or skirt-like culottes as skirt-like for low-resolution rendering), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs), legwear asymmetry from the viewer's perspective, and shoe type/color.
 - Preserve side-specific details using viewer-left/viewer-right wording for one-sided flowers, bows, leg warmers, thigh bows, side stripes, straps or shoe details.
 - When a one-sided accessory or legwear exists, repeat the exact side in observed/inferred text and in renderHints/structured fields. Do not summarize it as simply "asymmetric".
 
@@ -197,7 +197,7 @@ STEP 7 — fallbackFeatures: classify into these fixed palettes (pick the CLOSES
   "bottomColor": CLOTHING_COLOR,
   "shoesColor": CLOTHING_COLOR
 }
-For fallbackFeatures.bottomType, use the visible lower garment when it is visible; never default to "pants" for a visible skirt or shorts.
+For fallbackFeatures.bottomType, use the visible lower garment when it is visible; never default to "pants" for a visible skirt, skort, skirt-like culottes or shorts.
 CLOTHING_COLOR must be one of: ${CLOTHING_COLOR_ENUM}
 
 Respond with ONLY a JSON object matching this shape:

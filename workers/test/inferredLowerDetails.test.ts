@@ -190,6 +190,82 @@ describe("inferred lower-body completion", () => {
     expect(decoded.rgba[bodyHem]).toBeLessThan(decoded.rgba[legTop]);
   });
 
+  it("maps skort-like lower-body wording to skirt-style plaid hem details", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: {
+            value:
+              "beige plaid skort with pleated shorts construction and one viewer-left leg warmer",
+            rationale: "the visible cardigan and bow collar create a soft preppy outfit",
+          },
+          lowerBodyDesign: null,
+          shoes: {
+            value: "cream Mary Jane dress shoes",
+            rationale: "dress shoes match the preppy outfit",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          outerGarment: "cardigan",
+          neckAccessory: "bow",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          bottomType: "pants",
+        },
+        outfitPrompt:
+          "Visible cardigan with bow collar. Complete with a beige plaid skort, pleated shorts-like front, one viewer-left leg warmer and cream Mary Jane shoes.",
+      }),
+    );
+    const frontPng = await encodePng(makeFrontBackView());
+    const provider = providerOf({
+      ok: true,
+      imageBytes: frontPng,
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const bodyHem =
+      ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
+    const plaidDark =
+      ((bodyFront.y + bodyFront.h - 3) * ATLAS_SIZE + bodyFront.x + 1) * 4;
+    const plaidLight =
+      ((bodyFront.y + bodyFront.h - 3) * ATLAS_SIZE + bodyFront.x + 2) * 4;
+    const legTop = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
+    const leftWarmer =
+      ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[bodyHem + 3]).toBe(255);
+    expect(decoded.rgba[plaidDark + 3]).toBe(255);
+    expect(decoded.rgba[plaidDark]).toBeLessThan(decoded.rgba[plaidLight]);
+    expect(decoded.rgba[legTop + 3]).toBe(255);
+    expect(decoded.rgba[bodyHem]).toBeLessThan(decoded.rgba[legTop]);
+    expect(decoded.rgba[leftWarmer + 3]).toBe(255);
+  });
+
   it("recovers one-sided inferred leg warmer asymmetry from lower-body text", async () => {
     const base = makeAnalysis();
     const env = makeEnv(

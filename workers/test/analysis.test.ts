@@ -9,7 +9,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("shoe type/color");
     expect(ANALYSIS_PROMPT).toContain("viewer-left/viewer-right");
     expect(ANALYSIS_PROMPT).toContain("renderHints.bottomPattern");
-    expect(ANALYSIS_PROMPT).toContain("never default to \"pants\" for a visible skirt or shorts");
+    expect(ANALYSIS_PROMPT).toContain("skorts, pleated shorts or skirt-like culottes");
+    expect(ANALYSIS_PROMPT).toContain("never default to \"pants\" for a visible skirt, skort");
     expect(ANALYSIS_PROMPT).toContain("Do not summarize it as simply \"asymmetric\"");
     expect(ANALYSIS_PROMPT).toContain("legwearAsymmetry \"left\" or \"right\"");
     expect(ANALYSIS_PROMPT).toContain("repeat that side in outfitPrompt");
