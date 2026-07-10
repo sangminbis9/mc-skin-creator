@@ -2303,6 +2303,35 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       put(body.overlay.left, body.overlay.left.w - 2, 1, shadeRgb(paleAccent, 0.76));
       put(body.overlay.left, body.overlay.left.w - 1, 2, shadeRgb(paleAccent, 0.82));
       put(body.overlay.left, body.overlay.left.w - 2, 3, shadeRgb(accentShadow, 0.86));
+      if (outerGarment === "cardigan") {
+        const bowLight = mixRgb(paleAccent, [255, 255, 255], 0.18);
+        const bowMid = shadeRgb(paleAccent, 0.86);
+        const bowDeep = shadeRgb(accentShadow, 0.72);
+        const shirtPanel = mixRgb(paleAccent, averageRect(baseFront, 2, 5), 0.18);
+        put(front, 3, 0, bowLight);
+        put(front, 4, 0, bowMid);
+        put(front, 2, 1, bowLight);
+        put(front, 5, 1, bowMid);
+        put(front, 1, 2, bowLight);
+        put(front, 2, 2, paleAccent);
+        put(front, 5, 2, bowMid);
+        put(front, 6, 2, bowDeep);
+        put(front, 2, 3, bowLight);
+        put(front, 3, 3, shirtPanel);
+        put(front, 4, 3, shadeRgb(shirtPanel, 0.88));
+        put(front, 5, 3, bowMid);
+        put(front, 3, 4, paleAccent);
+        put(front, 4, 4, bowDeep);
+        put(front, 4, 5, bowDeep);
+        put(front, 3, 6, shadeRgb(bowMid, 0.84));
+        put(front, 4, 6, shadeRgb(bowDeep, 0.86));
+        put(body.overlay.top, 1, body.overlay.top.h - 1, bowLight);
+        put(body.overlay.top, 6, body.overlay.top.h - 1, bowDeep);
+        put(body.overlay.right, 0, 0, bowLight);
+        put(body.overlay.right, 1, 2, bowMid);
+        put(body.overlay.left, body.overlay.left.w - 1, 0, bowMid);
+        put(body.overlay.left, body.overlay.left.w - 2, 2, bowDeep);
+      }
     } else if (neckAccessory === "tie") {
       put(front, 3, 1, darkAccent);
       put(front, 4, 1, darkAccent);

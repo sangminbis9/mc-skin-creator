@@ -314,6 +314,42 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("cardigan with neck bow keeps a large pale bow connected through top and side overlays", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      outerGarment: "cardigan",
+      topType: "shirt",
+      sleeveLength: "long",
+      neckAccessory: "bow",
+    })!.atlas;
+    const body = CLASSIC_LAYOUT.body.overlay;
+
+    const bowLeftWing = ((body.front.y + 2) * ATLAS_SIZE + body.front.x + 1) * 4;
+    const bowRightWing = ((body.front.y + 2) * ATLAS_SIZE + body.front.x + 6) * 4;
+    const innerShirt = ((body.front.y + 3) * ATLAS_SIZE + body.front.x + 3) * 4;
+    const bowTailLight = ((body.front.y + 4) * ATLAS_SIZE + body.front.x + 3) * 4;
+    const bowTailDark = ((body.front.y + 4) * ATLAS_SIZE + body.front.x + 4) * 4;
+    const longTail = ((body.front.y + 6) * ATLAS_SIZE + body.front.x + 3) * 4;
+    const topEdge = ((body.top.y + body.top.h - 1) * ATLAS_SIZE + body.top.x + 1) * 4;
+    const rightSideFold = ((body.right.y + 2) * ATLAS_SIZE + body.right.x + 1) * 4;
+    const leftSideFold =
+      ((body.left.y + 2) * ATLAS_SIZE + body.left.x + body.left.w - 2) * 4;
+
+    expect(atlas.rgba[bowLeftWing + 3]).toBe(255);
+    expect(atlas.rgba[bowRightWing + 3]).toBe(255);
+    expect(atlas.rgba[innerShirt + 3]).toBe(255);
+    expect(atlas.rgba[bowTailLight + 3]).toBe(255);
+    expect(atlas.rgba[bowTailDark + 3]).toBe(255);
+    expect(atlas.rgba[longTail + 3]).toBe(255);
+    expect(atlas.rgba[topEdge + 3]).toBe(255);
+    expect(atlas.rgba[rightSideFold + 3]).toBe(255);
+    expect(atlas.rgba[leftSideFold + 3]).toBe(255);
+    expect(atlas.rgba[bowLeftWing]).toBeGreaterThan(atlas.rgba[bowRightWing]);
+    expect(atlas.rgba[bowTailLight]).toBeGreaterThan(atlas.rgba[bowTailDark]);
+    expect(atlas.rgba[innerShirt]).toBeGreaterThan(atlas.rgba[longTail]);
+    expect(atlas.rgba[rightSideFold]).toBeGreaterThan(atlas.rgba[leftSideFold]);
+  });
+
   it("front/back views use the actual back view", () => {
     const packed = packFrontViewToAtlas(makeFrontBackView())!;
     expect(packed.hasBackView).toBe(true);
