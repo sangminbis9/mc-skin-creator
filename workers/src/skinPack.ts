@@ -2305,6 +2305,43 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             }
           }
         }
+        if (outerGarment === "cardigan") {
+          const cuffLight = mixRgb(panelColor, [255, 238, 232], 0.18);
+          const cuffShadow = shadeRgb(panelColor, 0.58);
+          const shoulderLight = shadeRgb(panelColor, 1.08);
+          const shoulderShadow = shadeRgb(panelColor, 0.74);
+          for (let y = 0; y < arm.overlay.top.h; y++) {
+            for (let x = 0; x < arm.overlay.top.w; x++) {
+              const outerEdge = x === 0 || x === arm.overlay.top.w - 1 || y === 0;
+              const diagonalFold = (x + y) % 3 === 0;
+              put(
+                arm.overlay.top,
+                x,
+                y,
+                outerEdge
+                  ? shoulderShadow
+                  : diagonalFold
+                    ? shadeRgb(shoulderLight, 0.9)
+                    : shoulderLight,
+              );
+            }
+          }
+          for (let y = 0; y < arm.overlay.bottom.h; y++) {
+            for (let x = 0; x < arm.overlay.bottom.w; x++) {
+              const edge = x === 0 || x === arm.overlay.bottom.w - 1 || y === arm.overlay.bottom.h - 1;
+              put(
+                arm.overlay.bottom,
+                x,
+                y,
+                edge
+                  ? cuffShadow
+                  : (x + y) % 2 === 0
+                    ? shadeRgb(cuffLight, 0.88)
+                    : shadeRgb(cuffShadow, 0.84),
+              );
+            }
+          }
+        }
       }
     }
   }

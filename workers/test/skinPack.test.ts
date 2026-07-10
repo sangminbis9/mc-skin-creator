@@ -223,6 +223,8 @@ describe("packFrontViewToAtlas", () => {
     const bodyBack = CLASSIC_LAYOUT.body.overlay.back;
     const armFront = CLASSIC_LAYOUT.rightArm.overlay.front;
     const armSide = CLASSIC_LAYOUT.rightArm.overlay.right;
+    const armTop = CLASSIC_LAYOUT.rightArm.overlay.top;
+    const armBottom = CLASSIC_LAYOUT.rightArm.overlay.bottom;
     const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const rightLegSide = CLASSIC_LAYOUT.rightLeg.overlay.right;
@@ -255,6 +257,11 @@ describe("packFrontViewToAtlas", () => {
     const sleeveYarnShadow = ((armFront.y + 7) * ATLAS_SIZE + armFront.x + 1) * 4;
     const sleeveCuffLight = ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x) * 4;
     const sleeveCuffShadow = ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveTopShoulder = ((armTop.y + 1) * ATLAS_SIZE + armTop.x + 1) * 4;
+    const sleeveTopEdge = (armTop.y * ATLAS_SIZE + armTop.x) * 4;
+    const sleeveBottomCuff = ((armBottom.y + 1) * ATLAS_SIZE + armBottom.x + 1) * 4;
+    const sleeveBottomEdge =
+      ((armBottom.y + armBottom.h - 1) * ATLAS_SIZE + armBottom.x) * 4;
     const rightTailPanel = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x) * 4;
     const rightTailTrim = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
     const leftTailTrim = (leftLegFront.y * ATLAS_SIZE + leftLegFront.x + 2) * 4;
@@ -298,6 +305,12 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sleeveYarnLight]).toBeGreaterThan(atlas.rgba[sleeveYarnShadow]);
     expect(atlas.rgba[sleeveCuffLight + 3]).toBe(255);
     expect(atlas.rgba[sleeveCuffLight]).toBeGreaterThan(atlas.rgba[sleeveCuffShadow]);
+    expect(atlas.rgba[sleeveTopShoulder + 3]).toBe(255);
+    expect(atlas.rgba[sleeveTopEdge + 3]).toBe(255);
+    expect(atlas.rgba[sleeveTopShoulder]).toBeGreaterThan(atlas.rgba[sleeveTopEdge]);
+    expect(atlas.rgba[sleeveBottomCuff + 3]).toBe(255);
+    expect(atlas.rgba[sleeveBottomEdge + 3]).toBe(255);
+    expect(atlas.rgba[sleeveBottomCuff]).toBeGreaterThan(atlas.rgba[sleeveBottomEdge]);
     expect(atlas.rgba[rightTailPanel + 3]).toBe(255);
     expect(atlas.rgba[rightTailTrim + 3]).toBe(255);
     expect(atlas.rgba[leftTailTrim + 3]).toBe(255);
