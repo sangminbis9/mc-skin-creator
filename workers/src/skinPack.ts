@@ -2068,6 +2068,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const buttonColor = mixRgb(pipingColor, [238, 224, 216], 0.42);
       const pocketLight = shadeRgb(pipingColor, 0.94);
       const pocketShadow = shadeRgb(trimColor, 0.66);
+      const yarnLight = mixRgb(panelColor, [255, 238, 232], 0.2);
+      const yarnShadow = shadeRgb(panelColor, 0.62);
 
       for (const y of [2, 5, 8] as const) {
         put(front, 1, y, y === 5 ? buttonColor : shadeRgb(buttonColor, 0.94));
@@ -2086,6 +2088,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       for (let x = 0; x < front.w; x++) {
         if (x === 3 || x === 4) continue;
         put(front, x, front.h - 2, x % 2 === 0 ? pipingShadow : shadeRgb(pipingColor, 0.82));
+      }
+      for (let y = 1; y < front.h - 2; y++) {
+        put(front, 0, y, y % 2 === 0 ? shadeRgb(yarnLight, 0.94) : yarnShadow);
+        put(front, 7, y, y % 2 === 0 ? shadeRgb(yarnShadow, 0.88) : shadeRgb(yarnLight, 0.86));
+        if (y % 3 === 1) {
+          put(front, 1, y, shadeRgb(yarnLight, 1.04));
+          put(front, 6, y, shadeRgb(yarnShadow, 0.9));
+        }
       }
     }
 
@@ -2115,11 +2125,17 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     if (outerGarment === "cardigan") {
       const sidePocketLight = mixRgb(panelColor, [255, 238, 232], 0.24);
       const sidePocketShadow = shadeRgb(trimColor, 0.62);
+      const sideYarnLight = mixRgb(panelColor, [255, 238, 232], 0.18);
+      const sideYarnShadow = shadeRgb(panelColor, 0.6);
       for (const rect of [body.overlay.right, body.overlay.left]) {
         put(rect, 1, Math.min(rect.h - 3, 7), sidePocketLight);
         put(rect, 2, Math.min(rect.h - 3, 7), sidePocketShadow);
         put(rect, 0, rect.h - 2, sidePocketShadow);
         put(rect, rect.w - 1, rect.h - 2, shadeRgb(sidePocketLight, 0.78));
+        for (let y = 1; y < rect.h - 2; y += 2) {
+          put(rect, 0, y, sideYarnShadow);
+          put(rect, rect.w - 1, y, shadeRgb(sideYarnLight, 0.9));
+        }
       }
     }
 
@@ -2156,9 +2172,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           if (outerGarment === "cardigan") {
             const cuffLight = mixRgb(panelColor, [255, 238, 232], 0.18);
             const cuffShadow = shadeRgb(panelColor, 0.58);
+            const sleeveYarn = mixRgb(panelColor, [255, 238, 232], 0.14);
             for (let x = 0; x < dst.w; x++) {
               put(dst, x, dst.h - 3, x % 2 === 0 ? shadeRgb(cuffLight, 0.9) : cuffShadow);
               put(dst, x, dst.h - 2, x === 0 || x === dst.w - 1 ? cuffShadow : shadeRgb(cuffLight, 0.76));
+            }
+            for (let y = 1; y < dst.h - 3; y += 2) {
+              const yarnX = part === "rightArm" ? 1 : Math.max(0, dst.w - 2);
+              put(dst, yarnX, y, y % 4 === 1 ? shadeRgb(sleeveYarn, 1.08) : shadeRgb(panelColor, 0.68));
             }
           }
         }

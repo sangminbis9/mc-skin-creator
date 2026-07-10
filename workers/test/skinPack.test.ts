@@ -247,6 +247,12 @@ describe("packFrontViewToAtlas", () => {
     const pocketShadow = ((bodyFront.y + 7) * ATLAS_SIZE + bodyFront.x + 2) * 4;
     const sidePocketLight = ((bodySide.y + 7) * ATLAS_SIZE + bodySide.x + 1) * 4;
     const sidePocketShadow = ((bodySide.y + 7) * ATLAS_SIZE + bodySide.x + 2) * 4;
+    const frontYarnLight = ((bodyFront.y + 4) * ATLAS_SIZE + bodyFront.x + 1) * 4;
+    const frontYarnShadow = ((bodyFront.y + 4) * ATLAS_SIZE + bodyFront.x + 6) * 4;
+    const sideYarnShadow = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x) * 4;
+    const sideYarnLight = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + bodySide.w - 1) * 4;
+    const sleeveYarnLight = ((armFront.y + 5) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveYarnShadow = ((armFront.y + 7) * ATLAS_SIZE + armFront.x + 1) * 4;
     const sleeveCuffLight = ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x) * 4;
     const sleeveCuffShadow = ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x + 1) * 4;
     const rightTailPanel = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x) * 4;
@@ -284,6 +290,12 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[pocketLight]).toBeGreaterThan(atlas.rgba[pocketShadow]);
     expect(atlas.rgba[sidePocketLight + 3]).toBe(255);
     expect(atlas.rgba[sidePocketLight]).toBeGreaterThan(atlas.rgba[sidePocketShadow]);
+    expect(atlas.rgba[frontYarnLight + 3]).toBe(255);
+    expect(atlas.rgba[frontYarnLight]).toBeGreaterThan(atlas.rgba[frontYarnShadow]);
+    expect(atlas.rgba[sideYarnLight + 3]).toBe(255);
+    expect(atlas.rgba[sideYarnShadow]).toBeLessThan(atlas.rgba[sideYarnLight]);
+    expect(atlas.rgba[sleeveYarnLight + 3]).toBe(255);
+    expect(atlas.rgba[sleeveYarnLight]).toBeGreaterThan(atlas.rgba[sleeveYarnShadow]);
     expect(atlas.rgba[sleeveCuffLight + 3]).toBe(255);
     expect(atlas.rgba[sleeveCuffLight]).toBeGreaterThan(atlas.rgba[sleeveCuffShadow]);
     expect(atlas.rgba[rightTailPanel + 3]).toBe(255);
