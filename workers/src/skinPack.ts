@@ -2968,13 +2968,22 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         }
         if (legwear === "leg_warmers") {
           const laceY = Math.max(0, legwearRows.start - 1);
+          const ankleCuffY = Math.min(overRect.h - 1, legwearRows.end);
+          const ankleFoldY = Math.max(legwearRows.start, ankleCuffY - 1);
           const scallopA = shadeRgb(topLace, 1.08);
           const scallopB = shadeRgb(topLace, 0.76);
+          const cuffLight = shadeRgb(mixRgb(baseColor, [255, 250, 244], 0.42), 1.04);
+          const cuffDark = shadeRgb(baseColor, 0.48);
           for (let x = 0; x < overRect.w; x++) {
             const edge = x === 0 || x === overRect.w - 1;
             put(overRect, x, laceY, x % 2 === 0 ? scallopA : scallopB);
             if (!edge && (faceName === "front" || faceName === "back")) {
               put(overRect, x, legwearRows.start + 1, x % 2 === 0 ? shadeRgb(scallopA, 0.94) : ribShadow);
+            }
+            put(baseRect, x, ankleCuffY, x % 2 === 0 ? shadeRgb(baseColor, 0.62) : shadeRgb(baseColor, 0.76));
+            put(overRect, x, ankleCuffY, x % 2 === 0 ? cuffDark : shadeRgb(cuffDark, 0.82));
+            if (!edge) {
+              put(overRect, x, ankleFoldY, x % 2 === 0 ? cuffLight : shadeRgb(cuffDark, 0.9));
             }
           }
           if (faceName === "right" || faceName === "left") {
@@ -2983,6 +2992,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             put(overRect, outerX, laceY, scallopA);
             put(overRect, innerX, laceY, scallopB);
             put(overRect, outerX, legwearRows.start + 1, shadeRgb(scallopB, 0.82));
+            put(overRect, outerX, ankleCuffY, cuffDark);
+            put(overRect, innerX, ankleFoldY, shadeRgb(cuffLight, 0.9));
+          } else {
+            put(overRect, 1, ankleFoldY, cuffLight);
+            put(overRect, 2, ankleFoldY, shadeRgb(cuffLight, 0.84));
+            put(overRect, 1, ankleCuffY, cuffDark);
+            put(overRect, 2, ankleCuffY, shadeRgb(cuffDark, 0.78));
           }
           for (let y = legwearRows.start + 1; y <= legwearRows.end; y += 2) {
             put(overRect, 0, y, shadeRgb(ribShadow, 0.74));

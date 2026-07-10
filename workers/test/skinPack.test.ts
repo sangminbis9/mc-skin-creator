@@ -1089,6 +1089,10 @@ describe("packFrontViewToAtlas", () => {
     const warmerBackLift = ((leftBack.y + 6) * ATLAS_SIZE + leftBack.x + 2) * 4;
     const warmerExtraFold = ((left.y + 6) * ATLAS_SIZE + left.x + 2) * 4;
     const warmerExtraLift = ((left.y + 6) * ATLAS_SIZE + left.x + 1) * 4;
+    const warmerAnkleCuff = ((left.y + 9) * ATLAS_SIZE + left.x + 1) * 4;
+    const warmerAnkleFold = ((left.y + 8) * ATLAS_SIZE + left.x + 1) * 4;
+    const warmerSideAnkle = ((leftSide.y + 9) * ATLAS_SIZE + leftSide.x) * 4;
+    const warmerBackAnkleFold = ((leftBack.y + 8) * ATLAS_SIZE + leftBack.x + 1) * 4;
     const bow = ((right.y + 2) * ATLAS_SIZE + right.x) * 4;
     const bowTopBand = ((right.y + 1) * ATLAS_SIZE + right.x + 2) * 4;
     const bowOuterWing = ((right.y + 2) * ATLAS_SIZE + right.x + 3) * 4;
@@ -1125,6 +1129,11 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[warmerSideRidge]).toBeLessThan(atlas.rgba[warmerSideLift]);
     expect(atlas.rgba[warmerBackRidge]).toBeLessThan(atlas.rgba[warmerBackLift]);
     expect(atlas.rgba[warmerExtraFold]).toBeLessThan(atlas.rgba[warmerExtraLift]);
+    expect(atlas.rgba[warmerAnkleCuff + 3]).toBe(255);
+    expect(atlas.rgba[warmerAnkleFold + 3]).toBe(255);
+    expect(atlas.rgba[warmerSideAnkle + 3]).toBe(255);
+    expect(atlas.rgba[warmerBackAnkleFold + 3]).toBe(255);
+    expect(atlas.rgba[warmerAnkleFold]).toBeGreaterThan(atlas.rgba[warmerAnkleCuff]);
   });
 
   it("dressy skirt outfits add visible shoe straps across front and side foot overlays", () => {
