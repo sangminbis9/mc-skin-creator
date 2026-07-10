@@ -2831,24 +2831,42 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         }
         for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.88));
       } else {
+        const sole = shadeRgb(mixRgb(shoeBase, [255, 252, 244], 0.62), 0.82);
+        const soleShadow = shadeRgb(sole, 0.72);
+        const strapDeep = shadeRgb(bowShadow, 0.72);
         put(front, 1, front.h - 2, shoeAccent);
         put(front, 2, front.h - 2, shadeRgb(shoeAccent, 0.88));
+        put(front, 0, front.h - 1, sole);
         put(front, 1, front.h - 1, shadeRgb(shoeAccent, 0.96));
         put(front, 2, front.h - 1, shoeShadow);
+        put(front, 3, front.h - 1, soleShadow);
         put(front, 0, front.h - 2, shoeBright);
         put(front, 3, front.h - 2, shadeRgb(shoeBright, 0.88));
         put(front, 1, front.h - 3, shoeBright);
         put(front, 2, front.h - 3, bowShadow);
         for (const side of [leg.overlay.right, leg.overlay.left]) {
+          put(side, 0, side.h - 1, sole);
+          put(side, 1, side.h - 1, shadeRgb(sole, 0.88));
           put(side, 0, side.h - 2, shoeAccent);
           put(side, 1, side.h - 2, shadeRgb(shoeAccent, 0.88));
           put(side, side.w - 1, side.h - 1, shoeShadow);
+          put(side, side.w - 2, side.h - 1, soleShadow);
           put(side, side.w - 1, side.h - 3, shoeBright);
           put(side, 0, side.h - 3, bowShadow);
+          put(side, 1, side.h - 3, strapDeep);
+          put(side, side.w - 2, side.h - 3, shadeRgb(shoeBright, 0.86));
+        }
+        for (let x = 0; x < leg.overlay.bottom.w; x++) {
+          put(leg.overlay.bottom, x, 0, x % 2 === 0 ? sole : soleShadow);
+          put(leg.overlay.bottom, x, leg.overlay.bottom.h - 1, x % 2 === 0 ? soleShadow : shadeRgb(sole, 0.9));
         }
         for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.9));
         put(leg.overlay.back, 0, leg.overlay.back.h - 2, shoeBright);
         put(leg.overlay.back, 3, leg.overlay.back.h - 2, bowShadow);
+        put(leg.overlay.back, 1, leg.overlay.back.h - 3, strapDeep);
+        put(leg.overlay.back, 2, leg.overlay.back.h - 3, shoeBright);
+        put(leg.overlay.back, 0, leg.overlay.back.h - 1, sole);
+        put(leg.overlay.back, 3, leg.overlay.back.h - 1, soleShadow);
       }
     }
   }

@@ -1141,6 +1141,12 @@ describe("packFrontViewToAtlas", () => {
     const leftSideKnot = ((left.left.y + left.left.h - 3) * ATLAS_SIZE + left.left.x) * 4;
     const backStrap = ((left.back.y + left.back.h - 2) * ATLAS_SIZE + left.back.x + 2) * 4;
     const backHeelBow = ((left.back.y + left.back.h - 2) * ATLAS_SIZE + left.back.x) * 4;
+    const rightSideSole = ((right.right.y + right.right.h - 1) * ATLAS_SIZE + right.right.x) * 4;
+    const rightBackHeelStrap = ((right.back.y + right.back.h - 3) * ATLAS_SIZE + right.back.x + 1) * 4;
+    const rightBackHeelLight = ((right.back.y + right.back.h - 3) * ATLAS_SIZE + right.back.x + 2) * 4;
+    const rightBottomSole = (right.bottom.y * ATLAS_SIZE + right.bottom.x) * 4;
+    const rightBottomShadow =
+      ((right.bottom.y + right.bottom.h - 1) * ATLAS_SIZE + right.bottom.x) * 4;
 
     expect(atlas.rgba[rightFrontBow + 3]).toBe(255);
     expect(atlas.rgba[rightFrontKnot + 3]).toBe(255);
@@ -1153,7 +1159,14 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[leftSideKnot + 3]).toBe(255);
     expect(atlas.rgba[backStrap + 3]).toBe(255);
     expect(atlas.rgba[backHeelBow + 3]).toBe(255);
+    expect(atlas.rgba[rightSideSole + 3]).toBe(255);
+    expect(atlas.rgba[rightBackHeelStrap + 3]).toBe(255);
+    expect(atlas.rgba[rightBackHeelLight + 3]).toBe(255);
+    expect(atlas.rgba[rightBottomSole + 3]).toBe(255);
+    expect(atlas.rgba[rightBottomShadow + 3]).toBe(255);
     expect(atlas.rgba[rightFrontStrap]).toBeGreaterThan(atlas.rgba[rightFrontToe]);
+    expect(atlas.rgba[rightBackHeelLight]).toBeGreaterThan(atlas.rgba[rightBackHeelStrap]);
+    expect(atlas.rgba[rightBottomSole]).toBeGreaterThan(atlas.rgba[rightBottomShadow]);
   });
 
   it("cardigan skirt outfits extend asymmetric long hems onto upper leg overlays", () => {
