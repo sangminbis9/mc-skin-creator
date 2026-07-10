@@ -11,6 +11,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("renderHints.bottomPattern");
     expect(ANALYSIS_PROMPT).toContain("skorts, pleated shorts or skirt-like culottes");
     expect(ANALYSIS_PROMPT).toContain("never default to \"pants\" for a visible skirt, skort");
+    expect(ANALYSIS_PROMPT).toContain("knee-high or over-knee socks");
+    expect(ANALYSIS_PROMPT).toContain("Treat knee-high, over-knee and OTK socks as thigh_highs");
     expect(ANALYSIS_PROMPT).toContain("Do not summarize it as simply \"asymmetric\"");
     expect(ANALYSIS_PROMPT).toContain("legwearAsymmetry \"left\" or \"right\"");
     expect(ANALYSIS_PROMPT).toContain("repeat that side in outfitPrompt");

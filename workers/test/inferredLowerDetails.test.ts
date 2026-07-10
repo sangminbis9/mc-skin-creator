@@ -336,6 +336,79 @@ describe("inferred lower-body completion", () => {
     expect(decoded.rgba[rightBareLowerLeg + 3]).toBe(0);
   });
 
+  it("treats one-sided over-knee socks as long legwear instead of short socks", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: {
+            value:
+              "pleated skirt with one viewer-left over-knee sock and a small viewer-right thigh bow",
+            rationale: "the visible bow collar supports a detailed asymmetric preppy outfit",
+          },
+          lowerBodyDesign: null,
+          shoes: {
+            value: "cream Mary Jane dress shoes",
+            rationale: "dress shoes match the preppy outfit",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          outerGarment: "cardigan",
+          neckAccessory: "bow",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          bottomType: "pants",
+        },
+        outfitPrompt:
+          "Visible cardigan with bow collar. Complete with a pleated skirt, one viewer-left OTK sock, a viewer-right thigh bow and cream Mary Jane shoes.",
+      }),
+    );
+    const frontPng = await encodePng(makeFrontBackView());
+    const provider = providerOf({
+      ok: true,
+      imageBytes: frontPng,
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftHighSockTop =
+      (leftLegFront.y * ATLAS_SIZE + leftLegFront.x + 1) * 4;
+    const leftHighSockMid =
+      ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
+    const rightThighBow =
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+    const rightBareLowerLeg =
+      ((rightLegFront.y + 5) * ATLAS_SIZE + rightLegFront.x + 3) * 4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[leftHighSockTop + 3]).toBe(255);
+    expect(decoded.rgba[leftHighSockMid + 3]).toBe(255);
+    expect(decoded.rgba[rightThighBow + 3]).toBe(255);
+    expect(decoded.rgba[rightThighBow]).toBeGreaterThan(220);
+    expect(decoded.rgba[rightBareLowerLeg + 3]).toBe(0);
+  });
+
   it("uses structured lowerBodyDesign before vague inferred text", async () => {
     const base = makeAnalysis();
     const env = makeEnv(

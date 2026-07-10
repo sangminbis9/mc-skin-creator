@@ -433,6 +433,8 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
 
     if (/\b(leg warmer|leg warmers)\b/.test(inferredText)) {
       style.legwear = "leg_warmers";
+    } else if (/\b(knee high|knee-high|knee highs|knee-highs|over knee|over-knee|over the knee|otk)\b/.test(inferredText)) {
+      style.legwear = "thigh_highs";
     } else if (/\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(inferredText)) {
       style.legwear = "thigh_highs";
     } else if (/\b(stockings|stocking|tights)\b/.test(inferredText)) {
@@ -601,6 +603,8 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
 
   if (/\b(leg warmer|leg warmers)\b/.test(visibleText)) {
     style.legwear = "leg_warmers";
+  } else if (/\b(knee high|knee-high|knee highs|knee-highs|over knee|over-knee|over the knee|otk)\b/.test(visibleText)) {
+    style.legwear = "thigh_highs";
   } else if (/\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(visibleText)) {
     style.legwear = "thigh_highs";
   } else if (/\b(stockings|stocking|tights)\b/.test(visibleText)) {
