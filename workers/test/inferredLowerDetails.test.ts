@@ -343,4 +343,92 @@ describe("inferred lower-body completion", () => {
     expect(decoded.rgba[rightBow + 3]).toBe(255);
     expect(decoded.rgba[rightBow]).toBeGreaterThan(220);
   });
+
+  it("upgrades generic structured lower-body design when the visible top is strongly preppy", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "pink cardigan over a white bow collar",
+          accessories: "white bow collar",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: {
+            value: "matching simple lower-body clothing",
+            rationale: "the lower body is not visible",
+          },
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "none",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            shoeStyle: "sneakers",
+            rationale: "generic structured output that underuses the visible cardigan and bow",
+          },
+          shoes: {
+            value: "simple sneakers",
+            rationale: "generic fallback",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          outerGarment: "cardigan",
+          neckAccessory: "bow",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          bottomType: "pants",
+        },
+        outfitPrompt:
+          "Visible pink cardigan with a white bow collar. Complete the hidden lower body coherently.",
+      }),
+    );
+    const frontPng = await encodePng(makeFrontBackView());
+    const provider = providerOf({
+      ok: true,
+      imageBytes: frontPng,
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const bodyHem =
+      ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
+    const legTop = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
+    const sockPixel =
+      ((rightLegFront.y + rightLegFront.h - 4) * ATLAS_SIZE + rightLegFront.x + 1) *
+      4;
+    const thighRibbon =
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+    const shoeBow =
+      ((rightLegFront.y + rightLegFront.h - 3) * ATLAS_SIZE + rightLegFront.x + 1) *
+      4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[bodyHem + 3]).toBe(255);
+    expect(decoded.rgba[legTop + 3]).toBe(255);
+    expect(decoded.rgba[sockPixel + 3]).toBe(255);
+    expect(decoded.rgba[thighRibbon + 3]).toBe(255);
+    expect(decoded.rgba[shoeBow + 3]).toBe(255);
+  });
 });

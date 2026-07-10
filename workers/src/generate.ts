@@ -388,6 +388,13 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
   const preppyTop =
     (style.outerGarment === "cardigan" || style.outerGarment === "vest") &&
     (style.neckAccessory === "bow" || style.neckAccessory === "collar");
+  const structuredGenericLower =
+    Boolean(structuredLower) &&
+    (style.bottomType ?? "pants") === "pants" &&
+    (style.bottomPattern ?? "plain") === "plain" &&
+    (style.bottomAccent ?? "none") === "none" &&
+    (style.legwear ?? "none") === "none" &&
+    (style.shoeStyle ?? "sneakers") === "sneakers";
 
   if (!structuredLower) {
     if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt)\b/.test(inferredText)) {
@@ -453,6 +460,13 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
         style.legwearAsymmetry = "both";
       }
     }
+  } else if (structuredGenericLower && preppyTop) {
+    style.bottomType = "skirt";
+    style.bottomPattern = "pleated";
+    style.bottomAccent = style.neckAccessory === "bow" ? "ribbon" : "belt";
+    style.legwear = "socks";
+    style.legwearAsymmetry = "both";
+    style.shoeStyle = "dress_shoes";
   }
 
   const bottomType = style.bottomType ?? "pants";
