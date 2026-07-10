@@ -1752,6 +1752,19 @@ function composeHair(
         putColor(over.top, 6, Math.min(7, y + 1), shadeRgb(rightInner, 0.92));
       }
     }
+    const lowerTipRow = Math.min(6, lastTempleRow + 1);
+    const leftLower = shadeRgb(bangTone(0, lowerTipRow), 0.5);
+    const rightLower = shadeRgb(bangTone(7, lowerTipRow), 0.5);
+    const leftLowerInner = shadeRgb(leftLower, 0.74);
+    const rightLowerInner = shadeRgb(rightLower, 0.74);
+    putColor(over.right, 2, lowerTipRow, leftLowerInner);
+    putColor(over.right, 3, lowerTipRow, shadeRgb(leftLowerInner, 0.76));
+    putColor(over.left, 5, lowerTipRow, rightLowerInner);
+    putColor(over.left, 4, lowerTipRow, shadeRgb(rightLowerInner, 0.76));
+    putColor(over.back, 7, lowerTipRow, shadeRgb(leftLower, 0.72));
+    putColor(over.back, 0, lowerTipRow, shadeRgb(rightLower, 0.72));
+    putColor(over.top, 1, Math.min(7, lowerTipRow + 1), shadeRgb(leftLowerInner, 0.92));
+    putColor(over.top, 6, Math.min(7, lowerTipRow + 1), shadeRgb(rightLowerInner, 0.92));
   }
 
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
