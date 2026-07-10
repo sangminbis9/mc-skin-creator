@@ -431,6 +431,28 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     } else if (/\b(socks|sock)\b/.test(inferredText)) {
       style.legwear = "socks";
     }
+
+    if ((style.legwear ?? "none") !== "none") {
+      const oneSided =
+        /\b(one|single|only one|asymmetric|asymmetrical|one-sided)\b/.test(inferredText);
+      const leftMention =
+        /\b(viewer-left|left leg|left-side|left side|left thigh|left sock|left leg warmer)\b/.test(
+          inferredText,
+        );
+      const rightMention =
+        /\b(viewer-right|right leg|right-side|right side|right thigh|right sock|right leg warmer)\b/.test(
+          inferredText,
+        );
+      if (leftMention && !rightMention) {
+        style.legwearAsymmetry = "left";
+      } else if (rightMention && !leftMention) {
+        style.legwearAsymmetry = "right";
+      } else if (oneSided && (style.legwearAsymmetry ?? "none") === "none") {
+        style.legwearAsymmetry = "left";
+      } else if (!oneSided && leftMention && rightMention) {
+        style.legwearAsymmetry = "both";
+      }
+    }
   }
 
   const bottomType = style.bottomType ?? "pants";

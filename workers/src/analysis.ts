@@ -140,12 +140,14 @@ STEP 2 — framing: how much of the person is visible: "face" (head only), "uppe
 STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logos.
 - If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs), legwear asymmetry from the viewer's perspective, and shoe type/color.
 - Preserve side-specific details using viewer-left/viewer-right wording for one-sided flowers, bows, leg warmers, thigh bows, side stripes, straps or shoe details.
+- When a one-sided accessory or legwear exists, repeat the exact side in observed/inferred text and in renderHints/structured fields. Do not summarize it as simply "asymmetric".
 
 STEP 4 — inferred: for body parts and clothing NOT visible, design choices that stay coherent with the observed colors, style and mood. Each inferred item needs a short rationale grounded in observed evidence. Rules:
 - Never base clothing choices on gender presentation or facial stereotypes; use only visible clothing cues, colors and mood.
 - If there are no clothing cues at all, choose neutral casual wear that harmonizes with skin/hair colors. Vary between shirt, knit, hoodie or light jacket depending on the photo's mood — do not always default to a plain t-shirt.
 - If a region IS visible in the photo, set its inferred entry to null.
 - If the lower body is NOT visible, also fill inferred.lowerBodyDesign with concrete Minecraft-ready choices for bottomType, pattern, accent, legwear, asymmetry and shoe style. If the lower body IS visible, set inferred.lowerBodyDesign to null. Prefer a detailed but coherent design over a generic plain lower half.
+- For inferred lower-body designs with one-sided legwear or ribbons, use legwearAsymmetry "left" or "right" from the viewer's perspective and repeat that side in outfitPrompt.
 
 STEP 5 — prompts for an image generation model:
 - identityPrompt: 2-4 sentences capturing the recognizable identity, as SPECIFIC as possible: face shape (round/oval/angular), skin tone, hair (exact color shade, parting direction, bangs style, length, texture like straight/wavy/curly), eye shape and color, eyebrow shape, nose/mouth impression, facial hair, glasses shape/color, hat, earrings, and any distinctive features. Avoid generic phrases — describe what makes THIS person recognizable.
