@@ -800,6 +800,33 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("flower accessory on shoulder-length hair anchors an asymmetric decorated side drape", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      bangs: "curtain",
+      hairTexture: "wavy",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      hairAccessory: "flower",
+      hairAccessorySide: "left",
+    })!.atlas;
+    const body = CLASSIC_LAYOUT.body.overlay;
+    const arm = CLASSIC_LAYOUT.rightArm.overlay;
+
+    expect(alphaAt(atlas, body.front, 0, 7)).toBe(255);
+    expect(alphaAt(atlas, body.front, 1, 1)).toBe(255);
+    expect(alphaAt(atlas, body.front, 1, 2)).toBe(255);
+    expect(alphaAt(atlas, body.right, 0, 1)).toBe(255);
+    expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
+    expect(alphaAt(atlas, arm.front, 0, 1)).toBe(255);
+    expect(alphaAt(atlas, arm.right, 1, 2)).toBe(255);
+    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(redAt(atlas, body.front, 1, 1));
+    expect(redAt(atlas, body.front, 1, 1)).toBeLessThan(redAt(atlas, body.front, 1, 2));
+    expect(redAt(atlas, body.front, 0, 0)).toBeGreaterThan(redAt(atlas, body.front, 0, 7));
+    expect(redAt(atlas, body.right, 1, 3)).toBeGreaterThan(redAt(atlas, body.right, 0, 7));
+  });
+
   it("tiny character returns null", () => {
     const tiny: RawImage = {
       width: 256,

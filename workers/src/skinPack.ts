@@ -1378,6 +1378,67 @@ function composeHair(
           }
         }
       }
+
+      if ((style.hairAccessory ?? "none") === "flower" && (style.hairAccessorySide ?? "left") !== "center") {
+        const accessoryOnRight = (style.hairAccessorySide ?? "left") === "right";
+        const decoratedLight = mixRgb(hairColor, [248, 226, 216], 0.3);
+        const decoratedMid = shadeRgb(hairColor, 0.72);
+        const decoratedDark = shadeRgb(hairColor, 0.46);
+        const accessoryLeaf: Rgb = [126, 151, 126];
+        const accessoryLeafDark: Rgb = [86, 118, 96];
+        const accessoryPetal: Rgb = [236, 184, 192];
+        const headSide = accessoryOnRight ? over.left : over.right;
+        const bodySide = accessoryOnRight ? bodyOver.left : bodyOver.right;
+        const armOver = accessoryOnRight ? CLASSIC_LAYOUT.leftArm.overlay : CLASSIC_LAYOUT.rightArm.overlay;
+        const armSide = accessoryOnRight ? armOver.left : armOver.right;
+        const frontEdgeX = accessoryOnRight ? 7 : 0;
+        const frontInnerX = accessoryOnRight ? 6 : 1;
+        const sideOuterX = accessoryOnRight ? 1 : 6;
+        const sideInnerX = accessoryOnRight ? 2 : 5;
+        const bodySideOuterX = accessoryOnRight ? bodySide.w - 1 : 0;
+        const bodySideInnerX = accessoryOnRight ? bodySide.w - 2 : 1;
+        const armInnerX = accessoryOnRight ? armOver.front.w - 1 : 0;
+        const armOuterX = accessoryOnRight ? 0 : armOver.front.w - 1;
+
+        for (let y = 4; y < 8; y++) {
+          const color = y % 2 === 0 ? decoratedMid : decoratedDark;
+          putColor(headSide, sideOuterX, y, color);
+          putColor(headSide, sideInnerX, y, y >= 6 ? decoratedDark : decoratedLight);
+        }
+        putColor(headSide, sideInnerX, 4, accessoryLeaf);
+        putColor(headSide, sideOuterX, 5, accessoryPetal);
+        putColor(over.front, frontEdgeX, 5, decoratedMid);
+        putColor(over.front, frontInnerX, 6, decoratedDark);
+        putColor(over.top, accessoryOnRight ? 6 : 1, 7, accessoryLeaf);
+        putColor(over.top, accessoryOnRight ? 5 : 2, 7, decoratedDark);
+
+        for (let y = 0; y < 8; y++) {
+          const color =
+            y <= 2 ? decoratedLight : y >= 6 ? decoratedDark : decoratedMid;
+          putColor(bodyOver.front, frontEdgeX, y, color);
+          if (y <= 5 || y % 2 === 0) {
+            putColor(bodyOver.front, frontInnerX, y, y <= 2 ? accessoryLeaf : shadeRgb(color, 0.82));
+          }
+          putColor(bodySide, bodySideOuterX, y, y >= 6 ? decoratedDark : decoratedMid);
+          if (y >= 2 && y <= 6) {
+            putColor(bodySide, bodySideInnerX, y, y === 2 ? accessoryLeafDark : shadeRgb(decoratedMid, 0.8));
+          }
+        }
+        putColor(bodyOver.front, frontInnerX, 1, accessoryLeaf);
+        putColor(bodyOver.front, frontInnerX, 2, accessoryPetal);
+        putColor(bodyOver.front, frontEdgeX, 7, decoratedDark);
+        putColor(bodySide, bodySideOuterX, 1, accessoryLeaf);
+        putColor(bodySide, bodySideInnerX, 3, accessoryPetal);
+
+        for (let y = 0; y <= 4; y++) {
+          const color = y <= 1 ? decoratedLight : y >= 4 ? decoratedDark : decoratedMid;
+          putColor(armOver.front, armInnerX, y, color);
+          if (y <= 2 || y === 4) putColor(armOver.front, armOuterX, y, shadeRgb(color, 0.82));
+          putColor(armSide, accessoryOnRight ? armSide.w - 1 : 0, y, shadeRgb(color, 0.88));
+        }
+        putColor(armOver.front, armInnerX, 1, accessoryLeaf);
+        putColor(armSide, accessoryOnRight ? Math.max(0, armSide.w - 2) : 1, 2, accessoryPetal);
+      }
     }
   }
   if (hairBackShape === "long" && sideHairLength !== "shoulder") {
