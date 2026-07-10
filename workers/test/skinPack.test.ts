@@ -459,6 +459,8 @@ describe("packFrontViewToAtlas", () => {
     const atlas = packed.atlas;
     const face = CLASSIC_LAYOUT.head.base.front;
     const over = CLASSIC_LAYOUT.head.overlay.front;
+    const sideRight = CLASSIC_LAYOUT.head.overlay.right;
+    const sideLeft = CLASSIC_LAYOUT.head.overlay.left;
     const idx = (rect: { x: number; y: number }, x: number, y: number) =>
       ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
 
@@ -467,6 +469,11 @@ describe("packFrontViewToAtlas", () => {
     const cheekBlush = idx(over, 1, 5);
     const noseBridge = idx(face, 3, 4);
     const noseShadow = idx(face, 3, 5);
+    const sideEar = idx(sideRight, 0, 4);
+    const sideEarInner = idx(sideRight, 1, 4);
+    const sideCheek = idx(sideRight, 0, 5);
+    const sideJaw = idx(sideRight, 1, 6);
+    const leftSideEar = idx(sideLeft, sideLeft.w - 1, 4);
 
     expect(atlas.rgba[eyeHighlight + 3]).toBe(255);
     expect(atlas.rgba[eyeCorner + 3]).toBe(255);
@@ -474,6 +481,13 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[cheekBlush + 3]).toBe(255);
     expect(atlas.rgba[cheekBlush]).toBeGreaterThan(atlas.rgba[cheekBlush + 1]);
     expect(atlas.rgba[noseShadow]).toBeLessThan(atlas.rgba[noseBridge]);
+    expect(atlas.rgba[sideEar + 3]).toBe(255);
+    expect(atlas.rgba[sideEarInner + 3]).toBe(255);
+    expect(atlas.rgba[sideCheek + 3]).toBe(255);
+    expect(atlas.rgba[sideJaw + 3]).toBe(255);
+    expect(atlas.rgba[leftSideEar + 3]).toBe(255);
+    expect(atlas.rgba[sideEarInner]).toBeLessThan(atlas.rgba[sideEar]);
+    expect(atlas.rgba[sideJaw]).toBeLessThan(atlas.rgba[sideCheek]);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);

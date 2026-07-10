@@ -404,6 +404,8 @@ function composeFace(
 ): void {
   const face = CLASSIC_LAYOUT.head.base.front;
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
+  const sideRight = CLASSIC_LAYOUT.head.overlay.right;
+  const sideLeft = CLASSIC_LAYOUT.head.overlay.left;
   const put = (rect: Rect, x: number, y: number, c: Rgb) => {
     const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
     atlas.rgba[d] = c[0];
@@ -717,6 +719,20 @@ function composeFace(
       put(overlay, 3, 7, chinLight);
       put(overlay, 4, 7, chinShadow);
     }
+
+    const earBase = mixRgb(skinColor, [226, 144, 128], 0.14);
+    const earInner = mixRgb(skinColor, [204, 106, 98], 0.2);
+    const sideCheek = mixRgb(skinColor, [232, 148, 132], style.expression === "smile" ? 0.12 : 0.08);
+    const sideJaw = shadeRgb(skinColor, jawShape === "square" ? 0.84 : jawShape === "pointed" ? 0.9 : 0.88);
+    const paintSideFace = (rect: Rect, outerX: number, innerX: number, mirrorShade: number) => {
+      put(rect, outerX, 4, shadeRgb(earBase, mirrorShade));
+      put(rect, innerX, 4, shadeRgb(earInner, mirrorShade));
+      put(rect, outerX, 5, shadeRgb(sideCheek, mirrorShade));
+      put(rect, innerX, 6, shadeRgb(sideJaw, mirrorShade));
+      put(rect, outerX, 7, shadeRgb(sideJaw, mirrorShade * 0.94));
+    };
+    paintSideFace(sideRight, 0, 1, 1);
+    paintSideFace(sideLeft, sideLeft.w - 1, sideLeft.w - 2, 0.98);
   }
 
   const fringe = (xs: number[], y: number) => {
