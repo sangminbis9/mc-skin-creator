@@ -1299,6 +1299,23 @@ function composeHair(
       putColor(bodyOver.back, 3, 7, shadeRgb(torsoStrandDark, 0.82));
       putColor(bodyOver.back, 4, 7, torsoStrandDark);
 
+      const bodyTop = bodyOver.top;
+      const topFrontY = Math.max(0, bodyTop.h - 1);
+      const topBackY = 0;
+      for (let y = 0; y < bodyTop.h; y++) {
+        const edgeShade = y === topFrontY ? 0.62 : y % 2 === 0 ? 0.86 : 0.74;
+        putColor(bodyTop, 0, y, bodyHair(bodyTop, 0, y, edgeShade));
+        putColor(bodyTop, 7, y, bodyHair(bodyTop, 7, y, edgeShade));
+        if (y >= 1) {
+          putColor(bodyTop, 1, y, bodyHair(bodyTop, 1, y, edgeShade * 0.9));
+          putColor(bodyTop, 6, y, bodyHair(bodyTop, 6, y, edgeShade * 0.9));
+        }
+      }
+      putColor(bodyTop, 2, topFrontY, shadeRgb(torsoStrandLight, 0.84));
+      putColor(bodyTop, 5, topFrontY, shadeRgb(torsoStrandLight, 0.78));
+      putColor(bodyTop, 0, topBackY, shadeRgb(torsoStrandDark, 0.88));
+      putColor(bodyTop, 7, topBackY, torsoStrandDark);
+
       const rightArmOver = CLASSIC_LAYOUT.rightArm.overlay;
       const leftArmOver = CLASSIC_LAYOUT.leftArm.overlay;
       const armHair = (rect: Rect, x: number, y: number, shade = 1) =>
