@@ -342,6 +342,127 @@ describe("generateSkin", () => {
     expect(decoded.rgba[leftThighHigh + 3]).toBe(255);
   });
 
+  it("upper-body knit portraits keep a pendant and receive structured pants and dress shoes", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        framing: "upper_body",
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          face: "oval face, almond dark-brown eyes, straight eyebrows, small mouth",
+          hair: "short straight black two-block hair with brow-length curtain fringe",
+          accessories: "thin silver chain necklace with a small round silver pendant",
+          clothing: "black cable-knit long-sleeve crewneck sweater",
+          colorPalette: ["black", "charcoal", "silver", "warm skin"],
+        },
+        inferred: {
+          ...base.inferred,
+          hairBack: {
+            value: "short tapered black hair at the back",
+            rationale: "the visible short sides imply a neat tapered rear shape",
+          },
+          lowerBody: {
+            value: "charcoal tailored trousers with a subtle black belt",
+            rationale: "structured dark trousers match the polished cable-knit sweater and pendant",
+          },
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "belt",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            shoeStyle: "dress_shoes",
+            rationale: "dark tailored trousers and dress shoes complete the smart-casual upper body",
+          },
+          shoes: {
+            value: "black leather dress shoes",
+            rationale: "dress shoes preserve the refined monochrome outfit",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          faceShape: "oval",
+          eyeShape: "almond",
+          eyebrowShape: "straight",
+          mouthShape: "small",
+          bangs: "curtain",
+          bangsLength: "brow",
+          hairTexture: "straight",
+          hairVolume: "normal",
+          hairSilhouette: "rounded",
+          hairBackShape: "tapered",
+          hairPart: "center",
+          sideHairLength: "short",
+          garmentTexture: "knit",
+          outerLayer: "light",
+          outerGarment: "none",
+          necklace: "silver",
+          neckAccessory: "none",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          hairColor: "black",
+          hairstyle: "short",
+          glasses: "none",
+          topType: "sweater",
+          topColor: "black",
+          topAccentColor: "gray",
+          sleeveLength: "long",
+          bottomType: "pants",
+          bottomColor: "gray",
+          shoesColor: "black",
+        },
+        outfitPrompt:
+          "Black cable-knit sweater and silver pendant; complete the hidden lower body with charcoal tailored trousers, a black belt and black leather dress shoes.",
+      }),
+      true,
+      "front_view",
+    );
+    const provider = providerOf([
+      { ok: false, error: "temporary image generation failure", retryable: false },
+    ]);
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const head = CLASSIC_LAYOUT.head.overlay.front;
+    const body = CLASSIC_LAYOUT.body.overlay.front;
+    const arm = CLASSIC_LAYOUT.rightArm.overlay.front;
+    const leg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 2) * 4;
+    const rightEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 5) * 4;
+    const pendant = ((body.y + 4) * ATLAS_SIZE + body.x + 3) * 4;
+    const belt = ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 3) * 4;
+    const cuff = ((arm.y + arm.h - 2) * ATLAS_SIZE + arm.x) * 4;
+    const kneeFold = ((leg.y + 4) * ATLAS_SIZE + leg.x + 1) * 4;
+    const shoeStrap = ((leg.y + leg.h - 3) * ATLAS_SIZE + leg.x + 1) * 4;
+
+    expect(result.body.generationMode).toBe("procedural_fallback");
+    expect(validateFinalAtlas(decoded).ok).toBe(true);
+    expect(decoded.rgba[leftEyeWindow + 3]).toBe(0);
+    expect(decoded.rgba[rightEyeWindow + 3]).toBe(0);
+    expect(decoded.rgba[pendant + 3]).toBe(255);
+    expect(decoded.rgba[pendant]).toBeGreaterThan(170);
+    expect(decoded.rgba[pendant + 2]).toBeGreaterThan(170);
+    expect(decoded.rgba[belt + 3]).toBe(255);
+    expect(decoded.rgba[cuff + 3]).toBe(255);
+    expect(decoded.rgba[kneeFold + 3]).toBe(255);
+    expect(decoded.rgba[shoeStrap + 3]).toBe(255);
+  });
+
   it("재시도 불가 오류(입력 크기 등)는 즉시 fallback한다", async () => {
     const env = makeEnv(makeAnalysis());
     const provider = providerOf([
