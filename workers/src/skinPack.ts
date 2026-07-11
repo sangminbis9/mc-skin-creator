@@ -789,6 +789,33 @@ function composeFace(
   }
 }
 
+/**
+ * Keep the two base-layer irises visible after hair and accessories have been
+ * composed onto the larger head overlay cube. At 8x8, one opaque hair pixel
+ * over an iris removes the entire eye in the 3D viewer; colour contrast alone
+ * cannot recover it. Glasses and eye-length bangs are excluded because their
+ * visible frame or fringe intentionally occupies the eye row.
+ */
+function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
+  if (style.glasses !== "none" || style.bangsLength === "eye") return;
+
+  const overlay = CLASSIC_LAYOUT.head.overlay.front;
+  const innerEyes =
+    style.eyeSpacing === "wide"
+      ? ([1, 6] as const)
+      : style.eyeSpacing === "close"
+        ? ([2, 4] as const)
+        : ([2, 5] as const);
+
+  for (const x of innerEyes) {
+    const d = ((overlay.y + 4) * ATLAS_SIZE + overlay.x + x) * 4;
+    atlas.rgba[d] = 0;
+    atlas.rgba[d + 1] = 0;
+    atlas.rgba[d + 2] = 0;
+    atlas.rgba[d + 3] = 0;
+  }
+}
+
 /** 좌표 해시 기반 결정적 지터 색 (머리카락 질감용) */
 function hairPixel(color: Rgb, gx: number, gy: number, jitter: number): Rgb {
   const hash = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
@@ -3540,6 +3567,7 @@ export function packFrontViewToAtlas(
   // ---------- 마감: 의상/액세서리 레이어 + 헤어/모자 구조 + 셰이딩 ----------
   composeGarmentLayers(atlas, faceStyle);
   composeHair(atlas, hairColor, faceStyle, back !== null);
+  preserveFaceReadability(atlas, faceStyle);
   // 모자 쓴 인물은 머리 상단 medianColor(hairColor)가 곧 모자 색
   composeHat(atlas, hairColor, faceStyle);
   applyShading(atlas);

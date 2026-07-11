@@ -477,8 +477,10 @@ describe("packFrontViewToAtlas", () => {
     const idx = (rect: { x: number; y: number }, x: number, y: number) =>
       ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
 
-    const eyeHighlight = idx(over, 2, 4);
-    const rightEyeHighlight = idx(over, 5, 4);
+    const leftEyeWindow = idx(over, 2, 4);
+    const rightEyeWindow = idx(over, 5, 4);
+    const leftIris = idx(face, 2, 4);
+    const rightIris = idx(face, 5, 4);
     const eyeCorner = idx(over, 1, 4);
     const cheekBlush = idx(over, 1, 5);
     const noseBridge = idx(face, 3, 4);
@@ -490,12 +492,12 @@ describe("packFrontViewToAtlas", () => {
     const sideJaw = idx(sideRight, 1, 6);
     const leftSideEar = idx(sideLeft, sideLeft.w - 1, 4);
 
-    expect(atlas.rgba[eyeHighlight + 3]).toBe(255);
-    expect(atlas.rgba[rightEyeHighlight + 3]).toBe(255);
+    expect(atlas.rgba[leftEyeWindow + 3]).toBe(0);
+    expect(atlas.rgba[rightEyeWindow + 3]).toBe(0);
     expect(atlas.rgba[eyeCorner + 3]).toBe(255);
-    expect(atlas.rgba[eyeCorner]).toBeLessThan(atlas.rgba[eyeHighlight]);
-    expect(atlas.rgba[eyeHighlight]).toBeLessThan(atlas.rgba[clearSkin] - 50);
-    expect(atlas.rgba[rightEyeHighlight]).toBeLessThan(atlas.rgba[clearSkin] - 50);
+    expect(atlas.rgba[eyeCorner]).toBeLessThan(atlas.rgba[clearSkin]);
+    expect(atlas.rgba[leftIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
+    expect(atlas.rgba[rightIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[cheekBlush + 3]).toBe(255);
     expect(atlas.rgba[cheekBlush]).toBeGreaterThan(atlas.rgba[cheekBlush + 1]);
     expect(atlas.rgba[noseShadow]).toBeLessThan(atlas.rgba[noseBridge]);
@@ -657,6 +659,34 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(wavy, side, 1, 2)).toBe(255);
     expect(redAt(wavy, side, 1, 2)).not.toBe(redAt(straight, side, 1, 2));
     expect(redAt(wavy, side, 1, 2)).toBeGreaterThan(redAt(wavy, side, 3, 4));
+  });
+
+  it("long curtain hair and a flower leave both base-layer irises visible", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      bangs: "curtain",
+      bangsLength: "brow",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      hairAccessory: "flower",
+      hairAccessorySide: "left",
+      eyeColor: "#245a8d",
+      eyeSpacing: "average",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const over = CLASSIC_LAYOUT.head.overlay;
+
+    expect(alphaAt(atlas, over.front, 2, 4)).toBe(0);
+    expect(alphaAt(atlas, over.front, 5, 4)).toBe(0);
+    expect(redAt(atlas, face, 2, 4)).toBe(0x24);
+    expect(greenAt(atlas, face, 2, 4)).toBe(0x5a);
+    expect(redAt(atlas, face, 5, 4)).toBe(0x24);
+    expect(greenAt(atlas, face, 5, 4)).toBe(0x5a);
+    expect(alphaAt(atlas, over.front, 1, 2)).toBe(255);
+    expect(alphaAt(atlas, over.right, 6, 2)).toBe(255);
   });
 
   it("straight bangs create layered front hair that wraps into temple side layers", () => {
@@ -1480,10 +1510,11 @@ describe("packFrontViewToAtlas", () => {
       jawShape: "soft",
     })!.atlas;
     const over = CLASSIC_LAYOUT.head.overlay.front;
+    const face = CLASSIC_LAYOUT.head.base.front;
 
     expect(alphaAt(atlas, over, 1, 5)).toBe(255);
-    expect(alphaAt(atlas, over, 2, 4)).toBe(255);
-    expect(alphaAt(atlas, over, 5, 4)).toBe(255);
+    expect(alphaAt(atlas, over, 2, 4)).toBe(0);
+    expect(alphaAt(atlas, over, 5, 4)).toBe(0);
     expect(alphaAt(atlas, over, 3, 5)).toBe(255);
     expect(alphaAt(atlas, over, 4, 5)).toBe(255);
     expect(alphaAt(atlas, over, 2, 6)).toBe(255);
@@ -1491,7 +1522,8 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over, 4, 6)).toBe(255);
     expect(alphaAt(atlas, over, 5, 6)).toBe(255);
     expect(alphaAt(atlas, over, 3, 7)).toBe(255);
-    expect(redAt(atlas, over, 2, 4)).toBeLessThan(redAt(atlas, over, 1, 5) - 30);
+    expect(redAt(atlas, face, 2, 4)).toBeLessThan(redAt(atlas, face, 4, 4) - 50);
+    expect(redAt(atlas, face, 5, 4)).toBeLessThan(redAt(atlas, face, 4, 4) - 50);
     expect(redAt(atlas, over, 3, 5)).toBeLessThan(redAt(atlas, over, 3, 7));
     expect(redAt(atlas, over, 5, 6)).toBeLessThan(redAt(atlas, over, 3, 7));
   });
