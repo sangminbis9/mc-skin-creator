@@ -227,7 +227,7 @@ describe("generateSkin", () => {
     expect(result.neuronsSpent).toBe(170 + 45 + 45);
   });
 
-  it("두 번 모두 실패하면 절차적 fallback으로 features만 내려보낸다", async () => {
+  it("두 번 모두 실패하면 분석 기반 절차적 atlas를 내려보낸다", async () => {
     const flat = await encodePng({
       width: 512,
       height: 512,
@@ -240,9 +240,106 @@ describe("generateSkin", () => {
     expect(provider.calls).toBe(2);
     expect(result.status).toBe(200);
     expect(result.body.generationMode).toBe("procedural_fallback");
-    expect(result.body.skinPngBase64).toBeUndefined();
+    expect(result.body.skinPngBase64).toBeTruthy();
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    expect(validateFinalAtlas(decoded).ok).toBe(true);
     // fallback features는 hex로 변환돼 있다 (yellow → #e3c14d)
     expect((result.body.features as Record<string, string>).topColor).toBe("#e3c14d");
+  });
+
+  it("procedural fallback preserves rich hair, cardigan, plaid and asymmetric legwear hints", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        framing: "full_body",
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: true,
+          feet: true,
+        },
+        observed: {
+          ...base.observed,
+          hair: "long wavy light-brown hair with curtain bangs and a large pink flower on viewer-left",
+          accessories: "pink flower on viewer-left hair and a white ribbon on viewer-right thigh",
+          clothing:
+            "dusty-pink long cardigan, beige plaid pleated shorts, one viewer-left thigh-high sock and cream Mary Jane shoes",
+          colorPalette: ["dusty pink", "beige", "cream", "light brown"],
+        },
+        renderHints: {
+          ...base.renderHints,
+          bangs: "curtain",
+          bangsLength: "brow",
+          hairTexture: "wavy",
+          hairVolume: "full",
+          hairBackShape: "long",
+          sideHairLength: "shoulder",
+          outerLayer: "light",
+          outerGarment: "cardigan",
+          hairAccessory: "flower",
+          hairAccessorySide: "left",
+          neckAccessory: "collar",
+          bottomPattern: "plaid",
+          bottomAccent: "belt",
+          legwear: "thigh_highs",
+          legwearAsymmetry: "left",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          hairColor: "light-brown",
+          hairstyle: "long",
+          topType: "sweater",
+          topColor: "pink",
+          topAccentColor: "white",
+          sleeveLength: "long",
+          bottomType: "shorts",
+          bottomColor: "beige",
+          shoesColor: "white",
+          glasses: "none",
+        },
+      }),
+      true,
+      "front_view",
+    );
+    const provider = providerOf([
+      { ok: false, error: "temporary image generation failure", retryable: false },
+    ]);
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const head = CLASSIC_LAYOUT.head.overlay.front;
+    const body = CLASSIC_LAYOUT.body.overlay.front;
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const flower = ((head.y + 2) * ATLAS_SIZE + head.x + 1) * 4;
+    const leftEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 2) * 4;
+    const rightEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 5) * 4;
+    const cardiganPanel = ((body.y + 5) * ATLAS_SIZE + body.x + 1) * 4;
+    const cardiganCenter = ((body.y + 5) * ATLAS_SIZE + body.x + 3) * 4;
+    const plaidDark = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 1) * 4;
+    const plaidLight = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 2) * 4;
+    const leftThighHigh = ((leftLeg.y + 4) * ATLAS_SIZE + leftLeg.x + 1) * 4;
+
+    expect(provider.calls).toBe(1);
+    expect(result.body.generationMode).toBe("procedural_fallback");
+    expect(validateFinalAtlas(decoded).ok).toBe(true);
+    expect(decoded.rgba[flower + 3]).toBe(255);
+    expect(decoded.rgba[flower]).toBeGreaterThan(decoded.rgba[flower + 1]);
+    expect(decoded.rgba[leftEyeWindow + 3]).toBe(0);
+    expect(decoded.rgba[rightEyeWindow + 3]).toBe(0);
+    expect(decoded.rgba[cardiganPanel + 3]).toBe(255);
+    expect(decoded.rgba[cardiganCenter + 3]).toBe(0);
+    expect(decoded.rgba[plaidDark + 3]).toBe(255);
+    expect(decoded.rgba[plaidDark]).toBeLessThan(decoded.rgba[plaidLight]);
+    expect(decoded.rgba[leftThighHigh + 3]).toBe(255);
   });
 
   it("재시도 불가 오류(입력 크기 등)는 즉시 fallback한다", async () => {

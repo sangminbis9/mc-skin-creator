@@ -13,7 +13,7 @@ import {
   type FallbackFeatures,
   type PhotoAnalysis,
 } from "./analysis";
-import { bytesToBase64, decodeImage, encodePng } from "./png";
+import { bytesToBase64, decodeImage, encodePng, type RawImage } from "./png";
 import {
   DEFAULT_FACE_STYLE,
   packFrontViewToAtlas,
@@ -121,56 +121,15 @@ export async function generateSkin(
     inferred: analysis.inferred,
     renderHints: analysis.renderHints,
   };
+  const faceStyle = buildFaceStyle(analysis, features);
 
   // ---------- 2) 이미지 생성 (feature flag) ----------
   let skinPngBase64: string | null = null;
+  let generationMode: GenerationMode = "procedural_fallback";
   if (env.IMAGE_GENERATION_ENABLED === "true") {
     const mode: GenerationStrategy =
       env.IMAGE_GEN_STRATEGY === "direct_atlas" ? "direct_atlas" : "front_view";
     // 얼굴 구조적 합성용 특징 (색은 hex로 매핑된 값, 나머지는 분류값 그대로)
-    const raw = analysis.fallbackFeatures as unknown as Record<string, unknown>;
-    const faceStyle: FaceStyle = {
-      eyeColor: String(features.eyeColor),
-      glassesColor: String(features.glassesColor),
-      eyebrowThickness: String(raw.eyebrowThickness ?? DEFAULT_FACE_STYLE.eyebrowThickness),
-      expression: String(raw.expression ?? DEFAULT_FACE_STYLE.expression),
-      facialHair: String(raw.facialHair ?? DEFAULT_FACE_STYLE.facialHair),
-      glasses: String(raw.glasses ?? DEFAULT_FACE_STYLE.glasses),
-      hairstyle: String(raw.hairstyle ?? DEFAULT_FACE_STYLE.hairstyle),
-      hat: String(raw.hat ?? DEFAULT_FACE_STYLE.hat),
-      faceShape: analysis.renderHints.faceShape,
-      eyeShape: analysis.renderHints.eyeShape,
-      eyeSpacing: analysis.renderHints.eyeSpacing,
-      eyebrowShape: analysis.renderHints.eyebrowShape,
-      noseShape: analysis.renderHints.noseShape,
-      mouthShape: analysis.renderHints.mouthShape,
-      jawShape: analysis.renderHints.jawShape,
-      bangs: analysis.renderHints.bangs,
-      bangsLength: analysis.renderHints.bangsLength,
-      hairTexture: analysis.renderHints.hairTexture,
-      hairVolume: analysis.renderHints.hairVolume,
-      hairSilhouette: analysis.renderHints.hairSilhouette,
-      hairBackShape: analysis.renderHints.hairBackShape,
-      hairPart: analysis.renderHints.hairPart,
-      sideHairLength: analysis.renderHints.sideHairLength,
-      garmentTexture: analysis.renderHints.garmentTexture,
-      outerLayer: analysis.renderHints.outerLayer,
-      outerGarment: analysis.renderHints.outerGarment,
-      necklace: analysis.renderHints.necklace,
-      hairAccessory: analysis.renderHints.hairAccessory,
-      hairAccessorySide: analysis.renderHints.hairAccessorySide,
-      neckAccessory: analysis.renderHints.neckAccessory,
-      bottomPattern: analysis.renderHints.bottomPattern,
-      bottomAccent: analysis.renderHints.bottomAccent,
-      legwear: analysis.renderHints.legwear,
-      legwearAsymmetry: analysis.renderHints.legwearAsymmetry,
-      topType: String(raw.topType ?? DEFAULT_FACE_STYLE.topType),
-      sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
-      bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
-    };
-    completeVisibleUpperDetails(analysis, faceStyle);
-    completeVisibleAccessoryDetails(analysis, faceStyle);
-    completeInferredLowerDetails(analysis, faceStyle);
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
       const generated = await provider.generate({
@@ -193,8 +152,13 @@ export async function generateSkin(
       const atlas = await postprocess(generated.imageBytes, attempt, mode, faceStyle);
       if (atlas) {
         skinPngBase64 = atlas;
+        generationMode = "image";
       }
     }
+  }
+
+  if (skinPngBase64 === null) {
+    skinPngBase64 = await buildProceduralFallbackPng(features, faceStyle);
   }
 
   return {
@@ -204,13 +168,167 @@ export async function generateSkin(
       quality: analysis.quality,
       features,
       analysis: summary,
-      ...(skinPngBase64
-        ? { skinPngBase64, generationMode: "image" as const }
-        : { generationMode: "procedural_fallback" as const }),
+      ...(skinPngBase64 ? { skinPngBase64 } : {}),
+      generationMode,
     },
     neuronsSpent: spent,
     success: true,
   };
+}
+
+function buildFaceStyle(
+  analysis: PhotoAnalysis,
+  features: Record<string, unknown>,
+): FaceStyle {
+  const raw = analysis.fallbackFeatures as unknown as Record<string, unknown>;
+  const style: FaceStyle = {
+    eyeColor: String(features.eyeColor),
+    glassesColor: String(features.glassesColor),
+    eyebrowThickness: String(raw.eyebrowThickness ?? DEFAULT_FACE_STYLE.eyebrowThickness),
+    expression: String(raw.expression ?? DEFAULT_FACE_STYLE.expression),
+    facialHair: String(raw.facialHair ?? DEFAULT_FACE_STYLE.facialHair),
+    glasses: String(raw.glasses ?? DEFAULT_FACE_STYLE.glasses),
+    hairstyle: String(raw.hairstyle ?? DEFAULT_FACE_STYLE.hairstyle),
+    hat: String(raw.hat ?? DEFAULT_FACE_STYLE.hat),
+    faceShape: analysis.renderHints.faceShape,
+    eyeShape: analysis.renderHints.eyeShape,
+    eyeSpacing: analysis.renderHints.eyeSpacing,
+    eyebrowShape: analysis.renderHints.eyebrowShape,
+    noseShape: analysis.renderHints.noseShape,
+    mouthShape: analysis.renderHints.mouthShape,
+    jawShape: analysis.renderHints.jawShape,
+    bangs: analysis.renderHints.bangs,
+    bangsLength: analysis.renderHints.bangsLength,
+    hairTexture: analysis.renderHints.hairTexture,
+    hairVolume: analysis.renderHints.hairVolume,
+    hairSilhouette: analysis.renderHints.hairSilhouette,
+    hairBackShape: analysis.renderHints.hairBackShape,
+    hairPart: analysis.renderHints.hairPart,
+    sideHairLength: analysis.renderHints.sideHairLength,
+    garmentTexture: analysis.renderHints.garmentTexture,
+    outerLayer: analysis.renderHints.outerLayer,
+    outerGarment: analysis.renderHints.outerGarment,
+    necklace: analysis.renderHints.necklace,
+    hairAccessory: analysis.renderHints.hairAccessory,
+    hairAccessorySide: analysis.renderHints.hairAccessorySide,
+    neckAccessory: analysis.renderHints.neckAccessory,
+    bottomPattern: analysis.renderHints.bottomPattern,
+    bottomAccent: analysis.renderHints.bottomAccent,
+    legwear: analysis.renderHints.legwear,
+    legwearAsymmetry: analysis.renderHints.legwearAsymmetry,
+    topType: String(raw.topType ?? DEFAULT_FACE_STYLE.topType),
+    sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
+    bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
+  };
+  completeVisibleUpperDetails(analysis, style);
+  completeVisibleAccessoryDetails(analysis, style);
+  completeInferredLowerDetails(analysis, style);
+  return style;
+}
+
+function featureRgb(
+  features: Record<string, unknown>,
+  key: string,
+  fallback: [number, number, number],
+): [number, number, number] {
+  const value = features[key];
+  if (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value)) return fallback;
+  return [
+    Number.parseInt(value.slice(1, 3), 16),
+    Number.parseInt(value.slice(3, 5), 16),
+    Number.parseInt(value.slice(5, 7), 16),
+  ];
+}
+
+function buildProceduralFrontView(
+  features: Record<string, unknown>,
+  style: FaceStyle,
+): RawImage {
+  const width = 512;
+  const rgba = new Uint8Array(width * width * 4);
+  const skin = featureRgb(features, "skinTone", [232, 185, 143]);
+  const hair = featureRgb(features, "hairColor", [59, 42, 30]);
+  const eye = featureRgb(features, "eyeColor", [74, 55, 40]);
+  const top = featureRgb(features, "topColor", [77, 157, 224]);
+  const accent = featureRgb(features, "topAccentColor", [242, 242, 242]);
+  const bottom = featureRgb(features, "bottomColor", [59, 90, 128]);
+  const shoes = featureRgb(features, "shoesColor", [242, 242, 242]);
+  const fill = (
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    color: [number, number, number],
+  ) => {
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const d = (y * width + x) * 4;
+        rgba[d] = color[0];
+        rgba[d + 1] = color[1];
+        rgba[d + 2] = color[2];
+        rgba[d + 3] = 255;
+      }
+    }
+  };
+
+  fill(196, 40, 316, 180, skin);
+  fill(196, 40, 316, 104, hair);
+  if (style.hairstyle === "long" || style.hairstyle === "twintails") {
+    fill(196, 88, 212, 180, hair);
+    fill(300, 88, 316, 180, hair);
+  }
+  fill(220, 120, 240, 140, eye);
+  fill(272, 120, 292, 140, eye);
+
+  fill(196, 180, 316, 330, top);
+  fill(136, 180, 196, 330, top);
+  fill(316, 180, 376, 330, top);
+  if (style.outerGarment !== "none" || style.neckAccessory !== "none") {
+    fill(224, 180, 288, 238, accent);
+  }
+  if (style.sleeveLength === "short") {
+    fill(136, 244, 196, 330, skin);
+    fill(316, 244, 376, 330, skin);
+  }
+
+  const shortBottom = style.bottomType === "shorts" || style.bottomType === "skirt";
+  if (shortBottom) {
+    fill(196, 330, 316, 382, bottom);
+    fill(196, 382, 316, 456, skin);
+  } else {
+    fill(196, 330, 316, 456, bottom);
+  }
+  fill(196, 456, 316, 480, shoes);
+  return { width, height: width, rgba };
+}
+
+async function buildProceduralFallbackPng(
+  features: Record<string, unknown>,
+  style: FaceStyle,
+): Promise<string | null> {
+  try {
+    const packed = packFrontViewToAtlas(buildProceduralFrontView(features, style), style);
+    if (!packed) return null;
+    const atlas = packed.atlas;
+    const verdict = validateAtlas(atlas);
+    if (!verdict.ok) {
+      console.log("procedural fallback validation failed:", verdict.problems.join(" / "));
+      return null;
+    }
+    applyUvMask(atlas);
+    const finalVerdict = validateFinalAtlas(atlas);
+    if (!finalVerdict.ok) {
+      console.log("procedural fallback final validation failed:", finalVerdict.problems.join(" / "));
+      return null;
+    }
+    return bytesToBase64(await encodePng(atlas));
+  } catch (error) {
+    console.log(
+      "procedural fallback failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }
 
 /** FLUX 출력 → 64x64 atlas. 검증 실패 시 null (재시도 유도) */
