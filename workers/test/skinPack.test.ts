@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RawImage } from "../src/png";
-import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
+import {
+  DEFAULT_FACE_STYLE,
+  packFrontViewToAtlas,
+  type FaceStyle,
+} from "../src/skinPack";
 import { applyUvMask, validateFinalAtlas } from "../src/skinPost";
 import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 
@@ -976,6 +980,206 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, body.front, 0, 0)).toBeGreaterThan(redAt(atlas, body.front, 0, 7));
     expect(redAt(atlas, body.right, 1, 3)).toBeGreaterThan(redAt(atlas, body.right, 0, 7));
   });
+
+  const representativeHairStyles = [
+    {
+      hairstyle: "buzz",
+      bangs: "none",
+      bangsLength: "none",
+      hairTexture: "straight",
+      hairVolume: "flat",
+      hairBackShape: "undercut",
+      sideHairLength: "none",
+    },
+    {
+      hairstyle: "short",
+      bangs: "side",
+      bangsLength: "eye",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      hairBackShape: "tapered",
+      sideHairLength: "short",
+    },
+    {
+      hairstyle: "medium",
+      bangs: "straight",
+      bangsLength: "brow",
+      hairTexture: "straight",
+      hairVolume: "full",
+      hairBackShape: "rounded",
+      sideHairLength: "jaw",
+    },
+    {
+      hairstyle: "long",
+      bangs: "curtain",
+      bangsLength: "eye",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+    },
+    {
+      hairstyle: "curly",
+      bangs: "wispy",
+      bangsLength: "brow",
+      hairTexture: "curly",
+      hairVolume: "full",
+      hairBackShape: "rounded",
+      sideHairLength: "cheek",
+    },
+    {
+      hairstyle: "afro",
+      bangs: "none",
+      bangsLength: "none",
+      hairTexture: "coily",
+      hairVolume: "full",
+      hairBackShape: "rounded",
+      sideHairLength: "short",
+    },
+    {
+      hairstyle: "ponytail",
+      bangs: "side",
+      bangsLength: "brow",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      hairBackShape: "tied",
+      sideHairLength: "short",
+    },
+    {
+      hairstyle: "bun",
+      bangs: "straight",
+      bangsLength: "eye",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      hairBackShape: "tied",
+      sideHairLength: "cheek",
+    },
+    {
+      hairstyle: "twintails",
+      bangs: "curtain",
+      bangsLength: "brow",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+    },
+  ] satisfies Array<Partial<FaceStyle>>;
+
+  it.each(representativeHairStyles)(
+    "keeps eyes and UV seams valid for $hairstyle/$bangs/$sideHairLength",
+    (hairStyle) => {
+      const atlas = packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        ...hairStyle,
+        glasses: "none",
+        eyeSpacing: "average",
+      })!.atlas;
+      const over = CLASSIC_LAYOUT.head.overlay;
+
+      expect(alphaAt(atlas, over.front, 2, 4)).toBe(0);
+      expect(alphaAt(atlas, over.front, 5, 4)).toBe(0);
+      expect(alphaAt(atlas, over.front, 0, 0)).toBe(255);
+      expect(alphaAt(atlas, over.front, 7, 0)).toBe(255);
+      expect(alphaAt(atlas, over.right, 0, 0)).toBe(255);
+      expect(alphaAt(atlas, over.left, 7, 0)).toBe(255);
+
+      applyUvMask(atlas);
+      expect(validateFinalAtlas(atlas).ok).toBe(true);
+    },
+  );
+
+  const representativeOutfits = [
+    {
+      topType: "hoodie",
+      outerGarment: "none",
+      garmentTexture: "plain",
+      bottomType: "pants",
+      bottomPattern: "plain",
+      bottomAccent: "side_stripe",
+      legwear: "none",
+      shoeStyle: "sneakers",
+    },
+    {
+      topType: "sweater",
+      outerGarment: "none",
+      garmentTexture: "knit",
+      necklace: "silver",
+      bottomType: "pants",
+      bottomPattern: "plain",
+      bottomAccent: "belt",
+      legwear: "none",
+      shoeStyle: "dress_shoes",
+    },
+    {
+      topType: "shirt",
+      outerGarment: "vest",
+      garmentTexture: "striped",
+      neckAccessory: "collar",
+      bottomType: "shorts",
+      bottomPattern: "striped",
+      bottomAccent: "cuffs",
+      legwear: "socks",
+      legwearAsymmetry: "both",
+      shoeStyle: "loafers",
+    },
+    {
+      topType: "dress",
+      outerGarment: "none",
+      garmentTexture: "patterned",
+      bottomType: "skirt",
+      bottomPattern: "pleated",
+      bottomAccent: "ribbon",
+      legwear: "stockings",
+      legwearAsymmetry: "both",
+      shoeStyle: "dress_shoes",
+    },
+    {
+      topType: "jacket",
+      outerGarment: "open_jacket",
+      garmentTexture: "denim",
+      bottomType: "jeans",
+      bottomPattern: "plain",
+      bottomAccent: "cuffs",
+      legwear: "none",
+      shoeStyle: "boots",
+    },
+    {
+      topType: "sweater",
+      outerGarment: "cardigan",
+      garmentTexture: "knit",
+      neckAccessory: "bow",
+      bottomType: "skirt",
+      bottomPattern: "plaid",
+      bottomAccent: "ribbon",
+      legwear: "leg_warmers",
+      legwearAsymmetry: "left",
+      shoeStyle: "dress_shoes",
+    },
+  ] satisfies Array<Partial<FaceStyle>>;
+
+  it.each(representativeOutfits)(
+    "keeps layered outfit UV valid for $topType/$bottomType/$shoeStyle",
+    (outfit) => {
+      const atlas = packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        ...outfit,
+      })!.atlas;
+      let opaqueOverlayPixels = 0;
+      for (const part of Object.values(CLASSIC_LAYOUT)) {
+        for (const rect of Object.values(part.overlay)) {
+          for (let y = 0; y < rect.h; y++) {
+            for (let x = 0; x < rect.w; x++) {
+              if (alphaAt(atlas, rect, x, y) === 255) opaqueOverlayPixels++;
+            }
+          }
+        }
+      }
+
+      expect(opaqueOverlayPixels).toBeGreaterThan(80);
+      applyUvMask(atlas);
+      expect(validateFinalAtlas(atlas).ok).toBe(true);
+    },
+  );
 
   it("tiny character returns null", () => {
     const tiny: RawImage = {
