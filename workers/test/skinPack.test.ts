@@ -762,7 +762,7 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, over.left, 4, 4)).toBeLessThan(redAt(atlas, over.left, 6, 4));
   });
 
-  it("bangsLength=eye lets long fringe overlap the eye row on the head overlay", () => {
+  it("bangsLength=eye keeps long fringe around two visible iris windows", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "medium",
@@ -779,7 +779,8 @@ describe("packFrontViewToAtlas", () => {
     const redAt = (x: number, y: number) =>
       atlas.rgba[((over.y + y) * ATLAS_SIZE + over.x + x) * 4];
 
-    expect(alphaAt(2, 4)).toBe(255);
+    expect(alphaAt(2, 4)).toBe(0);
+    expect(alphaAt(5, 4)).toBe(0);
     expect(alphaAt(4, 4)).toBe(255);
     expect(redAt(4, 4)).toBeLessThan(redAt(3, 2));
   });

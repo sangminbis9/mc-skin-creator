@@ -793,11 +793,11 @@ function composeFace(
  * Keep the two base-layer irises visible after hair and accessories have been
  * composed onto the larger head overlay cube. At 8x8, one opaque hair pixel
  * over an iris removes the entire eye in the 3D viewer; colour contrast alone
- * cannot recover it. Glasses and eye-length bangs are excluded because their
- * visible frame or fringe intentionally occupies the eye row.
+ * cannot recover it. Glasses are excluded because their visible frame
+ * intentionally occupies the eye row; bangs keep their surrounding pixels.
  */
 function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
-  if (style.glasses !== "none" || style.bangsLength === "eye") return;
+  if (style.glasses !== "none") return;
 
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
   const innerEyes =
