@@ -868,6 +868,28 @@ function composeHair(
       }
     }
   };
+  const fillTransparent = (
+    rect: Rect,
+    x0: number,
+    y0: number,
+    w: number,
+    h: number,
+    volume = false,
+  ) => {
+    for (let y = y0; y < Math.min(rect.h, y0 + h); y++) {
+      for (let x = x0; x < Math.min(rect.w, x0 + w); x++) {
+        const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+        if (atlas.rgba[d + 3] !== 0) continue;
+        const c = volume
+          ? hairVolumePixel(hairColor, rect.x + x, rect.y + y)
+          : hairPixel(hairColor, rect.x + x, rect.y + y, jitter);
+        atlas.rgba[d] = c[0];
+        atlas.rgba[d + 1] = c[1];
+        atlas.rgba[d + 2] = c[2];
+        atlas.rgba[d + 3] = 255;
+      }
+    }
+  };
   const volumeMask = (rect: Rect, rows: number[][]) => {
     for (let y = 0; y < Math.min(rect.h, rows.length); y++) {
       for (const x of rows[y]) {
@@ -1796,10 +1818,12 @@ function composeHair(
   }
   if (s === "long") {
     // 어깨까지 내려오는 뒷머리 (몸통 뒤 overlay) + 옆 볼륨
-    fill(CLASSIC_LAYOUT.body.overlay.back, 0, 0, 8, 4, true);
-    fill(CLASSIC_LAYOUT.body.overlay.back, 1, 4, 6, 1, true);
-    fill(over.right, 0, 0, 8, 6, true);
-    fill(over.left, 0, 0, 8, 6, true);
+    // Complete long-hair coverage without erasing the directional waves,
+    // seam shading and side-lock clusters already composed above.
+    fillTransparent(CLASSIC_LAYOUT.body.overlay.back, 0, 0, 8, 4, true);
+    fillTransparent(CLASSIC_LAYOUT.body.overlay.back, 1, 4, 6, 1, true);
+    fillTransparent(over.right, 0, 0, 8, 6, true);
+    fillTransparent(over.left, 0, 0, 8, 6, true);
   }
   if (s === "ponytail") {
     fill(over.back, 2, 1, 4, 7, true);

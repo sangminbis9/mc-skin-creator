@@ -638,6 +638,27 @@ describe("packFrontViewToAtlas", () => {
     expect(pixel(over.top, 5, 2)[0]).not.toBe(pixel(over.top, 5, 3)[0]);
   });
 
+  it("long hair completion preserves wavy side-layer highlights instead of repainting them", () => {
+    const makeLongHair = (hairTexture: "straight" | "wavy") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        bangs: "curtain",
+        bangsLength: "brow",
+        hairTexture,
+        hairVolume: "full",
+        hairBackShape: "long",
+        sideHairLength: "shoulder",
+      })!.atlas;
+    const straight = makeLongHair("straight");
+    const wavy = makeLongHair("wavy");
+    const side = CLASSIC_LAYOUT.head.overlay.right;
+
+    expect(alphaAt(wavy, side, 1, 2)).toBe(255);
+    expect(redAt(wavy, side, 1, 2)).not.toBe(redAt(straight, side, 1, 2));
+    expect(redAt(wavy, side, 1, 2)).toBeGreaterThan(redAt(wavy, side, 3, 4));
+  });
+
   it("straight bangs create layered front hair that wraps into temple side layers", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
