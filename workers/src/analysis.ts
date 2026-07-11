@@ -9,7 +9,7 @@
 
 import type { Env } from "./types";
 
-const VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+const DEFAULT_VISION_MODEL = "@cf/moonshotai/kimi-k2.6";
 
 export type Framing = "face" | "upper_body" | "three_quarter" | "full_body";
 
@@ -919,6 +919,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
   if (errors.length > 0) {
     return { ok: false, errors };
   }
+
   return {
     ok: true,
     analysis: {
@@ -965,21 +966,20 @@ export async function runPhotoAnalysis(
     { type: "json_schema", json_schema: PHOTO_ANALYSIS_SCHEMA },
     { type: "json_object" },
   ];
+  const visionModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
 
   let lastDetail = "";
   for (const responseFormat of attempts) {
     let parsed: unknown;
     try {
-      const result = (await env.AI.run(VISION_MODEL as never, {
+      const result = await env.AI.run(visionModel as never, {
         messages,
         max_tokens: 1700,
+        temperature: 0,
+        chat_template_kwargs: { thinking: false },
         response_format: responseFormat,
-      } as never)) as { response?: string | Record<string, unknown> };
-      if (result.response && typeof result.response === "object") {
-        parsed = result.response;
-      } else if (typeof result.response === "string") {
-        parsed = extractJson(result.response);
-      }
+      } as never);
+      parsed = extractAnalysisPayload(result);
     } catch (error) {
       lastDetail = error instanceof Error ? error.message : String(error);
       continue;
@@ -1001,6 +1001,38 @@ export async function runPhotoAnalysis(
       : "ai_error",
     detail: lastDetail,
   };
+}
+
+/** Normalize Workers AI native (`response`) and chat-completions (`choices`) output. */
+export function extractAnalysisPayload(result: unknown): Record<string, unknown> | null {
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    return null;
+  }
+  const root = result as Record<string, unknown>;
+  let content = root.response;
+  if (content === undefined && Array.isArray(root.choices)) {
+    const first = root.choices[0];
+    if (typeof first === "object" && first !== null && !Array.isArray(first)) {
+      const message = (first as Record<string, unknown>).message;
+      if (typeof message === "object" && message !== null && !Array.isArray(message)) {
+        content = (message as Record<string, unknown>).content;
+      }
+    }
+  }
+  if (Array.isArray(content)) {
+    content = content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (typeof item !== "object" || item === null || Array.isArray(item)) return "";
+        const block = item as Record<string, unknown>;
+        return typeof block.text === "string" ? block.text : "";
+      })
+      .join("");
+  }
+  if (typeof content === "object" && content !== null && !Array.isArray(content)) {
+    return content as Record<string, unknown>;
+  }
+  return typeof content === "string" ? extractJson(content) : null;
 }
 
 export function extractJson(text: string): Record<string, unknown> | null {

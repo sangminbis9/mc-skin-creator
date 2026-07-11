@@ -28,6 +28,7 @@ export interface GenerationSuccess {
 
 interface GeneratingPageProps {
   photoDataUrl: string;
+  analysisPhotoDataUrl: string;
   onDone: (result: GenerationSuccess) => void;
   onFail: (failure: GenerationFailure) => void;
   onQuotaClosed: (quota: QuotaStatus | null) => void;
@@ -51,6 +52,7 @@ const PHOTO_FAIL_MESSAGES: Record<string, string> = {
 
 export function GeneratingPage({
   photoDataUrl,
+  analysisPhotoDataUrl,
   onDone,
   onFail,
   onQuotaClosed,
@@ -77,7 +79,10 @@ export function GeneratingPage({
 
     (async () => {
       try {
-        const response = await requestSkinGeneration(photoDataUrl);
+        const response = await requestSkinGeneration(
+          photoDataUrl,
+          analysisPhotoDataUrl,
+        );
         if (cancelled) {
           return;
         }
@@ -130,7 +135,7 @@ export function GeneratingPage({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photoDataUrl]);
+  }, [photoDataUrl, analysisPhotoDataUrl]);
 
   return (
     <div className="px-screen">

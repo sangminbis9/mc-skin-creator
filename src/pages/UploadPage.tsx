@@ -9,12 +9,15 @@ import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelCheckbox } from "../components/pixel/PixelCheckbox";
 import { PixelPanel } from "../components/pixel/PixelPanel";
 import { fetchQuotaStatus } from "../lib/cloudflareAI";
-import { resizeForUpload } from "../lib/imageQuality";
+import {
+  preparePhotoForUpload,
+  type PreparedPhotoUpload,
+} from "../lib/imageQuality";
 import type { QuotaStatus } from "../lib/skinFeatures";
 import { formatResetTime } from "../lib/quotaText";
 
 interface UploadPageProps {
-  onPhotoSelected: (photoDataUrl: string) => void;
+  onPhotoSelected: (photo: PreparedPhotoUpload) => void;
   onQuotaClosed: (quota: QuotaStatus | null) => void;
 }
 
@@ -43,8 +46,8 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
     }
     setBusy(true);
     try {
-      const resized = await resizeForUpload(source);
-      onPhotoSelected(resized);
+      const prepared = await preparePhotoForUpload(source);
+      onPhotoSelected(prepared);
     } finally {
       setBusy(false);
     }

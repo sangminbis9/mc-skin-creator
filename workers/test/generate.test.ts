@@ -56,6 +56,39 @@ async function goodFluxOutput(): Promise<SkinGenerationResult> {
 }
 
 describe("generateSkin", () => {
+  it("uses the high-resolution photo for analysis and the 448px photo for image generation", async () => {
+    const env = makeEnv(makeAnalysis(), true, "front_view");
+    const generationPhoto = await photoDataUrl();
+    const analysisPhoto = "data:image/jpeg;base64,aGlnaC1yZXM=";
+    const frontPng = await encodePng(makeFrontBackView());
+    let providerPhoto = "";
+    const provider: SkinGenerationProvider = {
+      async generate(request) {
+        providerPhoto = request.photoDataUrl;
+        return { ok: true, imageBytes: frontPng, inputTiles: 2, outputTiles: 2 };
+      },
+    };
+
+    const result = await generateSkin(
+      env,
+      generationPhoto,
+      provider,
+      analysisPhoto,
+    );
+    const calls = (
+      env.AI.run as unknown as { mock: { calls: Array<[unknown, unknown]> } }
+    ).mock.calls;
+    const input = calls[0][1] as {
+      messages: Array<{
+        content: Array<{ image_url?: { url?: string } }>;
+      }>;
+    };
+
+    expect(result.status).toBe(200);
+    expect(input.messages[0].content[0].image_url?.url).toBe(analysisPhoto);
+    expect(providerPhoto).toBe(generationPhoto);
+  });
+
   it("front_view 전략(기본): 정면 뷰를 pack해 64x64 atlas를 반환한다", async () => {
     const env = makeEnv(makeAnalysis(), true, "front_view");
     const frontPng = await encodePng(makeFrontBackView());

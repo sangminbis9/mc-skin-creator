@@ -875,6 +875,14 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, leftArm.front, leftArm.front.w - 1, 0)).toBeGreaterThan(
       redAt(atlas, leftArm.front, leftArm.front.w - 1, 5),
     );
+    for (let y = 0; y < 8; y++) {
+      expect(alphaAt(atlas, body.right, 0, y)).toBe(255);
+      expect(alphaAt(atlas, body.left, body.left.w - 1, y)).toBe(255);
+    }
+    for (let y = 0; y <= 5; y++) {
+      expect(alphaAt(atlas, body.right, 1, y)).toBe(255);
+      expect(alphaAt(atlas, body.left, body.left.w - 2, y)).toBe(255);
+    }
   });
 
   it("flower accessory on shoulder-length hair anchors an asymmetric decorated side drape", () => {
@@ -1017,6 +1025,11 @@ describe("packFrontViewToAtlas", () => {
   });
 
   it("hairAccessory=flower이면 head overlay 앞/옆면에 꽃과 잎 디테일을 남긴다", () => {
+    const withoutAccessory = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      hairVolume: "full",
+    })!.atlas;
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairAccessory: "flower",
@@ -1036,10 +1049,6 @@ describe("packFrontViewToAtlas", () => {
     const topLeaf = ((top.y + 6) * ATLAS_SIZE + top.x + 3) * 4;
     const backPetal = ((back.y + 4) * ATLAS_SIZE + back.x) * 4;
     const backLeaf = ((back.y + 3) * ATLAS_SIZE + back.x + 1) * 4;
-    const frontClusterPetal = ((front.y + 2) * ATLAS_SIZE + front.x + 3) * 4;
-    const frontClusterLeaf = ((front.y + 1) * ATLAS_SIZE + front.x + 3) * 4;
-    const frontOuterPetal = ((front.y + 1) * ATLAS_SIZE + front.x + 4) * 4;
-    const frontStemLeaf = ((front.y + 3) * ATLAS_SIZE + front.x + 5) * 4;
     const sideClusterPetal = ((side.y + 3) * ATLAS_SIZE + side.x + 4) * 4;
     const sideClusterLeaf = ((side.y + 5) * ATLAS_SIZE + side.x + 4) * 4;
     const sideInnerFlower = ((side.y + 3) * ATLAS_SIZE + side.x + 3) * 4;
@@ -1061,10 +1070,14 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[topLeaf + 1]).toBeGreaterThan(atlas.rgba[topLeaf]);
     expect(atlas.rgba[backPetal + 3]).toBe(255);
     expect(atlas.rgba[backLeaf + 1]).toBeGreaterThan(atlas.rgba[backLeaf]);
-    expect(atlas.rgba[frontClusterPetal + 3]).toBe(255);
-    expect(atlas.rgba[frontClusterPetal]).toBeGreaterThan(atlas.rgba[frontClusterLeaf]);
-    expect(atlas.rgba[frontOuterPetal + 3]).toBe(255);
-    expect(atlas.rgba[frontOuterPetal]).toBeGreaterThan(atlas.rgba[frontStemLeaf]);
+    for (let y = 2; y <= 5; y++) {
+      for (let x = 3; x <= 5; x++) {
+        const pixel = ((front.y + y) * ATLAS_SIZE + front.x + x) * 4;
+        expect(Array.from(atlas.rgba.slice(pixel, pixel + 4))).toEqual(
+          Array.from(withoutAccessory.rgba.slice(pixel, pixel + 4)),
+        );
+      }
+    }
     expect(atlas.rgba[sideClusterPetal + 3]).toBe(255);
     expect(atlas.rgba[sideClusterLeaf + 1]).toBeGreaterThan(atlas.rgba[sideClusterLeaf]);
     expect(atlas.rgba[sideInnerFlower + 3]).toBe(255);

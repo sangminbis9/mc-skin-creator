@@ -37,6 +37,45 @@ async function photoDataUrl(): Promise<string> {
 }
 
 describe("hair accessory recovery", () => {
+  it("does not let a thigh-side detail flip a hair flower to the other side", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "long wavy brown hair",
+          accessories:
+            "Viewer-left side: pink flower cluster in hair. Viewer-right thigh: white ribbon bow.",
+          clothing:
+            "pink cardigan, viewer-left leg warmer, and a viewer-right thigh ribbon",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairAccessory: "flower",
+          hairAccessorySide: "right",
+        },
+      }),
+    );
+    const provider = providerOf({
+      ok: true,
+      imageBytes: await encodePng(makeFrontBackView()),
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const leftFlower = ((front.y + 2) * ATLAS_SIZE + front.x + 1) * 4;
+    const wrongRightFlower = ((front.y + 2) * ATLAS_SIZE + front.x + 6) * 4;
+
+    expect(decoded.rgba[leftFlower]).toBeGreaterThan(decoded.rgba[leftFlower + 1]);
+    expect(decoded.rgba[leftFlower]).toBeGreaterThan(decoded.rgba[wrongRightFlower]);
+  });
+
   it("recovers a side-specific hair flower when only outfitPrompt preserves it", async () => {
     const base = makeAnalysis();
     const env = makeEnv(

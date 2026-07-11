@@ -10,4 +10,7 @@ workers/node_modules/
 workers/dist/
 workers/.wrangler/
 .wrangler/
+.granite/
+.playwright-cli/
+*.ait
 *.tsbuildinfo

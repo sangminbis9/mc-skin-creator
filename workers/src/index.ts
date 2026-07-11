@@ -89,6 +89,7 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
   // 2) 요청 파싱
   const body = (await request.json().catch(() => null)) as {
     image?: string;
+    analysisImage?: string;
   } | null;
   if (!body?.image) {
     await bumpMetric(env, "failures");
@@ -99,7 +100,7 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
   }
 
   // 3) 분석 + 스킨 생성 (사진은 이 요청 스코프 안에서만 사용, 저장하지 않음)
-  const result = await generateSkin(env, body.image);
+  const result = await generateSkin(env, body.image, undefined, body.analysisImage);
 
   // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
   await commitNeurons(env, result.neuronsSpent);

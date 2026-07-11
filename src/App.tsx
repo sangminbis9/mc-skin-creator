@@ -8,6 +8,7 @@ import { JumpBlocks } from "./components/pixel/JumpBlocks";
 import { SkinDocument } from "./editor/editorState";
 import { decodeSkinPng } from "./lib/skinDecode";
 import { generateSkinFromFeatures } from "./lib/skinFromFeatures";
+import type { PreparedPhotoUpload } from "./lib/imageQuality";
 import { normalizeFeatures, type QuotaStatus } from "./lib/skinFeatures";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { ApplyGuidePage } from "./pages/ApplyGuidePage";
@@ -60,7 +61,7 @@ function App() {
   const hash = useHashRoute();
 
   const [step, setStep] = useState<Step>("upload");
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<PreparedPhotoUpload | null>(null);
   const [doc, setDoc] = useState<SkinDocument | null>(null);
   const [skinVersion, setSkinVersion] = useState(0);
   const [failure, setFailure] = useState<GenerationFailure | null>(null);
@@ -111,8 +112,8 @@ function App() {
       {step === "upload" && (
         <>
           <UploadPage
-            onPhotoSelected={(dataUrl) => {
-              setPhoto(dataUrl);
+            onPhotoSelected={(preparedPhoto) => {
+              setPhoto(preparedPhoto);
               setStep("quality");
             }}
             onQuotaClosed={(q) => {
@@ -130,7 +131,7 @@ function App() {
 
       {step === "quality" && photo && (
         <QualityCheckPage
-          photoDataUrl={photo}
+          photoDataUrl={photo.analysisDataUrl}
           onContinue={() => setStep("generating")}
           onReselect={resetToUpload}
         />
@@ -138,7 +139,8 @@ function App() {
 
       {step === "generating" && photo && (
         <GeneratingPage
-          photoDataUrl={photo}
+          photoDataUrl={photo.generationDataUrl}
+          analysisPhotoDataUrl={photo.analysisDataUrl}
           onDone={async (result) => {
             // AI가 직접 생성한 스킨 우선, 실패하면 특징 기반 절차 생성으로 fallback
             const decoded = result.skinPngBase64

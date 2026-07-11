@@ -136,6 +136,37 @@ export async function resizeForUpload(
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
+export interface PreparedPhotoUpload {
+  /** Higher-resolution input reserved for multimodal feature analysis. */
+  analysisDataUrl: string;
+  /** FLUX-compatible input kept below the image model's 512px limit. */
+  generationDataUrl: string;
+}
+
+export async function preparePhotoForUpload(
+  source: string | File,
+): Promise<PreparedPhotoUpload> {
+  const dataUrl =
+    typeof source === "string" ? source : await fileToDataUrl(source);
+  const image = await loadImage(dataUrl);
+  const render = (maxSide: number): string => {
+    const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return dataUrl;
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  };
+  return {
+    analysisDataUrl: render(896),
+    generationDataUrl: render(448),
+  };
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

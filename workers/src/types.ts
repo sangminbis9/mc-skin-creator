@@ -1,6 +1,8 @@
 export interface Env {
   AI: Ai;
   MCSKIN_KV: KVNamespace;
+  /** Primary multimodal model used to turn a portrait into structured skin details. */
+  VISION_MODEL?: string;
   /** "true"일 때만 FLUX 이미지 생성 사용 (아니면 절차적 fallback만) */
   IMAGE_GENERATION_ENABLED?: string;
   /** "front_view"(기본) | "direct_atlas" — 이미지 생성 전략 */

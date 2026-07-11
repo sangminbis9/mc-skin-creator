@@ -6,6 +6,7 @@
 import type { GenerateResponse, QuotaStatus } from "./skinFeatures";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
 
 export class ApiError extends Error {
   constructor(
@@ -23,15 +24,40 @@ export class ApiError extends Error {
 }
 
 /** 사진 → 인물 특징 추출 (Worker가 quota 확인 + AI 호출) */
-export async function requestSkinGeneration(
+export function requestSkinGeneration(
   imageDataUrl: string,
+  analysisImageDataUrl?: string,
+): Promise<GenerateResponse> {
+  const requestKey = `${imageDataUrl}\u0000${analysisImageDataUrl ?? ""}`;
+  const existing = inFlightGenerations.get(requestKey);
+  if (existing) {
+    return existing;
+  }
+
+  const request = performSkinGeneration(imageDataUrl, analysisImageDataUrl);
+  inFlightGenerations.set(requestKey, request);
+  const clearRequest = () => {
+    if (inFlightGenerations.get(requestKey) === request) {
+      inFlightGenerations.delete(requestKey);
+    }
+  };
+  request.then(clearRequest, clearRequest);
+  return request;
+}
+
+async function performSkinGeneration(
+  imageDataUrl: string,
+  analysisImageDataUrl?: string,
 ): Promise<GenerateResponse> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: imageDataUrl }),
+      body: JSON.stringify({
+        image: imageDataUrl,
+        ...(analysisImageDataUrl ? { analysisImage: analysisImageDataUrl } : {}),
+      }),
     });
   } catch {
     throw new ApiError("네트워크 연결이 불안정해요", "network");

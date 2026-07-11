@@ -67,17 +67,21 @@ export async function generateSkin(
   env: Env,
   imageDataUrl: string,
   provider: SkinGenerationProvider = new FluxKleinProvider(env),
+  analysisImageDataUrl: string = imageDataUrl,
 ): Promise<GenerateResult> {
   if (
     typeof imageDataUrl !== "string" ||
     !imageDataUrl.startsWith("data:image/") ||
-    imageDataUrl.length > MAX_IMAGE_CHARS
+    imageDataUrl.length > MAX_IMAGE_CHARS ||
+    typeof analysisImageDataUrl !== "string" ||
+    !analysisImageDataUrl.startsWith("data:image/") ||
+    analysisImageDataUrl.length > MAX_IMAGE_CHARS
   ) {
     return fail(400, "이미지 형식이 올바르지 않아요", "bad_request", 0);
   }
 
   // ---------- 1) 사진 분석 ----------
-  const analysisResult = await runPhotoAnalysis(env, imageDataUrl);
+  const analysisResult = await runPhotoAnalysis(env, analysisImageDataUrl);
   let spent = NEURONS_VISION_ANALYSIS;
   if (!analysisResult.ok) {
     console.log("analysis failed:", analysisResult.reason, analysisResult.detail);
@@ -613,12 +617,20 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
     style.legwear = "socks";
   }
 
-  if (/\b(one|single|asymmetric|asymmetrical|left|right)\b/.test(visibleText)) {
-    if (/\bleft\b/.test(visibleText)) {
+  const legwearSideText = relevantClauses(
+    [analysis.observed.clothing, analysis.outfitPrompt, analysis.identityPrompt],
+    /\b(leg warmer|leg warmers|knee[- ]?high|over[- ]?knee|otk|thigh[- ]?high|stocking|stockings|tights|sock|socks)\b/,
+  );
+  if ((style.legwear ?? "none") !== "none" && legwearSideText) {
+    const leftMention = /\b(viewer(?:'s)?[- ]left|left)\b/.test(legwearSideText);
+    const rightMention = /\b(viewer(?:'s)?[- ]right|right)\b/.test(legwearSideText);
+    if (leftMention && !rightMention) {
       style.legwearAsymmetry = "left";
-    } else if (/\bright\b/.test(visibleText)) {
+    } else if (rightMention && !leftMention) {
       style.legwearAsymmetry = "right";
-    } else if ((style.legwear ?? "none") !== "none") {
+    } else if (leftMention && rightMention) {
+      style.legwearAsymmetry = "both";
+    } else if (/\b(one|single|asymmetric|asymmetrical|one-sided)\b/.test(legwearSideText)) {
       style.legwearAsymmetry = style.legwearAsymmetry === "none" ? "left" : style.legwearAsymmetry;
     }
   }
@@ -654,6 +666,15 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .toLowerCase();
+  const hairAccessorySideText = relevantClauses(
+    [
+      analysis.observed.accessories,
+      analysis.observed.hair,
+      analysis.identityPrompt,
+      analysis.outfitPrompt,
+    ],
+    /\b(flower|flowers|floral|hair bow|bow in hair|head bow|hair ribbon|ribbon in hair|head ribbon|hair clip|barrette|hairpin|pin in hair)\b/,
+  );
 
   if ((style.hairAccessory ?? "none") === "none") {
     if (
@@ -671,11 +692,14 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
   }
 
   if ((style.hairAccessory ?? "none") !== "none") {
-    if (/\b(viewer-right|right side|right hair|right temple)\b/.test(hairAccessoryText)) {
+    const sideText = hairAccessorySideText || hairAccessoryText;
+    const leftMention = /\b(viewer(?:'s)?[- ]left|left side|left hair|left temple)\b/.test(sideText);
+    const rightMention = /\b(viewer(?:'s)?[- ]right|right side|right hair|right temple)\b/.test(sideText);
+    if (rightMention && !leftMention) {
       style.hairAccessorySide = "right";
-    } else if (/\b(viewer-left|left side|left hair|left temple)\b/.test(hairAccessoryText)) {
+    } else if (leftMention && !rightMention) {
       style.hairAccessorySide = "left";
-    } else if (/\b(center|middle|top center)\b/.test(hairAccessoryText)) {
+    } else if (/\b(center|middle|top center)\b/.test(sideText)) {
       style.hairAccessorySide = "center";
     }
   }
@@ -701,6 +725,18 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
       style.necklace = "dark";
     }
   }
+}
+
+function relevantClauses(
+  values: Array<string | null | undefined>,
+  relevant: RegExp,
+): string {
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .flatMap((value) => value.toLowerCase().split(/[.!?;,\n]+/))
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0 && relevant.test(clause))
+    .join(" ");
 }
 
 export function fallbackFeaturesToHex(

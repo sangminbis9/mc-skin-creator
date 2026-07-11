@@ -1283,8 +1283,25 @@ function composeHair(
           putColor(bodyOver.front, Math.min(2, leftX + 1), y, bodyHair(bodyOver.front, Math.min(2, leftX + 1), y, 0.74));
           putColor(bodyOver.front, Math.max(5, rightX - 1), y, bodyHair(bodyOver.front, Math.max(5, rightX - 1), y, 0.74));
         }
-        putColor(bodyOver.right, y % 2, y, bodyHair(bodyOver.right, y % 2, y, 0.82));
-        putColor(bodyOver.left, 3 - (y % 2), y, bodyHair(bodyOver.left, 3 - (y % 2), y, 0.82));
+        // Keep shoulder locks continuous on the side faces. Alternating the
+        // outer pixel between columns made long hair read as disconnected spots.
+        const sideShade = y >= 6 ? 0.66 : y % 3 === 1 ? 0.9 : 0.78;
+        putColor(bodyOver.right, 0, y, bodyHair(bodyOver.right, 0, y, sideShade));
+        putColor(
+          bodyOver.left,
+          bodyOver.left.w - 1,
+          y,
+          bodyHair(bodyOver.left, bodyOver.left.w - 1, y, sideShade),
+        );
+        if (y <= 5 || y % 2 === 0) {
+          putColor(bodyOver.right, 1, y, bodyHair(bodyOver.right, 1, y, sideShade * 0.86));
+          putColor(
+            bodyOver.left,
+            bodyOver.left.w - 2,
+            y,
+            bodyHair(bodyOver.left, bodyOver.left.w - 2, y, sideShade * 0.86),
+          );
+        }
       }
       for (const [x, y, color] of [
         [1, 2, torsoStrandLight],
@@ -1850,21 +1867,12 @@ function composeHair(
         putColor(over.top, 4, 6, flowerShade);
       } else {
         drawFrontFlower(1, 2);
-        drawFrontFlower(0, 4);
         putFrontAccessory(2, 2, flowerLight);
-        putFrontAccessory(3, 2, flowerPetal);
         putFrontAccessory(2, 3, flowerShade);
-        putFrontAccessory(3, 3, flowerCenter);
-        putFrontAccessory(4, 3, flowerShade);
         putFrontAccessory(2, 1, leaf);
-        putFrontAccessory(1, 4, leaf);
-        putFrontAccessory(3, 1, leafDark);
-        putFrontAccessory(4, 2, leaf);
-        putFrontAccessory(2, 5, leafDark);
-        putFrontAccessory(4, 1, flowerLight);
-        putFrontAccessory(5, 2, flowerShade);
-        putFrontAccessory(5, 3, leafDark);
-        putFrontAccessory(4, 4, leaf);
+        putFrontAccessory(1, 4, leafDark);
+        // The side/top/back faces carry the flower volume. Keeping the front
+        // cluster at the temple leaves both eyes and the mouth readable.
         drawSideFlower(6, 2);
         drawSideFlower(6, 4);
         drawSideFlower(3, 3);

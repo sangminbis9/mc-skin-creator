@@ -1,8 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { ANALYSIS_PROMPT, validatePhotoAnalysis } from "../src/analysis";
+import {
+  ANALYSIS_PROMPT,
+  extractAnalysisPayload,
+  validatePhotoAnalysis,
+} from "../src/analysis";
 import { makeAnalysis } from "./helpers";
 
 describe("validatePhotoAnalysis", () => {
+  it("accepts structured JSON from Workers AI native and chat-completions responses", () => {
+    const analysis = makeAnalysis();
+    expect(extractAnalysisPayload({ response: analysis })).toEqual(analysis);
+    expect(
+      extractAnalysisPayload({
+        choices: [{ message: { content: `result:\n${JSON.stringify(analysis)}` } }],
+      }),
+    ).toEqual(analysis);
+    expect(
+      extractAnalysisPayload({
+        choices: [
+          {
+            message: {
+              content: [
+                { type: "text", text: "```json\n" },
+                { type: "text", text: JSON.stringify(analysis) },
+                { type: "text", text: "\n```" },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toEqual(analysis);
+  });
+
   it("analysis prompt requires visible lower-body, legwear asymmetry and shoe details", () => {
     expect(ANALYSIS_PROMPT).toContain("lower garment type");
     expect(ANALYSIS_PROMPT).toContain("legwear asymmetry from the viewer's perspective");
