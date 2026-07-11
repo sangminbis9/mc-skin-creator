@@ -99,6 +99,7 @@ describe("generateSkin", () => {
 
     expect(result.status).toBe(200);
     expect(result.body.generationMode).toBe("image");
+    expect(result.body.analysis?.renderHints).toEqual(makeAnalysis().renderHints);
     const decoded = await decodePng(
       Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
         c.charCodeAt(0),

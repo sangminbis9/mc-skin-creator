@@ -464,10 +464,10 @@ function composeFace(
   const eye = hexToRgb(style.eyeColor, [74, 55, 40]);
   const eyePairs =
     style.eyeSpacing === "wide"
-      ? ([[0, 1], [6, 7]] as const)
+      ? ([[0, 1], [7, 6]] as const)
       : style.eyeSpacing === "close"
-        ? ([[1, 2], [4, 5]] as const)
-        : ([[1, 2], [5, 6]] as const);
+        ? ([[1, 2], [5, 4]] as const)
+        : ([[1, 2], [6, 5]] as const);
   const brow =
     style.eyebrowThickness === "thin"
       ? mixRgb(browColor, skinColor, 0.38)
@@ -511,7 +511,10 @@ function composeFace(
   }
 
   const skinShadow = shadeRgb(skinColor, 0.82);
-  const eyeHighlight = mixRgb(eye, [250, 244, 232], 0.58);
+  // A whole overlay pixel is the smallest possible catchlight at 8x8. Mixing
+  // it too far toward white hid the dark iris underneath, so generated faces
+  // looked blank in the 3D preview. Keep the overlay visibly eye-coloured.
+  const eyeHighlight = mixRgb(eye, [250, 244, 232], 0.26);
   const lowerEye = mixRgb(skinColor, shadeRgb(eye, 0.66), 0.24);
   const eyelid = mixRgb(skinColor, brow, style.eyeShape === "narrow" ? 0.48 : 0.34);
   const eyeCorner = mixRgb(shadeRgb(eye, 0.62), skinColor, 0.18);
@@ -674,7 +677,7 @@ function composeFace(
 
   // 앞머리 overlay는 듬성한 가닥만 사용해 헬멧 같은 판을 만들지 않는다.
   if (style.facialHair === "none" && style.glasses === "none") {
-    const catchLight = mixRgb(eyeHighlight, [255, 255, 255], 0.24);
+    const catchLight = mixRgb(eyeHighlight, [255, 255, 255], 0.1);
     if (style.eyeShape !== "narrow") {
       put(overlay, leftInner, 4, catchLight);
       put(overlay, rightInner, 4, shadeRgb(catchLight, 0.94));

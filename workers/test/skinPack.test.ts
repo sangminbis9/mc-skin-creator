@@ -478,10 +478,12 @@ describe("packFrontViewToAtlas", () => {
       ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
 
     const eyeHighlight = idx(over, 2, 4);
+    const rightEyeHighlight = idx(over, 5, 4);
     const eyeCorner = idx(over, 1, 4);
     const cheekBlush = idx(over, 1, 5);
     const noseBridge = idx(face, 3, 4);
     const noseShadow = idx(face, 3, 5);
+    const clearSkin = idx(face, 4, 4);
     const sideEar = idx(sideRight, 0, 4);
     const sideEarInner = idx(sideRight, 1, 4);
     const sideCheek = idx(sideRight, 0, 5);
@@ -489,8 +491,11 @@ describe("packFrontViewToAtlas", () => {
     const leftSideEar = idx(sideLeft, sideLeft.w - 1, 4);
 
     expect(atlas.rgba[eyeHighlight + 3]).toBe(255);
+    expect(atlas.rgba[rightEyeHighlight + 3]).toBe(255);
     expect(atlas.rgba[eyeCorner + 3]).toBe(255);
     expect(atlas.rgba[eyeCorner]).toBeLessThan(atlas.rgba[eyeHighlight]);
+    expect(atlas.rgba[eyeHighlight]).toBeLessThan(atlas.rgba[clearSkin] - 50);
+    expect(atlas.rgba[rightEyeHighlight]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[cheekBlush + 3]).toBe(255);
     expect(atlas.rgba[cheekBlush]).toBeGreaterThan(atlas.rgba[cheekBlush + 1]);
     expect(atlas.rgba[noseShadow]).toBeLessThan(atlas.rgba[noseBridge]);
@@ -1404,9 +1409,9 @@ describe("packFrontViewToAtlas", () => {
     const face = CLASSIC_LAYOUT.head.base.front;
 
     expect(redAt(arched, face, 2, 2)).toBeLessThan(redAt(slanted, face, 2, 2));
-    expect(redAt(arched, face, 5, 2)).toBeLessThan(redAt(slanted, face, 5, 2));
+    expect(redAt(arched, face, 6, 2)).toBeLessThan(redAt(slanted, face, 6, 2));
     expect(redAt(slanted, face, 1, 2)).toBeLessThan(redAt(arched, face, 1, 2));
-    expect(redAt(slanted, face, 6, 2)).toBeLessThan(redAt(arched, face, 6, 2));
+    expect(redAt(slanted, face, 5, 2)).toBeLessThan(redAt(arched, face, 5, 2));
   });
 
   it("mouthShape 힌트를 8x8 얼굴의 입 폭과 입술 색 차이로 남긴다", () => {
@@ -1457,7 +1462,7 @@ describe("packFrontViewToAtlas", () => {
 
     expect(alphaAt(atlas, over, 1, 5)).toBe(255);
     expect(alphaAt(atlas, over, 2, 4)).toBe(255);
-    expect(alphaAt(atlas, over, 6, 4)).toBe(255);
+    expect(alphaAt(atlas, over, 5, 4)).toBe(255);
     expect(alphaAt(atlas, over, 3, 5)).toBe(255);
     expect(alphaAt(atlas, over, 4, 5)).toBe(255);
     expect(alphaAt(atlas, over, 2, 6)).toBe(255);
@@ -1465,7 +1470,7 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over, 4, 6)).toBe(255);
     expect(alphaAt(atlas, over, 5, 6)).toBe(255);
     expect(alphaAt(atlas, over, 3, 7)).toBe(255);
-    expect(redAt(atlas, over, 2, 4)).toBeGreaterThan(redAt(atlas, over, 1, 5));
+    expect(redAt(atlas, over, 2, 4)).toBeLessThan(redAt(atlas, over, 1, 5) - 30);
     expect(redAt(atlas, over, 3, 5)).toBeLessThan(redAt(atlas, over, 3, 7));
     expect(redAt(atlas, over, 5, 6)).toBeLessThan(redAt(atlas, over, 3, 7));
   });

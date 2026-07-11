@@ -43,6 +43,7 @@ export interface AnalysisSummary {
   visibleRegions: PhotoAnalysis["visibleRegions"];
   observed: PhotoAnalysis["observed"];
   inferred: PhotoAnalysis["inferred"];
+  renderHints: PhotoAnalysis["renderHints"];
 }
 
 export interface GenerateResult {
@@ -118,6 +119,7 @@ export async function generateSkin(
     visibleRegions: analysis.visibleRegions,
     observed: analysis.observed,
     inferred: analysis.inferred,
+    renderHints: analysis.renderHints,
   };
 
   // ---------- 2) 이미지 생성 (feature flag) ----------
