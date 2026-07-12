@@ -447,9 +447,7 @@ function composeFace(
   // centre-parted portrait rather than keying off a particular subject.
   const splitCenterFringe = bangs === "straight" && style.hairPart === "center";
   if (bangs === "straight") {
-    for (const x of splitCenterFringe
-      ? [0, 1, 2, 4, 5, 6, 7]
-      : [0, 1, 2, 3, 4, 5, 6, 7]) {
+    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) {
       hair(x, 2);
     }
     for (const x of splitCenterFringe ? [0, 1, 6, 7] : [0, 2, 5, 7]) {
@@ -487,7 +485,11 @@ function composeFace(
   for (const [outer, inner] of eyePairs) {
     put(face, outer, 3, brow);
     put(face, inner, 3, brow);
-    const sclera = mixRgb(skinColor, [238, 232, 222], 0.58);
+    const sclera = mixRgb(
+      skinColor,
+      [238, 232, 222],
+      style.eyeShape === "round" ? 0.42 : style.eyeShape === "narrow" ? 0.18 : 0.28,
+    );
     put(face, outer, 4, sclera);
     put(face, inner, 4, eye);
     if (style.eyeShape === "round") {
@@ -594,8 +596,8 @@ function composeFace(
       put(overlay, 5, 6, mixRgb(mouthDark, skinColor, 0.35));
     }
   } else {
-    put(face, 3, 6, mouthColor);
-    put(face, 4, 6, mouthColor);
+    put(face, 3, 6, mouthDark);
+    put(face, 4, 6, mixRgb(mouthColor, skinColor, 0.36));
   }
 
   // 4) 수염과 안경은 실제 돌출 요소이므로 overlay를 활용한다.
@@ -721,7 +723,6 @@ function composeFace(
       put(overlay, 4, 6, shadeRgb(lipFull, 0.88));
     } else {
       put(overlay, 3, 6, mouthCorner);
-      put(overlay, 4, 6, shadeRgb(mouthCorner, 0.94));
     }
 
     const chinLight = mixRgb(skinColor, [255, 238, 226], 0.16);
@@ -1779,7 +1780,7 @@ function composeHair(
     for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
       paintBang(x, 1);
     }
-    for (const x of splitCenterFringe ? [0, 1, 2, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
+    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) {
       paintBang(x, 2, x === 3 || x === 4 ? 0.84 : 0.96);
     }
     for (const x of splitCenterFringe ? [0, 1, 6, 7] : [0, 2, 5, 7]) {
@@ -1788,8 +1789,8 @@ function composeHair(
     if (splitCenterFringe) {
       putColor(over.front, 3, 1, partAccent);
       putColor(over.front, 4, 1, partShadow);
-      clearPixel(over.front, 3, 2);
-      putColor(over.front, 4, 2, shadeRgb(partShadow, 0.9));
+      putColor(over.front, 3, 2, shadeRgb(partAccent, 0.78));
+      putColor(over.front, 4, 2, shadeRgb(partShadow, 0.82));
     }
     wrapTemple(2);
     wrapTemple(3, 0.76, 0.76);
@@ -2660,6 +2661,29 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   if (style.bottomType === "jeans" || style.bottomType === "pants") {
     for (const part of ["rightLeg", "leftLeg"] as const) {
       const leg = CLASSIC_LAYOUT[part];
+      if ((style.bottomPattern ?? "plain") === "plain") {
+        // The gap between generated legs is often sampled into the outermost
+        // front/back UV column as a bright background stripe. Rebuild those
+        // edge columns from the two interior trouser columns before adding
+        // folds, while leaving the bottom shoe rows untouched.
+        for (const faceName of ["front", "back"] as const) {
+          const baseRect = leg.base[faceName];
+          for (let y = 0; y < baseRect.h - 3; y++) {
+            const trouserCore = mixRgb(
+              sample(baseRect, 1, y),
+              sample(baseRect, baseRect.w - 2, y),
+              0.5,
+            );
+            put(baseRect, 0, y, shadeRgb(trouserCore, faceName === "front" ? 0.86 : 0.78));
+            put(
+              baseRect,
+              baseRect.w - 1,
+              y,
+              shadeRgb(trouserCore, faceName === "front" ? 0.8 : 0.72),
+            );
+          }
+        }
+      }
       for (const faceName of ["front", "back", "right", "left"] as const) {
         const src = leg.base[faceName];
         const dst = leg.overlay[faceName];

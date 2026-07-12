@@ -466,7 +466,7 @@ describe("packFrontViewToAtlas", () => {
       eyeShape: "round",
       eyeSpacing: "average",
       noseShape: "straight",
-      expression: "smile",
+      expression: "neutral",
     })!;
     const atlas = packed.atlas;
     const face = CLASSIC_LAYOUT.head.base.front;
@@ -483,6 +483,9 @@ describe("packFrontViewToAtlas", () => {
     const leftScleraWindow = idx(over, 1, 4);
     const rightScleraWindow = idx(over, 6, 4);
     const leftSclera = idx(face, 1, 4);
+    const smallMouthDark = idx(face, 3, 6);
+    const smallMouthLight = idx(face, 4, 6);
+    const smallMouthOverlay = idx(over, 4, 6);
     const cheekBlush = idx(over, 1, 5);
     const noseBridge = idx(face, 3, 4);
     const noseShadow = idx(face, 3, 5);
@@ -498,6 +501,7 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[leftScleraWindow + 3]).toBe(0);
     expect(atlas.rgba[rightScleraWindow + 3]).toBe(0);
     expect(atlas.rgba[leftSclera]).toBeGreaterThan(atlas.rgba[leftIris] + 50);
+    expect(Math.abs(atlas.rgba[leftSclera + 1] - atlas.rgba[clearSkin + 1])).toBeLessThan(35);
     expect(atlas.rgba[leftIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[rightIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[cheekBlush + 3]).toBe(255);
@@ -508,6 +512,8 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sideCheek + 3]).toBe(255);
     expect(atlas.rgba[sideJaw + 3]).toBe(255);
     expect(atlas.rgba[leftSideEar + 3]).toBe(255);
+    expect(atlas.rgba[smallMouthDark]).toBeLessThan(atlas.rgba[smallMouthLight]);
+    expect(atlas.rgba[smallMouthOverlay + 3]).toBe(0);
     expect(atlas.rgba[sideEarInner]).toBeLessThan(atlas.rgba[sideEar]);
     expect(atlas.rgba[sideJaw]).toBeLessThan(atlas.rgba[sideCheek]);
 
@@ -793,11 +799,13 @@ describe("packFrontViewToAtlas", () => {
     const base = CLASSIC_LAYOUT.head.base;
     const over = CLASSIC_LAYOUT.head.overlay;
 
-    // The centre forehead is skin on the base layer instead of a solid bar.
-    expect(redAt(atlas, base.front, 3, 2)).toBeGreaterThan(redAt(atlas, base.front, 2, 2) + 50);
-    expect(redAt(atlas, base.front, 4, 2)).toBeLessThan(redAt(atlas, base.front, 3, 2) - 50);
-    expect(alphaAt(atlas, over.front, 3, 2)).toBe(0);
+    // A visible centre part is expressed with hair-tone contrast, not an
+    // unrealistic vertical strip of exposed scalp.
+    expect(redAt(atlas, base.front, 3, 2)).toBeLessThan(redAt(atlas, base.front, 3, 4) - 50);
+    expect(redAt(atlas, base.front, 4, 2)).toBeLessThan(redAt(atlas, base.front, 4, 4) - 50);
+    expect(alphaAt(atlas, over.front, 3, 2)).toBe(255);
     expect(alphaAt(atlas, over.front, 4, 2)).toBe(255);
+    expect(redAt(atlas, over.front, 3, 2)).not.toBe(redAt(atlas, over.front, 4, 2));
     // Both pixels of each eye reveal the structured base face.
     for (const x of [1, 2, 5, 6]) {
       expect(alphaAt(atlas, over.front, x, 4)).toBe(0);
@@ -1249,6 +1257,31 @@ describe("packFrontViewToAtlas", () => {
         Math.abs(corner[1] - interior[1]) +
         Math.abs(corner[2] - interior[2]);
       expect(distance).toBeLessThan(35);
+    }
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("rebuilds plain trouser edge columns from garment pixels instead of a bright leg gap", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "pants",
+      bottomPattern: "plain",
+    })!.atlas;
+
+    const luminance = (rect: { x: number; y: number }, x: number, y: number) => {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return atlas.rgba[d] + atlas.rgba[d + 1] + atlas.rgba[d + 2];
+    };
+    for (const part of [CLASSIC_LAYOUT.rightLeg, CLASSIC_LAYOUT.leftLeg]) {
+      for (const rect of [part.base.front, part.base.back]) {
+        for (const y of [1, 4, 7]) {
+          const core = (luminance(rect, 1, y) + luminance(rect, 2, y)) / 2;
+          expect(luminance(rect, 0, y)).toBeLessThanOrEqual(core);
+          expect(luminance(rect, rect.w - 1, y)).toBeLessThanOrEqual(core);
+        }
+      }
     }
 
     applyUvMask(atlas);
