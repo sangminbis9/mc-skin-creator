@@ -448,7 +448,7 @@ function composeFace(
   const splitCenterFringe = bangs === "straight" && style.hairPart === "center";
   if (bangs === "straight") {
     for (const x of splitCenterFringe
-      ? [0, 1, 2, 5, 6, 7]
+      ? [0, 1, 2, 4, 5, 6, 7]
       : [0, 1, 2, 3, 4, 5, 6, 7]) {
       hair(x, 2);
     }
@@ -1779,7 +1779,7 @@ function composeHair(
     for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
       paintBang(x, 1);
     }
-    for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
+    for (const x of splitCenterFringe ? [0, 1, 2, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
       paintBang(x, 2, x === 3 || x === 4 ? 0.84 : 0.96);
     }
     for (const x of splitCenterFringe ? [0, 1, 6, 7] : [0, 2, 5, 7]) {
@@ -1788,6 +1788,8 @@ function composeHair(
     if (splitCenterFringe) {
       putColor(over.front, 3, 1, partAccent);
       putColor(over.front, 4, 1, partShadow);
+      clearPixel(over.front, 3, 2);
+      putColor(over.front, 4, 2, shadeRgb(partShadow, 0.9));
     }
     wrapTemple(2);
     wrapTemple(3, 0.76, 0.76);
@@ -3327,17 +3329,41 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   // corners. The base layer remains intact, while the raised garment layer
   // steps inward for one row and reads as fabric drape instead of a rigid box.
   if (layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType)) {
-    for (const rect of [body.overlay.front, body.overlay.back]) {
-      clear(rect, 0, 0);
-      clear(rect, rect.w - 1, 0);
-      clear(rect, 0, 1);
-      clear(rect, rect.w - 1, 1);
-    }
-    for (const rect of [body.overlay.right, body.overlay.left]) {
-      clear(rect, 0, 0);
-      clear(rect, rect.w - 1, 0);
-      clear(rect, 0, 1);
-      clear(rect, rect.w - 1, 1);
+    const taperShoulder = (baseRect: Rect, overlayRect: Rect) => {
+      const sampleY = Math.min(baseRect.h - 1, 3);
+      const inset = baseRect.w >= 6 ? 2 : 1;
+      const leftGarment = sample(baseRect, inset, sampleY);
+      const rightGarment = sample(baseRect, baseRect.w - 1 - inset, sampleY);
+      for (const y of [0, 1]) {
+        // Underpaint the revealed base pixels first. Generated front views
+        // often have background-coloured shoulder corners because the source
+        // silhouette slopes inward; transparent outer pixels must never expose
+        // those segmentation remnants.
+        put(baseRect, 0, y, shadeRgb(leftGarment, y === 0 ? 1.02 : 0.96));
+        put(baseRect, baseRect.w - 1, y, shadeRgb(rightGarment, y === 0 ? 0.94 : 0.9));
+        clear(overlayRect, 0, y);
+        clear(overlayRect, overlayRect.w - 1, y);
+      }
+    };
+    taperShoulder(body.base.front, body.overlay.front);
+    taperShoulder(body.base.back, body.overlay.back);
+    taperShoulder(body.base.right, body.overlay.right);
+    taperShoulder(body.base.left, body.overlay.left);
+
+    const topBase = body.base.top;
+    const topSampleY = Math.min(topBase.h - 1, 1);
+    const topGarment = mixRgb(
+      sample(topBase, Math.max(0, Math.floor(topBase.w / 2) - 1), topSampleY),
+      sample(topBase, Math.min(topBase.w - 1, Math.floor(topBase.w / 2)), topSampleY),
+      0.5,
+    );
+    for (const [x, y, shade] of [
+      [0, 0, 1.02],
+      [topBase.w - 1, 0, 0.94],
+      [0, topBase.h - 1, 0.96],
+      [topBase.w - 1, topBase.h - 1, 0.9],
+    ] as const) {
+      put(topBase, x, y, shadeRgb(topGarment, shade));
     }
     for (const [x, y] of [
       [0, 0],

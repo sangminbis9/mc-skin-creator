@@ -794,8 +794,10 @@ describe("packFrontViewToAtlas", () => {
     const over = CLASSIC_LAYOUT.head.overlay;
 
     // The centre forehead is skin on the base layer instead of a solid bar.
-    expect(redAt(atlas, base.front, 3, 2)).not.toBe(redAt(atlas, base.front, 2, 2));
-    expect(redAt(atlas, base.front, 4, 2)).not.toBe(redAt(atlas, base.front, 5, 2));
+    expect(redAt(atlas, base.front, 3, 2)).toBeGreaterThan(redAt(atlas, base.front, 2, 2) + 50);
+    expect(redAt(atlas, base.front, 4, 2)).toBeLessThan(redAt(atlas, base.front, 3, 2) - 50);
+    expect(alphaAt(atlas, over.front, 3, 2)).toBe(0);
+    expect(alphaAt(atlas, over.front, 4, 2)).toBe(255);
     // Both pixels of each eye reveal the structured base face.
     for (const x of [1, 2, 5, 6]) {
       expect(alphaAt(atlas, over.front, x, 4)).toBe(0);
@@ -1234,6 +1236,20 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.front, body.front.w - 1, 2)).toBe(255);
     expect(alphaAt(atlas, body.top, 0, 0)).toBe(0);
     expect(alphaAt(atlas, body.top, body.top.w - 1, body.top.h - 1)).toBe(0);
+
+    const base = CLASSIC_LAYOUT.body.base;
+    const colorAt = (rect: { x: number; y: number }, x: number, y: number) => {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2]];
+    };
+    for (const rect of [base.front, base.back, base.right, base.left]) {
+      const corner = colorAt(rect, 0, 0);
+      const interior = colorAt(rect, rect.w >= 6 ? 2 : 1, 3);
+      const distance = Math.abs(corner[0] - interior[0]) +
+        Math.abs(corner[1] - interior[1]) +
+        Math.abs(corner[2] - interior[2]);
+      expect(distance).toBeLessThan(35);
+    }
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
