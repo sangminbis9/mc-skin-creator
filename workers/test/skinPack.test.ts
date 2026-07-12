@@ -485,7 +485,9 @@ describe("packFrontViewToAtlas", () => {
     const rightEyeWindow = idx(over, 5, 4);
     const leftIris = idx(face, 2, 4);
     const rightIris = idx(face, 5, 4);
-    const eyeCorner = idx(over, 1, 4);
+    const leftScleraWindow = idx(over, 1, 4);
+    const rightScleraWindow = idx(over, 6, 4);
+    const leftSclera = idx(face, 1, 4);
     const cheekBlush = idx(over, 1, 5);
     const noseBridge = idx(face, 3, 4);
     const noseShadow = idx(face, 3, 5);
@@ -498,8 +500,9 @@ describe("packFrontViewToAtlas", () => {
 
     expect(atlas.rgba[leftEyeWindow + 3]).toBe(0);
     expect(atlas.rgba[rightEyeWindow + 3]).toBe(0);
-    expect(atlas.rgba[eyeCorner + 3]).toBe(255);
-    expect(atlas.rgba[eyeCorner]).toBeLessThan(atlas.rgba[clearSkin]);
+    expect(atlas.rgba[leftScleraWindow + 3]).toBe(0);
+    expect(atlas.rgba[rightScleraWindow + 3]).toBe(0);
+    expect(atlas.rgba[leftSclera]).toBeGreaterThan(atlas.rgba[leftIris] + 50);
     expect(atlas.rgba[leftIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[rightIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[cheekBlush + 3]).toBe(255);
@@ -764,6 +767,43 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, over.right, 1, 4)).toBeLessThanOrEqual(redAt(atlas, over.right, 0, 4));
     expect(redAt(atlas, over.right, 3, 4)).toBeLessThan(redAt(atlas, over.right, 1, 4));
     expect(redAt(atlas, over.left, 4, 4)).toBeLessThan(redAt(atlas, over.left, 6, 4));
+  });
+
+  it("centre-parted rounded short hair keeps a split fringe, readable eyes and deeper side volume", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight",
+      bangsLength: "brow",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      hairSilhouette: "rounded",
+      hairBackShape: "tapered",
+      hairPart: "center",
+      sideHairLength: "short",
+      eyeShape: "almond",
+      eyeSpacing: "average",
+      glasses: "none",
+    })!.atlas;
+    const base = CLASSIC_LAYOUT.head.base;
+    const over = CLASSIC_LAYOUT.head.overlay;
+
+    // The centre forehead is skin on the base layer instead of a solid bar.
+    expect(redAt(atlas, base.front, 3, 2)).not.toBe(redAt(atlas, base.front, 2, 2));
+    expect(redAt(atlas, base.front, 4, 2)).not.toBe(redAt(atlas, base.front, 5, 2));
+    // Both pixels of each eye reveal the structured base face.
+    for (const x of [1, 2, 5, 6]) {
+      expect(alphaAt(atlas, over.front, x, 4)).toBe(0);
+    }
+    // Rounded brow-length short cuts receive one extra side/back volume row.
+    expect(alphaAt(atlas, over.right, 0, 3)).toBe(255);
+    expect(alphaAt(atlas, over.left, 7, 3)).toBe(255);
+    expect(alphaAt(atlas, over.back, 0, 4)).toBe(255);
+    expect(alphaAt(atlas, over.back, 7, 4)).toBe(255);
+    expect(redAt(atlas, over.front, 3, 1)).not.toBe(redAt(atlas, over.front, 4, 1));
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
   it("bangsLength=eye keeps long fringe around two visible iris windows", () => {
@@ -1076,8 +1116,9 @@ describe("packFrontViewToAtlas", () => {
       })!.atlas;
       const over = CLASSIC_LAYOUT.head.overlay;
 
-      expect(alphaAt(atlas, over.front, 2, 4)).toBe(0);
-      expect(alphaAt(atlas, over.front, 5, 4)).toBe(0);
+      for (const x of [1, 2, 5, 6]) {
+        expect(alphaAt(atlas, over.front, x, 4)).toBe(0);
+      }
       expect(alphaAt(atlas, over.front, 0, 0)).toBe(255);
       expect(alphaAt(atlas, over.front, 7, 0)).toBe(255);
       expect(alphaAt(atlas, over.right, 0, 0)).toBe(255);

@@ -441,9 +441,20 @@ function composeFace(
     for (let x = 0; x < 8; x++) hair(x, 1, x === 0 || x === 7 ? 0.92 : 1);
   }
   const bangs = style.bangs ?? "none";
+  // A centre-parted straight fringe is not a solid horizontal helmet edge.
+  // Keep the centre forehead open while retaining denser locks on both sides.
+  // This is common in short bowl/two-block cuts and remains useful for any
+  // centre-parted portrait rather than keying off a particular subject.
+  const splitCenterFringe = bangs === "straight" && style.hairPart === "center";
   if (bangs === "straight") {
-    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) hair(x, 2);
-    for (const x of [0, 2, 5, 7]) hair(x, 3, 0.96);
+    for (const x of splitCenterFringe
+      ? [0, 1, 2, 5, 6, 7]
+      : [0, 1, 2, 3, 4, 5, 6, 7]) {
+      hair(x, 2);
+    }
+    for (const x of splitCenterFringe ? [0, 1, 6, 7] : [0, 2, 5, 7]) {
+      hair(x, 3, 0.96);
+    }
   } else if (bangs === "side") {
     for (const x of [0, 1, 2, 3, 4, 5]) hair(x, 2);
     for (const x of [0, 1, 2]) hair(x, 3, 0.96);
@@ -800,19 +811,24 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
   if (style.glasses !== "none") return;
 
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
-  const innerEyes =
+  const eyePairs =
     style.eyeSpacing === "wide"
-      ? ([1, 6] as const)
+      ? ([[0, 1], [7, 6]] as const)
       : style.eyeSpacing === "close"
-        ? ([2, 4] as const)
-        : ([2, 5] as const);
+        ? ([[1, 2], [5, 4]] as const)
+        : ([[1, 2], [6, 5]] as const);
 
-  for (const x of innerEyes) {
-    const d = ((overlay.y + 4) * ATLAS_SIZE + overlay.x + x) * 4;
-    atlas.rgba[d] = 0;
-    atlas.rgba[d + 1] = 0;
-    atlas.rgba[d + 2] = 0;
-    atlas.rgba[d + 3] = 0;
+  // Reveal both the sclera/corner and the iris. Clearing only the iris pixel
+  // left an opaque, near-black outer-layer corner beside it; at normal preview
+  // scale that merged with the fringe and made the face look eyeless.
+  for (const pair of eyePairs) {
+    for (const x of pair) {
+      const d = ((overlay.y + 4) * ATLAS_SIZE + overlay.x + x) * 4;
+      atlas.rgba[d] = 0;
+      atlas.rgba[d + 1] = 0;
+      atlas.rgba[d + 2] = 0;
+      atlas.rgba[d + 3] = 0;
+    }
   }
 }
 
@@ -867,6 +883,10 @@ function composeHair(
   const base = CLASSIC_LAYOUT.head.base;
   const over = CLASSIC_LAYOUT.head.overlay;
   const s = style.hairstyle;
+  const roundedFringeCut =
+    s === "short" &&
+    style.hairSilhouette === "rounded" &&
+    (style.bangsLength === "brow" || style.bangsLength === "eye");
   const textured =
     s === "curly" ||
     s === "afro" ||
@@ -938,7 +958,9 @@ function composeHair(
     s === "buzz"
       ? 1
       : s === "short"
-        ? 3
+        ? roundedFringeCut
+          ? 4
+          : 3
         : s === "medium" || s === "curly"
           ? 5
           : s === "bun" || s === "ponytail"
@@ -961,7 +983,9 @@ function composeHair(
     s === "buzz"
       ? 2
       : s === "short"
-        ? 4
+        ? roundedFringeCut
+          ? 5
+          : 4
         : s === "medium" || s === "curly"
           ? 6
           : s === "bun" || s === "ponytail"
@@ -1026,7 +1050,9 @@ function composeHair(
     s === "buzz"
       ? 1
       : s === "short"
-        ? 3
+        ? roundedFringeCut
+          ? 4
+          : 3
         : s === "medium" || s === "curly"
           ? 5
           : Math.min(7, sideRows);
@@ -1718,10 +1744,21 @@ function composeHair(
     putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
     putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
   };
+  const splitCenterFringe = style.bangs === "straight" && hairPart === "center";
   if (style.bangs === "straight") {
-    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) paintBang(x, 1);
-    for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) paintBang(x, 2, x === 3 || x === 4 ? 0.84 : 0.96);
-    for (const x of [0, 2, 5, 7]) paintBang(x, 3, 0.74);
+    for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
+      paintBang(x, 1);
+    }
+    for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
+      paintBang(x, 2, x === 3 || x === 4 ? 0.84 : 0.96);
+    }
+    for (const x of splitCenterFringe ? [0, 1, 6, 7] : [0, 2, 5, 7]) {
+      paintBang(x, 3, 0.74);
+    }
+    if (splitCenterFringe) {
+      putColor(over.front, 3, 1, partAccent);
+      putColor(over.front, 4, 1, partShadow);
+    }
     wrapTemple(2);
     wrapTemple(3, 0.76, 0.76);
   } else if (style.bangs === "side") {
@@ -1749,7 +1786,9 @@ function composeHair(
     style.bangs === "none" ? "none" : (style.bangsLength ?? "brow");
   if (bangsLength === "brow" || bangsLength === "eye") {
     if (style.bangs === "straight") {
-      for (const x of [1, 3, 4, 6]) paintBang(x, 3, 0.66);
+      for (const x of splitCenterFringe ? [0, 1, 6, 7] : [1, 3, 4, 6]) {
+        paintBang(x, 3, 0.66);
+      }
       wrapTemple(3, 0.72, 0.72);
       if (bangsLength === "eye") {
         for (const x of [2, 3, 5]) paintBang(x, 4, 0.58);
