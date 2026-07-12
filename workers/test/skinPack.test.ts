@@ -201,14 +201,9 @@ describe("packFrontViewToAtlas", () => {
     const mid = ((side.y + 5) * ATLAS_SIZE + side.x + 1) * 4;
     expect(atlas.rgba[mid + 3]).toBe(255);
     // 윗행(lit)이 밑단(hem)보다 밝다 — 그림자가 아니라 두께 큐
-    const litRow = avgOfRect(atlas, { x: side.x, y: side.y, w: side.w, h: 1 });
-    const hemRow = avgOfRect(atlas, {
-      x: side.x,
-      y: side.y + side.h - 1,
-      w: side.w,
-      h: 1,
-    });
-    expect(litRow[0]).toBeGreaterThan(hemRow[0]);
+    const litCenter = ((side.y * ATLAS_SIZE + side.x + 1) * 4);
+    const hemCenter = (((side.y + side.h - 1) * ATLAS_SIZE + side.x + 1) * 4);
+    expect(atlas.rgba[litCenter]).toBeGreaterThan(atlas.rgba[hemCenter]);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -533,17 +528,27 @@ describe("packFrontViewToAtlas", () => {
     const alphaAt = (rect: { x: number; y: number }, x: number, y: number) =>
       atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
 
-    for (let y = 0; y < 5; y++) {
+    for (let y = 0; y < 2; y++) {
+      expect(alphaAt(over.right, 7, y)).toBe(0);
+      expect(alphaAt(over.left, 0, y)).toBe(0);
+      expect(alphaAt(over.right, 0, y)).toBe(0);
+      expect(alphaAt(over.left, 7, y)).toBe(0);
+      expect(alphaAt(over.front, 0, y)).toBe(0);
+      expect(alphaAt(over.front, 7, y)).toBe(0);
+      expect(alphaAt(over.back, 0, y)).toBe(0);
+      expect(alphaAt(over.back, 7, y)).toBe(0);
+    }
+    for (let y = 2; y < 5; y++) {
       expect(alphaAt(over.right, 7, y)).toBe(255);
       expect(alphaAt(over.left, 0, y)).toBe(255);
       expect(alphaAt(over.right, 0, y)).toBe(255);
       expect(alphaAt(over.left, 7, y)).toBe(255);
     }
-    for (let y = 0; y < 4; y++) {
+    for (let y = 2; y < 4; y++) {
       expect(alphaAt(over.front, 0, y)).toBe(255);
       expect(alphaAt(over.front, 7, y)).toBe(255);
     }
-    for (let y = 0; y < 5; y++) {
+    for (let y = 2; y < 5; y++) {
       expect(alphaAt(over.back, 0, y)).toBe(255);
       expect(alphaAt(over.back, 7, y)).toBe(255);
     }
@@ -858,6 +863,12 @@ describe("packFrontViewToAtlas", () => {
 
     expect(pixel(rounded, over.top, 2, 0)[3]).toBe(255);
     expect(pixel(rounded, over.right, 1, 1)[3]).toBe(255);
+    expect(pixel(rounded, over.front, 0, 0)[3]).toBe(0);
+    expect(pixel(rounded, over.front, 7, 0)[3]).toBe(0);
+    expect(pixel(rounded, over.right, 0, 0)[3]).toBe(0);
+    expect(pixel(rounded, over.left, 7, 0)[3]).toBe(0);
+    expect(pixel(rounded, over.top, 0, 0)[3]).toBe(0);
+    expect(pixel(rounded, over.top, 7, 7)[3]).toBe(0);
     expect(pixel(swept, over.top, 6, 4)[3]).toBe(255);
     expect(pixel(swept, over.front, 3, 2)[3]).toBe(255);
     expect(pixel(swept, over.top, 6, 4)[0]).not.toBe(pixel(rounded, over.top, 6, 4)[0]);
@@ -1119,10 +1130,12 @@ describe("packFrontViewToAtlas", () => {
       for (const x of [1, 2, 5, 6]) {
         expect(alphaAt(atlas, over.front, x, 4)).toBe(0);
       }
-      expect(alphaAt(atlas, over.front, 0, 0)).toBe(255);
-      expect(alphaAt(atlas, over.front, 7, 0)).toBe(255);
-      expect(alphaAt(atlas, over.right, 0, 0)).toBe(255);
-      expect(alphaAt(atlas, over.left, 7, 0)).toBe(255);
+      if (hairStyle.hairSilhouette === "rounded") {
+        expect(alphaAt(atlas, over.front, 0, 0)).toBe(0);
+        expect(alphaAt(atlas, over.front, 7, 0)).toBe(0);
+        expect(alphaAt(atlas, over.right, 0, 0)).toBe(0);
+        expect(alphaAt(atlas, over.left, 7, 0)).toBe(0);
+      }
 
       applyUvMask(atlas);
       expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -1197,6 +1210,34 @@ describe("packFrontViewToAtlas", () => {
       shoeStyle: "dress_shoes",
     },
   ] satisfies Array<Partial<FaceStyle>>;
+
+  it("tapers heavy sweater outer-layer shoulders instead of completing a rigid rectangle", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      topType: "sweater",
+      sleeveLength: "long",
+      garmentTexture: "knit",
+      outerLayer: "heavy",
+      necklace: "silver",
+    })!.atlas;
+    const body = CLASSIC_LAYOUT.body.overlay;
+
+    for (const rect of [body.front, body.back, body.right, body.left]) {
+      expect(alphaAt(atlas, rect, 0, 0)).toBe(0);
+      expect(alphaAt(atlas, rect, rect.w - 1, 0)).toBe(0);
+      expect(alphaAt(atlas, rect, 0, 1)).toBe(0);
+      expect(alphaAt(atlas, rect, rect.w - 1, 1)).toBe(0);
+    }
+    expect(alphaAt(atlas, body.front, 2, 0)).toBe(255);
+    expect(alphaAt(atlas, body.front, body.front.w - 3, 0)).toBe(255);
+    expect(alphaAt(atlas, body.front, 0, 2)).toBe(255);
+    expect(alphaAt(atlas, body.front, body.front.w - 1, 2)).toBe(255);
+    expect(alphaAt(atlas, body.top, 0, 0)).toBe(0);
+    expect(alphaAt(atlas, body.top, body.top.w - 1, body.top.h - 1)).toBe(0);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
 
   it.each(representativeOutfits)(
     "keeps layered outfit UV valid for $topType/$bottomType/$shoeStyle",

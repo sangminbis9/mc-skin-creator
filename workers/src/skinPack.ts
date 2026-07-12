@@ -952,6 +952,14 @@ function composeHair(
     atlas.rgba[d + 2] = color[2];
     atlas.rgba[d + 3] = 255;
   };
+  const clearPixel = (rect: Rect, x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return;
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba[d] = 0;
+    atlas.rgba[d + 1] = 0;
+    atlas.rgba[d + 2] = 0;
+    atlas.rgba[d + 3] = 0;
+  };
 
   // 스타일별 옆/뒷머리 길이 (클라이언트와 동일 값)
   const baseSideRows =
@@ -1642,11 +1650,33 @@ function composeHair(
   const outlineDark = shadeRgb(hairColor, 0.54);
   const outlineMid = shadeRgb(hairColor, 0.76);
   if (hairSilhouette === "rounded") {
+    // The larger second-layer cube becomes a square helmet when its corner
+    // pixels are opaque. Remove matching corners on every adjacent face so
+    // the smaller base cube peeks through as a two-step rounded silhouette,
+    // without leaving a one-face-only UV crack.
+    for (const rect of [over.front, over.back, over.right, over.left]) {
+      for (const [x, y] of [
+        [0, 0],
+        [rect.w - 1, 0],
+        [0, 1],
+        [rect.w - 1, 1],
+      ] as const) {
+        clearPixel(rect, x, y);
+      }
+    }
+    for (const [x, y] of [
+      [0, 0],
+      [over.top.w - 1, 0],
+      [0, over.top.h - 1],
+      [over.top.w - 1, over.top.h - 1],
+    ] as const) {
+      clearPixel(over.top, x, y);
+    }
     for (const [rect, points] of [
-      [over.top, [[1, 1], [2, 0], [3, 0], [4, 0], [5, 0], [6, 1], [0, 2], [7, 2]]],
-      [over.front, [[0, 0], [1, 0], [6, 0], [7, 0], [0, 1], [7, 1]]],
-      [over.right, [[0, 0], [1, 0], [0, 1], [1, 1]]],
-      [over.left, [[6, 0], [7, 0], [6, 1], [7, 1]]],
+      [over.top, [[1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [0, 2], [7, 2]]],
+      [over.front, [[1, 0], [2, 0], [5, 0], [6, 0], [1, 1], [6, 1]]],
+      [over.right, [[1, 0], [2, 0], [1, 1], [2, 1]]],
+      [over.left, [[5, 0], [6, 0], [5, 1], [6, 1]]],
     ] as const) {
       for (const [x, y] of points) putColor(rect, x, y, outlineLight);
     }
@@ -2027,6 +2057,30 @@ function composeHair(
   }
 
   // 옆면 overlay를 머리로 채우며 안경 다리가 덮였을 수 있어 다시 그린다
+  // Bangs, side locks and accessories are composed after the silhouette pass.
+  // Re-apply only the extreme rounded corners so later fringe painting cannot
+  // accidentally restore the original full 8x8 square outline.
+  if (hairSilhouette === "rounded") {
+    for (const rect of [over.front, over.back, over.right, over.left]) {
+      for (const [x, y] of [
+        [0, 0],
+        [rect.w - 1, 0],
+        [0, 1],
+        [rect.w - 1, 1],
+      ] as const) {
+        clearPixel(rect, x, y);
+      }
+    }
+    for (const [x, y] of [
+      [0, 0],
+      [over.top.w - 1, 0],
+      [0, over.top.h - 1],
+      [over.top.w - 1, over.top.h - 1],
+    ] as const) {
+      clearPixel(over.top, x, y);
+    }
+  }
+
   if (style.glasses !== "none") {
     const rim = hexToRgb(style.glassesColor, [34, 32, 30]);
     const put = (rect: Rect, x: number, y: number) => {
@@ -2115,6 +2169,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     atlas.rgba[d + 1] = color[1];
     atlas.rgba[d + 2] = color[2];
     atlas.rgba[d + 3] = alpha;
+  };
+  const clear = (rect: Rect, x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return;
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba[d] = 0;
+    atlas.rgba[d + 1] = 0;
+    atlas.rgba[d + 2] = 0;
+    atlas.rgba[d + 3] = 0;
   };
   const copy = (
     src: Rect,
@@ -3258,6 +3320,32 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       ] as const) {
         put(outerSide, x, y, color);
       }
+    }
+  }
+
+  // Break the perfectly rectangular outer torso at all four shoulder
+  // corners. The base layer remains intact, while the raised garment layer
+  // steps inward for one row and reads as fabric drape instead of a rigid box.
+  if (layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType)) {
+    for (const rect of [body.overlay.front, body.overlay.back]) {
+      clear(rect, 0, 0);
+      clear(rect, rect.w - 1, 0);
+      clear(rect, 0, 1);
+      clear(rect, rect.w - 1, 1);
+    }
+    for (const rect of [body.overlay.right, body.overlay.left]) {
+      clear(rect, 0, 0);
+      clear(rect, rect.w - 1, 0);
+      clear(rect, 0, 1);
+      clear(rect, rect.w - 1, 1);
+    }
+    for (const [x, y] of [
+      [0, 0],
+      [body.overlay.top.w - 1, 0],
+      [0, body.overlay.top.h - 1],
+      [body.overlay.top.w - 1, body.overlay.top.h - 1],
+    ] as const) {
+      clear(body.overlay.top, x, y);
     }
   }
 }
