@@ -16,6 +16,7 @@ interface PreviewPageProps {
   onDownload: () => void;
   onShare: (previewImageDataUrl: string | null) => void;
   onApplyGuide: () => void;
+  onCreateAnother: () => void;
 }
 
 export function PreviewPage({
@@ -25,6 +26,7 @@ export function PreviewPage({
   onDownload,
   onShare,
   onApplyGuide,
+  onCreateAnother,
 }: PreviewPageProps) {
   const sceneRef = useRef<SkinScene | null>(null);
 
@@ -71,6 +73,9 @@ export function PreviewPage({
       </PixelButton>
       <PixelButton variant="stone" onClick={onApplyGuide}>
         🎮 마크에 적용하기
+      </PixelButton>
+      <PixelButton variant="ghost" onClick={onCreateAnother}>
+        🔄 다른 사진으로 다시 만들기
       </PixelButton>
     </div>
   );

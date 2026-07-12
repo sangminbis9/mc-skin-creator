@@ -188,6 +188,7 @@ function App() {
               setStep("share");
             }}
             onApplyGuide={() => setStep("guide")}
+            onCreateAnother={resetToUpload}
           />
         </Suspense>
       )}
