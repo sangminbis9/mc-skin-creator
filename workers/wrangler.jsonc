@@ -10,6 +10,8 @@
   "vars": {
     // Frontier multimodal analysis for detailed hair, garment and per-side accessory recognition.
     "VISION_MODEL": "@cf/moonshotai/kimi-k2.6",
+    // Resilient multimodal fallback when the primary model times out or emits invalid JSON.
+    "VISION_FALLBACK_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
     // FLUX 스킨 직접 생성 feature flag — "true"가 아니면 절차적 fallback만 사용
     "IMAGE_GENERATION_ENABLED": "true",
     // front_view(기본): 정면 캐릭터 생성 후 서버가 atlas로 pack / direct_atlas: 모델이 atlas 직접 생성

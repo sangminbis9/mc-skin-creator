@@ -1,10 +1,97 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ANALYSIS_PROMPT,
   extractAnalysisPayload,
+  runPhotoAnalysis,
   validatePhotoAnalysis,
 } from "../src/analysis";
+import type { Env } from "../src/types";
 import { makeAnalysis } from "./helpers";
+
+function makeVisionEnv(
+  run: (model: string, input: Record<string, unknown>) => Promise<unknown>,
+): Env {
+  return {
+    VISION_MODEL: "primary-model",
+    VISION_FALLBACK_MODEL: "fallback-model",
+    AI: { run: vi.fn(run) } as unknown as Env["AI"],
+  } as unknown as Env;
+}
+
+describe("runPhotoAnalysis", () => {
+  it("uses the fallback model after both primary response formats fail", async () => {
+    const run = vi.fn(async (model: string) => {
+      if (model === "primary-model") {
+        throw new Error("primary unavailable");
+      }
+      return { response: makeAnalysis() };
+    });
+    const env = makeVisionEnv(run);
+
+    const result = await runPhotoAnalysis(env, "data:image/jpeg;base64,photo");
+
+    expect(result.ok).toBe(true);
+    expect(run.mock.calls.map(([model]) => model)).toEqual([
+      "primary-model",
+      "primary-model",
+      "fallback-model",
+    ]);
+  });
+
+  it("falls back when the primary model emits invalid structured output", async () => {
+    const run = vi.fn(async (model: string) =>
+      model === "primary-model"
+        ? { response: "not-json" }
+        : { response: makeAnalysis() },
+    );
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not call the fallback model when the primary response is valid", async () => {
+    const run = vi.fn(async () => ({ response: makeAnalysis() }));
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns ai_error when both models throw", async () => {
+    const run = vi.fn(async () => {
+      throw new Error("provider unavailable");
+    });
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result).toMatchObject({ ok: false, reason: "ai_error" });
+    expect(run).toHaveBeenCalledTimes(4);
+  });
+
+  it("returns invalid_response when neither model emits JSON", async () => {
+    const run = vi.fn(async () => ({ response: "not-json" }));
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result).toMatchObject({ ok: false, reason: "invalid_response" });
+    expect(run).toHaveBeenCalledTimes(4);
+  });
+});
 
 describe("validatePhotoAnalysis", () => {
   it("accepts structured JSON from Workers AI native and chat-completions responses", () => {

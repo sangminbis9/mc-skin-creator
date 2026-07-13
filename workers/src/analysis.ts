@@ -10,6 +10,7 @@
 import type { Env } from "./types";
 
 const DEFAULT_VISION_MODEL = "@cf/moonshotai/kimi-k2.6";
+const DEFAULT_FALLBACK_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 
 export type Framing = "face" | "upper_body" | "three_quarter" | "full_body";
 
@@ -1119,39 +1120,49 @@ export async function runPhotoAnalysis(
     { type: "json_schema", json_schema: PHOTO_ANALYSIS_SCHEMA },
     { type: "json_object" },
   ];
-  const visionModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+  const primaryModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+  const fallbackModel =
+    env.VISION_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_VISION_MODEL;
+  const visionModels = [...new Set([primaryModel, fallbackModel])];
 
   let lastDetail = "";
-  for (const responseFormat of attempts) {
-    let parsed: unknown;
-    try {
-      const result = await env.AI.run(visionModel as never, {
-        messages,
-        max_tokens: 1700,
-        temperature: 0,
-        chat_template_kwargs: { thinking: false },
-        response_format: responseFormat,
-      } as never);
-      parsed = extractAnalysisPayload(result);
-    } catch (error) {
-      lastDetail = error instanceof Error ? error.message : String(error);
-      continue;
+  let sawInvalidResponse = false;
+  for (const visionModel of visionModels) {
+    for (const responseFormat of attempts) {
+      let parsed: unknown;
+      try {
+        const modelOptions = visionModel.includes("moonshotai/")
+          ? { chat_template_kwargs: { thinking: false } }
+          : {};
+        const result = await env.AI.run(visionModel as never, {
+          messages,
+          max_tokens: 2600,
+          temperature: 0,
+          ...modelOptions,
+          response_format: responseFormat,
+        } as never);
+        parsed = extractAnalysisPayload(result);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        lastDetail = `${visionModel}: ${detail}`;
+        continue;
+      }
+      if (parsed === null || parsed === undefined) {
+        sawInvalidResponse = true;
+        lastDetail = `${visionModel}: response did not contain JSON`;
+        continue;
+      }
+      const validated = validatePhotoAnalysis(parsed);
+      if (validated.ok) {
+        return { ok: true, analysis: validated.analysis };
+      }
+      sawInvalidResponse = true;
+      lastDetail = `${visionModel}: schema validation failed: ${validated.errors.join("; ")}`;
     }
-    if (parsed === null || parsed === undefined) {
-      lastDetail = "응답에서 JSON을 찾지 못함";
-      continue;
-    }
-    const validated = validatePhotoAnalysis(parsed);
-    if (validated.ok) {
-      return { ok: true, analysis: validated.analysis };
-    }
-    lastDetail = `스키마 검증 실패: ${validated.errors.join("; ")}`;
   }
   return {
     ok: false,
-    reason: lastDetail.startsWith("스키마") || lastDetail.startsWith("응답")
-      ? "invalid_response"
-      : "ai_error",
+    reason: sawInvalidResponse ? "invalid_response" : "ai_error",
     detail: lastDetail,
   };
 }
