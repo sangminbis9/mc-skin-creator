@@ -101,4 +101,119 @@ describe("handcrafted atlas quality metrics", () => {
     expect(compactMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(85);
     expect(compactMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(85);
   });
+
+  const styleMatrix = [
+    {
+      name: "minimal buzz-cut casual",
+      maxOverlayPixels: 420,
+      style: {
+        hairstyle: "buzz",
+        hairVolume: "flat",
+        bangs: "none",
+        sideHairLength: "none",
+        topType: "tshirt",
+        sleeveLength: "short",
+        outerLayer: "none",
+        bottomType: "shorts",
+        shoeStyle: "sandals",
+      },
+    },
+    {
+      name: "short rounded knit portrait",
+      maxOverlayPixels: 540,
+      style: {
+        hairstyle: "short",
+        hairVolume: "normal",
+        hairSilhouette: "rounded",
+        bangs: "straight",
+        bangsLength: "brow",
+        sideHairLength: "short",
+        sideHairShape: "ear_hugging",
+        topType: "sweater",
+        sleeveLength: "long",
+        outerLayer: "heavy",
+        bottomType: "pants",
+        shoeStyle: "sneakers",
+      },
+    },
+    {
+      name: "medium layered jacket",
+      maxOverlayPixels: 850,
+      style: {
+        hairstyle: "medium",
+        hairVolume: "normal",
+        hairSilhouette: "swept",
+        bangs: "side",
+        sideHairLength: "jaw",
+        topType: "jacket",
+        sleeveLength: "long",
+        outerLayer: "heavy",
+        outerGarment: "open_jacket",
+        bottomType: "jeans",
+        bottomAccent: "side_stripe",
+        shoeStyle: "boots",
+      },
+    },
+    {
+      name: "coily hoodie",
+      maxOverlayPixels: 820,
+      style: {
+        hairstyle: "afro",
+        hairTexture: "coily",
+        hairVolume: "full",
+        hairSilhouette: "rounded",
+        bangs: "none",
+        sideHairLength: "cheek",
+        topType: "hoodie",
+        sleeveLength: "long",
+        outerLayer: "heavy",
+        bottomType: "pants",
+        shoeStyle: "sneakers",
+      },
+    },
+    {
+      name: "long decorated cardigan",
+      maxOverlayPixels: 1_000,
+      style: {
+        hairstyle: "long",
+        hairTexture: "wavy",
+        hairVolume: "full",
+        hairSilhouette: "rounded",
+        hairBackShape: "long",
+        bangs: "curtain",
+        sideHairLength: "shoulder",
+        hairAccessory: "flower",
+        topType: "sweater",
+        sleeveLength: "long",
+        outerLayer: "heavy",
+        outerGarment: "cardigan",
+        neckAccessory: "bow",
+        bottomType: "skirt",
+        bottomPattern: "plaid",
+        legwear: "leg_warmers",
+        legwearAsymmetry: "left",
+        shoeStyle: "dress_shoes",
+      },
+    },
+  ] as const;
+
+  it.each(styleMatrix)(
+    "keeps $name outer-layer clusters below solid-shell density",
+    ({ style, maxOverlayPixels }) => {
+      const atlas = packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        ...style,
+      })!.atlas;
+      const metrics = measureAtlasCraft(atlas);
+
+      expect(metrics.opaqueOverlayPixels).toBeLessThanOrEqual(maxOverlayPixels);
+      expect(metrics.overlayPixelsByPart.head).toBeLessThanOrEqual(260);
+      expect(metrics.overlayPixelsByPart.body).toBeLessThanOrEqual(280);
+      expect(metrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(125);
+      expect(metrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(125);
+      expect(metrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(180);
+      expect(metrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(180);
+      expect(metrics.shadedOverlayFaces).toBeGreaterThanOrEqual(8);
+    },
+  );
 });
