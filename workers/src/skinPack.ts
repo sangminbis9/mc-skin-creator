@@ -35,6 +35,9 @@ export interface FaceStyle {
   /** bald | buzz | short | medium | long | ponytail | bun | twintails | curly | afro */
   hairstyle: string;
   hat: string; // none | cap | beanie | hood
+  skinTone?: string;
+  hairColor?: string;
+  hatColor?: string;
   faceShape?: "round" | "oval" | "long" | "angular" | "square";
   eyeShape?: "narrow" | "almond" | "round";
   eyeSpacing?: "close" | "average" | "wide";
@@ -84,6 +87,9 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   glasses: "none",
   hairstyle: "short",
   hat: "none",
+  skinTone: undefined,
+  hairColor: undefined,
+  hatColor: undefined,
   faceShape: "oval",
   eyeShape: "almond",
   eyeSpacing: "average",
@@ -4009,12 +4015,12 @@ export function packFrontViewToAtlas(
 
   // ---------- 머리 ----------
   const head = CLASSIC_LAYOUT.head;
-  const hairColor = medianColor(
+  const sampledHairColor = medianColor(
     src,
     { ...front.head, y1: front.head.y0 + (front.head.y1 - front.head.y0) * 0.22 },
     bg,
   );
-  const skinColor = medianColor(
+  const sampledSkinColor = medianColor(
     src,
     {
       x0: front.head.x0 + (front.head.x1 - front.head.x0) * 0.3,
@@ -4024,6 +4030,13 @@ export function packFrontViewToAtlas(
     },
     bg,
   );
+  // The vision analysis has already classified identity colours into stable
+  // palettes. Prefer those declared colours over re-sampling the intermediate
+  // image-generation guide, which can shift black hair toward brown or alter
+  // skin tone. Sampling remains the backward-compatible fallback.
+  const hairColor = hexToRgb(faceStyle.hairColor ?? "", sampledHairColor);
+  const skinColor = hexToRgb(faceStyle.skinTone ?? "", sampledSkinColor);
+  const hatColor = hexToRgb(faceStyle.hatColor ?? "", sampledHairColor);
   // 얼굴: 렌더에서는 팔레트만 사용하고, 분석 힌트로 안정적인 8x8 구조를 합성
   composeFace(atlas, hairColor, skinColor, faceStyle);
 
@@ -4122,8 +4135,7 @@ export function packFrontViewToAtlas(
   resetPortraitFaceOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle, back !== null);
   preserveFaceReadability(atlas, faceStyle);
-  // 모자 쓴 인물은 머리 상단 medianColor(hairColor)가 곧 모자 색
-  composeHat(atlas, hairColor, faceStyle);
+  composeHat(atlas, hatColor, faceStyle);
   applyShading(atlas);
 
   return { atlas, problems, hasBackView: back !== null };

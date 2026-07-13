@@ -1457,6 +1457,33 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("uses analysed skin and hair colours instead of intermediate guide colour drift", () => {
+    const declaredHair = [0x56, 0x32, 0x1c];
+    const declaredSkin = [0xc8, 0x8f, 0x72];
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      hairColor: "#56321c",
+      skinTone: "#c88f72",
+    })!.atlas;
+    const colorAt = (rect: { x: number; y: number }, x: number, y: number) => {
+      const index = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [atlas.rgba[index], atlas.rgba[index + 1], atlas.rgba[index + 2]];
+    };
+    const scalp = colorAt(CLASSIC_LAYOUT.head.base.top, 3, 3);
+    const cheek = colorAt(CLASSIC_LAYOUT.head.base.front, 3, 4);
+    const distance = (actual: number[], expected: number[]) =>
+      actual.reduce((sum, channel, index) => sum + Math.abs(channel - expected[index]), 0);
+
+    expect(distance(scalp, declaredHair)).toBeLessThan(80);
+    expect(scalp[0]).toBeGreaterThan(scalp[1] + 20);
+    expect(distance(cheek, declaredSkin)).toBeLessThan(35);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("rebuilds plain trouser edge columns from garment pixels instead of a bright leg gap", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
