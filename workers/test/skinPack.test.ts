@@ -1150,6 +1150,45 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
+  it("sideHairAsymmetry keeps the named viewer-side lock longer across head and shoulder layers", () => {
+    const makeAsymmetric = (sideHairAsymmetry: "left" | "right") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        bangs: "curtain",
+        hairTexture: "wavy",
+        hairBackShape: "long",
+        sideHairLength: "shoulder",
+        sideHairAsymmetry,
+        outerLayer: "none",
+        outerGarment: "none",
+      })!.atlas;
+    const leftLonger = makeAsymmetric("left");
+    const rightLonger = makeAsymmetric("right");
+    const head = CLASSIC_LAYOUT.head.overlay;
+    const body = CLASSIC_LAYOUT.body.overlay;
+
+    // Viewer-left maps to the head/body right UV face and front x=0 edge.
+    expect(alphaAt(leftLonger, head.right, 3, 7)).toBe(255);
+    expect(alphaAt(leftLonger, head.left, 3, 7)).toBe(0);
+    expect(alphaAt(leftLonger, body.front, 0, 6)).toBe(255);
+    expect(alphaAt(leftLonger, body.front, 7, 6)).toBe(0);
+    expect(alphaAt(leftLonger, body.right, 0, 6)).toBe(255);
+    expect(alphaAt(leftLonger, body.left, body.left.w - 1, 6)).toBe(0);
+
+    expect(alphaAt(rightLonger, head.right, 3, 7)).toBe(0);
+    expect(alphaAt(rightLonger, head.left, 3, 7)).toBe(255);
+    expect(alphaAt(rightLonger, body.front, 0, 6)).toBe(0);
+    expect(alphaAt(rightLonger, body.front, 7, 6)).toBe(255);
+    expect(alphaAt(rightLonger, body.right, 0, 6)).toBe(0);
+    expect(alphaAt(rightLonger, body.left, body.left.w - 1, 6)).toBe(255);
+
+    applyUvMask(leftLonger);
+    applyUvMask(rightLonger);
+    expect(validateFinalAtlas(leftLonger).ok).toBe(true);
+    expect(validateFinalAtlas(rightLonger).ok).toBe(true);
+  });
+
   it("flower accessory on shoulder-length hair anchors an asymmetric decorated side drape", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -1294,6 +1333,49 @@ describe("packFrontViewToAtlas", () => {
       expect(validateFinalAtlas(atlas).ok).toBe(true);
     },
   );
+
+  it("keeps representative hairstyle families from collapsing into the same outer-layer silhouette", () => {
+    const hairRects = [
+      ...Object.values(CLASSIC_LAYOUT.head.overlay),
+      CLASSIC_LAYOUT.body.overlay.front,
+      CLASSIC_LAYOUT.body.overlay.back,
+      CLASSIC_LAYOUT.body.overlay.right,
+      CLASSIC_LAYOUT.body.overlay.left,
+    ];
+    const silhouette = (hairStyle: Partial<FaceStyle>) => {
+      const atlas = packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        ...hairStyle,
+        glasses: "none",
+      })!.atlas;
+      const mask: number[] = [];
+      for (const rect of hairRects) {
+        for (let y = 0; y < rect.h; y++) {
+          for (let x = 0; x < rect.w; x++) {
+            mask.push(alphaAt(atlas, rect, x, y) === 255 ? 1 : 0);
+          }
+        }
+      }
+      return mask;
+    };
+    const masks = representativeHairStyles.map((style) => ({
+      hairstyle: style.hairstyle,
+      mask: silhouette(style),
+    }));
+
+    for (let left = 0; left < masks.length; left++) {
+      for (let right = left + 1; right < masks.length; right++) {
+        const difference = masks[left].mask.reduce(
+          (count, value, index) => count + (value === masks[right].mask[index] ? 0 : 1),
+          0,
+        );
+        expect(
+          difference,
+          `${masks[left].hairstyle} and ${masks[right].hairstyle} need distinct silhouettes`,
+        ).toBeGreaterThanOrEqual(8);
+      }
+    }
+  });
 
   const representativeOutfits = [
     {

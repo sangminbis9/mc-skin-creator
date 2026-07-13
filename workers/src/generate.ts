@@ -213,6 +213,7 @@ function buildFaceStyle(
     hairPart: analysis.renderHints.hairPart,
     sideHairLength: analysis.renderHints.sideHairLength,
     sideHairShape: analysis.renderHints.sideHairShape,
+    sideHairAsymmetry: analysis.renderHints.sideHairAsymmetry,
     earExposure: analysis.renderHints.earExposure,
     garmentTexture: analysis.renderHints.garmentTexture,
     outerLayer: analysis.renderHints.outerLayer,

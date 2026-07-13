@@ -53,6 +53,7 @@ export interface PixelRenderHints {
   hairPart: "none" | "center" | "left" | "right";
   sideHairLength: "none" | "short" | "cheek" | "jaw" | "shoulder";
   sideHairShape: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
+  sideHairAsymmetry: "none" | "left" | "right";
   earExposure: "covered" | "partial" | "visible";
   garmentTexture:
     | "plain"
@@ -178,6 +179,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - sideHairShape describes the side profile around the temple and ear: tapered narrows cleanly toward the ear, ear_hugging wraps around and partly frames the ear, face_framing forms longer front locks, flared pushes outward with visible volume, and undercut is close/shaved below the top. Infer it from both visible sides and keep left/right profiles coherent unless the photo clearly shows an asymmetric cut.
+- sideHairAsymmetry records which side has a clearly longer or fuller side lock from the VIEWER'S perspective: "left", "right", or "none". Use it only for a real structural difference, not merely because head rotation hides one side. Repeat the side in observed.hair and identityPrompt.
 - earExposure records whether the ears are covered by hair, partially exposed, or clearly visible. Judge the visible ear opening independently from sideHairShape so ear_hugging short hair does not become a long solid side panel.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
 - hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center.
@@ -257,6 +259,7 @@ Respond with ONLY a JSON object matching this shape:
     "hairPart": "none" | "center" | "left" | "right",
     "sideHairLength": "none" | "short" | "cheek" | "jaw" | "shoulder",
     "sideHairShape": "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut",
+    "sideHairAsymmetry": "none" | "left" | "right",
     "earExposure": "covered" | "partial" | "visible",
     "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
     "outerLayer": "none" | "light" | "heavy",
@@ -446,6 +449,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
         },
+        sideHairAsymmetry: {
+          type: "string",
+          enum: ["none", "left", "right"],
+        },
         earExposure: {
           type: "string",
           enum: ["covered", "partial", "visible"],
@@ -510,6 +517,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "hairPart",
         "sideHairLength",
         "sideHairShape",
+        "sideHairAsymmetry",
         "earExposure",
         "garmentTexture",
         "outerLayer",
@@ -644,6 +652,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           hairPart: "none",
           sideHairLength: "short",
           sideHairShape: "tapered",
+          sideHairAsymmetry: "none",
           earExposure: "partial",
           garmentTexture: "plain",
           outerLayer: "none",
@@ -914,6 +923,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.sideHairShape,
       ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
       "tapered",
+    ),
+    sideHairAsymmetry: enumValue(
+      "renderHints.sideHairAsymmetry",
+      hints.sideHairAsymmetry,
+      ["none", "left", "right"],
+      "none",
     ),
     earExposure: enumValue(
       "renderHints.earExposure",

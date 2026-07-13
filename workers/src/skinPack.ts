@@ -58,6 +58,7 @@ export interface FaceStyle {
   hairPart?: "none" | "center" | "left" | "right";
   sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
   sideHairShape?: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
+  sideHairAsymmetry?: "none" | "left" | "right";
   earExposure?: "covered" | "partial" | "visible";
   garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
   outerLayer?: "none" | "light" | "heavy";
@@ -110,6 +111,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   hairPart: "none",
   sideHairLength: "short",
   sideHairShape: "tapered",
+  sideHairAsymmetry: "none",
   earExposure: "partial",
   garmentTexture: "plain",
   outerLayer: "none",
@@ -990,6 +992,10 @@ function composeHair(
   if (style.hairstyle === "bald" || style.hat !== "none") {
     return;
   }
+  // Hair is composed after clothing. Keeping a snapshot lets asymmetric side
+  // locks reveal the original garment on the shorter side instead of clearing
+  // the second layer to transparent and accidentally erasing a cardigan.
+  const underHair = atlas.rgba.slice();
   const base = CLASSIC_LAYOUT.head.base;
   const over = CLASSIC_LAYOUT.head.overlay;
   const s = style.hairstyle;
@@ -2227,6 +2233,59 @@ function composeHair(
     fill(over.left, 0, 0, 3, 8, true);
     fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 4, 4, true);
     fill(CLASSIC_LAYOUT.body.overlay.left, 0, 0, 4, 4, true);
+  }
+
+  const longerSide = style.sideHairAsymmetry ?? "none";
+  if (longerSide !== "none" && (style.sideHairLength ?? "short") !== "none") {
+    const shorterSide = longerSide === "left" ? "right" : "left";
+    const restore = (rect: Rect, x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return;
+      const index = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      for (let channel = 0; channel < 4; channel++) {
+        atlas.rgba[index + channel] = underHair[index + channel];
+      }
+    };
+    const restoreRect = (
+      rect: Rect,
+      x0: number,
+      y0: number,
+      width: number,
+      height: number,
+    ) => {
+      for (let y = y0; y < Math.min(rect.h, y0 + height); y++) {
+        for (let x = x0; x < Math.min(rect.w, x0 + width); x++) restore(rect, x, y);
+      }
+    };
+    const trimFrom =
+      style.sideHairLength === "shoulder"
+        ? 5
+        : style.sideHairLength === "jaw"
+          ? 5
+          : style.sideHairLength === "cheek"
+            ? 4
+            : 3;
+    const shortFrontX = shorterSide === "left" ? 0 : 6;
+    const shortSide = shorterSide === "left" ? over.right : over.left;
+    const shortBackX = shorterSide === "left" ? 6 : 0;
+    const shortTopX = shorterSide === "left" ? 0 : 5;
+    restoreRect(over.front, shortFrontX, trimFrom, 2, over.front.h - trimFrom);
+    restoreRect(shortSide, 0, trimFrom, shortSide.w, shortSide.h - trimFrom);
+    restoreRect(over.back, shortBackX, trimFrom, 2, over.back.h - trimFrom);
+    restoreRect(over.top, shortTopX, trimFrom, 3, over.top.h - trimFrom);
+
+    if (style.sideHairLength === "shoulder") {
+      const body = CLASSIC_LAYOUT.body.overlay;
+      const bodyFrontX = shorterSide === "left" ? 0 : body.front.w - 3;
+      const bodySide = shorterSide === "left" ? body.right : body.left;
+      const bodyBackX = shorterSide === "left" ? body.back.w - 3 : 0;
+      restoreRect(body.front, bodyFrontX, 3, 3, body.front.h - 3);
+      restoreRect(bodySide, 0, 3, bodySide.w, bodySide.h - 3);
+      restoreRect(body.back, bodyBackX, 3, 3, body.back.h - 3);
+      const arm = shorterSide === "left" ? CLASSIC_LAYOUT.rightArm.overlay : CLASSIC_LAYOUT.leftArm.overlay;
+      for (const rect of [arm.front, arm.back, arm.right, arm.left]) {
+        restoreRect(rect, 0, 3, rect.w, rect.h - 3);
+      }
+    }
   }
 
   const accessory = style.hairAccessory ?? "none";

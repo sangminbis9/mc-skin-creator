@@ -62,6 +62,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("crown and temple OUTER CONTOUR");
     expect(ANALYSIS_PROMPT).toContain("A smooth dome over staggered bangs is rounded");
     expect(ANALYSIS_PROMPT).toContain("sideHairShape");
+    expect(ANALYSIS_PROMPT).toContain("sideHairAsymmetry");
+    expect(ANALYSIS_PROMPT).toContain("not merely because head rotation hides one side");
     expect(ANALYSIS_PROMPT).toContain("ear_hugging");
     expect(ANALYSIS_PROMPT).toContain("earExposure");
     expect(ANALYSIS_PROMPT).toContain("keep left/right profiles coherent");
@@ -142,6 +144,7 @@ describe("validatePhotoAnalysis", () => {
     broken.renderHints.hairSilhouette = "generic" as never;
     broken.renderHints.hairBackShape = "generic" as never;
     broken.renderHints.sideHairShape = "random" as never;
+    broken.renderHints.sideHairAsymmetry = "both" as never;
     broken.renderHints.earExposure = "unknown" as never;
     const result = validatePhotoAnalysis(broken);
     expect(result.ok).toBe(false);
@@ -159,6 +162,7 @@ describe("validatePhotoAnalysis", () => {
       expect(result.errors.join()).toContain("renderHints.hairSilhouette");
       expect(result.errors.join()).toContain("renderHints.hairBackShape");
       expect(result.errors.join()).toContain("renderHints.sideHairShape");
+      expect(result.errors.join()).toContain("renderHints.sideHairAsymmetry");
       expect(result.errors.join()).toContain("renderHints.earExposure");
     }
   });

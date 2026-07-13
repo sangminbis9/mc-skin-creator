@@ -61,6 +61,7 @@ export function makeAnalysis(
       hairPart: "right",
       sideHairLength: "short",
       sideHairShape: "tapered",
+      sideHairAsymmetry: "none",
       earExposure: "partial",
       garmentTexture: "knit",
       outerLayer: "heavy",
