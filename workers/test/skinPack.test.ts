@@ -931,6 +931,39 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("fringeOpening cuts a real forehead gap through both base and outer hair layers", () => {
+    const shared: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight",
+      bangsLength: "brow",
+      bangsDensity: "dense",
+      fringeEdge: "blunt",
+      hairPart: "left",
+      hairSilhouette: "rounded",
+      sideHairLength: "short",
+    };
+    const closed = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      fringeOpening: "none",
+    })!.atlas;
+    const opened = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      fringeOpening: "left",
+    })!.atlas;
+    const base = CLASSIC_LAYOUT.head.base.front;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    expect(alphaAt(closed, over, 2, 2)).toBe(255);
+    expect(alphaAt(opened, over, 2, 2)).toBe(0);
+    expect(alphaAt(opened, over, 2, 3)).toBe(0);
+    expect(alphaAt(opened, over, 5, 2)).toBe(255);
+    expect(redAt(opened, base, 2, 2)).toBeGreaterThan(redAt(closed, base, 2, 2) + 80);
+
+    applyUvMask(opened);
+    expect(validateFinalAtlas(opened).ok).toBe(true);
+  });
+
   it("bangsLength=eye keeps long fringe around two visible iris windows", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -1960,6 +1993,33 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(arched, face, 6, 2)).toBeLessThan(redAt(slanted, face, 6, 2));
     expect(redAt(slanted, face, 1, 2)).toBeLessThan(redAt(arched, face, 1, 2));
     expect(redAt(slanted, face, 5, 2)).toBeLessThan(redAt(arched, face, 5, 2));
+  });
+
+  it("eyeTilt moves the outer eye corner above or below the level eye line", () => {
+    const shared: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      eyeShape: "almond",
+      eyeSpacing: "average",
+      eyebrowShape: "straight",
+      glasses: "none",
+    };
+    const level = packFrontViewToAtlas(makeFrontView(), { ...shared, eyeTilt: "level" })!.atlas;
+    const upturned = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeTilt: "upturned",
+    })!.atlas;
+    const downturned = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeTilt: "downturned",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+
+    expect(redAt(upturned, face, 1, 2)).toBeLessThan(redAt(level, face, 1, 2) - 60);
+    expect(redAt(downturned, face, 1, 5)).toBeLessThan(redAt(level, face, 1, 5) - 35);
+    expect(rgbaAt(upturned, face, 1, 3)).not.toEqual(rgbaAt(level, face, 1, 3));
+    expect(rgbaAt(downturned, face, 6, 5)).not.toEqual(rgbaAt(level, face, 6, 5));
   });
 
   it("mouthShape 힌트를 8x8 얼굴의 입 폭과 입술 색 차이로 남긴다", () => {

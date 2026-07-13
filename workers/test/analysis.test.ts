@@ -50,6 +50,9 @@ describe("validatePhotoAnalysis", () => {
   it("analysis prompt distinguishes fringe density and side-hair profile", () => {
     expect(ANALYSIS_PROMPT).toContain("bangsDensity");
     expect(ANALYSIS_PROMPT).toContain("fringeEdge");
+    expect(ANALYSIS_PROMPT).toContain("fringeOpening");
+    expect(ANALYSIS_PROMPT).toContain("independent from hairPart");
+    expect(ANALYSIS_PROMPT).toContain("eyeTilt");
     expect(ANALYSIS_PROMPT).toContain("solid rectangular bar");
     expect(ANALYSIS_PROMPT).toContain("visible scalp/root direction");
     expect(ANALYSIS_PROMPT).toContain("sideHairShape");
@@ -128,6 +131,8 @@ describe("validatePhotoAnalysis", () => {
     broken.renderHints.bangsLength = "forehead" as never;
     broken.renderHints.bangsDensity = "solid_block" as never;
     broken.renderHints.fringeEdge = "square" as never;
+    broken.renderHints.fringeOpening = "random" as never;
+    broken.renderHints.eyeTilt = "diagonal" as never;
     broken.renderHints.hairSilhouette = "generic" as never;
     broken.renderHints.hairBackShape = "generic" as never;
     broken.renderHints.sideHairShape = "random" as never;
@@ -143,6 +148,8 @@ describe("validatePhotoAnalysis", () => {
       expect(result.errors.join()).toContain("renderHints.bangsLength");
       expect(result.errors.join()).toContain("renderHints.bangsDensity");
       expect(result.errors.join()).toContain("renderHints.fringeEdge");
+      expect(result.errors.join()).toContain("renderHints.fringeOpening");
+      expect(result.errors.join()).toContain("renderHints.eyeTilt");
       expect(result.errors.join()).toContain("renderHints.hairSilhouette");
       expect(result.errors.join()).toContain("renderHints.hairBackShape");
       expect(result.errors.join()).toContain("renderHints.sideHairShape");

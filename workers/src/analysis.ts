@@ -36,6 +36,7 @@ export interface PixelRenderHints {
   faceShape: "round" | "oval" | "long" | "angular" | "square";
   eyeShape: "narrow" | "almond" | "round";
   eyeSpacing: "close" | "average" | "wide";
+  eyeTilt: "upturned" | "level" | "downturned";
   eyebrowShape: "straight" | "arched" | "slanted" | "soft";
   noseShape: "small" | "straight" | "rounded" | "prominent";
   mouthShape: "small" | "wide" | "full" | "thin";
@@ -44,6 +45,7 @@ export interface PixelRenderHints {
   bangsLength: "none" | "short" | "brow" | "eye";
   bangsDensity: "sparse" | "balanced" | "dense";
   fringeEdge: "blunt" | "staggered" | "wispy";
+  fringeOpening: "none" | "left" | "center" | "right";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
   hairVolume: "flat" | "normal" | "full";
   hairSilhouette: "rounded" | "flat" | "swept" | "tousled" | "spiky";
@@ -160,7 +162,8 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length/density/fringe edge, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry/spacing/tilt, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- eyeTilt describes the line between each eye's inner and outer corner: upturned when the outer corners sit visibly higher, level when nearly horizontal, or downturned when the outer corners sit visibly lower. Judge geometry, not expression.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
 - mouthShape means the visible mouth/lip impression: small/compact, wide, full/darker lips, or thin/subtle.
@@ -168,6 +171,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - bangsDensity describes how continuous the visible fringe is: sparse for separated wisps with substantial forehead gaps, balanced for clustered locks with several gaps, or dense for a bowl/blunt fringe with only a small staggered break. Do not infer a center part merely from a tiny separation between bang tips; hairPart requires a visible scalp/root direction.
 - fringeEdge describes only the lower outline of the fringe: blunt for a mostly level baseline, staggered for distinct locks ending at alternating heights, or wispy for thin separated tips. Even dense blunt bangs must retain the visible natural break instead of becoming a solid rectangular bar.
+- fringeOpening records the largest visible forehead gap between front-hair clusters from the viewer's perspective: left, center, right, or none. This is independent from hairPart: a bang-tip opening can exist without visible scalp/root parting. Prefer the actual dominant gap instead of forcing symmetry.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
@@ -235,6 +239,7 @@ Respond with ONLY a JSON object matching this shape:
     "faceShape": "round" | "oval" | "long" | "angular" | "square",
     "eyeShape": "narrow" | "almond" | "round",
     "eyeSpacing": "close" | "average" | "wide",
+    "eyeTilt": "upturned" | "level" | "downturned",
     "eyebrowShape": "straight" | "arched" | "slanted" | "soft",
     "noseShape": "small" | "straight" | "rounded" | "prominent",
     "mouthShape": "small" | "wide" | "full" | "thin",
@@ -243,6 +248,7 @@ Respond with ONLY a JSON object matching this shape:
     "bangsLength": "none" | "short" | "brow" | "eye",
     "bangsDensity": "sparse" | "balanced" | "dense",
     "fringeEdge": "blunt" | "staggered" | "wispy",
+    "fringeOpening": "none" | "left" | "center" | "right",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
     "hairVolume": "flat" | "normal" | "full",
     "hairSilhouette": "rounded" | "flat" | "swept" | "tousled" | "spiky",
@@ -377,6 +383,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
         eyeShape: { type: "string", enum: ["narrow", "almond", "round"] },
         eyeSpacing: { type: "string", enum: ["close", "average", "wide"] },
+        eyeTilt: { type: "string", enum: ["upturned", "level", "downturned"] },
         eyebrowShape: {
           type: "string",
           enum: ["straight", "arched", "slanted", "soft"],
@@ -408,6 +415,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         fringeEdge: {
           type: "string",
           enum: ["blunt", "staggered", "wispy"],
+        },
+        fringeOpening: {
+          type: "string",
+          enum: ["none", "left", "center", "right"],
         },
         hairTexture: {
           type: "string",
@@ -481,6 +492,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "faceShape",
         "eyeShape",
         "eyeSpacing",
+        "eyeTilt",
         "eyebrowShape",
         "noseShape",
         "mouthShape",
@@ -489,6 +501,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "bangsLength",
         "bangsDensity",
         "fringeEdge",
+        "fringeOpening",
         "hairTexture",
         "hairVolume",
         "hairSilhouette",
@@ -613,6 +626,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           faceShape: "oval",
           eyeShape: "almond",
           eyeSpacing: "average",
+          eyeTilt: "level",
           eyebrowShape: "straight",
           noseShape: "small",
           mouthShape: "small",
@@ -621,6 +635,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           bangsLength: "none",
           bangsDensity: "balanced",
           fringeEdge: "staggered",
+          fringeOpening: "none",
           hairTexture: "straight",
           hairVolume: "normal",
           hairSilhouette: "rounded",
@@ -797,6 +812,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       ["close", "average", "wide"],
       "average",
     ),
+    eyeTilt: enumValue(
+      "renderHints.eyeTilt",
+      hints.eyeTilt,
+      ["upturned", "level", "downturned"],
+      "level",
+    ),
     eyebrowShape: enumValue(
       "renderHints.eyebrowShape",
       hints.eyebrowShape,
@@ -844,6 +865,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.fringeEdge,
       ["blunt", "staggered", "wispy"],
       "staggered",
+    ),
+    fringeOpening: enumValue(
+      "renderHints.fringeOpening",
+      hints.fringeOpening,
+      ["none", "left", "center", "right"],
+      "none",
     ),
     hairTexture: enumValue(
       "renderHints.hairTexture",

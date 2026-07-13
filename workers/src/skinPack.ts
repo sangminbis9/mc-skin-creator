@@ -38,6 +38,7 @@ export interface FaceStyle {
   faceShape?: "round" | "oval" | "long" | "angular" | "square";
   eyeShape?: "narrow" | "almond" | "round";
   eyeSpacing?: "close" | "average" | "wide";
+  eyeTilt?: "upturned" | "level" | "downturned";
   eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
   noseShape?: "small" | "straight" | "rounded" | "prominent";
   mouthShape?: "small" | "wide" | "full" | "thin";
@@ -46,6 +47,7 @@ export interface FaceStyle {
   bangsLength?: "none" | "short" | "brow" | "eye";
   bangsDensity?: "sparse" | "balanced" | "dense";
   fringeEdge?: "blunt" | "staggered" | "wispy";
+  fringeOpening?: "none" | "left" | "center" | "right";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   hairVolume?: "flat" | "normal" | "full";
   hairSilhouette?: "rounded" | "flat" | "swept" | "tousled" | "spiky";
@@ -85,6 +87,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   faceShape: "oval",
   eyeShape: "almond",
   eyeSpacing: "average",
+  eyeTilt: "level",
   eyebrowShape: "straight",
   noseShape: "small",
   mouthShape: "small",
@@ -93,6 +96,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   bangsLength: "none",
   bangsDensity: "balanced",
   fringeEdge: "staggered",
+  fringeOpening: "none",
   hairTexture: "straight",
   hairVolume: "normal",
   hairSilhouette: "rounded",
@@ -493,6 +497,22 @@ function composeFace(
     hair(7, 2, 0.94);
   }
 
+  // Root parting and the visible opening between fringe clusters are separate
+  // cues. Re-open the dominant photographed gap on the base cube so clearing
+  // the matching outer-layer pixels below reveals forehead instead of another
+  // solid hair row.
+  const fringeOpening = style.fringeOpening ?? "none";
+  if (bangs !== "none" && fringeOpening !== "none") {
+    const gapXs =
+      fringeOpening === "center" && bangs === "curtain"
+        ? [3, 4]
+        : [fringeOpening === "left" ? 2 : fringeOpening === "right" ? 5 : 3];
+    for (const x of gapXs) {
+      put(face, x, 2, shadeRgb(skinColor, 1.01));
+      put(face, x, 3, shadeRgb(skinColor, 0.98));
+    }
+  }
+
   // 3) 눈썹·눈·코·입: 1픽셀 검은 사각형으로 끝나지 않도록 작은 색 군집을 만든다.
   const browColor = shadeRgb(hairColor, 0.8);
   const eye = hexToRgb(style.eyeColor, [74, 55, 40]);
@@ -510,15 +530,21 @@ function composeFace(
     bangs !== "none" &&
     (style.bangsLength === "brow" || style.bangsLength === "eye");
   const eyebrowShape = style.eyebrowShape ?? "straight";
+  const eyeTilt = style.eyeTilt ?? "level";
   for (const [outer, inner] of eyePairs) {
-    put(face, outer, 3, browOccludedByFringe ? mixRgb(brow, skinColor, 0.72) : brow);
+    const outerBrowY = eyeTilt === "upturned" ? 2 : 3;
+    put(face, outer, outerBrowY, browOccludedByFringe ? mixRgb(brow, skinColor, 0.72) : brow);
     put(face, inner, 3, browOccludedByFringe ? mixRgb(brow, skinColor, 0.58) : brow);
     const sclera = mixRgb(
       skinColor,
       [238, 232, 222],
       style.eyeShape === "round" ? 0.36 : style.eyeShape === "narrow" ? 0.12 : 0.18,
     );
-    put(face, outer, 4, sclera);
+    const outerEyeY = eyeTilt === "upturned" ? 3 : eyeTilt === "downturned" ? 5 : 4;
+    if (outerEyeY !== 4) {
+      put(face, outer, 4, shadeRgb(skinColor, 0.98));
+    }
+    put(face, outer, outerEyeY, eyeTilt === "level" ? sclera : mixRgb(sclera, eye, 0.42));
     put(face, inner, 4, eye);
     if (style.eyeShape === "round") {
       put(face, inner, 5, shadeRgb(eye, 0.78));
@@ -2135,6 +2161,24 @@ function composeHair(
     putColor(over.back, 0, lowerTipRow, shadeRgb(rightLower, 0.72));
     putColor(over.top, 1, Math.min(7, lowerTipRow + 1), shadeRgb(leftLowerInner, 0.92));
     putColor(over.top, 6, Math.min(7, lowerTipRow + 1), shadeRgb(rightLowerInner, 0.92));
+    }
+  }
+
+  // Preserve the photographed break between fringe clusters on the second
+  // layer as well. The base face already carries matching forehead pixels;
+  // these transparent cells therefore read as a real opening with depth,
+  // rather than a differently coloured stripe painted on top of the hair.
+  const visibleFringeOpening = style.fringeOpening ?? "none";
+  if (style.bangs !== "none" && visibleFringeOpening !== "none") {
+    const gapXs =
+      visibleFringeOpening === "center" && style.bangs === "curtain"
+        ? [3, 4]
+        : [visibleFringeOpening === "left" ? 2 : visibleFringeOpening === "right" ? 5 : 3];
+    for (const x of gapXs) {
+      clearPixel(over.front, x, 2);
+      if (bangsLength === "brow" || bangsLength === "eye") {
+        clearPixel(over.front, x, 3);
+      }
     }
   }
 
