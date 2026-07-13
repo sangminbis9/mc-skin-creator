@@ -481,10 +481,13 @@ function composeFace(
     style.eyebrowThickness === "thin"
       ? mixRgb(browColor, skinColor, 0.38)
       : browColor;
+  const browOccludedByFringe =
+    bangs !== "none" &&
+    (style.bangsLength === "brow" || style.bangsLength === "eye");
   const eyebrowShape = style.eyebrowShape ?? "straight";
   for (const [outer, inner] of eyePairs) {
-    put(face, outer, 3, brow);
-    put(face, inner, 3, brow);
+    put(face, outer, 3, browOccludedByFringe ? mixRgb(brow, skinColor, 0.72) : brow);
+    put(face, inner, 3, browOccludedByFringe ? mixRgb(brow, skinColor, 0.58) : brow);
     const sclera = mixRgb(
       skinColor,
       [238, 232, 222],
@@ -887,15 +890,15 @@ function hairVolumePixel(color: Rgb, gx: number, gy: number): Rgb {
   const hash = ((gx * 83492791) ^ (gy * 2971215073)) >>> 0;
   switch (hash % 7) {
     case 0:
-      return mixRgb(shadeRgb(color, 0.76), [0, 0, 0], 0.12);
+      return mixRgb(shadeRgb(color, 0.84), [0, 0, 0], 0.06);
     case 1:
     case 2:
-      return shadeRgb(color, 0.9);
+      return shadeRgb(color, 0.94);
     case 3:
     case 4:
-      return mixRgb(color, [112, 104, 98], 0.09);
+      return mixRgb(color, [112, 104, 98], 0.05);
     default:
-      return mixRgb(color, [132, 122, 114], 0.17);
+      return mixRgb(color, [132, 122, 114], 0.09);
   }
 }
 

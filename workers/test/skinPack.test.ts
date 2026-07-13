@@ -836,6 +836,7 @@ describe("packFrontViewToAtlas", () => {
       sideHairLength: "short",
     })!.atlas;
     const over = CLASSIC_LAYOUT.head.overlay.front;
+    const base = CLASSIC_LAYOUT.head.base.front;
 
     for (const x of [0, 2, 3, 6, 7]) {
       expect(alphaAt(atlas, over, x, 3)).toBe(255);
@@ -843,6 +844,7 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over, 4, 3)).toBe(0);
     expect(alphaAt(atlas, over, 5, 3)).toBe(0);
     expect(redAt(atlas, over, 2, 3)).not.toBe(redAt(atlas, over, 3, 3));
+    expect(redAt(atlas, base, 5, 3)).toBeGreaterThan(redAt(atlas, over, 6, 3) + 50);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
