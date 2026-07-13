@@ -2049,6 +2049,36 @@ describe("packFrontViewToAtlas", () => {
     expect(rgbaAt(downturned, face, 6, 5)).not.toEqual(rgbaAt(level, face, 6, 5));
   });
 
+  it("upturned eye corners stay visible through a dense brow-length outer fringe", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight",
+      bangsLength: "brow",
+      bangsDensity: "dense",
+      fringeEdge: "blunt",
+      fringeOpening: "none",
+      eyeShape: "almond",
+      eyeSpacing: "average",
+      eyeTilt: "upturned",
+      glasses: "none",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    for (const outer of [1, 6]) {
+      expect(alphaAt(atlas, over, outer, 3)).toBe(0);
+      expect(redAt(atlas, face, outer, 3)).toBeLessThan(redAt(atlas, face, 3, 4) - 45);
+    }
+    for (const inner of [2, 5]) {
+      expect(alphaAt(atlas, over, inner, 4)).toBe(0);
+    }
+    expect(alphaAt(atlas, over, 3, 3)).toBe(255);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("mouthShape 힌트를 8x8 얼굴의 입 폭과 입술 색 차이로 남긴다", () => {
     const baseStyle = {
       ...DEFAULT_FACE_STYLE,

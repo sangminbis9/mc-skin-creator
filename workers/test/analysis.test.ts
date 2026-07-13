@@ -55,6 +55,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("eyeTilt");
     expect(ANALYSIS_PROMPT).toContain("solid rectangular bar");
     expect(ANALYSIS_PROMPT).toContain("visible scalp/root direction");
+    expect(ANALYSIS_PROMPT).toContain("crown and temple OUTER CONTOUR");
+    expect(ANALYSIS_PROMPT).toContain("A smooth dome over staggered bangs is rounded");
     expect(ANALYSIS_PROMPT).toContain("sideHairShape");
     expect(ANALYSIS_PROMPT).toContain("ear_hugging");
     expect(ANALYSIS_PROMPT).toContain("earExposure");

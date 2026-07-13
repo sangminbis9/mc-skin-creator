@@ -892,16 +892,26 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
         ? ([[1, 2], [5, 4]] as const)
         : ([[1, 2], [6, 5]] as const);
 
+  const clearOverlayPixel = (x: number, y: number) => {
+    const d = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+    atlas.rgba[d] = 0;
+    atlas.rgba[d + 1] = 0;
+    atlas.rgba[d + 2] = 0;
+    atlas.rgba[d + 3] = 0;
+  };
+
   // Reveal both the sclera/corner and the iris. Clearing only the iris pixel
   // left an opaque, near-black outer-layer corner beside it; at normal preview
-  // scale that merged with the fringe and made the face look eyeless.
-  for (const pair of eyePairs) {
-    for (const x of pair) {
-      const d = ((overlay.y + 4) * ATLAS_SIZE + overlay.x + x) * 4;
-      atlas.rgba[d] = 0;
-      atlas.rgba[d + 1] = 0;
-      atlas.rgba[d + 2] = 0;
-      atlas.rgba[d + 3] = 0;
+  // scale that merged with the fringe and made the face look eyeless. A tilted
+  // eye moves its outer corner off row 4, so open that exact row as well.
+  const outerEyeY =
+    style.eyeTilt === "upturned" ? 3 : style.eyeTilt === "downturned" ? 5 : 4;
+  for (const [outer, inner] of eyePairs) {
+    for (const x of [outer, inner]) {
+      clearOverlayPixel(x, 4);
+    }
+    if (outerEyeY !== 4) {
+      clearOverlayPixel(outer, outerEyeY);
     }
   }
 }
