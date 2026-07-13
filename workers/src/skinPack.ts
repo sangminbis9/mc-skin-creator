@@ -369,6 +369,85 @@ function fillRectSolid(
   }
 }
 
+function averageAtlasRect(
+  atlas: RawImage,
+  rect: Rect,
+  y0 = 0,
+  y1 = rect.h,
+): Rgb {
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let count = 0;
+  for (let y = Math.max(0, y0); y < Math.min(rect.h, y1); y++) {
+    for (let x = 0; x < rect.w; x++) {
+      const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      if (atlas.rgba[d + 3] < 128) continue;
+      r += atlas.rgba[d];
+      g += atlas.rgba[d + 1];
+      b += atlas.rgba[d + 2];
+      count++;
+    }
+  }
+  return count === 0
+    ? [0, 0, 0]
+    : [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
+}
+
+function chroma(rgb: Rgb): Rgb {
+  const luminance = rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114;
+  return [rgb[0] - luminance, rgb[1] - luminance, rgb[2] - luminance];
+}
+
+/**
+ * A generated back view can reinterpret a neutral front garment as blue,
+ * green or brown. Keep the back-view folds and luminance, but align its
+ * chroma with the observed front and the analysed garment colour so cube
+ * seams do not split one piece of clothing into unrelated palettes.
+ */
+function harmonizeGarmentChroma(
+  atlas: RawImage,
+  target: Rect,
+  reference: Rect,
+  declaredColor: Rgb | null,
+  applyRows = target.h,
+): void {
+  const sampleStart = Math.min(2, Math.max(0, applyRows - 1));
+  const sampleEnd = Math.max(sampleStart + 1, Math.min(applyRows, target.h - 2));
+  const sourceAverage = averageAtlasRect(atlas, target, sampleStart, sampleEnd);
+  const observedAverage = averageAtlasRect(
+    atlas,
+    reference,
+    sampleStart,
+    sampleEnd,
+  );
+  const desiredAverage = declaredColor
+    ? mixRgb(observedAverage, declaredColor, 0.35)
+    : observedAverage;
+  const sourceChroma = chroma(sourceAverage);
+  const desiredChroma = chroma(desiredAverage);
+  const delta = sourceChroma.map((value, channel) =>
+    Math.max(
+      -72,
+      Math.min(72, (desiredChroma[channel] - value) * 0.88),
+    ),
+  );
+  if (delta.reduce((sum, value) => sum + Math.abs(value), 0) < 14) return;
+
+  for (let y = 0; y < Math.min(applyRows, target.h); y++) {
+    for (let x = 0; x < target.w; x++) {
+      const d = ((target.y + y) * ATLAS_SIZE + target.x + x) * 4;
+      if (atlas.rgba[d + 3] < 128) continue;
+      for (let channel = 0; channel < 3; channel++) {
+        atlas.rgba[d + channel] = Math.max(
+          0,
+          Math.min(255, Math.round(atlas.rgba[d + channel] + delta[channel])),
+        );
+      }
+    }
+  }
+}
+
 /**
  * front 면을 채운 뒤 옆/위/아래 면을 파생:
  * 옆면 = front 가장자리 열 확장, 위/아래 = 지정색.
@@ -5199,6 +5278,14 @@ export function packFrontViewToAtlas(
   completeSides(atlas, body.base, torsoTopColor, torsoTopColor);
   if (back) {
     fillRectFromRegion(atlas, body.base.back, src, back.body, bg);
+    harmonizeGarmentChroma(
+      atlas,
+      body.base.back,
+      body.base.front,
+      faceStyle.topColor
+        ? hexToRgb(faceStyle.topColor, torsoTopColor)
+        : null,
+    );
   } else {
     fillRectFromRect(atlas, body.base.back, body.base.front, 0.78, true);
   }
@@ -5231,6 +5318,17 @@ export function packFrontViewToAtlas(
     completeSides(atlas, box, sleeveColor, skinColor); // 아래면 = 손 (피부색)
     if (backRegion) {
       fillRectFromRegion(atlas, box.back, src, backRegion, bg);
+      const sleeveRows =
+        faceStyle.sleeveLength === "long"
+          ? box.back.h - 1
+          : Math.min(5, box.back.h);
+      harmonizeGarmentChroma(
+        atlas,
+        box.back,
+        box.front,
+        faceStyle.topColor ? hexToRgb(faceStyle.topColor, sleeveColor) : null,
+        sleeveRows,
+      );
     } else {
       fillRectFromRect(atlas, box.back, box.front, 0.78, true);
     }

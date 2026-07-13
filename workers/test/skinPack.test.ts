@@ -431,6 +431,53 @@ describe("packFrontViewToAtlas", () => {
     expect(back[0]).toBeLessThan(80);
   });
 
+  it("harmonizes generated back-view garment hue with the observed front", () => {
+    const source = makeFrontBackView();
+    const paint = (
+      x0: number,
+      y0: number,
+      x1: number,
+      y1: number,
+      color: [number, number, number],
+    ) => {
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          source.rgba.set([...color, 255], (y * source.width + x) * 4);
+        }
+      }
+    };
+    // Same neutral sweater was reinterpreted as saturated navy in the back view.
+    paint(136, 180, 376, 330, [55, 55, 55]);
+    paint(512 + 136, 180, 512 + 376, 330, [30, 55, 95]);
+
+    const atlas = packFrontViewToAtlas(source, {
+      ...DEFAULT_FACE_STYLE,
+      topColor: "#373737",
+      topType: "sweater",
+      sleeveLength: "long",
+      outerLayer: "heavy",
+    })!.atlas;
+    const front = avgOfRect(atlas, CLASSIC_LAYOUT.body.base.front);
+    const back = avgOfRect(atlas, CLASSIC_LAYOUT.body.base.back);
+    const side = avgOfRect(atlas, CLASSIC_LAYOUT.body.base.right);
+    const armBack = avgOfRect(atlas, {
+      ...CLASSIC_LAYOUT.rightArm.base.back,
+      h: CLASSIC_LAYOUT.rightArm.base.back.h - 2,
+    });
+    const channelSpread = (color: number[]) =>
+      Math.max(...color) - Math.min(...color);
+    const distance = (a: number[], b: number[]) =>
+      a.reduce((sum, value, channel) => sum + Math.abs(value - b[channel]), 0);
+
+    expect(channelSpread(back)).toBeLessThan(24);
+    expect(channelSpread(armBack)).toBeLessThan(28);
+    expect(distance(front, back)).toBeLessThan(45);
+    expect(distance(side, back)).toBeLessThan(48);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("분석 힌트로 앞머리·니트·목걸이·소매를 overlay에 분리한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
