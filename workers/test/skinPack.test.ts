@@ -850,6 +850,43 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("dense bowl fringe and ear-hugging short sides form a coherent stepped profile", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight",
+      bangsLength: "brow",
+      bangsDensity: "dense",
+      hairPart: "center",
+      hairSilhouette: "rounded",
+      hairBackShape: "tapered",
+      sideHairLength: "short",
+      sideHairShape: "ear_hugging",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head;
+
+    for (const x of [0, 1, 2, 3, 5, 6, 7]) {
+      expect(alphaAt(atlas, head.overlay.front, x, 3)).toBe(255);
+    }
+    expect(alphaAt(atlas, head.overlay.front, 4, 3)).toBe(0);
+    for (const rect of [head.overlay.right, head.overlay.left]) {
+      for (const x of [0, 1, 6, 7]) expect(alphaAt(atlas, rect, x, 4)).toBe(255);
+      for (const x of [2, 3, 4, 5]) expect(alphaAt(atlas, rect, x, 4)).toBe(0);
+      expect(alphaAt(atlas, rect, 0, 5)).toBe(255);
+      expect(alphaAt(atlas, rect, 7, 5)).toBe(255);
+      expect(alphaAt(atlas, rect, 3, 5)).toBe(0);
+    }
+    expect(redAt(atlas, head.base.right, 3, 3)).toBeGreaterThan(
+      redAt(atlas, head.base.right, 2, 3) + 50,
+    );
+    expect(redAt(atlas, head.base.left, 4, 3)).toBeGreaterThan(
+      redAt(atlas, head.base.left, 5, 3) + 50,
+    );
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("bangsLength=eye keeps long fringe around two visible iris windows", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -1286,6 +1323,21 @@ describe("packFrontViewToAtlas", () => {
         Math.abs(corner[1] - interior[1]) +
         Math.abs(corner[2] - interior[2]);
       expect(distance).toBeLessThan(35);
+    }
+    for (const arm of [CLASSIC_LAYOUT.rightArm, CLASSIC_LAYOUT.leftArm]) {
+      const garment = colorAt(arm.base.front, 1, 3);
+      for (const top of [arm.base.top, arm.overlay.top]) {
+        for (let y = 0; y < top.h; y++) {
+          for (let x = 0; x < top.w; x++) {
+            const pixel = colorAt(top, x, y);
+            const distance = Math.abs(pixel[0] - garment[0]) +
+              Math.abs(pixel[1] - garment[1]) +
+              Math.abs(pixel[2] - garment[2]);
+            expect(distance).toBeLessThan(180);
+            expect(pixel[2]).toBeLessThan(pixel[0]);
+          }
+        }
+      }
     }
 
     applyUvMask(atlas);

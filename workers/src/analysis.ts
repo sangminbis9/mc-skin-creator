@@ -42,12 +42,14 @@ export interface PixelRenderHints {
   jawShape: "rounded" | "pointed" | "square" | "soft";
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength: "none" | "short" | "brow" | "eye";
+  bangsDensity: "sparse" | "balanced" | "dense";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
   hairVolume: "flat" | "normal" | "full";
   hairSilhouette: "rounded" | "flat" | "swept" | "tousled" | "spiky";
   hairBackShape: "tapered" | "rounded" | "long" | "tied" | "undercut";
   hairPart: "none" | "center" | "left" | "right";
   sideHairLength: "none" | "short" | "cheek" | "jaw" | "shoulder";
+  sideHairShape: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
   garmentTexture:
     | "plain"
     | "knit"
@@ -138,6 +140,7 @@ If multiple people appear, analyze only the most prominent/central person.
 STEP 2 — framing: how much of the person is visible: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
 
 STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logos.
+- For observed.hair, explicitly describe root/scalp part visibility, fringe density and gaps, left and right temple contours, whether either ear is exposed or framed, side-hair taper/flare, and the visible transition toward the nape. Do not summarize all short hair as a bowl cut or all side hair as merely "short".
 - If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans; describe skorts, pleated shorts or skirt-like culottes as skirt-like for low-resolution rendering), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs/knee-high or over-knee socks), legwear asymmetry from the viewer's perspective, and shoe type/color.
 - Preserve side-specific details using viewer-left/viewer-right wording for one-sided flowers, bows, leg warmers, thigh bows, side stripes, straps or shoe details.
 - When a one-sided accessory or legwear exists, repeat the exact side in observed/inferred text and in renderHints/structured fields. Do not summarize it as simply "asymmetric".
@@ -155,16 +158,18 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length/density, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, garment texture, outer-layer thickness, and necklace.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
 - mouthShape means the visible mouth/lip impression: small/compact, wide, full/darker lips, or thin/subtle.
 - jawShape means the visible lower-face contour: rounded/full jaw, pointed/narrow chin, square/strong jaw corners, or soft/low-contrast jaw.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
+- bangsDensity describes how continuous the visible fringe is: sparse for separated wisps with substantial forehead gaps, balanced for clustered locks with several gaps, or dense for a bowl/blunt fringe with only a small staggered break. Do not infer a center part merely from a tiny separation between bang tips; hairPart requires a visible scalp/root direction.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
+- sideHairShape describes the side profile around the temple and ear: tapered narrows cleanly toward the ear, ear_hugging wraps around and partly frames the ear, face_framing forms longer front locks, flared pushes outward with visible volume, and undercut is close/shaved below the top. Infer it from both visible sides and keep left/right profiles coherent unless the photo clearly shows an asymmetric cut.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
 - hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center.
 - neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue.
@@ -232,12 +237,14 @@ Respond with ONLY a JSON object matching this shape:
     "jawShape": "rounded" | "pointed" | "square" | "soft",
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
     "bangsLength": "none" | "short" | "brow" | "eye",
+    "bangsDensity": "sparse" | "balanced" | "dense",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
     "hairVolume": "flat" | "normal" | "full",
     "hairSilhouette": "rounded" | "flat" | "swept" | "tousled" | "spiky",
     "hairBackShape": "tapered" | "rounded" | "long" | "tied" | "undercut",
     "hairPart": "none" | "center" | "left" | "right",
     "sideHairLength": "none" | "short" | "cheek" | "jaw" | "shoulder",
+    "sideHairShape": "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut",
     "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
     "outerLayer": "none" | "light" | "heavy",
     "outerGarment": "none" | "cardigan" | "open_jacket" | "coat" | "vest",
@@ -388,6 +395,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["none", "short", "brow", "eye"],
         },
+        bangsDensity: {
+          type: "string",
+          enum: ["sparse", "balanced", "dense"],
+        },
         hairTexture: {
           type: "string",
           enum: ["straight", "wavy", "curly", "coily"],
@@ -408,6 +419,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         sideHairLength: {
           type: "string",
           enum: ["none", "short", "cheek", "jaw", "shoulder"],
+        },
+        sideHairShape: {
+          type: "string",
+          enum: ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
         },
         garmentTexture: {
           type: "string",
@@ -458,12 +473,14 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "jawShape",
         "bangs",
         "bangsLength",
+        "bangsDensity",
         "hairTexture",
         "hairVolume",
         "hairSilhouette",
         "hairBackShape",
         "hairPart",
         "sideHairLength",
+        "sideHairShape",
         "garmentTexture",
         "outerLayer",
         "outerGarment",
@@ -586,12 +603,14 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           jawShape: "soft",
           bangs: "none",
           bangsLength: "none",
+          bangsDensity: "balanced",
           hairTexture: "straight",
           hairVolume: "normal",
           hairSilhouette: "rounded",
           hairBackShape: "tapered",
           hairPart: "none",
           sideHairLength: "short",
+          sideHairShape: "tapered",
           garmentTexture: "plain",
           outerLayer: "none",
           outerGarment: "none",
@@ -796,6 +815,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       ["none", "short", "brow", "eye"],
       "none",
     ),
+    bangsDensity: enumValue(
+      "renderHints.bangsDensity",
+      hints.bangsDensity,
+      ["sparse", "balanced", "dense"],
+      "balanced",
+    ),
     hairTexture: enumValue(
       "renderHints.hairTexture",
       hints.hairTexture,
@@ -831,6 +856,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.sideHairLength,
       ["none", "short", "cheek", "jaw", "shoulder"],
       "short",
+    ),
+    sideHairShape: enumValue(
+      "renderHints.sideHairShape",
+      hints.sideHairShape,
+      ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
+      "tapered",
     ),
     garmentTexture: enumValue(
       "renderHints.garmentTexture",

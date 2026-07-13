@@ -47,6 +47,14 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("repeat that side in outfitPrompt");
   });
 
+  it("analysis prompt distinguishes fringe density and side-hair profile", () => {
+    expect(ANALYSIS_PROMPT).toContain("bangsDensity");
+    expect(ANALYSIS_PROMPT).toContain("visible scalp/root direction");
+    expect(ANALYSIS_PROMPT).toContain("sideHairShape");
+    expect(ANALYSIS_PROMPT).toContain("ear_hugging");
+    expect(ANALYSIS_PROMPT).toContain("keep left/right profiles coherent");
+  });
+
   it("유효한 분석은 통과한다", () => {
     const result = validatePhotoAnalysis(makeAnalysis());
     expect(result.ok).toBe(true);
@@ -115,8 +123,10 @@ describe("validatePhotoAnalysis", () => {
     broken.renderHints.jawShape = "blocky" as never;
     broken.renderHints.bangs = "generic" as never;
     broken.renderHints.bangsLength = "forehead" as never;
+    broken.renderHints.bangsDensity = "solid_block" as never;
     broken.renderHints.hairSilhouette = "generic" as never;
     broken.renderHints.hairBackShape = "generic" as never;
+    broken.renderHints.sideHairShape = "random" as never;
     const result = validatePhotoAnalysis(broken);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -126,8 +136,10 @@ describe("validatePhotoAnalysis", () => {
       expect(result.errors.join()).toContain("renderHints.jawShape");
       expect(result.errors.join()).toContain("renderHints.bangs");
       expect(result.errors.join()).toContain("renderHints.bangsLength");
+      expect(result.errors.join()).toContain("renderHints.bangsDensity");
       expect(result.errors.join()).toContain("renderHints.hairSilhouette");
       expect(result.errors.join()).toContain("renderHints.hairBackShape");
+      expect(result.errors.join()).toContain("renderHints.sideHairShape");
     }
   });
 

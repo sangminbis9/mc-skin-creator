@@ -44,12 +44,14 @@ export interface FaceStyle {
   jawShape?: "rounded" | "pointed" | "square" | "soft";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
+  bangsDensity?: "sparse" | "balanced" | "dense";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   hairVolume?: "flat" | "normal" | "full";
   hairSilhouette?: "rounded" | "flat" | "swept" | "tousled" | "spiky";
   hairBackShape?: "tapered" | "rounded" | "long" | "tied" | "undercut";
   hairPart?: "none" | "center" | "left" | "right";
   sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
+  sideHairShape?: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
   garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
   outerLayer?: "none" | "light" | "heavy";
   outerGarment?: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
@@ -85,12 +87,14 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   jawShape: "soft",
   bangs: "none",
   bangsLength: "none",
+  bangsDensity: "balanced",
   hairTexture: "straight",
   hairVolume: "normal",
   hairSilhouette: "rounded",
   hairBackShape: "tapered",
   hairPart: "none",
   sideHairLength: "short",
+  sideHairShape: "tapered",
   garmentTexture: "plain",
   outerLayer: "none",
   outerGarment: "none",
@@ -441,16 +445,26 @@ function composeFace(
     for (let x = 0; x < 8; x++) hair(x, 1, x === 0 || x === 7 ? 0.92 : 1);
   }
   const bangs = style.bangs ?? "none";
+  const bangsDensity = style.bangsDensity ?? "balanced";
   // A centre-parted straight fringe is not a solid horizontal helmet edge.
   // Keep the centre forehead open while retaining denser locks on both sides.
   // This is common in short bowl/two-block cuts and remains useful for any
   // centre-parted portrait rather than keying off a particular subject.
-  const splitCenterFringe = bangs === "straight" && style.hairPart === "center";
+  const splitCenterFringe =
+    bangs === "straight" && style.hairPart === "center" && bangsDensity !== "dense";
   if (bangs === "straight") {
     for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) {
       hair(x, 2);
     }
-    for (const x of splitCenterFringe ? [0, 1, 6, 7] : [0, 2, 5, 7]) {
+    const baseTipXs =
+      bangsDensity === "dense"
+        ? [0, 1, 2, 3, 5, 6, 7]
+        : bangsDensity === "sparse"
+          ? [0, 3, 7]
+          : splitCenterFringe
+            ? [0, 1, 6, 7]
+            : [0, 2, 5, 7];
+    for (const x of baseTipXs) {
       hair(x, 3, 0.96);
     }
   } else if (bangs === "side") {
@@ -930,6 +944,14 @@ function composeHair(
     s === "short" &&
     style.hairSilhouette === "rounded" &&
     (style.bangsLength === "brow" || style.bangsLength === "eye");
+  const bangsDensity = style.bangsDensity ?? "balanced";
+  const sideHairShape =
+    style.sideHairShape ??
+    (style.hairBackShape === "undercut"
+      ? "undercut"
+      : s === "short" && style.hairSilhouette === "rounded"
+        ? "ear_hugging"
+        : "tapered");
   const textured =
     s === "curly" ||
     s === "afro" ||
@@ -1051,11 +1073,14 @@ function composeHair(
   if (roundedFringeCut) {
     fill(base.right, 0, 0, 8, Math.max(0, sideRows - 1));
     fill(base.left, 0, 0, 8, Math.max(0, sideRows - 1));
-    for (const x of [0, 1, 6, 7]) {
+    const lowerHairXs =
+      sideHairShape === "ear_hugging" ? [0, 1, 2, 5, 6, 7] : [0, 1, 6, 7];
+    const lowerSkinXs = sideHairShape === "ear_hugging" ? [3, 4] : [2, 3, 4, 5];
+    for (const x of lowerHairXs) {
       fill(base.right, x, sideRows - 1, 1, 1);
       fill(base.left, x, sideRows - 1, 1, 1);
     }
-    for (const x of [2, 3, 4, 5]) {
+    for (const x of lowerSkinXs) {
       putColor(base.right, x, sideRows - 1, shadeRgb(skinColor, x < 4 ? 0.9 : 0.87));
       putColor(base.left, x, sideRows - 1, shadeRgb(skinColor, x < 4 ? 0.87 : 0.9));
     }
@@ -1840,7 +1865,8 @@ function composeHair(
     putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
     putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
   };
-  const splitCenterFringe = style.bangs === "straight" && hairPart === "center";
+  const splitCenterFringe =
+    style.bangs === "straight" && hairPart === "center" && bangsDensity !== "dense";
   const partedStraightFringe = style.bangs === "straight" && hairPart !== "none";
   if (style.bangs === "straight") {
     for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
@@ -1886,7 +1912,17 @@ function composeHair(
   if (bangsLength === "brow" || bangsLength === "eye") {
     if (style.bangs === "straight") {
       const straightTipXs =
-        hairPart === "left"
+        bangsDensity === "dense"
+          ? hairPart === "left"
+            ? [0, 1, 2, 3, 4, 6, 7]
+            : hairPart === "right"
+              ? [0, 1, 3, 4, 5, 6, 7]
+              : [0, 1, 2, 3, 5, 6, 7]
+          : bangsDensity === "sparse"
+            ? hairPart === "right"
+              ? [1, 5, 7]
+              : [0, 2, 6]
+            : hairPart === "left"
           ? [0, 2, 3, 6]
           : hairPart === "right"
             ? [1, 4, 5, 7]
@@ -1928,6 +1964,44 @@ function composeHair(
     s !== "afro" &&
     style.hairTexture !== "coily"
   ) {
+    if (sideHairShape === "ear_hugging") {
+      const profileRows = [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 1, 2, 5, 6, 7],
+        [0, 1, 6, 7],
+        [0, 7],
+      ] as const;
+      for (const [rect, phase] of [
+        [over.right, 0],
+        [over.left, 1],
+      ] as const) {
+        for (let row = 0; row < profileRows.length; row++) {
+          const y = row + 1;
+          for (const x of profileRows[row]) {
+            putColor(
+              rect,
+              x,
+              y,
+              shadeRgb(bangTone(x, y), row >= 3 ? 0.58 : (x + row + phase) % 3 === 0 ? 0.78 : 0.9),
+            );
+          }
+        }
+      }
+      for (let y = 2; y <= 5; y++) {
+        const tipShade = y >= 4 ? 0.58 : y === 3 ? 0.74 : 0.9;
+        const left = shadeRgb(bangTone(0, y), tipShade);
+        const right = shadeRgb(bangTone(7, y), tipShade);
+        putColor(over.front, 0, y, left);
+        putColor(over.front, 7, y, right);
+        putColor(over.right, 0, y, left);
+        putColor(over.left, 7, y, right);
+        if (y <= 4) {
+          putColor(over.back, 7, y, shadeRgb(left, 0.76));
+          putColor(over.back, 0, y, shadeRgb(right, 0.76));
+        }
+      }
+    } else {
     const lastTempleRow = bangsLength === "eye" ? 5 : 4;
     for (let y = 2; y <= lastTempleRow; y++) {
       const tip = y === lastTempleRow;
@@ -1980,6 +2054,7 @@ function composeHair(
     putColor(over.back, 0, lowerTipRow, shadeRgb(rightLower, 0.72));
     putColor(over.top, 1, Math.min(7, lowerTipRow + 1), shadeRgb(leftLowerInner, 0.92));
     putColor(over.top, 6, Math.min(7, lowerTipRow + 1), shadeRgb(rightLowerInner, 0.92));
+    }
   }
 
   if (s === "afro" || s === "curly" || style.hairTexture === "coily") {
@@ -2332,6 +2407,47 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const layer = style.outerLayer ?? "none";
   const topType = style.topType ?? "tshirt";
   const outerGarment = style.outerGarment ?? "none";
+  const layeredTop =
+    layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType);
+  const paintGarmentTop = (
+    baseTop: Rect,
+    overlayTop: Rect,
+    garmentColor: Rgb,
+    raised: boolean,
+  ) => {
+    for (let y = 0; y < baseTop.h; y++) {
+      for (let x = 0; x < baseTop.w; x++) {
+        const edge = x === 0 || x === baseTop.w - 1 || y === 0;
+        const fold = (x + y) % 3 === 0;
+        put(baseTop, x, y, shadeRgb(garmentColor, edge ? 0.86 : fold ? 1.04 : 0.96));
+      }
+    }
+    if (!raised) return;
+    for (let y = 0; y < overlayTop.h; y++) {
+      for (let x = 0; x < overlayTop.w; x++) {
+        const edge = x === 0 || x === overlayTop.w - 1 || y === 0;
+        const fold = (x + y) % 3 === 0;
+        put(overlayTop, x, y, shadeRgb(garmentColor, edge ? 0.76 : fold ? 1.06 : 0.92));
+      }
+    }
+  };
+  const bodyShoulderColor = mixRgb(
+    averageRect(baseFront, 2, 5),
+    averageRect(baseBack, 2, 5),
+    0.34,
+  );
+  paintGarmentTop(body.base.top, body.overlay.top, bodyShoulderColor, layeredTop);
+  if (style.sleeveLength !== "sleeveless") {
+    for (const part of ["rightArm", "leftArm"] as const) {
+      const arm = CLASSIC_LAYOUT[part];
+      const sleeveColor = mixRgb(
+        averageRect(arm.base.front, 2, 5),
+        averageRect(arm.base.back, 2, 5),
+        0.3,
+      );
+      paintGarmentTop(arm.base.top, arm.overlay.top, sleeveColor, layeredTop);
+    }
+  }
 
   // 카라/목선: 가벼운 상의도 실제 옷 두께를 느낄 수 있는 최소 레이어.
   for (const [x, y] of [
@@ -3426,7 +3542,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   // Break the perfectly rectangular outer torso at all four shoulder
   // corners. The base layer remains intact, while the raised garment layer
   // steps inward for one row and reads as fabric drape instead of a rigid box.
-  if (layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType)) {
+  if (layeredTop) {
     const taperShoulder = (baseRect: Rect, overlayRect: Rect) => {
       const sampleY = Math.min(baseRect.h - 1, 3);
       const inset = baseRect.w >= 6 ? 2 : 1;
