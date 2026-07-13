@@ -118,9 +118,8 @@ describe("packFrontViewToAtlas", () => {
     const headOverlay = CLASSIC_LAYOUT.head.overlay.front;
     const cheekIdx = ((headOverlay.y + 5) * ATLAS_SIZE + headOverlay.x) * 4;
     const chinIdx = ((headOverlay.y + 7) * ATLAS_SIZE + headOverlay.x + 3) * 4;
-    expect(atlas.rgba[cheekIdx + 3]).toBe(255);
-    expect(atlas.rgba[cheekIdx]).toBeGreaterThan(100); // 피부 계열 (머리색 아님)
-    expect(atlas.rgba[chinIdx + 3]).toBe(255);
+    expect(atlas.rgba[cheekIdx + 3]).toBe(0);
+    expect(atlas.rgba[chinIdx + 3]).toBe(0);
 
     // 신발: 다리 overlay 발목/밑창이 채워져 발끝 두께를 만든다.
     const legOverlay = CLASSIC_LAYOUT.rightLeg.overlay.front;
@@ -504,18 +503,16 @@ describe("packFrontViewToAtlas", () => {
     expect(Math.abs(atlas.rgba[leftSclera + 1] - atlas.rgba[clearSkin + 1])).toBeLessThan(25);
     expect(atlas.rgba[leftIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[rightIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
-    expect(atlas.rgba[cheekBlush + 3]).toBe(255);
-    expect(atlas.rgba[cheekBlush]).toBeGreaterThan(atlas.rgba[cheekBlush + 1]);
+    expect(atlas.rgba[cheekBlush + 3]).toBe(0);
     expect(atlas.rgba[noseShadow]).toBeLessThan(atlas.rgba[noseBridge]);
     expect(atlas.rgba[sideEar + 3]).toBe(255);
     expect(atlas.rgba[sideEarInner + 3]).toBe(255);
-    expect(atlas.rgba[sideCheek + 3]).toBe(255);
-    expect(atlas.rgba[sideJaw + 3]).toBe(255);
+    expect(atlas.rgba[sideEar]).toBeLessThan(100);
+    expect(atlas.rgba[sideCheek + 3]).toBe(0);
+    expect(atlas.rgba[sideJaw + 3]).toBe(0);
     expect(atlas.rgba[leftSideEar + 3]).toBe(255);
     expect(atlas.rgba[smallMouthDark]).toBeLessThan(atlas.rgba[smallMouthLight]);
     expect(atlas.rgba[smallMouthOverlay + 3]).toBe(0);
-    expect(atlas.rgba[sideEarInner]).toBeLessThan(atlas.rgba[sideEar]);
-    expect(atlas.rgba[sideJaw]).toBeLessThan(atlas.rgba[sideCheek]);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -816,7 +813,13 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.back, 0, 4)).toBe(255);
     expect(alphaAt(atlas, over.back, 7, 4)).toBe(255);
     expect(redAt(atlas, over.front, 3, 1)).not.toBe(redAt(atlas, over.front, 4, 1));
-    expect(redAt(atlas, over.front, 0, 7)).toBeLessThan(redAt(atlas, over.front, 3, 7));
+    expect(alphaAt(atlas, over.front, 0, 7)).toBe(0);
+    expect(alphaAt(atlas, over.front, 3, 7)).toBe(0);
+    // Outer cut-outs reveal a hair-filled base top, while the lower side and
+    // back edges taper into skin instead of forming a rectangular helmet.
+    expect(redAt(atlas, base.top, 3, 3)).toBeLessThan(redAt(atlas, base.front, 3, 4) - 50);
+    expect(redAt(atlas, base.right, 3, 3)).toBeGreaterThan(redAt(atlas, base.right, 0, 3) + 50);
+    expect(redAt(atlas, base.back, 0, 4)).toBeGreaterThan(redAt(atlas, base.back, 3, 4) + 50);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -1872,20 +1875,20 @@ describe("packFrontViewToAtlas", () => {
     const over = CLASSIC_LAYOUT.head.overlay.front;
     const face = CLASSIC_LAYOUT.head.base.front;
 
-    expect(alphaAt(atlas, over, 1, 5)).toBe(255);
+    expect(alphaAt(atlas, over, 1, 5)).toBe(0);
     expect(alphaAt(atlas, over, 2, 4)).toBe(0);
     expect(alphaAt(atlas, over, 5, 4)).toBe(0);
-    expect(alphaAt(atlas, over, 3, 5)).toBe(255);
-    expect(alphaAt(atlas, over, 4, 5)).toBe(255);
-    expect(alphaAt(atlas, over, 2, 6)).toBe(255);
-    expect(alphaAt(atlas, over, 3, 6)).toBe(255);
-    expect(alphaAt(atlas, over, 4, 6)).toBe(255);
-    expect(alphaAt(atlas, over, 5, 6)).toBe(255);
-    expect(alphaAt(atlas, over, 3, 7)).toBe(255);
+    expect(alphaAt(atlas, over, 3, 5)).toBe(0);
+    expect(alphaAt(atlas, over, 4, 5)).toBe(0);
+    expect(alphaAt(atlas, over, 2, 6)).toBe(0);
+    expect(alphaAt(atlas, over, 3, 6)).toBe(0);
+    expect(alphaAt(atlas, over, 4, 6)).toBe(0);
+    expect(alphaAt(atlas, over, 5, 6)).toBe(0);
+    expect(alphaAt(atlas, over, 3, 7)).toBe(0);
     expect(redAt(atlas, face, 2, 4)).toBeLessThan(redAt(atlas, face, 4, 4) - 50);
     expect(redAt(atlas, face, 5, 4)).toBeLessThan(redAt(atlas, face, 4, 4) - 50);
-    expect(redAt(atlas, over, 3, 5)).toBeLessThan(redAt(atlas, over, 3, 7));
-    expect(redAt(atlas, over, 5, 6)).toBeLessThan(redAt(atlas, over, 3, 7));
+    expect(redAt(atlas, face, 3, 5)).toBeLessThan(redAt(atlas, face, 4, 4));
+    expect(redAt(atlas, face, 5, 6)).toBeLessThan(redAt(atlas, face, 4, 4));
   });
 
   it("noseShape 힌트를 8x8 얼굴의 코 길이와 코끝 차이로 남긴다", () => {
@@ -1916,10 +1919,10 @@ describe("packFrontViewToAtlas", () => {
 
     expect(redAt(prominent, face, 4, 4)).toBeGreaterThan(redAt(small, face, 4, 4));
     expect(redAt(straight, face, 3, 5)).toBeLessThan(redAt(small, face, 3, 5));
-    expect(alphaAt(prominent, over, 4, 3)).toBe(255);
-    expect(alphaAt(rounded, over, 4, 5)).toBe(255);
-    expect(alphaAt(straight, over, 4, 5)).toBe(255);
-    expect(redAt(rounded, over, 4, 5)).not.toBe(redAt(straight, over, 4, 5));
+    expect(alphaAt(prominent, over, 4, 3)).toBe(0);
+    expect(alphaAt(rounded, over, 4, 5)).toBe(0);
+    expect(alphaAt(straight, over, 4, 5)).toBe(0);
+    expect(redAt(rounded, face, 4, 5)).not.toBe(redAt(straight, face, 4, 5));
   });
 
   it("jawShape 힌트를 8x8 얼굴의 턱 모서리와 턱끝 차이로 남긴다", () => {
@@ -1948,11 +1951,11 @@ describe("packFrontViewToAtlas", () => {
       jawShape: "soft",
     })!.atlas;
     const over = CLASSIC_LAYOUT.head.overlay.front;
+    const face = CLASSIC_LAYOUT.head.base.front;
 
-    expect(alphaAt(square, over, 1, 7)).toBe(255);
+    expect(alphaAt(square, over, 1, 7)).toBe(0);
     expect(alphaAt(pointed, over, 1, 7)).toBe(0);
-    expect(redAt(pointed, over, 3, 7)).toBeLessThan(redAt(square, over, 3, 7));
-    expect(alphaAt(rounded, over, 1, 6)).toBe(255);
-    expect(alphaAt(soft, over, 1, 6)).toBe(0);
+    expect(redAt(pointed, face, 3, 7)).toBeLessThan(redAt(square, face, 3, 7));
+    expect(redAt(rounded, face, 1, 6)).not.toBe(redAt(soft, face, 1, 6));
   });
 });

@@ -564,13 +564,13 @@ function composeFace(
     put(face, noseX, 5, skinShadow);
   } else if (noseShape === "rounded") {
     put(face, noseX, 5, skinShadow);
-    put(overlay, noseX === 3 ? 4 : 3, 5, mixRgb(noseSide, skinColor, 0.24));
-    put(overlay, noseX, 4, mixRgb(noseBridge, skinColor, 0.38));
+    put(face, noseX === 3 ? 4 : 3, 5, mixRgb(noseSide, skinColor, 0.24));
+    put(face, noseX, 4, mixRgb(noseBridge, skinColor, 0.38));
   } else {
     put(face, noseX, 4, shadeRgb(noseBridge, 1.04));
     put(face, noseX, 5, shadeRgb(skinShadow, 0.92));
     put(face, noseX === 3 ? 4 : 3, 5, shadeRgb(noseSide, 0.86));
-    put(overlay, noseX, 3, mixRgb(noseBridge, skinColor, 0.28));
+    put(face, noseX, 3, mixRgb(noseBridge, skinColor, 0.28));
   }
 
   const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
@@ -668,23 +668,23 @@ function composeFace(
         : "soft");
   if (style.facialHair === "none") {
     if (jawShape === "square") {
-      put(overlay, 1, 7, shadeRgb(skinColor, 0.86));
-      put(overlay, 6, 7, shadeRgb(skinColor, 0.86));
-      put(overlay, 2, 6, shadeRgb(skinColor, 0.92));
-      put(overlay, 5, 6, shadeRgb(skinColor, 0.92));
+      put(face, 1, 7, shadeRgb(skinColor, 0.86));
+      put(face, 6, 7, shadeRgb(skinColor, 0.86));
+      put(face, 2, 6, shadeRgb(skinColor, 0.92));
+      put(face, 5, 6, shadeRgb(skinColor, 0.92));
     } else if (jawShape === "pointed") {
-      put(overlay, 2, 7, shadeRgb(skinColor, 0.98));
-      put(overlay, 5, 7, shadeRgb(skinColor, 0.98));
-      put(overlay, 3, 7, shadeRgb(skinColor, 0.88));
-      put(overlay, 4, 7, shadeRgb(skinColor, 0.88));
+      put(face, 2, 7, shadeRgb(skinColor, 0.98));
+      put(face, 5, 7, shadeRgb(skinColor, 0.98));
+      put(face, 3, 7, shadeRgb(skinColor, 0.88));
+      put(face, 4, 7, shadeRgb(skinColor, 0.88));
     } else if (jawShape === "rounded") {
-      put(overlay, 1, 6, shadeRgb(skinColor, 0.98));
-      put(overlay, 6, 6, shadeRgb(skinColor, 0.98));
-      put(overlay, 2, 7, shadeRgb(skinColor, 0.96));
-      put(overlay, 5, 7, shadeRgb(skinColor, 0.96));
+      put(face, 1, 6, shadeRgb(skinColor, 0.98));
+      put(face, 6, 6, shadeRgb(skinColor, 0.98));
+      put(face, 2, 7, shadeRgb(skinColor, 0.96));
+      put(face, 5, 7, shadeRgb(skinColor, 0.96));
     } else {
-      put(overlay, 2, 7, shadeRgb(skinColor, 0.95));
-      put(overlay, 5, 7, shadeRgb(skinColor, 0.95));
+      put(face, 2, 7, shadeRgb(skinColor, 0.95));
+      put(face, 5, 7, shadeRgb(skinColor, 0.95));
     }
   }
   if (
@@ -693,11 +693,11 @@ function composeFace(
   ) {
     const outerJaw = shadeRgb(skinColor, style.faceShape === "long" ? 0.78 : 0.82);
     const innerJaw = shadeRgb(skinColor, style.faceShape === "long" ? 0.86 : 0.89);
-    put(overlay, 0, 7, outerJaw);
-    put(overlay, 7, 7, shadeRgb(outerJaw, 0.97));
+    put(face, 0, 7, outerJaw);
+    put(face, 7, 7, shadeRgb(outerJaw, 0.97));
     if (jawShape === "soft") {
-      put(overlay, 1, 7, innerJaw);
-      put(overlay, 6, 7, shadeRgb(innerJaw, 0.98));
+      put(face, 1, 7, innerJaw);
+      put(face, 6, 7, shadeRgb(innerJaw, 0.98));
     }
   }
 
@@ -846,6 +846,31 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
   }
 }
 
+/**
+ * Facial shading belongs on the inner head cube. Skin-coloured pixels on the
+ * outer cube protrude in the 3D viewer and turn the eyes, nose, mouth and jaw
+ * into a noisy mosaic. Clear those temporary portrait details before the hair
+ * pass rebuilds the outer layer with genuine fringe and temple pixels.
+ */
+function resetPortraitFaceOverlay(atlas: RawImage, style: FaceStyle): void {
+  if (style.glasses !== "none" || style.facialHair !== "none") return;
+  for (const rect of [
+    CLASSIC_LAYOUT.head.overlay.front,
+    CLASSIC_LAYOUT.head.overlay.right,
+    CLASSIC_LAYOUT.head.overlay.left,
+  ]) {
+    for (let y = 0; y < rect.h; y++) {
+      for (let x = 0; x < rect.w; x++) {
+        const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+        atlas.rgba[d] = 0;
+        atlas.rgba[d + 1] = 0;
+        atlas.rgba[d + 2] = 0;
+        atlas.rgba[d + 3] = 0;
+      }
+    }
+  }
+}
+
 /** 좌표 해시 기반 결정적 지터 색 (머리카락 질감용) */
 function hairPixel(color: Rgb, gx: number, gy: number, jitter: number): Rgb {
   const hash = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
@@ -888,6 +913,7 @@ function hairVolumePixel(color: Rgb, gx: number, gy: number): Rgb {
 function composeHair(
   atlas: RawImage,
   hairColor: Rgb,
+  skinColor: Rgb,
   style: FaceStyle,
   hasBackView: boolean,
 ): void {
@@ -1017,11 +1043,34 @@ function composeHair(
               : 8;
 
   // 옆머리 (렌더는 가장자리 확장뿐이라 항상 카테고리로 채움)
-  fill(base.right, 0, 0, 8, sideRows);
-  fill(base.left, 0, 0, 8, sideRows);
+  // Rounded outer-layer cut-outs must reveal hair, not portrait skin.
+  fill(base.top, 0, 0, 8, 8);
+  if (roundedFringeCut) {
+    fill(base.right, 0, 0, 8, Math.max(0, sideRows - 1));
+    fill(base.left, 0, 0, 8, Math.max(0, sideRows - 1));
+    for (const x of [0, 1, 6, 7]) {
+      fill(base.right, x, sideRows - 1, 1, 1);
+      fill(base.left, x, sideRows - 1, 1, 1);
+    }
+    for (const x of [2, 3, 4, 5]) {
+      putColor(base.right, x, sideRows - 1, shadeRgb(skinColor, x < 4 ? 0.9 : 0.87));
+      putColor(base.left, x, sideRows - 1, shadeRgb(skinColor, x < 4 ? 0.87 : 0.9));
+    }
+  } else {
+    fill(base.right, 0, 0, 8, sideRows);
+    fill(base.left, 0, 0, 8, sideRows);
+  }
   // 뒷머리: 뒷면 뷰 렌더가 있으면 실제 렌더 유지
   if (!hasBackView) {
-    fill(base.back, 0, 0, 8, backRows);
+    if (roundedFringeCut && backRows > 1) {
+      fill(base.back, 0, 0, 8, backRows - 1);
+      fill(base.back, 2, backRows - 1, 4, 1);
+      for (const x of [0, 1, 6, 7]) {
+        putColor(base.back, x, backRows - 1, shadeRgb(skinColor, x < 4 ? 0.84 : 0.82));
+      }
+    } else {
+      fill(base.back, 0, 0, 8, backRows);
+    }
   }
   // 정수리는 base가 이미 hairColor — overlay 볼륨만 추가
 
@@ -3765,7 +3814,8 @@ export function packFrontViewToAtlas(
 
   // ---------- 마감: 의상/액세서리 레이어 + 헤어/모자 구조 + 셰이딩 ----------
   composeGarmentLayers(atlas, faceStyle);
-  composeHair(atlas, hairColor, faceStyle, back !== null);
+  resetPortraitFaceOverlay(atlas, faceStyle);
+  composeHair(atlas, hairColor, skinColor, faceStyle, back !== null);
   preserveFaceReadability(atlas, faceStyle);
   // 모자 쓴 인물은 머리 상단 medianColor(hairColor)가 곧 모자 색
   composeHat(atlas, hairColor, faceStyle);
