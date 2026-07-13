@@ -221,6 +221,7 @@ function buildFaceStyle(
     necklace: analysis.renderHints.necklace,
     hairAccessory: analysis.renderHints.hairAccessory,
     hairAccessorySide: analysis.renderHints.hairAccessorySide,
+    hairAccessoryColor: analysis.renderHints.hairAccessoryColor,
     neckAccessory: analysis.renderHints.neckAccessory,
     bottomPattern: analysis.renderHints.bottomPattern,
     bottomAccent: analysis.renderHints.bottomAccent,
@@ -844,6 +845,33 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
       style.hairAccessorySide = "left";
     } else if (/\b(center|middle|top center)\b/.test(sideText)) {
       style.hairAccessorySide = "center";
+    }
+
+    const accessoryNames =
+      "flower|flowers|floral|hair bow|bow in hair|head bow|hair ribbon|ribbon in hair|head ribbon|hair clip|barrette|hairpin";
+    for (const color of [
+      "black",
+      "brown",
+      "white",
+      "gray",
+      "red",
+      "orange",
+      "yellow",
+      "green",
+      "blue",
+      "purple",
+      "pink",
+    ] as const) {
+      const colorBeforeAccessory = new RegExp(
+        `\\b${color}\\b(?:\\s+[a-z-]+){0,3}\\s+(?:${accessoryNames})\\b`,
+      );
+      const accessoryBeforeColor = new RegExp(
+        `\\b(?:${accessoryNames})\\b(?:\\s+[a-z-]+){0,3}\\s+${color}\\b`,
+      );
+      if (colorBeforeAccessory.test(sideText) || accessoryBeforeColor.test(sideText)) {
+        style.hairAccessoryColor = color;
+        break;
+      }
     }
   }
 

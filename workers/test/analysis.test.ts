@@ -67,6 +67,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("ear_hugging");
     expect(ANALYSIS_PROMPT).toContain("earExposure");
     expect(ANALYSIS_PROMPT).toContain("keep left/right profiles coherent");
+    expect(ANALYSIS_PROMPT).toContain("hairAccessoryColor");
+    expect(ANALYSIS_PROMPT).toContain("dominant petal color");
   });
 
   it("유효한 분석은 통과한다", () => {
@@ -145,6 +147,7 @@ describe("validatePhotoAnalysis", () => {
     broken.renderHints.hairBackShape = "generic" as never;
     broken.renderHints.sideHairShape = "random" as never;
     broken.renderHints.sideHairAsymmetry = "both" as never;
+    broken.renderHints.hairAccessoryColor = "cyan" as never;
     broken.renderHints.earExposure = "unknown" as never;
     const result = validatePhotoAnalysis(broken);
     expect(result.ok).toBe(false);
@@ -163,6 +166,7 @@ describe("validatePhotoAnalysis", () => {
       expect(result.errors.join()).toContain("renderHints.hairBackShape");
       expect(result.errors.join()).toContain("renderHints.sideHairShape");
       expect(result.errors.join()).toContain("renderHints.sideHairAsymmetry");
+      expect(result.errors.join()).toContain("renderHints.hairAccessoryColor");
       expect(result.errors.join()).toContain("renderHints.earExposure");
     }
   });

@@ -123,4 +123,42 @@ describe("hair accessory recovery", () => {
     expect(decoded.rgba[leftFlower]).toBeGreaterThan(decoded.rgba[leftFlower + 1]);
     expect(decoded.rgba[leftFlower]).toBeGreaterThan(decoded.rgba[oldRightFlower]);
   });
+
+  it("recovers a blue flower color from the relevant accessory clause", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "long wavy brown hair",
+          accessories: "large blue flower on viewer-left hair",
+          clothing: "pink cardigan over a white blouse",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairAccessory: "flower",
+          hairAccessorySide: "left",
+          hairAccessoryColor: "pink",
+        },
+        identityPrompt:
+          "A person with long wavy brown hair and a large blue flower on viewer-left hair.",
+      }),
+    );
+    const provider = providerOf({
+      ok: true,
+      imageBytes: await encodePng(makeFrontBackView()),
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) => c.charCodeAt(0)),
+    );
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const petal = ((front.y + 2) * ATLAS_SIZE + front.x) * 4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[petal + 2]).toBeGreaterThan(decoded.rgba[petal]);
+    expect(decoded.rgba[petal + 3]).toBe(255);
+  });
 });

@@ -1785,6 +1785,25 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[backTrailingLeaf + 1]).toBeGreaterThan(atlas.rgba[backTrailingLeaf]);
   });
 
+  it("hairAccessoryColor preserves the dominant visible flower color", () => {
+    const makeFlower = (hairAccessoryColor: "pink" | "blue") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        hairAccessory: "flower",
+        hairAccessorySide: "left",
+        hairAccessoryColor,
+      })!.atlas;
+    const pink = makeFlower("pink");
+    const blue = makeFlower("blue");
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const petal = ((front.y + 2) * ATLAS_SIZE + front.x) * 4;
+
+    expect(pink.rgba[petal]).toBeGreaterThan(pink.rgba[petal + 2]);
+    expect(blue.rgba[petal + 2]).toBeGreaterThan(blue.rgba[petal]);
+    expect(blue.rgba[petal + 3]).toBe(255);
+  });
+
   it("hairAccessorySide=right이면 꽃 장식을 반대쪽 head overlay 면으로 옮긴다", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

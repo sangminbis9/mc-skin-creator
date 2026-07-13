@@ -67,6 +67,18 @@ export interface PixelRenderHints {
   necklace: "none" | "silver" | "gold" | "dark";
   hairAccessory: "none" | "flower" | "bow" | "ribbon" | "clip";
   hairAccessorySide: "left" | "right" | "center";
+  hairAccessoryColor:
+    | "black"
+    | "brown"
+    | "white"
+    | "gray"
+    | "red"
+    | "orange"
+    | "yellow"
+    | "green"
+    | "blue"
+    | "purple"
+    | "pink";
   neckAccessory: "none" | "bow" | "tie" | "scarf" | "collar";
   bottomPattern: "plain" | "plaid" | "striped" | "pleated" | "lace";
   bottomAccent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
@@ -182,7 +194,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - sideHairAsymmetry records which side has a clearly longer or fuller side lock from the VIEWER'S perspective: "left", "right", or "none". Use it only for a real structural difference, not merely because head rotation hides one side. Repeat the side in observed.hair and identityPrompt.
 - earExposure records whether the ears are covered by hair, partially exposed, or clearly visible. Judge the visible ear opening independently from sideHairShape so ear_hugging short hair does not become a long solid side panel.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
-- hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center.
+- hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center. hairAccessoryColor is the dominant visible accessory color; do not copy the hair or clothing color when the accessory itself has a different color. For multicolor flowers choose the dominant petal color.
 - neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue.
 - bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
 - bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
@@ -267,6 +279,7 @@ Respond with ONLY a JSON object matching this shape:
     "necklace": "none" | "silver" | "gold" | "dark",
     "hairAccessory": "none" | "flower" | "bow" | "ribbon" | "clip",
     "hairAccessorySide": "left" | "right" | "center",
+    "hairAccessoryColor": "black" | "brown" | "white" | "gray" | "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink",
     "neckAccessory": "none" | "bow" | "tie" | "scarf" | "collar",
     "bottomPattern": "plain" | "plaid" | "striped" | "pleated" | "lace",
     "bottomAccent": "none" | "belt" | "cuffs" | "side_stripe" | "ribbon",
@@ -475,6 +488,22 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["left", "right", "center"],
         },
+        hairAccessoryColor: {
+          type: "string",
+          enum: [
+            "black",
+            "brown",
+            "white",
+            "gray",
+            "red",
+            "orange",
+            "yellow",
+            "green",
+            "blue",
+            "purple",
+            "pink",
+          ],
+        },
         neckAccessory: {
           type: "string",
           enum: ["none", "bow", "tie", "scarf", "collar"],
@@ -525,6 +554,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "necklace",
         "hairAccessory",
         "hairAccessorySide",
+        "hairAccessoryColor",
         "neckAccessory",
         "bottomPattern",
         "bottomAccent",
@@ -660,6 +690,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           necklace: "none",
           hairAccessory: "none",
           hairAccessorySide: "left",
+          hairAccessoryColor: "pink",
           neckAccessory: "none",
           bottomPattern: "plain",
           bottomAccent: "none",
@@ -971,6 +1002,24 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.hairAccessorySide,
       ["left", "right", "center"],
       "left",
+    ),
+    hairAccessoryColor: enumValue(
+      "renderHints.hairAccessoryColor",
+      hints.hairAccessoryColor,
+      [
+        "black",
+        "brown",
+        "white",
+        "gray",
+        "red",
+        "orange",
+        "yellow",
+        "green",
+        "blue",
+        "purple",
+        "pink",
+      ],
+      "pink",
     ),
     neckAccessory: enumValue(
       "renderHints.neckAccessory",

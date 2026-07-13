@@ -66,6 +66,18 @@ export interface FaceStyle {
   necklace?: "none" | "silver" | "gold" | "dark";
   hairAccessory?: "none" | "flower" | "bow" | "ribbon" | "clip";
   hairAccessorySide?: "left" | "right" | "center";
+  hairAccessoryColor?:
+    | "black"
+    | "brown"
+    | "white"
+    | "gray"
+    | "red"
+    | "orange"
+    | "yellow"
+    | "green"
+    | "blue"
+    | "purple"
+    | "pink";
   neckAccessory?: "none" | "bow" | "tie" | "scarf" | "collar";
   bottomPattern?: "plain" | "plaid" | "striped" | "pleated" | "lace";
   bottomAccent?: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
@@ -119,6 +131,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   necklace: "none",
   hairAccessory: "none",
   hairAccessorySide: "left",
+  hairAccessoryColor: "pink",
   neckAccessory: "none",
   bottomPattern: "plain",
   bottomAccent: "none",
@@ -2290,15 +2303,29 @@ function composeHair(
 
   const accessory = style.hairAccessory ?? "none";
   if (accessory !== "none") {
-    const flowerPetal: Rgb = [236, 184, 192];
-    const flowerLight: Rgb = [248, 216, 222];
-    const flowerShade: Rgb = [205, 138, 153];
+    const accessoryColors: Record<NonNullable<FaceStyle["hairAccessoryColor"]>, Rgb> = {
+      black: [42, 40, 42],
+      brown: [132, 86, 62],
+      white: [238, 234, 228],
+      gray: [146, 148, 154],
+      red: [196, 72, 78],
+      orange: [220, 132, 62],
+      yellow: [226, 194, 82],
+      green: [102, 158, 104],
+      blue: [88, 132, 196],
+      purple: [146, 104, 184],
+      pink: [226, 150, 170],
+    };
+    const accessoryBase = accessoryColors[style.hairAccessoryColor ?? "pink"];
+    const flowerPetal = mixRgb(accessoryBase, [255, 244, 240], 0.18);
+    const flowerLight = mixRgb(accessoryBase, [255, 248, 244], 0.44);
+    const flowerShade = shadeRgb(accessoryBase, 0.72);
     const flowerCenter: Rgb = [238, 213, 166];
     const leaf: Rgb = [126, 151, 126];
     const leafDark: Rgb = [86, 118, 96];
-    const ribbon: Rgb = [228, 184, 198];
-    const ribbonDark: Rgb = [174, 116, 134];
-    const clip: Rgb = [220, 210, 196];
+    const ribbon = mixRgb(accessoryBase, [255, 246, 242], 0.22);
+    const ribbonDark = shadeRgb(accessoryBase, 0.62);
+    const clip = mixRgb(accessoryBase, [235, 230, 220], 0.28);
     const drawFlower = (rect: Rect, cx: number, cy: number) => {
       putColor(rect, cx, cy - 1, flowerPetal);
       putColor(rect, cx - 1, cy, flowerPetal);
