@@ -9,7 +9,12 @@ import { SkinModel } from "./SkinModel";
 
 export type ViewDirection = "front" | "back" | "left" | "right";
 
-const CAMERA_RADIUS = 48;
+// A classic model is 32 units tall and the head outer layer extends slightly
+// beyond that. Radius 48 left only about one projected unit of vertical
+// clearance, so rounded crown cut-outs and shoe soles touched the preview
+// boundary and looked visually clipped. Keep enough margin to judge the full
+// hair silhouette on both narrow and wide app viewports.
+const CAMERA_RADIUS = 54;
 const CAMERA_HEIGHT = 2;
 
 export interface SkinScene {
