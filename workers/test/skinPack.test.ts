@@ -920,6 +920,12 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, head.base.left, 4, 3)).toBeGreaterThan(
       redAt(atlas, head.base.left, 6, 3) + 50,
     );
+    expect(
+      Math.abs(redAt(atlas, head.base.right, 3, 4) - redAt(atlas, head.base.right, 4, 4)),
+    ).toBeGreaterThan(5);
+    expect(
+      Math.abs(redAt(atlas, head.base.left, 3, 4) - redAt(atlas, head.base.left, 4, 4)),
+    ).toBeGreaterThan(5);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -1376,6 +1382,42 @@ describe("packFrontViewToAtlas", () => {
           }
         }
       }
+    }
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("uses analysed top colour to remove saturated guide noise from shoulder rims", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      topColor: "#585858",
+      topType: "sweater",
+      sleeveLength: "long",
+      garmentTexture: "knit",
+      outerLayer: "heavy",
+      outerGarment: "none",
+    })!.atlas;
+    const declared = [0x58, 0x58, 0x58];
+    const colorAt = (rect: { x: number; y: number }, x: number, y: number) => {
+      const index = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [atlas.rgba[index], atlas.rgba[index + 1], atlas.rgba[index + 2]];
+    };
+    const shoulderPixels = [
+      colorAt(CLASSIC_LAYOUT.body.overlay.front, 1, 0),
+      colorAt(CLASSIC_LAYOUT.body.overlay.front, 6, 0),
+      colorAt(CLASSIC_LAYOUT.body.overlay.back, 1, 0),
+      colorAt(CLASSIC_LAYOUT.body.overlay.back, 6, 0),
+      colorAt(CLASSIC_LAYOUT.rightArm.overlay.top, 1, 1),
+      colorAt(CLASSIC_LAYOUT.leftArm.overlay.top, 1, 1),
+    ];
+    for (const pixel of shoulderPixels) {
+      const distance = pixel.reduce(
+        (sum, channel, index) => sum + Math.abs(channel - declared[index]),
+        0,
+      );
+      expect(distance).toBeLessThan(120);
+      expect(Math.max(...pixel) - Math.min(...pixel)).toBeLessThan(60);
     }
 
     applyUvMask(atlas);

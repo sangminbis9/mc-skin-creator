@@ -66,6 +66,8 @@ export interface FaceStyle {
   legwear?: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
   legwearAsymmetry?: "none" | "left" | "right" | "both";
   shoeStyle?: "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals";
+  topColor?: string;
+  topAccentColor?: string;
   topType?: string;
   sleeveLength?: string;
   bottomType?: string;
@@ -1115,6 +1117,24 @@ function composeHair(
   } else {
     fill(base.right, 0, 0, 8, sideRows);
     fill(base.left, 0, 0, 8, sideRows);
+  }
+  if (
+    style.sideHairLength === "short" &&
+    (earExposure === "partial" || earExposure === "visible")
+  ) {
+    const earShadow = mixRgb(shadeRgb(skinColor, 0.78), hairColor, 0.08);
+    const earMid = shadeRgb(skinColor, 0.9);
+    const earLight = mixRgb(skinColor, [246, 218, 196], 0.16);
+    for (const [rect, mirror] of [
+      [base.right, false],
+      [base.left, true],
+    ] as const) {
+      const px = (x: number) => (mirror ? 7 - x : x);
+      putColor(rect, px(3), 4, earShadow);
+      putColor(rect, px(4), 4, earLight);
+      putColor(rect, px(3), 5, earMid);
+      putColor(rect, px(4), 5, shadeRgb(earShadow, 0.92));
+    }
   }
   // 뒷머리: 뒷면 뷰 렌더가 있으면 실제 렌더 유지
   if (!hasBackView) {
@@ -2502,6 +2522,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const layer = style.outerLayer ?? "none";
   const topType = style.topType ?? "tshirt";
   const outerGarment = style.outerGarment ?? "none";
+  const declaredTopColor = style.topColor ? hexToRgb(style.topColor, [92, 92, 92]) : null;
+  const stabilizeGarmentColor = (sampled: Rgb, weight = 0.68) =>
+    declaredTopColor ? mixRgb(sampled, declaredTopColor, weight) : sampled;
   const layeredTop =
     layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType);
   const paintGarmentTop = (
@@ -2526,19 +2549,15 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       }
     }
   };
-  const bodyShoulderColor = mixRgb(
-    averageRect(baseFront, 2, 5),
-    averageRect(baseBack, 2, 5),
-    0.34,
+  const bodyShoulderColor = stabilizeGarmentColor(
+    mixRgb(averageRect(baseFront, 2, 5), averageRect(baseBack, 2, 5), 0.34),
   );
   paintGarmentTop(body.base.top, body.overlay.top, bodyShoulderColor, layeredTop);
   if (style.sleeveLength !== "sleeveless") {
     for (const part of ["rightArm", "leftArm"] as const) {
       const arm = CLASSIC_LAYOUT[part];
-      const sleeveColor = mixRgb(
-        averageRect(arm.base.front, 2, 5),
-        averageRect(arm.base.back, 2, 5),
-        0.3,
+      const sleeveColor = stabilizeGarmentColor(
+        mixRgb(averageRect(arm.base.front, 2, 5), averageRect(arm.base.back, 2, 5), 0.3),
       );
       paintGarmentTop(arm.base.top, arm.overlay.top, sleeveColor, layeredTop);
     }
@@ -3638,11 +3657,39 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   // corners. The base layer remains intact, while the raised garment layer
   // steps inward for one row and reads as fabric drape instead of a rigid box.
   if (layeredTop) {
+    if (outerGarment === "none") {
+      // A single closed top should not inherit saturated segmentation noise
+      // from the generated guide at its shoulder rim. Keep the two raised
+      // shoulder rows in the analysed garment colour before tapering corners.
+      for (const rect of [body.overlay.front, body.overlay.back]) {
+        for (let y = 0; y <= 1; y++) {
+          for (const x of [0, 1, rect.w - 2, rect.w - 1]) {
+            const edgeDistance = Math.min(x, rect.w - 1 - x);
+            put(
+              rect,
+              x,
+              y,
+              shadeRgb(bodyShoulderColor, edgeDistance === 0 ? 0.82 : y === 0 ? 0.98 : 0.9),
+            );
+          }
+        }
+      }
+      for (const rect of [body.overlay.right, body.overlay.left]) {
+        for (let y = 0; y <= 1; y++) {
+          for (let x = 0; x < rect.w; x++) {
+            put(rect, x, y, shadeRgb(bodyShoulderColor, y === 0 ? 0.9 : 0.84));
+          }
+        }
+      }
+    }
     const taperShoulder = (baseRect: Rect, overlayRect: Rect) => {
       const sampleY = Math.min(baseRect.h - 1, 3);
       const inset = baseRect.w >= 6 ? 2 : 1;
-      const leftGarment = sample(baseRect, inset, sampleY);
-      const rightGarment = sample(baseRect, baseRect.w - 1 - inset, sampleY);
+      const leftGarment = stabilizeGarmentColor(sample(baseRect, inset, sampleY), 0.74);
+      const rightGarment = stabilizeGarmentColor(
+        sample(baseRect, baseRect.w - 1 - inset, sampleY),
+        0.74,
+      );
       for (const y of [0, 1]) {
         // Underpaint the revealed base pixels first. Generated front views
         // often have background-coloured shoulder corners because the source

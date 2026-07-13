@@ -220,6 +220,8 @@ function buildFaceStyle(
     bottomAccent: analysis.renderHints.bottomAccent,
     legwear: analysis.renderHints.legwear,
     legwearAsymmetry: analysis.renderHints.legwearAsymmetry,
+    topColor: String(features.topColor),
+    topAccentColor: String(features.topAccentColor),
     topType: String(raw.topType ?? DEFAULT_FACE_STYLE.topType),
     sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
     bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
