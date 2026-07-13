@@ -672,7 +672,7 @@ function composeFace(
         ? 0.36
         : style.eyeShape === "narrow"
           ? 0.12
-          : 0.18,
+          : 0.28,
     );
     const outerEyeY =
       eyeTilt === "upturned" ? 3 : eyeTilt === "downturned" ? 5 : 4;
@@ -3084,6 +3084,47 @@ function composeHair(
       [over.top.w - 1, over.top.h - 1],
     ] as const) {
       clearPixel(over.top, x, y);
+    }
+  }
+
+  if (roundedFringeCut && style.hairAccessory === "none") {
+    // A short black cut otherwise collapses into one dark cuboid at preview
+    // scale. Use connected, low-contrast clusters that follow the crown and
+    // both temple seams; isolated bright pixels would read as noise or holes.
+    const crownLight = mixRgb(hairColor, [162, 152, 142], 0.15);
+    const crownMid = mixRgb(hairColor, [126, 118, 112], 0.11);
+    const templeLight = mixRgb(hairColor, [142, 132, 124], 0.13);
+    const templeMid = mixRgb(hairColor, [108, 100, 94], 0.08);
+    const templeDark = shadeRgb(hairColor, 0.66);
+    for (const [x, y, color] of [
+      [2, 1, crownLight],
+      [3, 1, crownLight],
+      [4, 2, crownMid],
+      [5, 2, crownMid],
+      [2, 3, templeMid],
+      [5, 3, templeDark],
+    ] as const) {
+      putColor(over.top, x, y, color);
+    }
+
+    for (const [y, seamColor, innerColor] of [
+      [2, templeLight, crownMid],
+      [3, templeMid, templeDark],
+    ] as const) {
+      // front x0 <-> right x7 and front x7 <-> left x0
+      putColor(over.front, 0, y, seamColor);
+      putColor(over.right, 7, y, seamColor);
+      putColor(over.right, 6, y, innerColor);
+      putColor(over.front, 7, y, shadeRgb(seamColor, 0.94));
+      putColor(over.left, 0, y, shadeRgb(seamColor, 0.94));
+      putColor(over.left, 1, y, shadeRgb(innerColor, 0.92));
+
+      // back x7 <-> right x0 and back x0 <-> left x7
+      const rearColor = shadeRgb(seamColor, 0.72);
+      putColor(over.back, 7, y, rearColor);
+      putColor(over.right, 0, y, rearColor);
+      putColor(over.back, 0, y, shadeRgb(rearColor, 0.94));
+      putColor(over.left, 7, y, shadeRgb(rearColor, 0.94));
     }
   }
 

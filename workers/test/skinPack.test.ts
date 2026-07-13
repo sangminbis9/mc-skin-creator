@@ -980,6 +980,64 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("rounded short hair uses connected crown and temple shade clusters", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      hairColor: "#101010",
+      skinTone: "#d0a078",
+      bangs: "straight",
+      bangsLength: "brow",
+      bangsDensity: "dense",
+      fringeEdge: "staggered",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      hairSilhouette: "rounded",
+      hairBackShape: "tapered",
+      hairPart: "center",
+      sideHairLength: "short",
+      sideHairShape: "ear_hugging",
+      earExposure: "partial",
+      eyeShape: "almond",
+      eyeSpacing: "average",
+      glasses: "none",
+      hairAccessory: "none",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head;
+
+    expect(alphaAt(atlas, head.overlay.top, 0, 0)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.front, 0, 0)).toBe(0);
+    expect(redAt(atlas, head.overlay.top, 2, 1)).toBeGreaterThan(
+      redAt(atlas, head.overlay.top, 5, 3),
+    );
+    expect(redAt(atlas, head.overlay.right, 6, 2)).not.toBe(
+      redAt(atlas, head.overlay.right, 7, 2),
+    );
+    expect(rgbaAt(atlas, head.overlay.front, 0, 2)).toEqual(
+      rgbaAt(atlas, head.overlay.right, 7, 2),
+    );
+    expect(rgbaAt(atlas, head.overlay.front, 7, 3)).toEqual(
+      rgbaAt(atlas, head.overlay.left, 0, 3),
+    );
+    expect(rgbaAt(atlas, head.overlay.back, 7, 2)).toEqual(
+      rgbaAt(atlas, head.overlay.right, 0, 2),
+    );
+    expect(rgbaAt(atlas, head.overlay.back, 0, 3)).toEqual(
+      rgbaAt(atlas, head.overlay.left, 7, 3),
+    );
+    for (const x of [1, 2, 5, 6]) {
+      expect(alphaAt(atlas, head.overlay.front, x, 4)).toBe(0);
+    }
+    const leftSclera = rgbaAt(atlas, head.base.front, 1, 4);
+    const leftIris = rgbaAt(atlas, head.base.front, 2, 4);
+    const cheek = rgbaAt(atlas, head.base.front, 0, 4);
+    expect(leftSclera[0]).toBeGreaterThan(cheek[0] + 8);
+    expect(leftSclera[0]).toBeGreaterThan(leftIris[0] + 100);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("left-parted brow-length straight bangs keep irregular tip gaps instead of a solid bar", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
