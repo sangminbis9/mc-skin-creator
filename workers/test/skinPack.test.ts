@@ -850,37 +850,44 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
-  it("dense bowl fringe and ear-hugging short sides form a coherent stepped profile", () => {
+  it("dense blunt fringe keeps natural gaps and partially exposed ears stay tapered", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "short",
       bangs: "straight",
       bangsLength: "brow",
       bangsDensity: "dense",
-      hairPart: "center",
+      fringeEdge: "blunt",
+      hairPart: "left",
       hairSilhouette: "rounded",
       hairBackShape: "tapered",
       sideHairLength: "short",
       sideHairShape: "ear_hugging",
+      earExposure: "partial",
     })!.atlas;
     const head = CLASSIC_LAYOUT.head;
 
-    for (const x of [0, 1, 2, 3, 5, 6, 7]) {
+    for (const x of [0, 1, 3, 4, 6, 7]) {
       expect(alphaAt(atlas, head.overlay.front, x, 3)).toBe(255);
     }
-    expect(alphaAt(atlas, head.overlay.front, 4, 3)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.front, 2, 3)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.front, 5, 3)).toBe(0);
     for (const rect of [head.overlay.right, head.overlay.left]) {
-      for (const x of [0, 1, 6, 7]) expect(alphaAt(atlas, rect, x, 4)).toBe(255);
-      for (const x of [2, 3, 4, 5]) expect(alphaAt(atlas, rect, x, 4)).toBe(0);
-      expect(alphaAt(atlas, rect, 0, 5)).toBe(255);
-      expect(alphaAt(atlas, rect, 7, 5)).toBe(255);
+      expect(alphaAt(atlas, rect, 0, 4)).toBe(255);
+      expect(alphaAt(atlas, rect, 7, 4)).toBe(255);
+      for (const x of [1, 2, 3, 4, 5, 6]) expect(alphaAt(atlas, rect, x, 4)).toBe(0);
+      expect(alphaAt(atlas, rect, 0, 5)).toBe(0);
+      expect(alphaAt(atlas, rect, 7, 5)).toBe(0);
       expect(alphaAt(atlas, rect, 3, 5)).toBe(0);
     }
+    expect(redAt(atlas, head.base.right, 3, 2)).toBeGreaterThan(
+      redAt(atlas, head.base.right, 2, 2) + 50,
+    );
     expect(redAt(atlas, head.base.right, 3, 3)).toBeGreaterThan(
-      redAt(atlas, head.base.right, 2, 3) + 50,
+      redAt(atlas, head.base.right, 1, 3) + 50,
     );
     expect(redAt(atlas, head.base.left, 4, 3)).toBeGreaterThan(
-      redAt(atlas, head.base.left, 5, 3) + 50,
+      redAt(atlas, head.base.left, 6, 3) + 50,
     );
 
     applyUvMask(atlas);

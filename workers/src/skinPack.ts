@@ -45,6 +45,7 @@ export interface FaceStyle {
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
   bangsDensity?: "sparse" | "balanced" | "dense";
+  fringeEdge?: "blunt" | "staggered" | "wispy";
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   hairVolume?: "flat" | "normal" | "full";
   hairSilhouette?: "rounded" | "flat" | "swept" | "tousled" | "spiky";
@@ -52,6 +53,7 @@ export interface FaceStyle {
   hairPart?: "none" | "center" | "left" | "right";
   sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
   sideHairShape?: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
+  earExposure?: "covered" | "partial" | "visible";
   garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
   outerLayer?: "none" | "light" | "heavy";
   outerGarment?: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
@@ -88,6 +90,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   bangs: "none",
   bangsLength: "none",
   bangsDensity: "balanced",
+  fringeEdge: "staggered",
   hairTexture: "straight",
   hairVolume: "normal",
   hairSilhouette: "rounded",
@@ -95,6 +98,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   hairPart: "none",
   sideHairLength: "short",
   sideHairShape: "tapered",
+  earExposure: "partial",
   garmentTexture: "plain",
   outerLayer: "none",
   outerGarment: "none",
@@ -446,6 +450,7 @@ function composeFace(
   }
   const bangs = style.bangs ?? "none";
   const bangsDensity = style.bangsDensity ?? "balanced";
+  const fringeEdge = style.fringeEdge ?? "staggered";
   // A centre-parted straight fringe is not a solid horizontal helmet edge.
   // Keep the centre forehead open while retaining denser locks on both sides.
   // This is common in short bowl/two-block cuts and remains useful for any
@@ -458,7 +463,11 @@ function composeFace(
     }
     const baseTipXs =
       bangsDensity === "dense"
-        ? [0, 1, 2, 3, 5, 6, 7]
+        ? fringeEdge === "wispy"
+          ? [0, 3, 6]
+          : fringeEdge === "blunt"
+            ? [0, 1, 3, 4, 6, 7]
+            : [0, 2, 3, 5, 7]
         : bangsDensity === "sparse"
           ? [0, 3, 7]
           : splitCenterFringe
@@ -945,6 +954,7 @@ function composeHair(
     style.hairSilhouette === "rounded" &&
     (style.bangsLength === "brow" || style.bangsLength === "eye");
   const bangsDensity = style.bangsDensity ?? "balanced";
+  const fringeEdge = style.fringeEdge ?? "staggered";
   const sideHairShape =
     style.sideHairShape ??
     (style.hairBackShape === "undercut"
@@ -952,6 +962,7 @@ function composeHair(
       : s === "short" && style.hairSilhouette === "rounded"
         ? "ear_hugging"
         : "tapered");
+  const earExposure = style.earExposure ?? "partial";
   const textured =
     s === "curly" ||
     s === "afro" ||
@@ -1071,18 +1082,35 @@ function composeHair(
   // Rounded outer-layer cut-outs must reveal hair, not portrait skin.
   fill(base.top, 0, 0, 8, 8);
   if (roundedFringeCut) {
-    fill(base.right, 0, 0, 8, Math.max(0, sideRows - 1));
-    fill(base.left, 0, 0, 8, Math.max(0, sideRows - 1));
-    const lowerHairXs =
-      sideHairShape === "ear_hugging" ? [0, 1, 2, 5, 6, 7] : [0, 1, 6, 7];
-    const lowerSkinXs = sideHairShape === "ear_hugging" ? [3, 4] : [2, 3, 4, 5];
-    for (const x of lowerHairXs) {
-      fill(base.right, x, sideRows - 1, 1, 1);
-      fill(base.left, x, sideRows - 1, 1, 1);
-    }
-    for (const x of lowerSkinXs) {
-      putColor(base.right, x, sideRows - 1, shadeRgb(skinColor, x < 4 ? 0.9 : 0.87));
-      putColor(base.left, x, sideRows - 1, shadeRgb(skinColor, x < 4 ? 0.87 : 0.9));
+    const paintSideRow = (rect: Rect, y: number, hairXs: readonly number[], mirrored: boolean) => {
+      const hairSet = new Set(hairXs);
+      for (let x = 0; x < 8; x++) {
+        if (hairSet.has(x)) {
+          fill(rect, x, y, 1, 1);
+        } else {
+          const isFarHalf = mirrored ? x < 4 : x >= 4;
+          putColor(rect, x, y, shadeRgb(skinColor, isFarHalf ? 0.87 : 0.9));
+        }
+      }
+    };
+    if (sideHairShape === "ear_hugging") {
+      fill(base.right, 0, 0, 8, Math.max(0, sideRows - 2));
+      fill(base.left, 0, 0, 8, Math.max(0, sideRows - 2));
+      paintSideRow(base.right, sideRows - 2, [0, 1, 2, 5, 6, 7], false);
+      paintSideRow(base.left, sideRows - 2, [0, 1, 2, 5, 6, 7], true);
+      const bottomHairXs =
+        earExposure === "covered"
+          ? [0, 1, 2, 5, 6, 7]
+          : earExposure === "visible"
+            ? [0, 7]
+            : [0, 1, 6, 7];
+      paintSideRow(base.right, sideRows - 1, bottomHairXs, false);
+      paintSideRow(base.left, sideRows - 1, bottomHairXs, true);
+    } else {
+      fill(base.right, 0, 0, 8, Math.max(0, sideRows - 1));
+      fill(base.left, 0, 0, 8, Math.max(0, sideRows - 1));
+      paintSideRow(base.right, sideRows - 1, [0, 1, 6, 7], false);
+      paintSideRow(base.left, sideRows - 1, [0, 1, 6, 7], true);
     }
   } else {
     fill(base.right, 0, 0, 8, sideRows);
@@ -1913,11 +1941,11 @@ function composeHair(
     if (style.bangs === "straight") {
       const straightTipXs =
         bangsDensity === "dense"
-          ? hairPart === "left"
-            ? [0, 1, 2, 3, 4, 6, 7]
-            : hairPart === "right"
-              ? [0, 1, 3, 4, 5, 6, 7]
-              : [0, 1, 2, 3, 5, 6, 7]
+          ? fringeEdge === "wispy"
+            ? [0, 3, 6]
+            : fringeEdge === "blunt"
+              ? [0, 1, 3, 4, 6, 7]
+              : [0, 2, 3, 5, 7]
           : bangsDensity === "sparse"
             ? hairPart === "right"
               ? [1, 5, 7]
@@ -1965,13 +1993,35 @@ function composeHair(
     style.hairTexture !== "coily"
   ) {
     if (sideHairShape === "ear_hugging") {
-      const profileRows = [
-        [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 5, 6, 7],
-        [0, 1, 6, 7],
-        [0, 7],
-      ] as const;
+      // The generic strand pass above can leave isolated pixels below the
+      // intended ear opening. Rebuild both side overlays from a clean mask so
+      // the silhouette, not texture noise, controls their visible length.
+      for (const rect of [over.right, over.left]) {
+        for (let y = 0; y < rect.h; y++) {
+          for (let x = 0; x < rect.w; x++) clearPixel(rect, x, y);
+        }
+      }
+      const profileRows: readonly (readonly number[])[] =
+        earExposure === "covered"
+          ? [
+              [1, 2, 3, 4, 5, 6],
+              [0, 1, 2, 3, 4, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 6, 7],
+              [0, 7],
+            ]
+          : earExposure === "visible"
+            ? [
+                [1, 2, 3, 4, 5, 6],
+                [0, 1, 6, 7],
+                [0, 7],
+              ]
+            : [
+                [1, 2, 3, 4, 5, 6],
+                [0, 1, 2, 5, 6, 7],
+                [0, 1, 6, 7],
+                [0, 7],
+              ];
       for (const [rect, phase] of [
         [over.right, 0],
         [over.left, 1],
@@ -1988,15 +2038,16 @@ function composeHair(
           }
         }
       }
-      for (let y = 2; y <= 5; y++) {
-        const tipShade = y >= 4 ? 0.58 : y === 3 ? 0.74 : 0.9;
+      const lastProfileY = profileRows.length;
+      for (let y = 2; y <= lastProfileY; y++) {
+        const tipShade = y === lastProfileY ? 0.58 : y === lastProfileY - 1 ? 0.74 : 0.9;
         const left = shadeRgb(bangTone(0, y), tipShade);
         const right = shadeRgb(bangTone(7, y), tipShade);
         putColor(over.front, 0, y, left);
         putColor(over.front, 7, y, right);
         putColor(over.right, 0, y, left);
         putColor(over.left, 7, y, right);
-        if (y <= 4) {
+        if (y < lastProfileY) {
           putColor(over.back, 7, y, shadeRgb(left, 0.76));
           putColor(over.back, 0, y, shadeRgb(right, 0.76));
         }

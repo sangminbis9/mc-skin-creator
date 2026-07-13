@@ -43,6 +43,7 @@ export interface PixelRenderHints {
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength: "none" | "short" | "brow" | "eye";
   bangsDensity: "sparse" | "balanced" | "dense";
+  fringeEdge: "blunt" | "staggered" | "wispy";
   hairTexture: "straight" | "wavy" | "curly" | "coily";
   hairVolume: "flat" | "normal" | "full";
   hairSilhouette: "rounded" | "flat" | "swept" | "tousled" | "spiky";
@@ -50,6 +51,7 @@ export interface PixelRenderHints {
   hairPart: "none" | "center" | "left" | "right";
   sideHairLength: "none" | "short" | "cheek" | "jaw" | "shoulder";
   sideHairShape: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
+  earExposure: "covered" | "partial" | "visible";
   garmentTexture:
     | "plain"
     | "knit"
@@ -158,18 +160,20 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length/density, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length/density/fringe edge, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
 - mouthShape means the visible mouth/lip impression: small/compact, wide, full/darker lips, or thin/subtle.
 - jawShape means the visible lower-face contour: rounded/full jaw, pointed/narrow chin, square/strong jaw corners, or soft/low-contrast jaw.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - bangsDensity describes how continuous the visible fringe is: sparse for separated wisps with substantial forehead gaps, balanced for clustered locks with several gaps, or dense for a bowl/blunt fringe with only a small staggered break. Do not infer a center part merely from a tiny separation between bang tips; hairPart requires a visible scalp/root direction.
+- fringeEdge describes only the lower outline of the fringe: blunt for a mostly level baseline, staggered for distinct locks ending at alternating heights, or wispy for thin separated tips. Even dense blunt bangs must retain the visible natural break instead of becoming a solid rectangular bar.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - sideHairShape describes the side profile around the temple and ear: tapered narrows cleanly toward the ear, ear_hugging wraps around and partly frames the ear, face_framing forms longer front locks, flared pushes outward with visible volume, and undercut is close/shaved below the top. Infer it from both visible sides and keep left/right profiles coherent unless the photo clearly shows an asymmetric cut.
+- earExposure records whether the ears are covered by hair, partially exposed, or clearly visible. Judge the visible ear opening independently from sideHairShape so ear_hugging short hair does not become a long solid side panel.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
 - hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center.
 - neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue.
@@ -238,6 +242,7 @@ Respond with ONLY a JSON object matching this shape:
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
     "bangsLength": "none" | "short" | "brow" | "eye",
     "bangsDensity": "sparse" | "balanced" | "dense",
+    "fringeEdge": "blunt" | "staggered" | "wispy",
     "hairTexture": "straight" | "wavy" | "curly" | "coily",
     "hairVolume": "flat" | "normal" | "full",
     "hairSilhouette": "rounded" | "flat" | "swept" | "tousled" | "spiky",
@@ -245,6 +250,7 @@ Respond with ONLY a JSON object matching this shape:
     "hairPart": "none" | "center" | "left" | "right",
     "sideHairLength": "none" | "short" | "cheek" | "jaw" | "shoulder",
     "sideHairShape": "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut",
+    "earExposure": "covered" | "partial" | "visible",
     "garmentTexture": "plain" | "knit" | "denim" | "leather" | "striped" | "patterned",
     "outerLayer": "none" | "light" | "heavy",
     "outerGarment": "none" | "cardigan" | "open_jacket" | "coat" | "vest",
@@ -399,6 +405,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["sparse", "balanced", "dense"],
         },
+        fringeEdge: {
+          type: "string",
+          enum: ["blunt", "staggered", "wispy"],
+        },
         hairTexture: {
           type: "string",
           enum: ["straight", "wavy", "curly", "coily"],
@@ -423,6 +433,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         sideHairShape: {
           type: "string",
           enum: ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
+        },
+        earExposure: {
+          type: "string",
+          enum: ["covered", "partial", "visible"],
         },
         garmentTexture: {
           type: "string",
@@ -474,6 +488,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "bangs",
         "bangsLength",
         "bangsDensity",
+        "fringeEdge",
         "hairTexture",
         "hairVolume",
         "hairSilhouette",
@@ -481,6 +496,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "hairPart",
         "sideHairLength",
         "sideHairShape",
+        "earExposure",
         "garmentTexture",
         "outerLayer",
         "outerGarment",
@@ -604,6 +620,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           bangs: "none",
           bangsLength: "none",
           bangsDensity: "balanced",
+          fringeEdge: "staggered",
           hairTexture: "straight",
           hairVolume: "normal",
           hairSilhouette: "rounded",
@@ -611,6 +628,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           hairPart: "none",
           sideHairLength: "short",
           sideHairShape: "tapered",
+          earExposure: "partial",
           garmentTexture: "plain",
           outerLayer: "none",
           outerGarment: "none",
@@ -821,6 +839,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       ["sparse", "balanced", "dense"],
       "balanced",
     ),
+    fringeEdge: enumValue(
+      "renderHints.fringeEdge",
+      hints.fringeEdge,
+      ["blunt", "staggered", "wispy"],
+      "staggered",
+    ),
     hairTexture: enumValue(
       "renderHints.hairTexture",
       hints.hairTexture,
@@ -862,6 +886,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.sideHairShape,
       ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
       "tapered",
+    ),
+    earExposure: enumValue(
+      "renderHints.earExposure",
+      hints.earExposure,
+      ["covered", "partial", "visible"],
+      "partial",
     ),
     garmentTexture: enumValue(
       "renderHints.garmentTexture",
