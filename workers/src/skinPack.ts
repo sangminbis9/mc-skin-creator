@@ -1242,12 +1242,14 @@ function composeHair(
   const backHairColor = (x: number, y: number, shade = 1) =>
     shadeRgb(hairVolumePixel(hairColor, over.back.x + x, over.back.y + y), shade);
   const connectBackEdge = (y: number) => {
-    const leftBack = backHairColor(0, y, 0.92);
-    const rightBack = backHairColor(7, y, 0.92);
-    putColor(over.back, 0, y, leftBack);
-    putColor(over.back, 7, y, rightBack);
-    putColor(over.right, 7, y, leftBack);
-    putColor(over.left, 0, y, rightBack);
+    const backAtX0 = backHairColor(0, y, 0.92);
+    const backAtX7 = backHairColor(7, y, 0.92);
+    putColor(over.back, 0, y, backAtX0);
+    putColor(over.back, 7, y, backAtX7);
+    // Standard Minecraft UV orientation: back x7 meets right x0, while
+    // back x0 meets left x7. The opposite pairings are the front seams.
+    putColor(over.right, 0, y, backAtX7);
+    putColor(over.left, 7, y, backAtX0);
   };
   if (hairBackShape === "rounded") {
     for (let y = 1; y < Math.min(7, backVolumeRows + 1); y++) {
@@ -1888,8 +1890,8 @@ function composeHair(
     const right = shadeRgb(bangTone(7, y), rightShade);
     putColor(over.front, 0, y, left);
     putColor(over.front, 7, y, right);
-    putColor(over.right, 0, y, left);
-    putColor(over.left, 7, y, right);
+    putColor(over.right, 7, y, left);
+    putColor(over.left, 0, y, right);
     putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
     putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
   };
@@ -2045,11 +2047,15 @@ function composeHair(
         const right = shadeRgb(bangTone(7, y), tipShade);
         putColor(over.front, 0, y, left);
         putColor(over.front, 7, y, right);
-        putColor(over.right, 0, y, left);
-        putColor(over.left, 7, y, right);
+        putColor(over.right, 7, y, left);
+        putColor(over.left, 0, y, right);
         if (y < lastProfileY) {
-          putColor(over.back, 7, y, shadeRgb(left, 0.76));
-          putColor(over.back, 0, y, shadeRgb(right, 0.76));
+          const backAtX7 = shadeRgb(left, 0.76);
+          const backAtX0 = shadeRgb(right, 0.76);
+          putColor(over.back, 7, y, backAtX7);
+          putColor(over.back, 0, y, backAtX0);
+          putColor(over.right, 0, y, backAtX7);
+          putColor(over.left, 7, y, backAtX0);
         }
       }
     } else {
@@ -2065,25 +2071,29 @@ function composeHair(
 
       putColor(over.front, 0, y, left);
       putColor(over.front, 7, y, right);
-      putColor(over.right, 0, y, left);
-      putColor(over.left, 7, y, right);
-      putColor(over.right, 1, y, leftInner);
-      putColor(over.left, 6, y, rightInner);
+      putColor(over.right, 7, y, left);
+      putColor(over.left, 0, y, right);
+      putColor(over.right, 6, y, leftInner);
+      putColor(over.left, 1, y, rightInner);
       if (y >= 3) {
         putColor(over.front, 1, y, leftInner);
         putColor(over.front, 6, y, rightInner);
-        putColor(over.right, 2, y, leftDepth);
-        putColor(over.left, 5, y, rightDepth);
+        putColor(over.right, 5, y, leftDepth);
+        putColor(over.left, 2, y, rightDepth);
       }
       if (y <= 3) {
-        putColor(over.back, 7, y, shadeRgb(left, 0.72));
-        putColor(over.back, 0, y, shadeRgb(right, 0.72));
+        const backAtX7 = shadeRgb(left, 0.72);
+        const backAtX0 = shadeRgb(right, 0.72);
+        putColor(over.back, 7, y, backAtX7);
+        putColor(over.back, 0, y, backAtX0);
+        putColor(over.right, 0, y, backAtX7);
+        putColor(over.left, 7, y, backAtX0);
       }
       if (tip) {
         putColor(over.back, 7, y, shadeRgb(left, 0.64));
         putColor(over.back, 0, y, shadeRgb(right, 0.64));
-        putColor(over.right, 3, y, shadeRgb(left, 0.54));
-        putColor(over.left, 4, y, shadeRgb(right, 0.54));
+        putColor(over.right, 4, y, shadeRgb(left, 0.54));
+        putColor(over.left, 3, y, shadeRgb(right, 0.54));
       }
       putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
       putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
@@ -2097,10 +2107,10 @@ function composeHair(
     const rightLower = shadeRgb(bangTone(7, lowerTipRow), 0.5);
     const leftLowerInner = shadeRgb(leftLower, 0.74);
     const rightLowerInner = shadeRgb(rightLower, 0.74);
-    putColor(over.right, 2, lowerTipRow, leftLowerInner);
-    putColor(over.right, 3, lowerTipRow, shadeRgb(leftLowerInner, 0.76));
-    putColor(over.left, 5, lowerTipRow, rightLowerInner);
-    putColor(over.left, 4, lowerTipRow, shadeRgb(rightLowerInner, 0.76));
+    putColor(over.right, 5, lowerTipRow, leftLowerInner);
+    putColor(over.right, 4, lowerTipRow, shadeRgb(leftLowerInner, 0.76));
+    putColor(over.left, 2, lowerTipRow, rightLowerInner);
+    putColor(over.left, 3, lowerTipRow, shadeRgb(rightLowerInner, 0.76));
     putColor(over.back, 7, lowerTipRow, shadeRgb(leftLower, 0.72));
     putColor(over.back, 0, lowerTipRow, shadeRgb(rightLower, 0.72));
     putColor(over.top, 1, Math.min(7, lowerTipRow + 1), shadeRgb(leftLowerInner, 0.92));
@@ -2297,6 +2307,40 @@ function composeHair(
     put(over.right, 6, 3);
     put(over.left, 0, 3);
     put(over.left, 1, 3);
+  }
+
+  // Final vertical-seam guard. UV face x directions are not all the same:
+  // front x0 <-> right x7, front x7 <-> left x0,
+  // back x7 <-> right x0, and back x0 <-> left x7.
+  // Keep both alpha and colour identical at each physical edge so a strand
+  // cannot stop, change shade, or jump to the far edge when the cube rotates.
+  const syncEdgePixel = (
+    primary: Rect,
+    primaryX: number,
+    adjacent: Rect,
+    adjacentX: number,
+    y: number,
+  ) => {
+    const primaryIndex = ((primary.y + y) * ATLAS_SIZE + primary.x + primaryX) * 4;
+    const adjacentIndex = ((adjacent.y + y) * ATLAS_SIZE + adjacent.x + adjacentX) * 4;
+    const sourceIndex =
+      atlas.rgba[primaryIndex + 3] !== 0
+        ? primaryIndex
+        : atlas.rgba[adjacentIndex + 3] !== 0
+          ? adjacentIndex
+          : -1;
+    if (sourceIndex < 0) return;
+    for (let channel = 0; channel < 4; channel++) {
+      const value = atlas.rgba[sourceIndex + channel];
+      atlas.rgba[primaryIndex + channel] = value;
+      atlas.rgba[adjacentIndex + channel] = value;
+    }
+  };
+  for (let y = 0; y < 8; y++) {
+    syncEdgePixel(over.front, 0, over.right, 7, y);
+    syncEdgePixel(over.front, 7, over.left, 0, y);
+    syncEdgePixel(over.back, 7, over.right, 0, y);
+    syncEdgePixel(over.back, 0, over.left, 7, y);
   }
 }
 

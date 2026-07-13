@@ -57,6 +57,16 @@ function alphaAt(
   return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
 }
 
+function rgbaAt(
+  atlas: RawImage,
+  rect: { x: number; y: number },
+  x: number,
+  y: number,
+): number[] {
+  const index = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+  return Array.from(atlas.rgba.slice(index, index + 4));
+}
+
 describe("packFrontViewToAtlas", () => {
   it("정면 뷰를 유효한 64x64 atlas로 pack한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView());
@@ -489,11 +499,11 @@ describe("packFrontViewToAtlas", () => {
     const noseBridge = idx(face, 3, 4);
     const noseShadow = idx(face, 3, 5);
     const clearSkin = idx(face, 4, 4);
-    const sideEar = idx(sideRight, 0, 4);
-    const sideEarInner = idx(sideRight, 1, 4);
-    const sideCheek = idx(sideRight, 0, 5);
-    const sideJaw = idx(sideRight, 1, 6);
-    const leftSideEar = idx(sideLeft, sideLeft.w - 1, 4);
+    const sideEar = idx(sideRight, 7, 4);
+    const sideEarInner = idx(sideRight, 6, 4);
+    const sideCheek = idx(sideRight, 7, 5);
+    const sideJaw = idx(sideRight, 6, 6);
+    const leftSideEar = idx(sideLeft, 0, 4);
 
     expect(atlas.rgba[leftEyeWindow + 3]).toBe(0);
     expect(atlas.rgba[rightEyeWindow + 3]).toBe(0);
@@ -594,8 +604,8 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(over.top, 7, 5)).toBe(255);
     expect(alphaAt(over.top, 0, 6)).toBe(255);
     expect(alphaAt(over.top, 7, 6)).toBe(255);
-    expect(redAt(over.front, 0, 5)).toBe(redAt(over.right, 0, 5));
-    expect(redAt(over.front, 7, 5)).toBe(redAt(over.left, 7, 5));
+    expect(redAt(over.front, 0, 5)).toBe(redAt(over.right, 7, 5));
+    expect(redAt(over.front, 7, 5)).toBe(redAt(over.left, 0, 5));
     expect(redAt(over.right, 7, 6)).not.toBe(redAt(over.right, 3, 6));
     expect(redAt(over.left, 0, 6)).not.toBe(redAt(over.left, 4, 6));
     expect(redAt(over.top, 3, 3)).not.toBe(redAt(over.top, 2, 3));
@@ -723,8 +733,8 @@ describe("packFrontViewToAtlas", () => {
 
     expect(pixel(over.front, 3, 2)[3]).toBe(255);
     expect(pixel(over.front, 2, 3)[3]).toBe(255);
-    expect(pixel(over.front, 0, 3)[0]).toBe(pixel(over.right, 0, 3)[0]);
-    expect(pixel(over.front, 7, 3)[0]).toBe(pixel(over.left, 7, 3)[0]);
+    expect(pixel(over.front, 0, 3)[0]).toBe(pixel(over.right, 7, 3)[0]);
+    expect(pixel(over.front, 7, 3)[0]).toBe(pixel(over.left, 0, 3)[0]);
     expect(pixel(over.top, 0, 4)[3]).toBe(255);
     expect(pixel(over.front, 2, 3)[0]).not.toBe(pixel(over.front, 3, 2)[0]);
     expect(pixel(over.right, 2, 4)[3]).toBe(255);
@@ -747,17 +757,19 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.front, 0, 4)).toBe(255);
     expect(alphaAt(atlas, over.front, 7, 4)).toBe(255);
     expect(alphaAt(atlas, over.right, 0, 4)).toBe(255);
-    expect(alphaAt(atlas, over.right, 1, 4)).toBe(255);
-    expect(alphaAt(atlas, over.right, 2, 4)).toBe(255);
-    expect(alphaAt(atlas, over.right, 3, 4)).toBe(255);
-    expect(alphaAt(atlas, over.right, 2, 5)).toBe(255);
-    expect(alphaAt(atlas, over.right, 3, 5)).toBe(255);
+    expect(alphaAt(atlas, over.right, 4, 4)).toBe(255);
+    expect(alphaAt(atlas, over.right, 5, 4)).toBe(255);
+    expect(alphaAt(atlas, over.right, 6, 4)).toBe(255);
+    expect(alphaAt(atlas, over.right, 7, 4)).toBe(255);
+    expect(alphaAt(atlas, over.right, 4, 5)).toBe(255);
+    expect(alphaAt(atlas, over.right, 5, 5)).toBe(255);
     expect(alphaAt(atlas, over.left, 7, 4)).toBe(255);
-    expect(alphaAt(atlas, over.left, 6, 4)).toBe(255);
-    expect(alphaAt(atlas, over.left, 5, 4)).toBe(255);
-    expect(alphaAt(atlas, over.left, 4, 4)).toBe(255);
-    expect(alphaAt(atlas, over.left, 5, 5)).toBe(255);
-    expect(alphaAt(atlas, over.left, 4, 5)).toBe(255);
+    expect(alphaAt(atlas, over.left, 0, 4)).toBe(255);
+    expect(alphaAt(atlas, over.left, 1, 4)).toBe(255);
+    expect(alphaAt(atlas, over.left, 2, 4)).toBe(255);
+    expect(alphaAt(atlas, over.left, 3, 4)).toBe(255);
+    expect(alphaAt(atlas, over.left, 2, 5)).toBe(255);
+    expect(alphaAt(atlas, over.left, 3, 5)).toBe(255);
     expect(alphaAt(atlas, over.top, 0, 5)).toBe(255);
     expect(alphaAt(atlas, over.top, 1, 5)).toBe(255);
     expect(alphaAt(atlas, over.top, 6, 5)).toBe(255);
@@ -770,11 +782,11 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.back, 0, 4)).toBe(255);
     expect(alphaAt(atlas, over.back, 7, 5)).toBe(255);
     expect(alphaAt(atlas, over.back, 0, 5)).toBe(255);
-    expect(redAt(atlas, over.front, 0, 4)).toBe(redAt(atlas, over.right, 0, 4));
-    expect(redAt(atlas, over.front, 7, 4)).toBe(redAt(atlas, over.left, 7, 4));
-    expect(redAt(atlas, over.right, 1, 4)).toBeLessThanOrEqual(redAt(atlas, over.right, 0, 4));
-    expect(redAt(atlas, over.right, 3, 4)).toBeLessThan(redAt(atlas, over.right, 1, 4));
-    expect(redAt(atlas, over.left, 4, 4)).toBeLessThan(redAt(atlas, over.left, 6, 4));
+    expect(redAt(atlas, over.front, 0, 4)).toBe(redAt(atlas, over.right, 7, 4));
+    expect(redAt(atlas, over.front, 7, 4)).toBe(redAt(atlas, over.left, 0, 4));
+    expect(redAt(atlas, over.right, 6, 4)).toBeLessThanOrEqual(redAt(atlas, over.right, 7, 4));
+    expect(redAt(atlas, over.right, 4, 4)).toBeLessThan(redAt(atlas, over.right, 6, 4));
+    expect(redAt(atlas, over.left, 3, 4)).toBeLessThan(redAt(atlas, over.left, 1, 4));
   });
 
   it("centre-parted rounded short hair keeps a split fringe, readable eyes and deeper side volume", () => {
@@ -876,9 +888,28 @@ describe("packFrontViewToAtlas", () => {
       expect(alphaAt(atlas, rect, 0, 4)).toBe(255);
       expect(alphaAt(atlas, rect, 7, 4)).toBe(255);
       for (const x of [1, 2, 3, 4, 5, 6]) expect(alphaAt(atlas, rect, x, 4)).toBe(0);
-      expect(alphaAt(atlas, rect, 0, 5)).toBe(0);
-      expect(alphaAt(atlas, rect, 7, 5)).toBe(0);
       expect(alphaAt(atlas, rect, 3, 5)).toBe(0);
+    }
+    // The tapered nape may continue one row below the exposed ear, but only
+    // on each side face's physical back edge.
+    expect(alphaAt(atlas, head.overlay.right, 0, 5)).toBe(255);
+    expect(alphaAt(atlas, head.overlay.right, 7, 5)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.left, 0, 5)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.left, 7, 5)).toBe(255);
+
+    for (let y = 0; y < 8; y++) {
+      expect(rgbaAt(atlas, head.overlay.front, 0, y)).toEqual(
+        rgbaAt(atlas, head.overlay.right, 7, y),
+      );
+      expect(rgbaAt(atlas, head.overlay.front, 7, y)).toEqual(
+        rgbaAt(atlas, head.overlay.left, 0, y),
+      );
+      expect(rgbaAt(atlas, head.overlay.back, 7, y)).toEqual(
+        rgbaAt(atlas, head.overlay.right, 0, y),
+      );
+      expect(rgbaAt(atlas, head.overlay.back, 0, y)).toEqual(
+        rgbaAt(atlas, head.overlay.left, 7, y),
+      );
     }
     expect(redAt(atlas, head.base.right, 3, 2)).toBeGreaterThan(
       redAt(atlas, head.base.right, 2, 2) + 50,
@@ -981,8 +1012,8 @@ describe("packFrontViewToAtlas", () => {
     };
 
     expect(pixel(longBack, over.back, 3, 7)[3]).toBe(255);
-    expect(pixel(longBack, over.back, 0, 5)[0]).toBe(pixel(longBack, over.right, 7, 5)[0]);
-    expect(pixel(longBack, over.back, 7, 5)[0]).toBe(pixel(longBack, over.left, 0, 5)[0]);
+    expect(pixel(longBack, over.back, 0, 5)[0]).toBe(pixel(longBack, over.left, 7, 5)[0]);
+    expect(pixel(longBack, over.back, 7, 5)[0]).toBe(pixel(longBack, over.right, 0, 5)[0]);
     expect(pixel(tiedBack, over.back, 3, 6)[3]).toBe(255);
     expect(pixel(tiedBack, over.back, 3, 6)[0]).not.toBe(pixel(longBack, over.back, 3, 6)[0]);
   });
