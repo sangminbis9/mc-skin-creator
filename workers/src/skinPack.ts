@@ -488,7 +488,7 @@ function composeFace(
     const sclera = mixRgb(
       skinColor,
       [238, 232, 222],
-      style.eyeShape === "round" ? 0.42 : style.eyeShape === "narrow" ? 0.18 : 0.28,
+      style.eyeShape === "round" ? 0.36 : style.eyeShape === "narrow" ? 0.12 : 0.18,
     );
     put(face, outer, 4, sclera);
     put(face, inner, 4, eye);
@@ -685,6 +685,19 @@ function composeFace(
     } else {
       put(overlay, 2, 7, shadeRgb(skinColor, 0.95));
       put(overlay, 5, 7, shadeRgb(skinColor, 0.95));
+    }
+  }
+  if (
+    style.facialHair === "none" &&
+    (style.faceShape === "oval" || style.faceShape === "long")
+  ) {
+    const outerJaw = shadeRgb(skinColor, style.faceShape === "long" ? 0.78 : 0.82);
+    const innerJaw = shadeRgb(skinColor, style.faceShape === "long" ? 0.86 : 0.89);
+    put(overlay, 0, 7, outerJaw);
+    put(overlay, 7, 7, shadeRgb(outerJaw, 0.97));
+    if (jawShape === "soft") {
+      put(overlay, 1, 7, innerJaw);
+      put(overlay, 6, 7, shadeRgb(innerJaw, 0.98));
     }
   }
 
@@ -1776,6 +1789,7 @@ function composeHair(
     putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
   };
   const splitCenterFringe = style.bangs === "straight" && hairPart === "center";
+  const partedStraightFringe = style.bangs === "straight" && hairPart !== "none";
   if (style.bangs === "straight") {
     for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
       paintBang(x, 1);
@@ -1783,8 +1797,8 @@ function composeHair(
     for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) {
       paintBang(x, 2, x === 3 || x === 4 ? 0.84 : 0.96);
     }
-    for (const x of splitCenterFringe ? [0, 1, 6, 7] : [0, 2, 5, 7]) {
-      paintBang(x, 3, 0.74);
+    if (!partedStraightFringe || style.bangsLength === "short") {
+      for (const x of [0, 2, 5, 7]) paintBang(x, 3, 0.74);
     }
     if (splitCenterFringe) {
       putColor(over.front, 3, 1, partAccent);
@@ -1819,7 +1833,15 @@ function composeHair(
     style.bangs === "none" ? "none" : (style.bangsLength ?? "brow");
   if (bangsLength === "brow" || bangsLength === "eye") {
     if (style.bangs === "straight") {
-      for (const x of splitCenterFringe ? [0, 1, 6, 7] : [1, 3, 4, 6]) {
+      const straightTipXs =
+        hairPart === "left"
+          ? [0, 2, 3, 6]
+          : hairPart === "right"
+            ? [1, 4, 5, 7]
+            : splitCenterFringe
+              ? [0, 2, 5, 7]
+              : [1, 3, 4, 6];
+      for (const x of straightTipXs) {
         paintBang(x, 3, 0.66);
       }
       wrapTemple(3, 0.72, 0.72);

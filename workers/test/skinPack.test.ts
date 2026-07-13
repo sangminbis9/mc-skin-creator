@@ -501,7 +501,7 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[leftScleraWindow + 3]).toBe(0);
     expect(atlas.rgba[rightScleraWindow + 3]).toBe(0);
     expect(atlas.rgba[leftSclera]).toBeGreaterThan(atlas.rgba[leftIris] + 50);
-    expect(Math.abs(atlas.rgba[leftSclera + 1] - atlas.rgba[clearSkin + 1])).toBeLessThan(35);
+    expect(Math.abs(atlas.rgba[leftSclera + 1] - atlas.rgba[clearSkin + 1])).toBeLessThan(25);
     expect(atlas.rgba[leftIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[rightIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[cheekBlush + 3]).toBe(255);
@@ -816,6 +816,30 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.back, 0, 4)).toBe(255);
     expect(alphaAt(atlas, over.back, 7, 4)).toBe(255);
     expect(redAt(atlas, over.front, 3, 1)).not.toBe(redAt(atlas, over.front, 4, 1));
+    expect(redAt(atlas, over.front, 0, 7)).toBeLessThan(redAt(atlas, over.front, 3, 7));
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("left-parted brow-length straight bangs keep irregular tip gaps instead of a solid bar", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight",
+      bangsLength: "brow",
+      hairPart: "left",
+      hairSilhouette: "rounded",
+      sideHairLength: "short",
+    })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    for (const x of [0, 2, 3, 6, 7]) {
+      expect(alphaAt(atlas, over, x, 3)).toBe(255);
+    }
+    expect(alphaAt(atlas, over, 4, 3)).toBe(0);
+    expect(alphaAt(atlas, over, 5, 3)).toBe(0);
+    expect(redAt(atlas, over, 2, 3)).not.toBe(redAt(atlas, over, 3, 3));
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
