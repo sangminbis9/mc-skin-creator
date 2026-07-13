@@ -96,10 +96,14 @@ describe("packFrontViewToAtlas", () => {
 
     // 얼굴 라운딩: 가장자리 피부가 중앙 피부보다 어둡다
     // (4행: 눈은 1,2,5,6열이므로 0/7열=가장자리 피부, 3/4열=중앙 피부)
-    const edge = (atlas.rgba[(12 * ATLAS_SIZE + 8) * 4] +
-      atlas.rgba[(12 * ATLAS_SIZE + 15) * 4]) / 2;
-    const center = (atlas.rgba[(12 * ATLAS_SIZE + 11) * 4] +
-      atlas.rgba[(12 * ATLAS_SIZE + 12) * 4]) / 2;
+    const edge =
+      (atlas.rgba[(12 * ATLAS_SIZE + 8) * 4] +
+        atlas.rgba[(12 * ATLAS_SIZE + 15) * 4]) /
+      2;
+    const center =
+      (atlas.rgba[(12 * ATLAS_SIZE + 11) * 4] +
+        atlas.rgba[(12 * ATLAS_SIZE + 12) * 4]) /
+      2;
     expect(edge).toBeLessThan(center);
 
     // 생성 렌더에 없던 고정 흰자 템플릿을 새로 만들지 않는다.
@@ -207,11 +211,13 @@ describe("packFrontViewToAtlas", () => {
     })!;
     const atlas = packed.atlas;
     const side = CLASSIC_LAYOUT.body.overlay.right;
-    const mid = ((side.y + 5) * ATLAS_SIZE + side.x + 1) * 4;
+    const mid = ((side.y + 5) * ATLAS_SIZE + side.x) * 4;
+    const openInterior = ((side.y + 5) * ATLAS_SIZE + side.x + 1) * 4;
     expect(atlas.rgba[mid + 3]).toBe(255);
+    expect(atlas.rgba[openInterior + 3]).toBe(0);
     // 윗행(lit)이 밑단(hem)보다 밝다 — 그림자가 아니라 두께 큐
-    const litCenter = ((side.y * ATLAS_SIZE + side.x + 1) * 4);
-    const hemCenter = (((side.y + side.h - 1) * ATLAS_SIZE + side.x + 1) * 4);
+    const litCenter = (side.y * ATLAS_SIZE + side.x + 1) * 4;
+    const hemCenter = ((side.y + side.h - 1) * ATLAS_SIZE + side.x + 1) * 4;
     expect(atlas.rgba[litCenter]).toBeGreaterThan(atlas.rgba[hemCenter]);
 
     applyUvMask(atlas);
@@ -241,47 +247,72 @@ describe("packFrontViewToAtlas", () => {
     const panel = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 1) * 4;
     const trim = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 2) * 4;
     const openCenter = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 3) * 4;
-    const side = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + 1) * 4;
-    const back = ((bodyBack.y + 5) * ATLAS_SIZE + bodyBack.x + 4) * 4;
+    const side = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x) * 4;
+    const back = ((bodyBack.y + 5) * ATLAS_SIZE + bodyBack.x) * 4;
     const sleeve = ((armFront.y + 4) * ATLAS_SIZE + armFront.x + 1) * 4;
     const sleeveFold = ((armFront.y + 3) * ATLAS_SIZE + armFront.x + 1) * 4;
-    const sleeveSideFold = ((armSide.y + 6) * ATLAS_SIZE + armSide.x + 1) * 4;
-    const lowerLeftPanel = ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 1) * 4;
-    const lowerTrim = ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 2) * 4;
-    const lowerOpenCenter = ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 3) * 4;
-    const sideLowerHem = ((bodySide.y + bodySide.h - 2) * ATLAS_SIZE + bodySide.x) * 4;
-    const backCenterSeam = ((bodyBack.y + bodyBack.h - 2) * ATLAS_SIZE + bodyBack.x + 4) * 4;
+    const sleeveSideFold = ((armSide.y + 5) * ATLAS_SIZE + armSide.x) * 4;
+    const lowerLeftPanel =
+      ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 1) * 4;
+    const lowerTrim =
+      ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 2) * 4;
+    const lowerOpenCenter =
+      ((bodyFront.y + bodyFront.h - 2) * ATLAS_SIZE + bodyFront.x + 3) * 4;
+    const sideLowerHem =
+      ((bodySide.y + bodySide.h - 2) * ATLAS_SIZE + bodySide.x) * 4;
+    const backCenterSeam =
+      ((bodyBack.y + bodyBack.h - 2) * ATLAS_SIZE + bodyBack.x + 4) * 4;
     const buttonLight = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 1) * 4;
     const buttonShadow = ((bodyFront.y + 5) * ATLAS_SIZE + bodyFront.x + 6) * 4;
     const pocketLight = ((bodyFront.y + 7) * ATLAS_SIZE + bodyFront.x + 1) * 4;
     const pocketShadow = ((bodyFront.y + 7) * ATLAS_SIZE + bodyFront.x + 2) * 4;
-    const sidePocketLight = ((bodySide.y + 7) * ATLAS_SIZE + bodySide.x + 1) * 4;
-    const sidePocketShadow = ((bodySide.y + 7) * ATLAS_SIZE + bodySide.x + 2) * 4;
-    const frontYarnLight = ((bodyFront.y + 4) * ATLAS_SIZE + bodyFront.x + 1) * 4;
-    const frontYarnShadow = ((bodyFront.y + 4) * ATLAS_SIZE + bodyFront.x + 6) * 4;
+    const sidePocketLight =
+      ((bodySide.y + 7) * ATLAS_SIZE + bodySide.x + 1) * 4;
+    const sidePocketShadow =
+      ((bodySide.y + 7) * ATLAS_SIZE + bodySide.x + 2) * 4;
+    const frontYarnLight =
+      ((bodyFront.y + 4) * ATLAS_SIZE + bodyFront.x + 1) * 4;
+    const frontYarnShadow =
+      ((bodyFront.y + 4) * ATLAS_SIZE + bodyFront.x + 6) * 4;
     const sideYarnShadow = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x) * 4;
-    const sideYarnLight = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + bodySide.w - 1) * 4;
-    const sleeveYarnLight = ((armFront.y + 5) * ATLAS_SIZE + armFront.x + 1) * 4;
-    const sleeveYarnShadow = ((armFront.y + 7) * ATLAS_SIZE + armFront.x + 1) * 4;
-    const sleeveCuffLight = ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x) * 4;
-    const sleeveCuffShadow = ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x + 1) * 4;
-    const sleeveTopShoulder = ((armTop.y + 1) * ATLAS_SIZE + armTop.x + 1) * 4;
+    const sideYarnLight =
+      ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + bodySide.w - 1) * 4;
+    const sleeveYarnLight =
+      ((armFront.y + 5) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveYarnShadow =
+      ((armFront.y + 7) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveCuffLight =
+      ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x) * 4;
+    const sleeveCuffShadow =
+      ((armFront.y + armFront.h - 3) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const sleeveTopShoulder = (armTop.y * ATLAS_SIZE + armTop.x + 1) * 4;
     const sleeveTopEdge = (armTop.y * ATLAS_SIZE + armTop.x) * 4;
-    const sleeveBottomCuff = ((armBottom.y + 1) * ATLAS_SIZE + armBottom.x + 1) * 4;
+    const sleeveBottomCuff =
+      ((armBottom.y + armBottom.h - 1) * ATLAS_SIZE + armBottom.x + 1) * 4;
     const sleeveBottomEdge =
       ((armBottom.y + armBottom.h - 1) * ATLAS_SIZE + armBottom.x) * 4;
     const rightTailPanel = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x) * 4;
-    const rightTailTrim = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
+    const rightTailTrim =
+      (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
     const leftTailTrim = (leftLegFront.y * ATLAS_SIZE + leftLegFront.x + 2) * 4;
-    const openLegCenter = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 3) * 4;
-    const rightTailFoldLight = ((rightLegFront.y + 1) * ATLAS_SIZE + rightLegFront.x) * 4;
-    const rightTailFoldShadow = ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x + 1) * 4;
-    const leftTailFoldLight = ((leftLegFront.y + 1) * ATLAS_SIZE + leftLegFront.x + 3) * 4;
-    const leftTailFoldShadow = ((leftLegFront.y + 2) * ATLAS_SIZE + leftLegFront.x + 2) * 4;
-    const sideTail = ((rightLegSide.y + 1) * ATLAS_SIZE + rightLegSide.x + 1) * 4;
-    const sideTailFold = ((rightLegSide.y + 2) * ATLAS_SIZE + rightLegSide.x) * 4;
+    const openLegCenter =
+      (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 3) * 4;
+    const rightTailFoldLight =
+      ((rightLegFront.y + 1) * ATLAS_SIZE + rightLegFront.x) * 4;
+    const rightTailFoldShadow =
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x + 1) * 4;
+    const leftTailFoldLight =
+      ((leftLegFront.y + 1) * ATLAS_SIZE + leftLegFront.x + 3) * 4;
+    const leftTailFoldShadow =
+      ((leftLegFront.y + 2) * ATLAS_SIZE + leftLegFront.x + 2) * 4;
+    const sideTail =
+      ((rightLegSide.y + 1) * ATLAS_SIZE + rightLegSide.x + 1) * 4;
+    const sideTailFold =
+      ((rightLegSide.y + 2) * ATLAS_SIZE + rightLegSide.x) * 4;
     const backTail = ((leftLegBack.y + 2) * ATLAS_SIZE + leftLegBack.x + 3) * 4;
-    const backTailHighlight = ((leftLegBack.y + 1) * ATLAS_SIZE + leftLegBack.x + leftLegBack.w - 2) * 4;
+    const backTailHighlight =
+      ((leftLegBack.y + 1) * ATLAS_SIZE + leftLegBack.x + leftLegBack.w - 2) *
+      4;
 
     expect(atlas.rgba[panel + 3]).toBe(255);
     expect(atlas.rgba[trim + 3]).toBe(255);
@@ -304,28 +335,44 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[pocketLight + 3]).toBe(255);
     expect(atlas.rgba[pocketLight]).toBeGreaterThan(atlas.rgba[pocketShadow]);
     expect(atlas.rgba[sidePocketLight + 3]).toBe(255);
-    expect(atlas.rgba[sidePocketLight]).toBeGreaterThan(atlas.rgba[sidePocketShadow]);
+    expect(atlas.rgba[sidePocketLight]).toBeGreaterThan(
+      atlas.rgba[sidePocketShadow],
+    );
     expect(atlas.rgba[frontYarnLight + 3]).toBe(255);
-    expect(atlas.rgba[frontYarnLight]).toBeGreaterThan(atlas.rgba[frontYarnShadow]);
+    expect(atlas.rgba[frontYarnLight]).toBeGreaterThan(
+      atlas.rgba[frontYarnShadow],
+    );
     expect(atlas.rgba[sideYarnLight + 3]).toBe(255);
     expect(atlas.rgba[sideYarnShadow]).toBeLessThan(atlas.rgba[sideYarnLight]);
     expect(atlas.rgba[sleeveYarnLight + 3]).toBe(255);
-    expect(atlas.rgba[sleeveYarnLight]).toBeGreaterThan(atlas.rgba[sleeveYarnShadow]);
+    expect(atlas.rgba[sleeveYarnLight]).toBeGreaterThan(
+      atlas.rgba[sleeveYarnShadow],
+    );
     expect(atlas.rgba[sleeveCuffLight + 3]).toBe(255);
-    expect(atlas.rgba[sleeveCuffLight]).toBeGreaterThan(atlas.rgba[sleeveCuffShadow]);
+    expect(atlas.rgba[sleeveCuffLight]).toBeGreaterThan(
+      atlas.rgba[sleeveCuffShadow],
+    );
     expect(atlas.rgba[sleeveTopShoulder + 3]).toBe(255);
     expect(atlas.rgba[sleeveTopEdge + 3]).toBe(255);
-    expect(atlas.rgba[sleeveTopShoulder]).toBeGreaterThan(atlas.rgba[sleeveTopEdge]);
+    expect(atlas.rgba[sleeveTopShoulder]).toBeGreaterThan(
+      atlas.rgba[sleeveTopEdge],
+    );
     expect(atlas.rgba[sleeveBottomCuff + 3]).toBe(255);
     expect(atlas.rgba[sleeveBottomEdge + 3]).toBe(255);
-    expect(atlas.rgba[sleeveBottomCuff]).toBeGreaterThan(atlas.rgba[sleeveBottomEdge]);
+    expect(atlas.rgba[sleeveBottomCuff]).toBeGreaterThan(
+      atlas.rgba[sleeveBottomEdge],
+    );
     expect(atlas.rgba[rightTailPanel + 3]).toBe(255);
     expect(atlas.rgba[rightTailTrim + 3]).toBe(255);
     expect(atlas.rgba[leftTailTrim + 3]).toBe(255);
     expect(atlas.rgba[openLegCenter]).not.toBe(atlas.rgba[rightTailPanel]);
     expect(atlas.rgba[rightTailTrim]).toBeLessThan(atlas.rgba[rightTailPanel]);
-    expect(atlas.rgba[rightTailFoldLight]).toBeGreaterThan(atlas.rgba[rightTailFoldShadow]);
-    expect(atlas.rgba[leftTailFoldLight]).toBeGreaterThan(atlas.rgba[leftTailFoldShadow]);
+    expect(atlas.rgba[rightTailFoldLight]).toBeGreaterThan(
+      atlas.rgba[rightTailFoldShadow],
+    );
+    expect(atlas.rgba[leftTailFoldLight]).toBeGreaterThan(
+      atlas.rgba[leftTailFoldShadow],
+    );
     expect(atlas.rgba[sideTail + 3]).toBe(255);
     expect(atlas.rgba[sideTailFold]).toBeLessThan(atlas.rgba[sideTail]);
     expect(atlas.rgba[backTail + 3]).toBe(255);
@@ -345,14 +392,20 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const body = CLASSIC_LAYOUT.body.overlay;
 
-    const bowLeftWing = ((body.front.y + 2) * ATLAS_SIZE + body.front.x + 1) * 4;
-    const bowRightWing = ((body.front.y + 2) * ATLAS_SIZE + body.front.x + 6) * 4;
+    const bowLeftWing =
+      ((body.front.y + 2) * ATLAS_SIZE + body.front.x + 1) * 4;
+    const bowRightWing =
+      ((body.front.y + 2) * ATLAS_SIZE + body.front.x + 6) * 4;
     const innerShirt = ((body.front.y + 3) * ATLAS_SIZE + body.front.x + 3) * 4;
-    const bowTailLight = ((body.front.y + 4) * ATLAS_SIZE + body.front.x + 3) * 4;
-    const bowTailDark = ((body.front.y + 4) * ATLAS_SIZE + body.front.x + 4) * 4;
+    const bowTailLight =
+      ((body.front.y + 4) * ATLAS_SIZE + body.front.x + 3) * 4;
+    const bowTailDark =
+      ((body.front.y + 4) * ATLAS_SIZE + body.front.x + 4) * 4;
     const longTail = ((body.front.y + 6) * ATLAS_SIZE + body.front.x + 3) * 4;
-    const topEdge = ((body.top.y + body.top.h - 1) * ATLAS_SIZE + body.top.x + 1) * 4;
-    const rightSideFold = ((body.right.y + 2) * ATLAS_SIZE + body.right.x + 1) * 4;
+    const topEdge =
+      ((body.top.y + body.top.h - 1) * ATLAS_SIZE + body.top.x + 1) * 4;
+    const rightSideFold =
+      ((body.right.y + 2) * ATLAS_SIZE + body.right.x + 1) * 4;
     const leftSideFold =
       ((body.left.y + 2) * ATLAS_SIZE + body.left.x + body.left.w - 2) * 4;
 
@@ -398,14 +451,15 @@ describe("packFrontViewToAtlas", () => {
     expect(fringeAlpha).toBe(255);
 
     const bodyOver = CLASSIC_LAYOUT.body.overlay.front;
-    const pendant =
-      ((bodyOver.y + 4) * ATLAS_SIZE + bodyOver.x + 3) * 4;
+    const pendant = ((bodyOver.y + 4) * ATLAS_SIZE + bodyOver.x + 3) * 4;
     expect(atlas.rgba[pendant]).toBeGreaterThan(170);
     expect(atlas.rgba[pendant + 2]).toBeGreaterThan(170);
 
     const armOver = CLASSIC_LAYOUT.rightArm.overlay.front;
     const cuffAlpha =
-      atlas.rgba[((armOver.y + armOver.h - 2) * ATLAS_SIZE + armOver.x) * 4 + 3];
+      atlas.rgba[
+        ((armOver.y + armOver.h - 2) * ATLAS_SIZE + armOver.x) * 4 + 3
+      ];
     expect(cuffAlpha).toBe(255);
   });
 
@@ -459,7 +513,9 @@ describe("packFrontViewToAtlas", () => {
         for (let x = rect.x; x < rect.x + rect.w; x++) {
           const d = (y * ATLAS_SIZE + x) * 4;
           if (atlas.rgba[d + 3] === 0) continue;
-          colors.add(`${atlas.rgba[d]},${atlas.rgba[d + 1]},${atlas.rgba[d + 2]}`);
+          colors.add(
+            `${atlas.rgba[d]},${atlas.rgba[d + 1]},${atlas.rgba[d + 2]}`,
+          );
         }
       }
     }
@@ -510,7 +566,9 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[leftScleraWindow + 3]).toBe(0);
     expect(atlas.rgba[rightScleraWindow + 3]).toBe(0);
     expect(atlas.rgba[leftSclera]).toBeGreaterThan(atlas.rgba[leftIris] + 50);
-    expect(Math.abs(atlas.rgba[leftSclera + 1] - atlas.rgba[clearSkin + 1])).toBeLessThan(25);
+    expect(
+      Math.abs(atlas.rgba[leftSclera + 1] - atlas.rgba[clearSkin + 1]),
+    ).toBeLessThan(25);
     expect(atlas.rgba[leftIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[rightIris]).toBeLessThan(atlas.rgba[clearSkin] - 50);
     expect(atlas.rgba[cheekBlush + 3]).toBe(0);
@@ -521,7 +579,9 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sideCheek + 3]).toBe(0);
     expect(atlas.rgba[sideJaw + 3]).toBe(0);
     expect(atlas.rgba[leftSideEar + 3]).toBe(255);
-    expect(atlas.rgba[smallMouthDark]).toBeLessThan(atlas.rgba[smallMouthLight]);
+    expect(atlas.rgba[smallMouthDark]).toBeLessThan(
+      atlas.rgba[smallMouthLight],
+    );
     expect(atlas.rgba[smallMouthOverlay + 3]).toBe(0);
 
     applyUvMask(atlas);
@@ -634,9 +694,15 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.top, 6, 5)).toBe(255);
     expect(alphaAt(atlas, over.back, 6, 6)).toBe(255);
     expect(alphaAt(atlas, over.back, 1, 6)).toBe(255);
-    expect(redAt(atlas, over.right, 3, 5)).not.toBe(redAt(atlas, over.right, 0, 5));
-    expect(redAt(atlas, over.left, 4, 5)).not.toBe(redAt(atlas, over.left, 7, 5));
-    expect(redAt(atlas, over.back, 6, 6)).not.toBe(redAt(atlas, over.back, 7, 6));
+    expect(redAt(atlas, over.right, 3, 5)).not.toBe(
+      redAt(atlas, over.right, 0, 5),
+    );
+    expect(redAt(atlas, over.left, 4, 5)).not.toBe(
+      redAt(atlas, over.left, 7, 5),
+    );
+    expect(redAt(atlas, over.back, 6, 6)).not.toBe(
+      redAt(atlas, over.back, 7, 6),
+    );
     expect(redAt(atlas, over.top, 2, 5)).not.toBe(redAt(atlas, over.top, 3, 5));
     expect(redAt(atlas, over.top, 5, 5)).not.toBe(redAt(atlas, over.top, 4, 5));
   });
@@ -655,7 +721,12 @@ describe("packFrontViewToAtlas", () => {
     const over = CLASSIC_LAYOUT.head.overlay;
     const pixel = (rect: { x: number; y: number }, x: number, y: number) => {
       const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
-      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+      return [
+        atlas.rgba[d],
+        atlas.rgba[d + 1],
+        atlas.rgba[d + 2],
+        atlas.rgba[d + 3],
+      ];
     };
 
     expect(pixel(over.top, 5, 2)[3]).toBe(255);
@@ -728,7 +799,12 @@ describe("packFrontViewToAtlas", () => {
     const over = CLASSIC_LAYOUT.head.overlay;
     const pixel = (rect: { x: number; y: number }, x: number, y: number) => {
       const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
-      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+      return [
+        atlas.rgba[d],
+        atlas.rgba[d + 1],
+        atlas.rgba[d + 2],
+        atlas.rgba[d + 3],
+      ];
     };
 
     expect(pixel(over.front, 3, 2)[3]).toBe(255);
@@ -784,9 +860,15 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.back, 0, 5)).toBe(255);
     expect(redAt(atlas, over.front, 0, 4)).toBe(redAt(atlas, over.right, 7, 4));
     expect(redAt(atlas, over.front, 7, 4)).toBe(redAt(atlas, over.left, 0, 4));
-    expect(redAt(atlas, over.right, 6, 4)).toBeLessThanOrEqual(redAt(atlas, over.right, 7, 4));
-    expect(redAt(atlas, over.right, 4, 4)).toBeLessThan(redAt(atlas, over.right, 6, 4));
-    expect(redAt(atlas, over.left, 3, 4)).toBeLessThan(redAt(atlas, over.left, 1, 4));
+    expect(redAt(atlas, over.right, 6, 4)).toBeLessThanOrEqual(
+      redAt(atlas, over.right, 7, 4),
+    );
+    expect(redAt(atlas, over.right, 4, 4)).toBeLessThan(
+      redAt(atlas, over.right, 6, 4),
+    );
+    expect(redAt(atlas, over.left, 3, 4)).toBeLessThan(
+      redAt(atlas, over.left, 1, 4),
+    );
   });
 
   it("centre-parted rounded short hair keeps a split fringe, readable eyes and deeper side volume", () => {
@@ -810,11 +892,17 @@ describe("packFrontViewToAtlas", () => {
 
     // A visible centre part is expressed with hair-tone contrast, not an
     // unrealistic vertical strip of exposed scalp.
-    expect(redAt(atlas, base.front, 3, 2)).toBeLessThan(redAt(atlas, base.front, 3, 4) - 50);
-    expect(redAt(atlas, base.front, 4, 2)).toBeLessThan(redAt(atlas, base.front, 4, 4) - 50);
+    expect(redAt(atlas, base.front, 3, 2)).toBeLessThan(
+      redAt(atlas, base.front, 3, 4) - 50,
+    );
+    expect(redAt(atlas, base.front, 4, 2)).toBeLessThan(
+      redAt(atlas, base.front, 4, 4) - 50,
+    );
     expect(alphaAt(atlas, over.front, 3, 2)).toBe(255);
     expect(alphaAt(atlas, over.front, 4, 2)).toBe(255);
-    expect(redAt(atlas, over.front, 3, 2)).not.toBe(redAt(atlas, over.front, 4, 2));
+    expect(redAt(atlas, over.front, 3, 2)).not.toBe(
+      redAt(atlas, over.front, 4, 2),
+    );
     // Both pixels of each eye reveal the structured base face.
     for (const x of [1, 2, 5, 6]) {
       expect(alphaAt(atlas, over.front, x, 4)).toBe(0);
@@ -824,14 +912,22 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.left, 7, 3)).toBe(255);
     expect(alphaAt(atlas, over.back, 0, 4)).toBe(255);
     expect(alphaAt(atlas, over.back, 7, 4)).toBe(255);
-    expect(redAt(atlas, over.front, 3, 1)).not.toBe(redAt(atlas, over.front, 4, 1));
+    expect(redAt(atlas, over.front, 3, 1)).not.toBe(
+      redAt(atlas, over.front, 4, 1),
+    );
     expect(alphaAt(atlas, over.front, 0, 7)).toBe(0);
     expect(alphaAt(atlas, over.front, 3, 7)).toBe(0);
     // Outer cut-outs reveal a hair-filled base top, while the lower side and
     // back edges taper into skin instead of forming a rectangular helmet.
-    expect(redAt(atlas, base.top, 3, 3)).toBeLessThan(redAt(atlas, base.front, 3, 4) - 50);
-    expect(redAt(atlas, base.right, 3, 3)).toBeGreaterThan(redAt(atlas, base.right, 0, 3) + 50);
-    expect(redAt(atlas, base.back, 0, 4)).toBeGreaterThan(redAt(atlas, base.back, 3, 4) + 50);
+    expect(redAt(atlas, base.top, 3, 3)).toBeLessThan(
+      redAt(atlas, base.front, 3, 4) - 50,
+    );
+    expect(redAt(atlas, base.right, 3, 3)).toBeGreaterThan(
+      redAt(atlas, base.right, 0, 3) + 50,
+    );
+    expect(redAt(atlas, base.back, 0, 4)).toBeGreaterThan(
+      redAt(atlas, base.back, 3, 4) + 50,
+    );
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -856,7 +952,9 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over, 4, 3)).toBe(0);
     expect(alphaAt(atlas, over, 5, 3)).toBe(0);
     expect(redAt(atlas, over, 2, 3)).not.toBe(redAt(atlas, over, 3, 3));
-    expect(redAt(atlas, base, 5, 3)).toBeGreaterThan(redAt(atlas, over, 6, 3) + 50);
+    expect(redAt(atlas, base, 5, 3)).toBeGreaterThan(
+      redAt(atlas, over, 6, 3) + 50,
+    );
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -887,7 +985,8 @@ describe("packFrontViewToAtlas", () => {
     for (const rect of [head.overlay.right, head.overlay.left]) {
       expect(alphaAt(atlas, rect, 0, 4)).toBe(255);
       expect(alphaAt(atlas, rect, 7, 4)).toBe(255);
-      for (const x of [1, 2, 3, 4, 5, 6]) expect(alphaAt(atlas, rect, x, 4)).toBe(0);
+      for (const x of [1, 2, 3, 4, 5, 6])
+        expect(alphaAt(atlas, rect, x, 4)).toBe(0);
       expect(alphaAt(atlas, rect, 3, 5)).toBe(0);
     }
     // The tapered nape may continue one row below the exposed ear, but only
@@ -921,10 +1020,15 @@ describe("packFrontViewToAtlas", () => {
       redAt(atlas, head.base.left, 6, 3) + 50,
     );
     expect(
-      Math.abs(redAt(atlas, head.base.right, 3, 4) - redAt(atlas, head.base.right, 4, 4)),
+      Math.abs(
+        redAt(atlas, head.base.right, 3, 4) -
+          redAt(atlas, head.base.right, 4, 4),
+      ),
     ).toBeGreaterThan(5);
     expect(
-      Math.abs(redAt(atlas, head.base.left, 3, 4) - redAt(atlas, head.base.left, 4, 4)),
+      Math.abs(
+        redAt(atlas, head.base.left, 3, 4) - redAt(atlas, head.base.left, 4, 4),
+      ),
     ).toBeGreaterThan(5);
 
     applyUvMask(atlas);
@@ -958,7 +1062,9 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(opened, over, 2, 2)).toBe(0);
     expect(alphaAt(opened, over, 2, 3)).toBe(0);
     expect(alphaAt(opened, over, 5, 2)).toBe(255);
-    expect(redAt(opened, base, 2, 2)).toBeGreaterThan(redAt(closed, base, 2, 2) + 80);
+    expect(redAt(opened, base, 2, 2)).toBeGreaterThan(
+      redAt(closed, base, 2, 2) + 80,
+    );
 
     applyUvMask(opened);
     expect(validateFinalAtlas(opened).ok).toBe(true);
@@ -1011,7 +1117,12 @@ describe("packFrontViewToAtlas", () => {
       y: number,
     ) => {
       const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
-      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+      return [
+        atlas.rgba[d],
+        atlas.rgba[d + 1],
+        atlas.rgba[d + 2],
+        atlas.rgba[d + 3],
+      ];
     };
 
     expect(pixel(rounded, over.top, 2, 0)[3]).toBe(255);
@@ -1024,7 +1135,9 @@ describe("packFrontViewToAtlas", () => {
     expect(pixel(rounded, over.top, 7, 7)[3]).toBe(0);
     expect(pixel(swept, over.top, 6, 4)[3]).toBe(255);
     expect(pixel(swept, over.front, 3, 2)[3]).toBe(255);
-    expect(pixel(swept, over.top, 6, 4)[0]).not.toBe(pixel(rounded, over.top, 6, 4)[0]);
+    expect(pixel(swept, over.top, 6, 4)[0]).not.toBe(
+      pixel(rounded, over.top, 6, 4)[0],
+    );
   });
 
   it("hairBackShape controls inferred rear hair and connects it to side rear edges", () => {
@@ -1047,14 +1160,25 @@ describe("packFrontViewToAtlas", () => {
       y: number,
     ) => {
       const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
-      return [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2], atlas.rgba[d + 3]];
+      return [
+        atlas.rgba[d],
+        atlas.rgba[d + 1],
+        atlas.rgba[d + 2],
+        atlas.rgba[d + 3],
+      ];
     };
 
     expect(pixel(longBack, over.back, 3, 7)[3]).toBe(255);
-    expect(pixel(longBack, over.back, 0, 5)[0]).toBe(pixel(longBack, over.left, 7, 5)[0]);
-    expect(pixel(longBack, over.back, 7, 5)[0]).toBe(pixel(longBack, over.right, 0, 5)[0]);
+    expect(pixel(longBack, over.back, 0, 5)[0]).toBe(
+      pixel(longBack, over.left, 7, 5)[0],
+    );
+    expect(pixel(longBack, over.back, 7, 5)[0]).toBe(
+      pixel(longBack, over.right, 0, 5)[0],
+    );
     expect(pixel(tiedBack, over.back, 3, 6)[3]).toBe(255);
-    expect(pixel(tiedBack, over.back, 3, 6)[0]).not.toBe(pixel(longBack, over.back, 3, 6)[0]);
+    expect(pixel(tiedBack, over.back, 3, 6)[0]).not.toBe(
+      pixel(longBack, over.back, 3, 6)[0],
+    );
   });
 
   it("long inferred back hair continues onto torso overlay even when side hair is jaw length", () => {
@@ -1076,8 +1200,12 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.left, body.left.w - 1, 4)).toBe(255);
     expect(alphaAt(atlas, body.front, 0, 3)).toBe(255);
     expect(alphaAt(atlas, body.front, 7, 3)).toBe(255);
-    expect(redAt(atlas, body.back, 2, 1)).toBeGreaterThan(redAt(atlas, body.back, 3, 5));
-    expect(redAt(atlas, body.right, 1, 2)).toBeGreaterThan(redAt(atlas, body.right, 0, 4));
+    expect(redAt(atlas, body.back, 2, 1)).toBeGreaterThan(
+      redAt(atlas, body.back, 3, 5),
+    );
+    expect(redAt(atlas, body.right, 1, 2)).toBeGreaterThan(
+      redAt(atlas, body.right, 0, 4),
+    );
     expect(redAt(atlas, body.left, body.left.w - 2, 2)).toBeGreaterThan(
       redAt(atlas, body.left, body.left.w - 1, 4),
     );
@@ -1101,8 +1229,12 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, head.right, 3, 7)).toBe(255);
     expect(alphaAt(atlas, head.left, 6, 2)).toBe(255);
     expect(alphaAt(atlas, head.back, 3, 7)).toBe(255);
-    expect(redAt(atlas, head.right, 1, 2)).toBeGreaterThan(redAt(atlas, head.right, 3, 7));
-    expect(redAt(atlas, head.left, 6, 2)).toBeGreaterThan(redAt(atlas, head.left, 4, 7));
+    expect(redAt(atlas, head.right, 1, 2)).toBeGreaterThan(
+      redAt(atlas, head.right, 3, 7),
+    );
+    expect(redAt(atlas, head.left, 6, 2)).toBeGreaterThan(
+      redAt(atlas, head.left, 4, 7),
+    );
     expect(alphaAt(atlas, body.front, 0, 6)).toBe(255);
     expect(alphaAt(atlas, body.front, 7, 6)).toBe(255);
     expect(alphaAt(atlas, body.front, 2, 4)).toBe(255);
@@ -1116,18 +1248,26 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.top, 2, body.top.h - 1)).toBe(255);
     expect(alphaAt(atlas, body.back, 3, 7)).toBe(255);
     expect(alphaAt(atlas, body.back, 4, 7)).toBe(255);
-    expect(redAt(atlas, body.front, 0, 6)).not.toBe(redAt(atlas, body.front, 3, 6));
+    expect(redAt(atlas, body.front, 0, 6)).not.toBe(
+      redAt(atlas, body.front, 3, 6),
+    );
     expect(redAt(atlas, body.top, 2, body.top.h - 1)).toBeGreaterThan(
       redAt(atlas, body.top, 0, body.top.h - 1),
     );
     expect(alphaAt(atlas, body.front, 1, 2)).toBe(255);
     expect(alphaAt(atlas, body.front, 1, 5)).toBe(255);
     expect(alphaAt(atlas, body.front, 6, 6)).toBe(255);
-    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(redAt(atlas, body.front, 1, 5));
-    expect(redAt(atlas, body.front, 6, 2)).toBeGreaterThan(redAt(atlas, body.front, 6, 6));
+    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(
+      redAt(atlas, body.front, 1, 5),
+    );
+    expect(redAt(atlas, body.front, 6, 2)).toBeGreaterThan(
+      redAt(atlas, body.front, 6, 6),
+    );
     expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
     expect(alphaAt(atlas, body.left, 2, 3)).toBe(255);
-    expect(redAt(atlas, body.back, 2, 4)).toBeGreaterThan(redAt(atlas, body.back, 4, 7));
+    expect(redAt(atlas, body.back, 2, 4)).toBeGreaterThan(
+      redAt(atlas, body.back, 4, 7),
+    );
     expect(alphaAt(atlas, rightArm.front, 0, 5)).toBe(255);
     expect(alphaAt(atlas, rightArm.front, rightArm.front.w - 1, 1)).toBe(255);
     expect(alphaAt(atlas, rightArm.right, 1, 3)).toBe(255);
@@ -1136,7 +1276,9 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, leftArm.front, 0, 1)).toBe(255);
     expect(alphaAt(atlas, leftArm.left, 1, 3)).toBe(255);
     expect(alphaAt(atlas, leftArm.top, leftArm.top.w - 1, 1)).toBe(255);
-    expect(redAt(atlas, rightArm.front, 0, 0)).toBeGreaterThan(redAt(atlas, rightArm.front, 0, 5));
+    expect(redAt(atlas, rightArm.front, 0, 0)).toBeGreaterThan(
+      redAt(atlas, rightArm.front, 0, 5),
+    );
     expect(redAt(atlas, leftArm.front, leftArm.front.w - 1, 0)).toBeGreaterThan(
       redAt(atlas, leftArm.front, leftArm.front.w - 1, 5),
     );
@@ -1215,13 +1357,21 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, arm.right, 1, 2)).toBe(255);
     expect(alphaAt(atlas, arm.top, 0, 1)).toBe(255);
     expect(alphaAt(atlas, arm.top, arm.top.w - 1, 2)).toBe(255);
-    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(redAt(atlas, body.front, 1, 1));
-    expect(redAt(atlas, body.front, 1, 1)).toBeLessThan(redAt(atlas, body.front, 1, 2));
+    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(
+      redAt(atlas, body.front, 1, 1),
+    );
+    expect(redAt(atlas, body.front, 1, 1)).toBeLessThan(
+      redAt(atlas, body.front, 1, 2),
+    );
     expect(redAt(atlas, body.top, 1, body.top.h - 1)).toBeGreaterThan(
       redAt(atlas, body.top, 0, body.top.h - 1),
     );
-    expect(redAt(atlas, body.front, 0, 0)).toBeGreaterThan(redAt(atlas, body.front, 0, 7));
-    expect(redAt(atlas, body.right, 1, 3)).toBeGreaterThan(redAt(atlas, body.right, 0, 7));
+    expect(redAt(atlas, body.front, 0, 0)).toBeGreaterThan(
+      redAt(atlas, body.front, 0, 7),
+    );
+    expect(redAt(atlas, body.right, 1, 3)).toBeGreaterThan(
+      redAt(atlas, body.right, 0, 7),
+    );
   });
 
   const representativeHairStyles = [
@@ -1366,7 +1516,8 @@ describe("packFrontViewToAtlas", () => {
     for (let left = 0; left < masks.length; left++) {
       for (let right = left + 1; right < masks.length; right++) {
         const difference = masks[left].mask.reduce(
-          (count, value, index) => count + (value === masks[right].mask[index] ? 0 : 1),
+          (count, value, index) =>
+            count + (value === masks[right].mask[index] ? 0 : 1),
           0,
         );
         expect(
@@ -1478,7 +1629,8 @@ describe("packFrontViewToAtlas", () => {
     for (const rect of [base.front, base.back, base.right, base.left]) {
       const corner = colorAt(rect, 0, 0);
       const interior = colorAt(rect, rect.w >= 6 ? 2 : 1, 3);
-      const distance = Math.abs(corner[0] - interior[0]) +
+      const distance =
+        Math.abs(corner[0] - interior[0]) +
         Math.abs(corner[1] - interior[1]) +
         Math.abs(corner[2] - interior[2]);
       expect(distance).toBeLessThan(35);
@@ -1486,16 +1638,23 @@ describe("packFrontViewToAtlas", () => {
     for (const arm of [CLASSIC_LAYOUT.rightArm, CLASSIC_LAYOUT.leftArm]) {
       const garment = colorAt(arm.base.front, 1, 3);
       for (const top of [arm.base.top, arm.overlay.top]) {
+        let opaquePixels = 0;
         for (let y = 0; y < top.h; y++) {
           for (let x = 0; x < top.w; x++) {
+            if (alphaAt(atlas, top, x, y) === 0) continue;
+            opaquePixels++;
             const pixel = colorAt(top, x, y);
-            const distance = Math.abs(pixel[0] - garment[0]) +
+            const distance =
+              Math.abs(pixel[0] - garment[0]) +
               Math.abs(pixel[1] - garment[1]) +
               Math.abs(pixel[2] - garment[2]);
             expect(distance).toBeLessThan(180);
             expect(pixel[2]).toBeLessThan(pixel[0]);
           }
         }
+        expect(opaquePixels).toBeGreaterThan(0);
+        if (top === arm.overlay.top)
+          expect(opaquePixels).toBeLessThan(top.w * top.h);
       }
     }
 
@@ -1556,7 +1715,10 @@ describe("packFrontViewToAtlas", () => {
     const scalp = colorAt(CLASSIC_LAYOUT.head.base.top, 3, 3);
     const cheek = colorAt(CLASSIC_LAYOUT.head.base.front, 3, 4);
     const distance = (actual: number[], expected: number[]) =>
-      actual.reduce((sum, channel, index) => sum + Math.abs(channel - expected[index]), 0);
+      actual.reduce(
+        (sum, channel, index) => sum + Math.abs(channel - expected[index]),
+        0,
+      );
 
     expect(distance(scalp, declaredHair)).toBeLessThan(80);
     expect(scalp[0]).toBeGreaterThan(scalp[1] + 20);
@@ -1573,7 +1735,11 @@ describe("packFrontViewToAtlas", () => {
       bottomPattern: "plain",
     })!.atlas;
 
-    const luminance = (rect: { x: number; y: number }, x: number, y: number) => {
+    const luminance = (
+      rect: { x: number; y: number },
+      x: number,
+      y: number,
+    ) => {
       const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
       return atlas.rgba[d] + atlas.rgba[d + 1] + atlas.rgba[d + 2];
     };
@@ -1657,7 +1823,8 @@ describe("packFrontViewToAtlas", () => {
 
     const bodyHem =
       ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
-    const rightLegTop = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
+    const rightLegTop =
+      (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
     const leftLegTop = (leftLegFront.y * ATLAS_SIZE + leftLegFront.x + 1) * 4;
 
     expect(atlas.rgba[bodyHem + 3]).toBe(255);
@@ -1705,17 +1872,24 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const right = CLASSIC_LAYOUT.rightLeg.overlay;
     const left = CLASSIC_LAYOUT.leftLeg.overlay;
-    const rightFrontFold = ((right.front.y + 4) * ATLAS_SIZE + right.front.x + 1) * 4;
-    const rightSideFold = ((right.right.y + 4) * ATLAS_SIZE + right.right.x + 1) * 4;
-    const rightSideSeam = ((right.right.y + 5) * ATLAS_SIZE + right.right.x) * 4;
-    const leftSideSeam = ((left.left.y + 5) * ATLAS_SIZE + left.left.x + left.left.w - 1) * 4;
-    const rightHighlight = ((right.front.y + 5) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const rightFrontFold =
+      ((right.front.y + 4) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const rightSideFold =
+      ((right.right.y + 4) * ATLAS_SIZE + right.right.x + 1) * 4;
+    const rightSideSeam =
+      ((right.right.y + 5) * ATLAS_SIZE + right.right.x) * 4;
+    const leftSideSeam =
+      ((left.left.y + 5) * ATLAS_SIZE + left.left.x + left.left.w - 1) * 4;
+    const rightHighlight =
+      ((right.front.y + 5) * ATLAS_SIZE + right.front.x + 1) * 4;
 
     expect(atlas.rgba[rightFrontFold + 3]).toBe(255);
     expect(atlas.rgba[rightSideFold + 3]).toBe(255);
     expect(atlas.rgba[rightSideSeam + 3]).toBe(255);
     expect(atlas.rgba[leftSideSeam + 3]).toBe(255);
-    expect(atlas.rgba[rightHighlight]).toBeGreaterThan(atlas.rgba[rightFrontFold]);
+    expect(atlas.rgba[rightHighlight]).toBeGreaterThan(
+      atlas.rgba[rightFrontFold],
+    );
     expect(atlas.rgba[rightSideSeam]).toBeLessThan(atlas.rgba[rightSideFold]);
   });
 
@@ -1774,15 +1948,25 @@ describe("packFrontViewToAtlas", () => {
       }
     }
     expect(atlas.rgba[sideClusterPetal + 3]).toBe(255);
-    expect(atlas.rgba[sideClusterLeaf + 1]).toBeGreaterThan(atlas.rgba[sideClusterLeaf]);
+    expect(atlas.rgba[sideClusterLeaf + 1]).toBeGreaterThan(
+      atlas.rgba[sideClusterLeaf],
+    );
     expect(atlas.rgba[sideInnerFlower + 3]).toBe(255);
-    expect(atlas.rgba[sideInnerLeaf + 1]).toBeGreaterThan(atlas.rgba[sideInnerLeaf]);
+    expect(atlas.rgba[sideInnerLeaf + 1]).toBeGreaterThan(
+      atlas.rgba[sideInnerLeaf],
+    );
     expect(atlas.rgba[topSecondFlower + 3]).toBe(255);
-    expect(atlas.rgba[topDarkLeaf + 1]).toBeGreaterThan(atlas.rgba[topDarkLeaf]);
+    expect(atlas.rgba[topDarkLeaf + 1]).toBeGreaterThan(
+      atlas.rgba[topDarkLeaf],
+    );
     expect(atlas.rgba[topOuterPetal + 3]).toBe(255);
-    expect(atlas.rgba[topOuterLeaf + 1]).toBeGreaterThan(atlas.rgba[topOuterLeaf]);
+    expect(atlas.rgba[topOuterLeaf + 1]).toBeGreaterThan(
+      atlas.rgba[topOuterLeaf],
+    );
     expect(atlas.rgba[backFlowerCenter + 3]).toBe(255);
-    expect(atlas.rgba[backTrailingLeaf + 1]).toBeGreaterThan(atlas.rgba[backTrailingLeaf]);
+    expect(atlas.rgba[backTrailingLeaf + 1]).toBeGreaterThan(
+      atlas.rgba[backTrailingLeaf],
+    );
   });
 
   it("hairAccessoryColor preserves the dominant visible flower color", () => {
@@ -1824,10 +2008,16 @@ describe("packFrontViewToAtlas", () => {
     const rightBackPetal = ((back.y + 4) * ATLAS_SIZE + back.x + 7) * 4;
 
     expect(atlas.rgba[rightFrontPetal + 3]).toBe(255);
-    expect(atlas.rgba[rightFrontPetal]).toBeGreaterThan(atlas.rgba[rightFrontPetal + 1]);
-    expect(atlas.rgba[rightFrontPetal]).toBeGreaterThan(atlas.rgba[oldLeftFrontPetal]);
+    expect(atlas.rgba[rightFrontPetal]).toBeGreaterThan(
+      atlas.rgba[rightFrontPetal + 1],
+    );
+    expect(atlas.rgba[rightFrontPetal]).toBeGreaterThan(
+      atlas.rgba[oldLeftFrontPetal],
+    );
     expect(atlas.rgba[rightSidePetal + 3]).toBe(255);
-    expect(atlas.rgba[rightSidePetal]).toBeGreaterThan(atlas.rgba[rightSidePetal + 1]);
+    expect(atlas.rgba[rightSidePetal]).toBeGreaterThan(
+      atlas.rgba[rightSidePetal + 1],
+    );
     expect(atlas.rgba[rightTopPetal + 3]).toBe(255);
     expect(atlas.rgba[rightBackPetal + 3]).toBe(255);
   });
@@ -1852,17 +2042,20 @@ describe("packFrontViewToAtlas", () => {
     const warmerRidge = ((left.y + 3) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerLift = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerScallopDrop = ((left.y + 3) * ATLAS_SIZE + left.x + 2) * 4;
-    const warmerSideRidge = ((leftSide.y + 5) * ATLAS_SIZE + leftSide.x) * 4;
-    const warmerSideLift = ((leftSide.y + 4) * ATLAS_SIZE + leftSide.x + 1) * 4;
+    const warmerSideRidge =
+      ((leftSide.y + 5) * ATLAS_SIZE + leftSide.x + 3) * 4;
+    const warmerSideLift = ((leftSide.y + 4) * ATLAS_SIZE + leftSide.x + 2) * 4;
     const warmerSideLace = ((leftSide.y + 1) * ATLAS_SIZE + leftSide.x) * 4;
-    const warmerBackRidge = ((leftBack.y + 7) * ATLAS_SIZE + leftBack.x + 2) * 4;
+    const warmerBackRidge =
+      ((leftBack.y + 7) * ATLAS_SIZE + leftBack.x + 2) * 4;
     const warmerBackLift = ((leftBack.y + 6) * ATLAS_SIZE + leftBack.x + 2) * 4;
     const warmerExtraFold = ((left.y + 6) * ATLAS_SIZE + left.x + 2) * 4;
     const warmerExtraLift = ((left.y + 6) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerAnkleCuff = ((left.y + 9) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerAnkleFold = ((left.y + 8) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerSideAnkle = ((leftSide.y + 9) * ATLAS_SIZE + leftSide.x) * 4;
-    const warmerBackAnkleFold = ((leftBack.y + 8) * ATLAS_SIZE + leftBack.x + 1) * 4;
+    const warmerBackAnkleFold =
+      ((leftBack.y + 8) * ATLAS_SIZE + leftBack.x + 1) * 4;
     const bow = ((right.y + 2) * ATLAS_SIZE + right.x) * 4;
     const bowTopBand = ((right.y + 1) * ATLAS_SIZE + right.x + 2) * 4;
     const bowOuterWing = ((right.y + 2) * ATLAS_SIZE + right.x + 3) * 4;
@@ -1878,7 +2071,9 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[warmer + 3]).toBe(255);
     expect(atlas.rgba[warmerLace + 3]).toBe(255);
     expect(atlas.rgba[warmerLaceShadow + 3]).toBe(255);
-    expect(atlas.rgba[warmerLace]).toBeGreaterThan(atlas.rgba[warmerLaceShadow]);
+    expect(atlas.rgba[warmerLace]).toBeGreaterThan(
+      atlas.rgba[warmerLaceShadow],
+    );
     expect(atlas.rgba[warmerScallopDrop + 3]).toBe(255);
     expect(atlas.rgba[warmerSideLace + 3]).toBe(255);
     expect(atlas.rgba[bow + 3]).toBe(255);
@@ -1896,14 +2091,22 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[bowOuterWing + 3]).toBe(255);
     expect(atlas.rgba[bowOuterWing]).toBeGreaterThan(atlas.rgba[bowTail]);
     expect(atlas.rgba[warmerRidge]).toBeLessThan(atlas.rgba[warmerLift]);
-    expect(atlas.rgba[warmerSideRidge]).toBeLessThan(atlas.rgba[warmerSideLift]);
-    expect(atlas.rgba[warmerBackRidge]).toBeLessThan(atlas.rgba[warmerBackLift]);
-    expect(atlas.rgba[warmerExtraFold]).toBeLessThan(atlas.rgba[warmerExtraLift]);
+    expect(atlas.rgba[warmerSideRidge]).toBeLessThan(
+      atlas.rgba[warmerSideLift],
+    );
+    expect(atlas.rgba[warmerBackRidge]).toBeLessThan(
+      atlas.rgba[warmerBackLift],
+    );
+    expect(atlas.rgba[warmerExtraFold]).toBeLessThan(
+      atlas.rgba[warmerExtraLift],
+    );
     expect(atlas.rgba[warmerAnkleCuff + 3]).toBe(255);
     expect(atlas.rgba[warmerAnkleFold + 3]).toBe(255);
     expect(atlas.rgba[warmerSideAnkle + 3]).toBe(255);
     expect(atlas.rgba[warmerBackAnkleFold + 3]).toBe(255);
-    expect(atlas.rgba[warmerAnkleFold]).toBeGreaterThan(atlas.rgba[warmerAnkleCuff]);
+    expect(atlas.rgba[warmerAnkleFold]).toBeGreaterThan(
+      atlas.rgba[warmerAnkleCuff],
+    );
   });
 
   it("dressy skirt outfits add visible shoe straps across front and side foot overlays", () => {
@@ -1916,26 +2119,49 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const right = CLASSIC_LAYOUT.rightLeg.overlay;
     const left = CLASSIC_LAYOUT.leftLeg.overlay;
-    const rightFrontBow = ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) * 4;
-    const rightFrontKnot = ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 2) * 4;
-    const rightFrontStrap = ((right.front.y + right.front.h - 2) * ATLAS_SIZE + right.front.x + 1) * 4;
-    const rightFrontToe = ((right.front.y + right.front.h - 1) * ATLAS_SIZE + right.front.x + 2) * 4;
-    const rightSideStrap = ((right.right.y + right.right.h - 2) * ATLAS_SIZE + right.right.x) * 4;
-    const rightSideBuckle = ((right.right.y + right.right.h - 3) * ATLAS_SIZE + right.right.x + right.right.w - 1) * 4;
-    const leftSideStrap = ((left.left.y + left.left.h - 2) * ATLAS_SIZE + left.left.x + 1) * 4;
-    const leftSideKnot = ((left.left.y + left.left.h - 3) * ATLAS_SIZE + left.left.x) * 4;
-    const backStrap = ((left.back.y + left.back.h - 2) * ATLAS_SIZE + left.back.x + 2) * 4;
-    const backHeelBow = ((left.back.y + left.back.h - 2) * ATLAS_SIZE + left.back.x) * 4;
-    const rightSideSole = ((right.right.y + right.right.h - 1) * ATLAS_SIZE + right.right.x) * 4;
-    const rightBackHeelStrap = ((right.back.y + right.back.h - 3) * ATLAS_SIZE + right.back.x + 1) * 4;
-    const rightBackHeelLight = ((right.back.y + right.back.h - 3) * ATLAS_SIZE + right.back.x + 2) * 4;
+    const rightFrontBow =
+      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) *
+      4;
+    const rightFrontKnot =
+      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 2) *
+      4;
+    const rightFrontStrap =
+      ((right.front.y + right.front.h - 2) * ATLAS_SIZE + right.front.x + 1) *
+      4;
+    const rightFrontToe =
+      ((right.front.y + right.front.h - 1) * ATLAS_SIZE + right.front.x + 2) *
+      4;
+    const rightSideStrap =
+      ((right.right.y + right.right.h - 2) * ATLAS_SIZE + right.right.x) * 4;
+    const rightSideBuckle =
+      ((right.right.y + right.right.h - 3) * ATLAS_SIZE +
+        right.right.x +
+        right.right.w -
+        1) *
+      4;
+    const leftSideStrap =
+      ((left.left.y + left.left.h - 2) * ATLAS_SIZE + left.left.x + 1) * 4;
+    const leftSideKnot =
+      ((left.left.y + left.left.h - 3) * ATLAS_SIZE + left.left.x) * 4;
+    const backStrap =
+      ((left.back.y + left.back.h - 2) * ATLAS_SIZE + left.back.x + 2) * 4;
+    const backHeelBow =
+      ((left.back.y + left.back.h - 2) * ATLAS_SIZE + left.back.x) * 4;
+    const rightSideSole =
+      ((right.right.y + right.right.h - 1) * ATLAS_SIZE + right.right.x) * 4;
+    const rightBackHeelStrap =
+      ((right.back.y + right.back.h - 3) * ATLAS_SIZE + right.back.x + 1) * 4;
+    const rightBackHeelLight =
+      ((right.back.y + right.back.h - 3) * ATLAS_SIZE + right.back.x + 2) * 4;
     const rightBottomSole = (right.bottom.y * ATLAS_SIZE + right.bottom.x) * 4;
     const rightBottomShadow =
       ((right.bottom.y + right.bottom.h - 1) * ATLAS_SIZE + right.bottom.x) * 4;
 
     expect(atlas.rgba[rightFrontBow + 3]).toBe(255);
     expect(atlas.rgba[rightFrontKnot + 3]).toBe(255);
-    expect(atlas.rgba[rightFrontBow]).toBeGreaterThan(atlas.rgba[rightFrontKnot]);
+    expect(atlas.rgba[rightFrontBow]).toBeGreaterThan(
+      atlas.rgba[rightFrontKnot],
+    );
     expect(atlas.rgba[rightFrontStrap + 3]).toBe(255);
     expect(atlas.rgba[rightFrontToe + 3]).toBe(255);
     expect(atlas.rgba[rightSideStrap + 3]).toBe(255);
@@ -1949,9 +2175,15 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[rightBackHeelLight + 3]).toBe(255);
     expect(atlas.rgba[rightBottomSole + 3]).toBe(255);
     expect(atlas.rgba[rightBottomShadow + 3]).toBe(255);
-    expect(atlas.rgba[rightFrontStrap]).toBeGreaterThan(atlas.rgba[rightFrontToe]);
-    expect(atlas.rgba[rightBackHeelLight]).toBeGreaterThan(atlas.rgba[rightBackHeelStrap]);
-    expect(atlas.rgba[rightBottomSole]).toBeGreaterThan(atlas.rgba[rightBottomShadow]);
+    expect(atlas.rgba[rightFrontStrap]).toBeGreaterThan(
+      atlas.rgba[rightFrontToe],
+    );
+    expect(atlas.rgba[rightBackHeelLight]).toBeGreaterThan(
+      atlas.rgba[rightBackHeelStrap],
+    );
+    expect(atlas.rgba[rightBottomSole]).toBeGreaterThan(
+      atlas.rgba[rightBottomShadow],
+    );
   });
 
   it("cardigan skirt outfits extend asymmetric long hems onto upper leg overlays", () => {
@@ -1964,11 +2196,15 @@ describe("packFrontViewToAtlas", () => {
     const right = CLASSIC_LAYOUT.rightLeg.overlay;
     const left = CLASSIC_LAYOUT.leftLeg.overlay;
     const rightLongHem = ((right.front.y + 3) * ATLAS_SIZE + right.front.x) * 4;
-    const rightLongTrim = ((right.front.y + 4) * ATLAS_SIZE + right.front.x) * 4;
-    const leftLongHem = ((left.front.y + 3) * ATLAS_SIZE + left.front.x + 3) * 4;
-    const leftLongTrim = ((left.front.y + 4) * ATLAS_SIZE + left.front.x + 3) * 4;
+    const rightLongTrim =
+      ((right.front.y + 4) * ATLAS_SIZE + right.front.x) * 4;
+    const leftLongHem =
+      ((left.front.y + 3) * ATLAS_SIZE + left.front.x + 3) * 4;
+    const leftLongTrim =
+      ((left.front.y + 4) * ATLAS_SIZE + left.front.x + 3) * 4;
     const rightSideHem = ((right.right.y + 3) * ATLAS_SIZE + right.right.x) * 4;
-    const leftSideHem = ((left.left.y + 3) * ATLAS_SIZE + left.left.x + left.left.w - 1) * 4;
+    const leftSideHem =
+      ((left.left.y + 3) * ATLAS_SIZE + left.left.x + left.left.w - 1) * 4;
 
     expect(atlas.rgba[rightLongHem + 3]).toBe(255);
     expect(atlas.rgba[rightLongTrim + 3]).toBe(255);
@@ -1991,15 +2227,22 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const right = CLASSIC_LAYOUT.rightLeg.overlay;
     const frontUpperBoot =
-      ((right.front.y + right.front.h - 4) * ATLAS_SIZE + right.front.x + 1) * 4;
+      ((right.front.y + right.front.h - 4) * ATLAS_SIZE + right.front.x + 1) *
+      4;
     const frontBootEdge =
       ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x) * 4;
     const frontBootCenter =
-      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) * 4;
+      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) *
+      4;
     const sideUpperBoot =
-      ((right.right.y + right.right.h - 4) * ATLAS_SIZE + right.right.x + 1) * 4;
+      ((right.right.y + right.right.h - 4) * ATLAS_SIZE + right.right.x + 1) *
+      4;
     const sideSole =
-      ((right.right.y + right.right.h - 1) * ATLAS_SIZE + right.right.x + right.right.w - 1) * 4;
+      ((right.right.y + right.right.h - 1) * ATLAS_SIZE +
+        right.right.x +
+        right.right.w -
+        1) *
+      4;
 
     expect(atlas.rgba[frontUpperBoot + 3]).toBe(255);
     expect(atlas.rgba[frontBootEdge + 3]).toBe(255);
@@ -2017,11 +2260,14 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const right = CLASSIC_LAYOUT.rightLeg.overlay;
     const cuff =
-      ((right.front.y + right.front.h - 4) * ATLAS_SIZE + right.front.x + 1) * 4;
+      ((right.front.y + right.front.h - 4) * ATLAS_SIZE + right.front.x + 1) *
+      4;
     const lace =
-      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) * 4;
+      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) *
+      4;
     const toe =
-      ((right.front.y + right.front.h - 2) * ATLAS_SIZE + right.front.x + 1) * 4;
+      ((right.front.y + right.front.h - 2) * ATLAS_SIZE + right.front.x + 1) *
+      4;
     const sideSole =
       ((right.right.y + right.right.h - 1) * ATLAS_SIZE +
         right.right.x +
@@ -2060,35 +2306,37 @@ describe("packFrontViewToAtlas", () => {
     const bowTopShadow = ((top.y + top.h - 1) * ATLAS_SIZE + top.x + 4) * 4;
     const sideBowWrap = ((side.y + 1) * ATLAS_SIZE + side.x) * 4;
     const sideBowTail = ((side.y + 3) * ATLAS_SIZE + side.x + 1) * 4;
-    const leftSideBowWrap = ((leftSide.y + 1) * ATLAS_SIZE + leftSide.x + leftSide.w - 1) * 4;
-    const leftSideBowTail = ((leftSide.y + 3) * ATLAS_SIZE + leftSide.x + leftSide.w - 2) * 4;
-    const plaidDark =
-      ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 1) * 4;
-    const plaidLight =
-      ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 2) * 4;
-    const sidePlaidDark =
-      ((side.y + side.h - 3) * ATLAS_SIZE + side.x + 1) * 4;
-    const sidePlaidLight =
-      ((side.y + side.h - 3) * ATLAS_SIZE + side.x) * 4;
-    const backPlaidDark =
-      ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 1) * 4;
+    const leftSideBowWrap =
+      ((leftSide.y + 1) * ATLAS_SIZE + leftSide.x + leftSide.w - 1) * 4;
+    const leftSideBowTail =
+      ((leftSide.y + 3) * ATLAS_SIZE + leftSide.x + leftSide.w - 2) * 4;
+    const plaidDark = ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 1) * 4;
+    const plaidLight = ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 2) * 4;
+    const sidePlaidDark = ((side.y + side.h - 3) * ATLAS_SIZE + side.x + 1) * 4;
+    const sidePlaidLight = ((side.y + side.h - 3) * ATLAS_SIZE + side.x) * 4;
+    const backPlaidDark = ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 1) * 4;
     const backPlaidLight =
       ((back.y + back.h - 3) * ATLAS_SIZE + back.x + 2) * 4;
     const torsoPlaidLowThread =
       ((body.y + body.h - 2) * ATLAS_SIZE + body.x + 3) * 4;
     const leftSidePlaidWrap =
-      ((leftSide.y + leftSide.h - 3) * ATLAS_SIZE + leftSide.x + leftSide.w - 2) * 4;
-    const topPlaidFront =
-      ((top.y + top.h - 1) * ATLAS_SIZE + top.x + 1) * 4;
+      ((leftSide.y + leftSide.h - 3) * ATLAS_SIZE +
+        leftSide.x +
+        leftSide.w -
+        2) *
+      4;
+    const topPlaidFront = ((top.y + top.h - 1) * ATLAS_SIZE + top.x + 1) * 4;
     const topPlaidBack = (top.y * ATLAS_SIZE + top.x + 1) * 4;
     const topPlaidMid =
       ((top.y + Math.max(0, top.h - 2)) * ATLAS_SIZE + top.x + 3) * 4;
-    const legPlaidDark = ((rightLeg.y) * ATLAS_SIZE + rightLeg.x + 1) * 4;
-    const legPlaidLight = ((rightLeg.y) * ATLAS_SIZE + rightLeg.x + 2) * 4;
+    const legPlaidDark = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 1) * 4;
+    const legPlaidLight = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 2) * 4;
     const legPlaidCross = ((rightLeg.y + 1) * ATLAS_SIZE + rightLeg.x + 1) * 4;
     const legPlaidHorizontal = ((rightLeg.y + 1) * ATLAS_SIZE + rightLeg.x) * 4;
-    const legPlaidSideLight = ((rightLegSide.y) * ATLAS_SIZE + rightLegSide.x) * 4;
-    const legPlaidSideDark = ((rightLegSide.y + 1) * ATLAS_SIZE + rightLegSide.x + 1) * 4;
+    const legPlaidSideLight =
+      (rightLegSide.y * ATLAS_SIZE + rightLegSide.x) * 4;
+    const legPlaidSideDark =
+      ((rightLegSide.y + 1) * ATLAS_SIZE + rightLegSide.x + 1) * 4;
 
     expect(atlas.rgba[bowLeft + 3]).toBe(255);
     expect(atlas.rgba[bowLeft]).toBeGreaterThan(atlas.rgba[bowCenter]);
@@ -2109,9 +2357,13 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[backPlaidDark + 3]).toBe(255);
     expect(atlas.rgba[backPlaidDark]).toBeLessThan(atlas.rgba[backPlaidLight]);
     expect(atlas.rgba[torsoPlaidLowThread + 3]).toBe(255);
-    expect(atlas.rgba[torsoPlaidLowThread]).toBeGreaterThan(atlas.rgba[plaidDark]);
+    expect(atlas.rgba[torsoPlaidLowThread]).toBeGreaterThan(
+      atlas.rgba[plaidDark],
+    );
     expect(atlas.rgba[leftSidePlaidWrap + 3]).toBe(255);
-    expect(atlas.rgba[leftSidePlaidWrap]).toBeLessThan(atlas.rgba[sidePlaidLight]);
+    expect(atlas.rgba[leftSidePlaidWrap]).toBeLessThan(
+      atlas.rgba[sidePlaidLight],
+    );
     expect(atlas.rgba[topPlaidFront + 3]).toBe(255);
     expect(atlas.rgba[topPlaidBack + 3]).toBe(255);
     expect(atlas.rgba[topPlaidMid + 3]).toBe(255);
@@ -2120,9 +2372,13 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[legPlaidDark]).toBeLessThan(atlas.rgba[legPlaidLight]);
     expect(atlas.rgba[legPlaidCross]).toBeLessThan(atlas.rgba[legPlaidDark]);
     expect(atlas.rgba[legPlaidHorizontal + 3]).toBe(255);
-    expect(atlas.rgba[legPlaidHorizontal]).toBeGreaterThan(atlas.rgba[legPlaidCross]);
+    expect(atlas.rgba[legPlaidHorizontal]).toBeGreaterThan(
+      atlas.rgba[legPlaidCross],
+    );
     expect(atlas.rgba[legPlaidSideLight + 3]).toBe(255);
-    expect(atlas.rgba[legPlaidSideDark]).toBeLessThan(atlas.rgba[legPlaidSideLight]);
+    expect(atlas.rgba[legPlaidSideDark]).toBeLessThan(
+      atlas.rgba[legPlaidSideLight],
+    );
   });
 
   it("eyebrowShape 힌트를 8x8 얼굴의 눈썹 각도 차이로 남긴다", () => {
@@ -2161,7 +2417,10 @@ describe("packFrontViewToAtlas", () => {
       eyebrowShape: "straight",
       glasses: "none",
     };
-    const level = packFrontViewToAtlas(makeFrontView(), { ...shared, eyeTilt: "level" })!.atlas;
+    const level = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeTilt: "level",
+    })!.atlas;
     const upturned = packFrontViewToAtlas(makeFrontView(), {
       ...shared,
       eyeTilt: "upturned",
@@ -2172,10 +2431,16 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const face = CLASSIC_LAYOUT.head.base.front;
 
-    expect(redAt(upturned, face, 1, 2)).toBeLessThan(redAt(level, face, 1, 2) - 60);
-    expect(redAt(downturned, face, 1, 5)).toBeLessThan(redAt(level, face, 1, 5) - 35);
+    expect(redAt(upturned, face, 1, 2)).toBeLessThan(
+      redAt(level, face, 1, 2) - 60,
+    );
+    expect(redAt(downturned, face, 1, 5)).toBeLessThan(
+      redAt(level, face, 1, 5) - 35,
+    );
     expect(rgbaAt(upturned, face, 1, 3)).not.toEqual(rgbaAt(level, face, 1, 3));
-    expect(rgbaAt(downturned, face, 6, 5)).not.toEqual(rgbaAt(level, face, 6, 5));
+    expect(rgbaAt(downturned, face, 6, 5)).not.toEqual(
+      rgbaAt(level, face, 6, 5),
+    );
   });
 
   it("upturned eye corners stay visible through a dense brow-length outer fringe", () => {
@@ -2197,7 +2462,9 @@ describe("packFrontViewToAtlas", () => {
 
     for (const outer of [1, 6]) {
       expect(alphaAt(atlas, over, outer, 3)).toBe(0);
-      expect(redAt(atlas, face, outer, 3)).toBeLessThan(redAt(atlas, face, 3, 4) - 45);
+      expect(redAt(atlas, face, outer, 3)).toBeLessThan(
+        redAt(atlas, face, 3, 4) - 45,
+      );
     }
     for (const inner of [2, 5]) {
       expect(alphaAt(atlas, over, inner, 4)).toBe(0);
@@ -2236,7 +2503,9 @@ describe("packFrontViewToAtlas", () => {
 
     expect(redAt(wide, face, 2, 6)).toBeLessThan(redAt(small, face, 2, 6));
     expect(redAt(wide, face, 5, 6)).toBeLessThan(redAt(small, face, 5, 6));
-    expect(greenAt(full, face, 3, 6)).toBeGreaterThan(greenAt(thin, face, 3, 6));
+    expect(greenAt(full, face, 3, 6)).toBeGreaterThan(
+      greenAt(thin, face, 3, 6),
+    );
     expect(redAt(thin, face, 2, 6)).toBe(redAt(small, face, 2, 6));
   });
 
@@ -2265,8 +2534,12 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over, 4, 6)).toBe(0);
     expect(alphaAt(atlas, over, 5, 6)).toBe(0);
     expect(alphaAt(atlas, over, 3, 7)).toBe(0);
-    expect(redAt(atlas, face, 2, 4)).toBeLessThan(redAt(atlas, face, 4, 4) - 50);
-    expect(redAt(atlas, face, 5, 4)).toBeLessThan(redAt(atlas, face, 4, 4) - 50);
+    expect(redAt(atlas, face, 2, 4)).toBeLessThan(
+      redAt(atlas, face, 4, 4) - 50,
+    );
+    expect(redAt(atlas, face, 5, 4)).toBeLessThan(
+      redAt(atlas, face, 4, 4) - 50,
+    );
     expect(redAt(atlas, face, 3, 5)).toBeLessThan(redAt(atlas, face, 4, 4));
     expect(redAt(atlas, face, 5, 6)).toBeLessThan(redAt(atlas, face, 4, 4));
   });
@@ -2297,7 +2570,9 @@ describe("packFrontViewToAtlas", () => {
     const face = CLASSIC_LAYOUT.head.base.front;
     const over = CLASSIC_LAYOUT.head.overlay.front;
 
-    expect(redAt(prominent, face, 4, 4)).toBeGreaterThan(redAt(small, face, 4, 4));
+    expect(redAt(prominent, face, 4, 4)).toBeGreaterThan(
+      redAt(small, face, 4, 4),
+    );
     expect(redAt(straight, face, 3, 5)).toBeLessThan(redAt(small, face, 3, 5));
     expect(alphaAt(prominent, over, 4, 3)).toBe(0);
     expect(alphaAt(rounded, over, 4, 5)).toBe(0);

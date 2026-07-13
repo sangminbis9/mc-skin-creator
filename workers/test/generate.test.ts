@@ -65,7 +65,12 @@ describe("generateSkin", () => {
     const provider: SkinGenerationProvider = {
       async generate(request) {
         providerPhoto = request.photoDataUrl;
-        return { ok: true, imageBytes: frontPng, inputTiles: 2, outputTiles: 2 };
+        return {
+          ok: true,
+          imageBytes: frontPng,
+          inputTiles: 2,
+          outputTiles: 2,
+        };
       },
     };
 
@@ -99,7 +104,9 @@ describe("generateSkin", () => {
 
     expect(result.status).toBe(200);
     expect(result.body.generationMode).toBe("image");
-    expect(result.body.analysis?.renderHints).toEqual(makeAnalysis().renderHints);
+    expect(result.body.analysis?.renderHints).toEqual(
+      makeAnalysis().renderHints,
+    );
     const decoded = await decodePng(
       Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
         c.charCodeAt(0),
@@ -117,7 +124,8 @@ describe("generateSkin", () => {
         observed: {
           ...base.observed,
           hair: "long wavy brown hair with a large pink flower on viewer-left hair",
-          accessories: "large pink flower on viewer-left hair and a white bow collar",
+          accessories:
+            "large pink flower on viewer-left hair and a white bow collar",
           clothing: "long-sleeve pink cardigan over a white bow collar",
         },
         renderHints: {
@@ -164,21 +172,27 @@ describe("generateSkin", () => {
     const cardiganPanel = ((body.y + 5) * ATLAS_SIZE + body.x + 1) * 4;
     const cardiganTrim = ((body.y + 5) * ATLAS_SIZE + body.x + 2) * 4;
     const cardiganOpenCenter = ((body.y + 5) * ATLAS_SIZE + body.x + 3) * 4;
-    const cardiganSidePanel = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x + 1) * 4;
+    const cardiganSidePanel = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x) * 4;
     const sleeve = ((armFront.y + 4) * ATLAS_SIZE + armFront.x + 1) * 4;
     const sleeveFold = ((armFront.y + 3) * ATLAS_SIZE + armFront.x + 1) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[flowerPetal + 3]).toBe(255);
-    expect(decoded.rgba[flowerPetal]).toBeGreaterThan(decoded.rgba[flowerPetal + 1]);
-    expect(decoded.rgba[flowerLeaf + 1]).toBeGreaterThan(decoded.rgba[flowerLeaf]);
+    expect(decoded.rgba[flowerPetal]).toBeGreaterThan(
+      decoded.rgba[flowerPetal + 1],
+    );
+    expect(decoded.rgba[flowerLeaf + 1]).toBeGreaterThan(
+      decoded.rgba[flowerLeaf],
+    );
     expect(decoded.rgba[bowWing + 3]).toBe(255);
     expect(decoded.rgba[bowKnot + 3]).toBe(255);
     expect(decoded.rgba[bowWing]).toBeGreaterThan(decoded.rgba[bowKnot]);
     expect(decoded.rgba[cardiganPanel + 3]).toBe(255);
     expect(decoded.rgba[cardiganTrim + 3]).toBe(255);
     expect(decoded.rgba[cardiganOpenCenter + 3]).toBe(0);
-    expect(decoded.rgba[cardiganTrim]).toBeLessThan(decoded.rgba[cardiganPanel]);
+    expect(decoded.rgba[cardiganTrim]).toBeLessThan(
+      decoded.rgba[cardiganPanel],
+    );
     expect(decoded.rgba[cardiganSidePanel + 3]).toBe(255);
     expect(decoded.rgba[sleeve + 3]).toBe(255);
     expect(decoded.rgba[sleeveFold + 3]).toBe(255);
@@ -234,7 +248,9 @@ describe("generateSkin", () => {
       rgba: new Uint8Array(512 * 512 * 4).fill(100),
     });
     const env = makeEnv(makeAnalysis());
-    const provider = providerOf([{ ok: true, imageBytes: flat, inputTiles: 3, outputTiles: 1 }]);
+    const provider = providerOf([
+      { ok: true, imageBytes: flat, inputTiles: 3, outputTiles: 1 },
+    ]);
     const result = await generateSkin(env, await photoDataUrl(), provider);
 
     expect(provider.calls).toBe(2);
@@ -248,7 +264,9 @@ describe("generateSkin", () => {
     );
     expect(validateFinalAtlas(decoded).ok).toBe(true);
     // fallback features는 hex로 변환돼 있다 (yellow → #e3c14d)
-    expect((result.body.features as Record<string, string>).topColor).toBe("#e3c14d");
+    expect((result.body.features as Record<string, string>).topColor).toBe(
+      "#e3c14d",
+    );
   });
 
   it("procedural fallback preserves rich hair, cardigan, plaid and asymmetric legwear hints", async () => {
@@ -266,7 +284,8 @@ describe("generateSkin", () => {
         observed: {
           ...base.observed,
           hair: "long wavy light-brown hair with curtain bangs and a large pink flower on viewer-left",
-          accessories: "pink flower on viewer-left hair and a white ribbon on viewer-right thigh",
+          accessories:
+            "pink flower on viewer-left hair and a white ribbon on viewer-right thigh",
           clothing:
             "dusty-pink long cardigan, beige plaid pleated shorts, one viewer-left thigh-high sock and cream Mary Jane shoes",
           colorPalette: ["dusty pink", "beige", "cream", "light brown"],
@@ -307,7 +326,11 @@ describe("generateSkin", () => {
       "front_view",
     );
     const provider = providerOf([
-      { ok: false, error: "temporary image generation failure", retryable: false },
+      {
+        ok: false,
+        error: "temporary image generation failure",
+        retryable: false,
+      },
     ]);
     const result = await generateSkin(env, await photoDataUrl(), provider);
     const decoded = await decodePng(
@@ -358,7 +381,8 @@ describe("generateSkin", () => {
           ...base.observed,
           face: "oval face, almond dark-brown eyes, straight eyebrows, small mouth",
           hair: "short straight black two-block hair with brow-length curtain fringe",
-          accessories: "thin silver chain necklace with a small round silver pendant",
+          accessories:
+            "thin silver chain necklace with a small round silver pendant",
           clothing: "black cable-knit long-sleeve crewneck sweater",
           colorPalette: ["black", "charcoal", "silver", "warm skin"],
         },
@@ -366,11 +390,13 @@ describe("generateSkin", () => {
           ...base.inferred,
           hairBack: {
             value: "short tapered black hair at the back",
-            rationale: "the visible short sides imply a neat tapered rear shape",
+            rationale:
+              "the visible short sides imply a neat tapered rear shape",
           },
           lowerBody: {
             value: "charcoal tailored trousers with a subtle black belt",
-            rationale: "structured dark trousers match the polished cable-knit sweater and pendant",
+            rationale:
+              "structured dark trousers match the polished cable-knit sweater and pendant",
           },
           lowerBodyDesign: {
             bottomType: "pants",
@@ -379,7 +405,8 @@ describe("generateSkin", () => {
             legwear: "none",
             legwearAsymmetry: "none",
             shoeStyle: "dress_shoes",
-            rationale: "dark tailored trousers and dress shoes complete the smart-casual upper body",
+            rationale:
+              "dark tailored trousers and dress shoes complete the smart-casual upper body",
           },
           shoes: {
             value: "black leather dress shoes",
@@ -430,7 +457,11 @@ describe("generateSkin", () => {
       "front_view",
     );
     const provider = providerOf([
-      { ok: false, error: "temporary image generation failure", retryable: false },
+      {
+        ok: false,
+        error: "temporary image generation failure",
+        retryable: false,
+      },
     ]);
     const result = await generateSkin(env, await photoDataUrl(), provider);
     const decoded = await decodePng(

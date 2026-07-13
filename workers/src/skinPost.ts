@@ -8,10 +8,13 @@
 
 import type { RawImage } from "./png";
 import {
+  ALL_PARTS,
   ATLAS_SIZE,
   BASE_RECTS,
+  CLASSIC_LAYOUT,
   HEAD_FRONT,
   buildZoneMap,
+  type BodyPart,
   type Rect,
 } from "./uvLayout";
 
@@ -109,6 +112,83 @@ function distinctColorsIn(atlas: RawImage, rects: Rect[]): number {
   return seen.size;
 }
 
+function opaqueStatsIn(
+  atlas: RawImage,
+  rect: Rect,
+): { pixels: number; colors: number } {
+  let pixels = 0;
+  const colors = new Set<number>();
+  for (let y = rect.y; y < rect.y + rect.h; y++) {
+    for (let x = rect.x; x < rect.x + rect.w; x++) {
+      const pixel = y * ATLAS_SIZE + x;
+      if (atlas.rgba[pixel * 4 + 3] === 0) continue;
+      pixels++;
+      colors.add(quantKey(atlas.rgba, pixel));
+    }
+  }
+  return { pixels, colors: colors.size };
+}
+
+export interface AtlasCraftMetrics {
+  baseColorCount: number;
+  overlayColorCount: number;
+  opaqueOverlayPixels: number;
+  populatedOverlayFaces: number;
+  shadedOverlayFaces: number;
+  detailedBaseFaces: number;
+  overlayPixelsByPart: Record<BodyPart, number>;
+}
+
+/**
+ * Measures hand-authored pixel-art signals without assuming every subject must
+ * wear the same amount of outer-layer detail. Consumers can compare these
+ * metrics against style-specific expectations or a reference skin; the core
+ * format validator remains permissive for legitimately minimal/bald skins.
+ */
+export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
+  if (atlas.width !== ATLAS_SIZE || atlas.height !== ATLAS_SIZE) {
+    throw new Error("64x64 atlas가 아닙니다");
+  }
+  const overlayPixelsByPart = Object.fromEntries(
+    ALL_PARTS.map((part) => [part, 0]),
+  ) as Record<BodyPart, number>;
+  let opaqueOverlayPixels = 0;
+  let populatedOverlayFaces = 0;
+  let shadedOverlayFaces = 0;
+  let detailedBaseFaces = 0;
+  const overlayColors = new Set<number>();
+
+  for (const part of ALL_PARTS) {
+    for (const rect of Object.values(CLASSIC_LAYOUT[part].base)) {
+      if (opaqueStatsIn(atlas, rect).colors >= 3) detailedBaseFaces++;
+    }
+    for (const rect of Object.values(CLASSIC_LAYOUT[part].overlay)) {
+      const stats = opaqueStatsIn(atlas, rect);
+      overlayPixelsByPart[part] += stats.pixels;
+      opaqueOverlayPixels += stats.pixels;
+      if (stats.pixels >= 2) populatedOverlayFaces++;
+      if (stats.pixels >= 4 && stats.colors >= 2) shadedOverlayFaces++;
+      for (let y = rect.y; y < rect.y + rect.h; y++) {
+        for (let x = rect.x; x < rect.x + rect.w; x++) {
+          const pixel = y * ATLAS_SIZE + x;
+          if (atlas.rgba[pixel * 4 + 3] !== 0)
+            overlayColors.add(quantKey(atlas.rgba, pixel));
+        }
+      }
+    }
+  }
+
+  return {
+    baseColorCount: distinctColorsIn(atlas, BASE_RECTS),
+    overlayColorCount: overlayColors.size,
+    opaqueOverlayPixels,
+    populatedOverlayFaces,
+    shadedOverlayFaces,
+    detailedBaseFaces,
+    overlayPixelsByPart,
+  };
+}
+
 /**
  * 마스크 적용 전의 64x64 atlas를 검사한다 (마스크 전이어야
  * "UV 밖에 디테일이 있다 = atlas가 아니라 캐릭터 렌더" 휴리스틱이 동작한다).
@@ -116,7 +196,10 @@ function distinctColorsIn(atlas: RawImage, rects: Rect[]): number {
 export function validateAtlas(atlas: RawImage): AtlasValidation {
   const problems: string[] = [];
   if (atlas.width !== ATLAS_SIZE || atlas.height !== ATLAS_SIZE) {
-    return { ok: false, problems: [`크기가 64x64가 아님 (${atlas.width}x${atlas.height})`] };
+    return {
+      ok: false,
+      problems: [`크기가 64x64가 아님 (${atlas.width}x${atlas.height})`],
+    };
   }
 
   // 얼굴(머리 앞면)이 비어 있거나 단색이면 실패
@@ -139,7 +222,9 @@ export function validateAtlas(atlas: RawImage): AtlasValidation {
     }
   }
   if (outsideSeen.size > 48) {
-    problems.push(`UV 밖 영역에 디테일 과다 (${outsideSeen.size}종) — atlas 형태가 아닐 수 있음`);
+    problems.push(
+      `UV 밖 영역에 디테일 과다 (${outsideSeen.size}종) — atlas 형태가 아닐 수 있음`,
+    );
   }
 
   return { ok: problems.length === 0, problems };
@@ -161,15 +246,21 @@ export function validateFinalAtlas(atlas: RawImage): AtlasValidation {
     const a = atlas.rgba[i * 4 + 3];
     const zone = ZONE_MAP[i];
     if (zone === "outside" && a !== 0) {
-      problems.push(`UV 밖 픽셀이 불투명 (${i % ATLAS_SIZE},${Math.floor(i / ATLAS_SIZE)})`);
+      problems.push(
+        `UV 밖 픽셀이 불투명 (${i % ATLAS_SIZE},${Math.floor(i / ATLAS_SIZE)})`,
+      );
       break;
     }
     if (zone === "base" && a !== 255) {
-      problems.push(`base 픽셀이 투명 (${i % ATLAS_SIZE},${Math.floor(i / ATLAS_SIZE)})`);
+      problems.push(
+        `base 픽셀이 투명 (${i % ATLAS_SIZE},${Math.floor(i / ATLAS_SIZE)})`,
+      );
       break;
     }
     if (zone === "overlay" && a !== 0 && a !== 255) {
-      problems.push(`overlay alpha가 이진이 아님 (${i % ATLAS_SIZE},${Math.floor(i / ATLAS_SIZE)})`);
+      problems.push(
+        `overlay alpha가 이진이 아님 (${i % ATLAS_SIZE},${Math.floor(i / ATLAS_SIZE)})`,
+      );
       break;
     }
   }

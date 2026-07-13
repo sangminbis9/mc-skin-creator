@@ -57,10 +57,12 @@ export interface FaceStyle {
   hairBackShape?: "tapered" | "rounded" | "long" | "tied" | "undercut";
   hairPart?: "none" | "center" | "left" | "right";
   sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
-  sideHairShape?: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
+  sideHairShape?:
+    "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
   sideHairAsymmetry?: "none" | "left" | "right";
   earExposure?: "covered" | "partial" | "visible";
-  garmentTexture?: "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
+  garmentTexture?:
+    "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
   outerLayer?: "none" | "light" | "heavy";
   outerGarment?: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
   necklace?: "none" | "silver" | "gold" | "dark";
@@ -335,9 +337,11 @@ function fillRectFromRect(
   for (let cy = 0; cy < dst.h; cy++) {
     for (let cx = 0; cx < dst.w; cx++) {
       const sxRatio = mirrorX ? 1 - (cx + 0.5) / dst.w : (cx + 0.5) / dst.w;
-      const sx = srcRect.x + Math.min(srcRect.w - 1, Math.floor(sxRatio * srcRect.w));
+      const sx =
+        srcRect.x + Math.min(srcRect.w - 1, Math.floor(sxRatio * srcRect.w));
       const sy =
-        srcRect.y + Math.min(srcRect.h - 1, Math.floor(((cy + 0.5) / dst.h) * srcRect.h));
+        srcRect.y +
+        Math.min(srcRect.h - 1, Math.floor(((cy + 0.5) / dst.h) * srcRect.h));
       const s = (sy * ATLAS_SIZE + sx) * 4;
       const d = ((dst.y + cy) * ATLAS_SIZE + dst.x + cx) * 4;
       atlas.rgba[d] = Math.min(255, atlas.rgba[s] * shade);
@@ -376,7 +380,12 @@ function completeSides(
   topColor: [number, number, number],
   bottomColor: [number, number, number],
 ): void {
-  const edgeLeft: Rect = { x: box.front.x, y: box.front.y, w: 1, h: box.front.h };
+  const edgeLeft: Rect = {
+    x: box.front.x,
+    y: box.front.y,
+    w: 1,
+    h: box.front.h,
+  };
   const edgeRight: Rect = {
     x: box.front.x + box.front.w - 1,
     y: box.front.y,
@@ -397,9 +406,9 @@ function completeSides(
 function applyShading(atlas: RawImage): void {
   const clamp = (v: number) => Math.max(0, Math.min(255, v));
   for (const part of ALL_PARTS) {
-    for (const [faceName, rect] of Object.entries(CLASSIC_LAYOUT[part].base) as Array<
-      [keyof BoxUV, Rect]
-    >) {
+    for (const [faceName, rect] of Object.entries(
+      CLASSIC_LAYOUT[part].base,
+    ) as Array<[keyof BoxUV, Rect]>) {
       if (part === "head" && faceName === "front") {
         continue; // 이목구비 보호
       }
@@ -483,7 +492,9 @@ function composeFace(
   // This is common in short bowl/two-block cuts and remains useful for any
   // centre-parted portrait rather than keying off a particular subject.
   const splitCenterFringe =
-    bangs === "straight" && style.hairPart === "center" && bangsDensity !== "dense";
+    bangs === "straight" &&
+    style.hairPart === "center" &&
+    bangsDensity !== "dense";
   if (bangs === "straight") {
     for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) {
       hair(x, 2);
@@ -539,10 +550,19 @@ function composeFace(
   const eye = hexToRgb(style.eyeColor, [74, 55, 40]);
   const eyePairs =
     style.eyeSpacing === "wide"
-      ? ([[0, 1], [7, 6]] as const)
+      ? ([
+          [0, 1],
+          [7, 6],
+        ] as const)
       : style.eyeSpacing === "close"
-        ? ([[1, 2], [5, 4]] as const)
-        : ([[1, 2], [6, 5]] as const);
+        ? ([
+            [1, 2],
+            [5, 4],
+          ] as const)
+        : ([
+            [1, 2],
+            [6, 5],
+          ] as const);
   const brow =
     style.eyebrowThickness === "thin"
       ? mixRgb(browColor, skinColor, 0.38)
@@ -554,18 +574,38 @@ function composeFace(
   const eyeTilt = style.eyeTilt ?? "level";
   for (const [outer, inner] of eyePairs) {
     const outerBrowY = eyeTilt === "upturned" ? 2 : 3;
-    put(face, outer, outerBrowY, browOccludedByFringe ? mixRgb(brow, skinColor, 0.72) : brow);
-    put(face, inner, 3, browOccludedByFringe ? mixRgb(brow, skinColor, 0.58) : brow);
+    put(
+      face,
+      outer,
+      outerBrowY,
+      browOccludedByFringe ? mixRgb(brow, skinColor, 0.72) : brow,
+    );
+    put(
+      face,
+      inner,
+      3,
+      browOccludedByFringe ? mixRgb(brow, skinColor, 0.58) : brow,
+    );
     const sclera = mixRgb(
       skinColor,
       [238, 232, 222],
-      style.eyeShape === "round" ? 0.36 : style.eyeShape === "narrow" ? 0.12 : 0.18,
+      style.eyeShape === "round"
+        ? 0.36
+        : style.eyeShape === "narrow"
+          ? 0.12
+          : 0.18,
     );
-    const outerEyeY = eyeTilt === "upturned" ? 3 : eyeTilt === "downturned" ? 5 : 4;
+    const outerEyeY =
+      eyeTilt === "upturned" ? 3 : eyeTilt === "downturned" ? 5 : 4;
     if (outerEyeY !== 4) {
       put(face, outer, 4, shadeRgb(skinColor, 0.98));
     }
-    put(face, outer, outerEyeY, eyeTilt === "level" ? sclera : mixRgb(sclera, eye, 0.42));
+    put(
+      face,
+      outer,
+      outerEyeY,
+      eyeTilt === "level" ? sclera : mixRgb(sclera, eye, 0.42),
+    );
     put(face, inner, 4, eye);
     if (style.eyeShape === "round") {
       put(face, inner, 5, shadeRgb(eye, 0.78));
@@ -604,9 +644,17 @@ function composeFace(
   // looked blank in the 3D preview. Keep the overlay visibly eye-coloured.
   const eyeHighlight = mixRgb(eye, [250, 244, 232], 0.26);
   const lowerEye = mixRgb(skinColor, shadeRgb(eye, 0.66), 0.24);
-  const eyelid = mixRgb(skinColor, brow, style.eyeShape === "narrow" ? 0.48 : 0.34);
+  const eyelid = mixRgb(
+    skinColor,
+    brow,
+    style.eyeShape === "narrow" ? 0.48 : 0.34,
+  );
   const eyeCorner = mixRgb(shadeRgb(eye, 0.62), skinColor, 0.18);
-  const lowerLid = mixRgb(shadeRgb(skinColor, 0.78), eye, style.eyeShape === "round" ? 0.12 : 0.2);
+  const lowerLid = mixRgb(
+    shadeRgb(skinColor, 0.78),
+    eye,
+    style.eyeShape === "round" ? 0.12 : 0.2,
+  );
   const noseShape = style.noseShape ?? "small";
   const noseX = style.faceShape === "long" || noseShape === "prominent" ? 4 : 3;
   const noseBridge = mixRgb(skinColor, [255, 238, 224], 0.24);
@@ -650,15 +698,31 @@ function composeFace(
 
   const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
   const mouthShape = style.mouthShape ?? "small";
-  const mouthDark = shadeRgb(mouthColor, style.expression === "serious" ? 0.76 : 0.88);
+  const mouthDark = shadeRgb(
+    mouthColor,
+    style.expression === "serious" ? 0.76 : 0.88,
+  );
   const lipFull = mixRgb(mouthColor, [188, 92, 78], 0.36);
   const lipLight = mixRgb(lipFull, skinColor, 0.42);
 
-  if (mouthShape === "wide" || (style.expression === "smile" && mouthShape === "small")) {
-    put(face, 2, 6, style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark);
+  if (
+    mouthShape === "wide" ||
+    (style.expression === "smile" && mouthShape === "small")
+  ) {
+    put(
+      face,
+      2,
+      6,
+      style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark,
+    );
     put(face, 3, 6, mouthColor);
     put(face, 4, 6, mouthColor);
-    put(face, 5, 6, style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark);
+    put(
+      face,
+      5,
+      6,
+      style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark,
+    );
   } else if (mouthShape === "full") {
     put(face, 3, 6, lipFull);
     put(face, 4, 6, lipFull);
@@ -766,8 +830,14 @@ function composeFace(
     style.facialHair === "none" &&
     (style.faceShape === "oval" || style.faceShape === "long")
   ) {
-    const outerJaw = shadeRgb(skinColor, style.faceShape === "long" ? 0.78 : 0.82);
-    const innerJaw = shadeRgb(skinColor, style.faceShape === "long" ? 0.86 : 0.89);
+    const outerJaw = shadeRgb(
+      skinColor,
+      style.faceShape === "long" ? 0.78 : 0.82,
+    );
+    const innerJaw = shadeRgb(
+      skinColor,
+      style.faceShape === "long" ? 0.86 : 0.89,
+    );
     put(face, 0, 7, outerJaw);
     put(face, 7, 7, shadeRgb(outerJaw, 0.97));
     if (jawShape === "soft") {
@@ -798,7 +868,11 @@ function composeFace(
       put(overlay, noseX === 3 ? 4 : 3, 5, mixRgb(philtrum, skinColor, 0.46));
     }
 
-    const mouthCorner = mixRgb(mouthDark, skinColor, mouthShape === "thin" ? 0.18 : 0.28);
+    const mouthCorner = mixRgb(
+      mouthDark,
+      skinColor,
+      mouthShape === "thin" ? 0.18 : 0.28,
+    );
     if (mouthShape === "wide") {
       put(overlay, 2, 6, shadeRgb(mouthCorner, 0.86));
       put(overlay, 5, 6, shadeRgb(mouthCorner, 0.86));
@@ -825,9 +899,21 @@ function composeFace(
 
     const earBase = mixRgb(skinColor, [226, 144, 128], 0.14);
     const earInner = mixRgb(skinColor, [204, 106, 98], 0.2);
-    const sideCheek = mixRgb(skinColor, [232, 148, 132], style.expression === "smile" ? 0.12 : 0.08);
-    const sideJaw = shadeRgb(skinColor, jawShape === "square" ? 0.84 : jawShape === "pointed" ? 0.9 : 0.88);
-    const paintSideFace = (rect: Rect, outerX: number, innerX: number, mirrorShade: number) => {
+    const sideCheek = mixRgb(
+      skinColor,
+      [232, 148, 132],
+      style.expression === "smile" ? 0.12 : 0.08,
+    );
+    const sideJaw = shadeRgb(
+      skinColor,
+      jawShape === "square" ? 0.84 : jawShape === "pointed" ? 0.9 : 0.88,
+    );
+    const paintSideFace = (
+      rect: Rect,
+      outerX: number,
+      innerX: number,
+      mirrorShade: number,
+    ) => {
       put(rect, outerX, 4, shadeRgb(earBase, mirrorShade));
       put(rect, innerX, 4, shadeRgb(earInner, mirrorShade));
       put(rect, outerX, 5, shadeRgb(sideCheek, mirrorShade));
@@ -902,10 +988,19 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
   const eyePairs =
     style.eyeSpacing === "wide"
-      ? ([[0, 1], [7, 6]] as const)
+      ? ([
+          [0, 1],
+          [7, 6],
+        ] as const)
       : style.eyeSpacing === "close"
-        ? ([[1, 2], [5, 4]] as const)
-        : ([[1, 2], [6, 5]] as const);
+        ? ([
+            [1, 2],
+            [5, 4],
+          ] as const)
+        : ([
+            [1, 2],
+            [6, 5],
+          ] as const);
 
   const clearOverlayPixel = (x: number, y: number) => {
     const d = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
@@ -1145,7 +1240,12 @@ function composeHair(
   // Rounded outer-layer cut-outs must reveal hair, not portrait skin.
   fill(base.top, 0, 0, 8, 8);
   if (roundedFringeCut) {
-    const paintSideRow = (rect: Rect, y: number, hairXs: readonly number[], mirrored: boolean) => {
+    const paintSideRow = (
+      rect: Rect,
+      y: number,
+      hairXs: readonly number[],
+      mirrored: boolean,
+    ) => {
       const hairSet = new Set(hairXs);
       for (let x = 0; x < 8; x++) {
         if (hairSet.has(x)) {
@@ -1203,7 +1303,12 @@ function composeHair(
       fill(base.back, 0, 0, 8, backRows - 1);
       fill(base.back, 2, backRows - 1, 4, 1);
       for (const x of [0, 1, 6, 7]) {
-        putColor(base.back, x, backRows - 1, shadeRgb(skinColor, x < 4 ? 0.84 : 0.82));
+        putColor(
+          base.back,
+          x,
+          backRows - 1,
+          shadeRgb(skinColor, x < 4 ? 0.84 : 0.82),
+        );
       }
     } else {
       fill(base.back, 0, 0, 8, backRows);
@@ -1223,13 +1328,13 @@ function composeHair(
   if (style.hairVolume === "full") {
     volumeMask(over.top, [
       [1, 2, 3, 4, 5, 6],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [1, 2, 3, 5, 6],
+      [0, 1, 2, 5, 6, 7],
+      [0, 1, 6, 7],
+      [0, 2, 5, 7],
+      [0, 1, 6, 7],
+      [0, 2, 5, 7],
+      [0, 1, 6, 7],
+      [1, 2, 5, 6],
     ]);
   } else if (style.hairVolume === "flat") {
     volumeMask(over.top, [
@@ -1244,12 +1349,12 @@ function composeHair(
     volumeMask(over.top, [
       [1, 2, 3, 4, 5, 6],
       [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [0, 1, 2, 3, 4, 5, 6, 7],
-      [1, 2, 4, 5, 6],
+      [0, 1, 3, 4, 6, 7],
+      [0, 2, 3, 4, 5, 7],
+      [0, 1, 6, 7],
+      [0, 2, 5, 7],
+      [0, 1, 6, 7],
+      [1, 2, 5, 6],
     ]);
   }
   volumeMask(over.front, [[1, 2, 3, 4, 5, 6]]);
@@ -1267,10 +1372,10 @@ function composeHair(
   const sideMaskTemplate =
     style.hairVolume === "full"
       ? [
-          [0, 1, 2, 3, 4, 5, 6, 7],
-          [0, 1, 2, 3, 4, 5, 6, 7],
-          [0, 1, 2, 3, 4, 5, 6, 7],
-          [0, 1, 2, 3, 5, 6, 7],
+          [0, 1, 2, 5, 6, 7],
+          [0, 1, 3, 4, 6, 7],
+          [0, 1, 2, 5, 6, 7],
+          [0, 1, 6, 7],
           [0, 1, 2, 5, 6, 7],
           [0, 1, 6, 7],
           [0, 7],
@@ -1307,8 +1412,9 @@ function composeHair(
   const backMask: number[][] = [];
   for (let y = 0; y < backVolumeRows; y++) {
     if (y === 0) backMask.push([1, 2, 3, 4, 5, 6]);
-    else if (y === backVolumeRows - 1) backMask.push([1, 2, 3, 5, 6]);
-    else backMask.push([0, 1, 2, 3, 4, 5, 6, 7]);
+    else if (y === backVolumeRows - 1) backMask.push([0, 1, 3, 5, 6, 7]);
+    else if (y % 2 === 0) backMask.push([0, 1, 2, 5, 6, 7]);
+    else backMask.push([0, 1, 3, 4, 6, 7]);
   }
   volumeMask(over.back, backMask);
   const hairBackShape =
@@ -1321,7 +1427,10 @@ function composeHair(
           ? "undercut"
           : "tapered");
   const backHairColor = (x: number, y: number, shade = 1) =>
-    shadeRgb(hairVolumePixel(hairColor, over.back.x + x, over.back.y + y), shade);
+    shadeRgb(
+      hairVolumePixel(hairColor, over.back.x + x, over.back.y + y),
+      shade,
+    );
   const connectBackEdge = (y: number) => {
     const backAtX0 = backHairColor(0, y, 0.92);
     const backAtX7 = backHairColor(7, y, 0.92);
@@ -1340,14 +1449,28 @@ function composeHair(
         putColor(over.back, 6, y, backHairColor(6, y, 0.86));
       }
     }
-    for (const x of [2, 3, 4, 5]) putColor(over.back, x, 6, backHairColor(x, 6, 0.72));
+    for (const x of [2, 3, 4, 5])
+      putColor(over.back, x, 6, backHairColor(x, 6, 0.72));
   } else if (hairBackShape === "long") {
     for (let y = 2; y < 8; y++) {
       connectBackEdge(y);
-      for (const x of [1, 2, 5, 6]) putColor(over.back, x, y, backHairColor(x, y, y >= 6 ? 0.68 : 0.9));
-      if (y >= 4) {
-        putColor(over.back, 3, y, backHairColor(3, y, 0.78));
-        putColor(over.back, 4, y, backHairColor(4, y, 0.78));
+      const leftStrand = y % 2 === 0 ? 1 : 2;
+      const rightStrand = y % 2 === 0 ? 6 : 5;
+      putColor(
+        over.back,
+        leftStrand,
+        y,
+        backHairColor(leftStrand, y, y >= 6 ? 0.68 : 0.9),
+      );
+      putColor(
+        over.back,
+        rightStrand,
+        y,
+        backHairColor(rightStrand, y, y >= 6 ? 0.68 : 0.9),
+      );
+      if (y === 4 || y === 6 || y === 7) {
+        const centerX = y === 6 ? 4 : 3;
+        putColor(over.back, centerX, y, backHairColor(centerX, y, 0.78));
       }
     }
   } else if (hairBackShape === "tied") {
@@ -1355,19 +1478,39 @@ function composeHair(
       putColor(over.back, 3, y, backHairColor(3, y, y === 4 ? 0.62 : 0.86));
       putColor(over.back, 4, y, backHairColor(4, y, y === 4 ? 0.62 : 0.86));
     }
-    for (const [x, y] of [[2, 3], [5, 3], [2, 4], [5, 4]] as const) {
+    for (const [x, y] of [
+      [2, 3],
+      [5, 3],
+      [2, 4],
+      [5, 4],
+    ] as const) {
       putColor(over.back, x, y, backHairColor(x, y, 0.72));
     }
   } else if (hairBackShape === "undercut") {
     for (let y = 0; y < Math.min(4, over.back.h); y++) {
-      for (let x = 0; x < over.back.w; x++) putColor(over.back, x, y, backHairColor(x, y, y === 3 ? 0.74 : 0.94));
+      for (let x = 0; x < over.back.w; x++)
+        putColor(over.back, x, y, backHairColor(x, y, y === 3 ? 0.74 : 0.94));
     }
-    for (const [x, y] of [[2, 4], [3, 4], [4, 4], [5, 4], [3, 5], [4, 5]] as const) {
+    for (const [x, y] of [
+      [2, 4],
+      [3, 4],
+      [4, 4],
+      [5, 4],
+      [3, 5],
+      [4, 5],
+    ] as const) {
       putColor(over.back, x, y, backHairColor(x, y, 0.58));
     }
   } else {
     for (let y = 2; y < Math.min(6, over.back.h); y++) connectBackEdge(y);
-    for (const [x, y] of [[2, 5], [3, 5], [4, 5], [5, 5], [3, 6], [4, 6]] as const) {
+    for (const [x, y] of [
+      [2, 5],
+      [3, 5],
+      [4, 5],
+      [5, 5],
+      [3, 6],
+      [4, 6],
+    ] as const) {
       putColor(over.back, x, y, backHairColor(x, y, y === 6 ? 0.62 : 0.78));
     }
   }
@@ -1375,7 +1518,13 @@ function composeHair(
   const sideEdgeRows =
     style.hairVolume === "flat"
       ? Math.min(2, sideVolumeRows)
-      : Math.min(7, Math.max(sideVolumeRows, s === "medium" || s === "curly" ? 5 : sideRows));
+      : Math.min(
+          7,
+          Math.max(
+            sideVolumeRows,
+            s === "medium" || s === "curly" ? 5 : sideRows,
+          ),
+        );
   const templeRows =
     s === "buzz"
       ? 1
@@ -1447,7 +1596,11 @@ function composeHair(
   }
 
   const sideHairLength = style.sideHairLength ?? "short";
-  if (sideHairLength === "cheek" || sideHairLength === "jaw" || sideHairLength === "shoulder") {
+  if (
+    sideHairLength === "cheek" ||
+    sideHairLength === "jaw" ||
+    sideHairLength === "shoulder"
+  ) {
     const lastLockRow =
       sideHairLength === "cheek" ? 4 : sideHairLength === "jaw" ? 6 : 7;
     const maxDepth =
@@ -1459,7 +1612,12 @@ function composeHair(
       const taper = y >= lastLockRow - 1 ? 1 : 0;
       return Math.max(1, maxDepth - taper);
     };
-    const paintTopSideCap = (y: number, depth: number, leftLock: Rgb, rightLock: Rgb) => {
+    const paintTopSideCap = (
+      y: number,
+      depth: number,
+      leftLock: Rgb,
+      rightLock: Rgb,
+    ) => {
       const capY = Math.min(7, y);
       const capWidth =
         sideHairLength === "shoulder"
@@ -1474,8 +1632,18 @@ function composeHair(
       }
       if (sideHairLength !== "cheek" && y >= 4) {
         const rootY = Math.max(1, capY - 1);
-        putColor(over.top, Math.min(3, capWidth + 1), rootY, shadeRgb(leftLock, 0.72));
-        putColor(over.top, Math.max(4, 6 - capWidth), rootY, shadeRgb(rightLock, 0.72));
+        putColor(
+          over.top,
+          Math.min(3, capWidth + 1),
+          rootY,
+          shadeRgb(leftLock, 0.72),
+        );
+        putColor(
+          over.top,
+          Math.max(4, 6 - capWidth),
+          rootY,
+          shadeRgb(rightLock, 0.72),
+        );
       }
     };
 
@@ -1506,22 +1674,47 @@ function composeHair(
       paintTopSideCap(y, depth, leftLock, rightLock);
       if (y >= 4) {
         putColor(over.right, Math.min(depth, 3), y, shadeRgb(leftShadow, 0.82));
-        putColor(over.left, Math.max(4, 7 - depth), y, shadeRgb(rightShadow, 0.82));
+        putColor(
+          over.left,
+          Math.max(4, 7 - depth),
+          y,
+          shadeRgb(rightShadow, 0.82),
+        );
       }
     }
     if (sideHairLength === "jaw" || sideHairLength === "shoulder") {
       for (let y = 3; y <= lastLockRow; y++) {
         const bridgeDepth =
           sideHairLength === "shoulder" ? (y >= 5 ? 5 : 4) : y >= 5 ? 4 : 3;
-        const leftBridge = sideLockColor(1901, y, 0, y >= lastLockRow - 1 ? 0.66 : 0.78);
-        const rightBridge = sideLockColor(2309, y, 0, y >= lastLockRow - 1 ? 0.66 : 0.78);
+        const leftBridge = sideLockColor(
+          1901,
+          y,
+          0,
+          y >= lastLockRow - 1 ? 0.66 : 0.78,
+        );
+        const rightBridge = sideLockColor(
+          2309,
+          y,
+          0,
+          y >= lastLockRow - 1 ? 0.66 : 0.78,
+        );
         for (let x = 2; x <= bridgeDepth; x++) {
           const shade = x === bridgeDepth ? 0.64 : x % 2 === 0 ? 0.84 : 0.72;
           putColor(over.right, x, y, shadeRgb(leftBridge, shade));
           putColor(over.left, 7 - x, y, shadeRgb(rightBridge, shade));
         }
-        putColor(over.right, Math.min(6, bridgeDepth + 1), y, shadeRgb(leftBridge, 0.7));
-        putColor(over.left, Math.max(1, 6 - bridgeDepth), y, shadeRgb(rightBridge, 0.7));
+        putColor(
+          over.right,
+          Math.min(6, bridgeDepth + 1),
+          y,
+          shadeRgb(leftBridge, 0.7),
+        );
+        putColor(
+          over.left,
+          Math.max(1, 6 - bridgeDepth),
+          y,
+          shadeRgb(rightBridge, 0.7),
+        );
         if (y >= 4) {
           putColor(over.top, 1, Math.min(7, y), shadeRgb(leftBridge, 0.9));
           putColor(over.top, 6, Math.min(7, y), shadeRgb(rightBridge, 0.9));
@@ -1530,8 +1723,18 @@ function composeHair(
     }
     for (const y of [Math.max(3, lastLockRow - 1), lastLockRow] as const) {
       const depth = sideDepthForRow(y);
-      const leftTip = sideLockColor(2503, y, 0, y === lastLockRow ? 0.58 : 0.68);
-      const rightTip = sideLockColor(2909, y, 0, y === lastLockRow ? 0.58 : 0.68);
+      const leftTip = sideLockColor(
+        2503,
+        y,
+        0,
+        y === lastLockRow ? 0.58 : 0.68,
+      );
+      const rightTip = sideLockColor(
+        2909,
+        y,
+        0,
+        y === lastLockRow ? 0.58 : 0.68,
+      );
       const leftInnerX = Math.min(3, depth + 1);
       const rightInnerX = Math.max(4, 6 - depth);
 
@@ -1560,21 +1763,50 @@ function composeHair(
       const bodyOver = CLASSIC_LAYOUT.body.overlay;
       const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
         shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
-      const torsoStrandLight = mixRgb(hairColor, [242, 226, 214], style.hairTexture === "wavy" ? 0.24 : 0.16);
+      const torsoStrandLight = mixRgb(
+        hairColor,
+        [242, 226, 214],
+        style.hairTexture === "wavy" ? 0.24 : 0.16,
+      );
       const torsoStrandDark = shadeRgb(hairColor, 0.52);
       for (let y = 0; y < 7; y++) {
         const leftX = y % 3 === 1 ? 1 : 0;
         const rightX = y % 3 === 1 ? 6 : 7;
-        putColor(bodyOver.front, leftX, y, bodyHair(bodyOver.front, leftX, y, y >= 5 ? 0.72 : 0.94));
-        putColor(bodyOver.front, rightX, y, bodyHair(bodyOver.front, rightX, y, y >= 5 ? 0.72 : 0.94));
+        putColor(
+          bodyOver.front,
+          leftX,
+          y,
+          bodyHair(bodyOver.front, leftX, y, y >= 5 ? 0.72 : 0.94),
+        );
+        putColor(
+          bodyOver.front,
+          rightX,
+          y,
+          bodyHair(bodyOver.front, rightX, y, y >= 5 ? 0.72 : 0.94),
+        );
         if (y <= 4 || y % 2 === 0) {
-          putColor(bodyOver.front, Math.min(2, leftX + 1), y, bodyHair(bodyOver.front, Math.min(2, leftX + 1), y, 0.74));
-          putColor(bodyOver.front, Math.max(5, rightX - 1), y, bodyHair(bodyOver.front, Math.max(5, rightX - 1), y, 0.74));
+          putColor(
+            bodyOver.front,
+            Math.min(2, leftX + 1),
+            y,
+            bodyHair(bodyOver.front, Math.min(2, leftX + 1), y, 0.74),
+          );
+          putColor(
+            bodyOver.front,
+            Math.max(5, rightX - 1),
+            y,
+            bodyHair(bodyOver.front, Math.max(5, rightX - 1), y, 0.74),
+          );
         }
         // Keep shoulder locks continuous on the side faces. Alternating the
         // outer pixel between columns made long hair read as disconnected spots.
         const sideShade = y >= 6 ? 0.66 : y % 3 === 1 ? 0.9 : 0.78;
-        putColor(bodyOver.right, 0, y, bodyHair(bodyOver.right, 0, y, sideShade));
+        putColor(
+          bodyOver.right,
+          0,
+          y,
+          bodyHair(bodyOver.right, 0, y, sideShade),
+        );
         putColor(
           bodyOver.left,
           bodyOver.left.w - 1,
@@ -1582,7 +1814,12 @@ function composeHair(
           bodyHair(bodyOver.left, bodyOver.left.w - 1, y, sideShade),
         );
         if (y <= 5 || y % 2 === 0) {
-          putColor(bodyOver.right, 1, y, bodyHair(bodyOver.right, 1, y, sideShade * 0.86));
+          putColor(
+            bodyOver.right,
+            1,
+            y,
+            bodyHair(bodyOver.right, 1, y, sideShade * 0.86),
+          );
           putColor(
             bodyOver.left,
             bodyOver.left.w - 2,
@@ -1608,11 +1845,31 @@ function composeHair(
       putColor(bodyOver.left, 2, 3, shadeRgb(torsoStrandLight, 0.82));
       putColor(bodyOver.left, 3, 6, torsoStrandDark);
       for (let y = 0; y < 8; y++) {
-        putColor(bodyOver.back, 0, y, bodyHair(bodyOver.back, 0, y, y >= 6 ? 0.62 : 0.86));
-        putColor(bodyOver.back, 7, y, bodyHair(bodyOver.back, 7, y, y >= 6 ? 0.62 : 0.86));
+        putColor(
+          bodyOver.back,
+          0,
+          y,
+          bodyHair(bodyOver.back, 0, y, y >= 6 ? 0.62 : 0.86),
+        );
+        putColor(
+          bodyOver.back,
+          7,
+          y,
+          bodyHair(bodyOver.back, 7, y, y >= 6 ? 0.62 : 0.86),
+        );
         if (hairBackShape === "long" && y >= 2) {
-          putColor(bodyOver.back, 3, y, bodyHair(bodyOver.back, 3, y, y >= 6 ? 0.6 : 0.78));
-          putColor(bodyOver.back, 4, y, bodyHair(bodyOver.back, 4, y, y >= 6 ? 0.6 : 0.78));
+          putColor(
+            bodyOver.back,
+            3,
+            y,
+            bodyHair(bodyOver.back, 3, y, y >= 6 ? 0.6 : 0.78),
+          );
+          putColor(
+            bodyOver.back,
+            4,
+            y,
+            bodyHair(bodyOver.back, 4, y, y >= 6 ? 0.6 : 0.78),
+          );
         }
       }
       putColor(bodyOver.back, 2, 4, shadeRgb(torsoStrandLight, 0.78));
@@ -1654,9 +1911,19 @@ function composeHair(
           const shade = y >= 4 ? 0.58 : y % 2 === mirrorPhase ? 0.82 : 0.7;
           putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
           if (y <= 3 || y % 2 === mirrorPhase) {
-            putColor(arm.front, outerX, y, armHair(arm.front, outerX, y, shade * 0.92));
+            putColor(
+              arm.front,
+              outerX,
+              y,
+              armHair(arm.front, outerX, y, shade * 0.92),
+            );
           }
-          putColor(sideFace, y % 2, y, armHair(sideFace, y % 2, y, shade * 0.9));
+          putColor(
+            sideFace,
+            y % 2,
+            y,
+            armHair(sideFace, y % 2, y, shade * 0.9),
+          );
         }
         for (const [x, y, color] of [
           [innerX, topY, torsoStrandLight],
@@ -1666,19 +1933,47 @@ function composeHair(
           putColor(arm.front, x, y, color);
         }
         if (arm.top.h > 0) {
-          putColor(arm.top, innerX, Math.min(arm.top.h - 1, 1), shadeRgb(torsoStrandLight, 0.9));
-          putColor(arm.top, outerX, Math.min(arm.top.h - 1, 2), shadeRgb(torsoStrandDark, 0.88));
+          putColor(
+            arm.top,
+            innerX,
+            Math.min(arm.top.h - 1, 1),
+            shadeRgb(torsoStrandLight, 0.9),
+          );
+          putColor(
+            arm.top,
+            outerX,
+            Math.min(arm.top.h - 1, 2),
+            shadeRgb(torsoStrandDark, 0.88),
+          );
         }
       };
-      paintShoulderDrape(rightArmOver, 0, rightArmOver.front.w - 1, rightArmOver.right, 0);
-      paintShoulderDrape(leftArmOver, leftArmOver.front.w - 1, 0, leftArmOver.left, 1);
+      paintShoulderDrape(
+        rightArmOver,
+        0,
+        rightArmOver.front.w - 1,
+        rightArmOver.right,
+        0,
+      );
+      paintShoulderDrape(
+        leftArmOver,
+        leftArmOver.front.w - 1,
+        0,
+        leftArmOver.left,
+        1,
+      );
 
       if (style.hairTexture === "wavy" || style.hairTexture === "curly") {
         const layerLight = mixRgb(hairColor, [246, 226, 214], 0.28);
         const layerMid = shadeRgb(hairColor, 0.72);
         const layerDark = shadeRgb(hairColor, 0.48);
-        const paintLayerPixel = (rect: Rect, x: number, y: number, color: Rgb) => {
-          if (x >= 0 && x < rect.w && y >= 0 && y < rect.h) putColor(rect, x, y, color);
+        const paintLayerPixel = (
+          rect: Rect,
+          x: number,
+          y: number,
+          color: Rgb,
+        ) => {
+          if (x >= 0 && x < rect.w && y >= 0 && y < rect.h)
+            putColor(rect, x, y, color);
         };
         const paintSideLayer = (rect: Rect, mirror: boolean) => {
           for (const [x, y, color] of [
@@ -1712,13 +2007,18 @@ function composeHair(
             const waveColor =
               y % 3 === 1 ? layerLight : y % 3 === 2 ? layerMid : layerDark;
             paintLayerPixel(rect, edgeX, y, waveColor);
-            if (y >= 3 && y <= 6) paintLayerPixel(rect, innerX, y, shadeRgb(waveColor, 0.82));
+            if (y >= 3 && y <= 6)
+              paintLayerPixel(rect, innerX, y, shadeRgb(waveColor, 0.82));
           }
         }
       }
 
-      if ((style.hairAccessory ?? "none") === "flower" && (style.hairAccessorySide ?? "left") !== "center") {
-        const accessoryOnRight = (style.hairAccessorySide ?? "left") === "right";
+      if (
+        (style.hairAccessory ?? "none") === "flower" &&
+        (style.hairAccessorySide ?? "left") !== "center"
+      ) {
+        const accessoryOnRight =
+          (style.hairAccessorySide ?? "left") === "right";
         const decoratedLight = mixRgb(hairColor, [248, 226, 216], 0.3);
         const decoratedMid = shadeRgb(hairColor, 0.72);
         const decoratedDark = shadeRgb(hairColor, 0.46);
@@ -1727,7 +2027,9 @@ function composeHair(
         const accessoryPetal: Rgb = [236, 184, 192];
         const headSide = accessoryOnRight ? over.left : over.right;
         const bodySide = accessoryOnRight ? bodyOver.left : bodyOver.right;
-        const armOver = accessoryOnRight ? CLASSIC_LAYOUT.leftArm.overlay : CLASSIC_LAYOUT.rightArm.overlay;
+        const armOver = accessoryOnRight
+          ? CLASSIC_LAYOUT.leftArm.overlay
+          : CLASSIC_LAYOUT.rightArm.overlay;
         const armSide = accessoryOnRight ? armOver.left : armOver.right;
         const frontEdgeX = accessoryOnRight ? 7 : 0;
         const frontInnerX = accessoryOnRight ? 6 : 1;
@@ -1740,14 +2042,21 @@ function composeHair(
         const bodyTop = bodyOver.top;
         const bodyTopOuterX = accessoryOnRight ? bodyTop.w - 1 : 0;
         const bodyTopInnerX = accessoryOnRight ? bodyTop.w - 2 : 1;
-        const bodyTopAccentX = accessoryOnRight ? Math.max(0, bodyTop.w - 3) : Math.min(bodyTop.w - 1, 2);
+        const bodyTopAccentX = accessoryOnRight
+          ? Math.max(0, bodyTop.w - 3)
+          : Math.min(bodyTop.w - 1, 2);
         const bodyTopFrontY = Math.max(0, bodyTop.h - 1);
         const bodyTopMidY = Math.max(0, bodyTopFrontY - 1);
 
         for (let y = 4; y < 8; y++) {
           const color = y % 2 === 0 ? decoratedMid : decoratedDark;
           putColor(headSide, sideOuterX, y, color);
-          putColor(headSide, sideInnerX, y, y >= 6 ? decoratedDark : decoratedLight);
+          putColor(
+            headSide,
+            sideInnerX,
+            y,
+            y >= 6 ? decoratedDark : decoratedLight,
+          );
         }
         putColor(headSide, sideInnerX, 4, accessoryLeaf);
         putColor(headSide, sideOuterX, 5, accessoryPetal);
@@ -1761,11 +2070,26 @@ function composeHair(
             y <= 2 ? decoratedLight : y >= 6 ? decoratedDark : decoratedMid;
           putColor(bodyOver.front, frontEdgeX, y, color);
           if (y <= 5 || y % 2 === 0) {
-            putColor(bodyOver.front, frontInnerX, y, y <= 2 ? accessoryLeaf : shadeRgb(color, 0.82));
+            putColor(
+              bodyOver.front,
+              frontInnerX,
+              y,
+              y <= 2 ? accessoryLeaf : shadeRgb(color, 0.82),
+            );
           }
-          putColor(bodySide, bodySideOuterX, y, y >= 6 ? decoratedDark : decoratedMid);
+          putColor(
+            bodySide,
+            bodySideOuterX,
+            y,
+            y >= 6 ? decoratedDark : decoratedMid,
+          );
           if (y >= 2 && y <= 6) {
-            putColor(bodySide, bodySideInnerX, y, y === 2 ? accessoryLeafDark : shadeRgb(decoratedMid, 0.8));
+            putColor(
+              bodySide,
+              bodySideInnerX,
+              y,
+              y === 2 ? accessoryLeafDark : shadeRgb(decoratedMid, 0.8),
+            );
           }
         }
         putColor(bodyOver.front, frontInnerX, 1, accessoryLeaf);
@@ -1780,23 +2104,49 @@ function composeHair(
         putColor(bodyTop, bodyTopInnerX, 0, decoratedMid);
 
         for (let y = 0; y <= 4; y++) {
-          const color = y <= 1 ? decoratedLight : y >= 4 ? decoratedDark : decoratedMid;
+          const color =
+            y <= 1 ? decoratedLight : y >= 4 ? decoratedDark : decoratedMid;
           putColor(armOver.front, armInnerX, y, color);
-          if (y <= 2 || y === 4) putColor(armOver.front, armOuterX, y, shadeRgb(color, 0.82));
-          putColor(armSide, accessoryOnRight ? armSide.w - 1 : 0, y, shadeRgb(color, 0.88));
+          if (y <= 2 || y === 4)
+            putColor(armOver.front, armOuterX, y, shadeRgb(color, 0.82));
+          putColor(
+            armSide,
+            accessoryOnRight ? armSide.w - 1 : 0,
+            y,
+            shadeRgb(color, 0.88),
+          );
         }
         putColor(armOver.front, armInnerX, 1, accessoryLeaf);
-        putColor(armSide, accessoryOnRight ? Math.max(0, armSide.w - 2) : 1, 2, accessoryPetal);
+        putColor(
+          armSide,
+          accessoryOnRight ? Math.max(0, armSide.w - 2) : 1,
+          2,
+          accessoryPetal,
+        );
         if (armOver.top.h > 0) {
-          putColor(armOver.top, armInnerX, Math.min(armOver.top.h - 1, 1), accessoryLeaf);
-          putColor(armOver.top, armOuterX, Math.min(armOver.top.h - 1, 2), accessoryPetal);
+          putColor(
+            armOver.top,
+            armInnerX,
+            Math.min(armOver.top.h - 1, 1),
+            accessoryLeaf,
+          );
+          putColor(
+            armOver.top,
+            armOuterX,
+            Math.min(armOver.top.h - 1, 2),
+            accessoryPetal,
+          );
         }
       }
     }
   }
   if (hairBackShape === "long" && sideHairLength !== "shoulder") {
     const bodyOver = CLASSIC_LAYOUT.body.overlay;
-    const backDrapeLight = mixRgb(hairColor, [242, 226, 214], style.hairTexture === "wavy" ? 0.22 : 0.14);
+    const backDrapeLight = mixRgb(
+      hairColor,
+      [242, 226, 214],
+      style.hairTexture === "wavy" ? 0.22 : 0.14,
+    );
     const backDrapeDark = shadeRgb(hairColor, 0.52);
     const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
       shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
@@ -1812,11 +2162,31 @@ function composeHair(
         const shade = y >= 4 ? 0.62 : x === 2 || x === 5 ? 0.82 : 0.72;
         putColor(bodyOver.back, x, y, bodyHair(bodyOver.back, x, y, shade));
       }
-      putColor(bodyOver.right, 0, y, bodyHair(bodyOver.right, 0, y, y >= 4 ? 0.58 : 0.78));
-      putColor(bodyOver.left, bodyOver.left.w - 1, y, bodyHair(bodyOver.left, bodyOver.left.w - 1, y, y >= 4 ? 0.58 : 0.78));
+      putColor(
+        bodyOver.right,
+        0,
+        y,
+        bodyHair(bodyOver.right, 0, y, y >= 4 ? 0.58 : 0.78),
+      );
+      putColor(
+        bodyOver.left,
+        bodyOver.left.w - 1,
+        y,
+        bodyHair(bodyOver.left, bodyOver.left.w - 1, y, y >= 4 ? 0.58 : 0.78),
+      );
       if (y <= 3 && sideHairLength === "jaw") {
-        putColor(bodyOver.front, 0, y, bodyHair(bodyOver.front, 0, y, y === 3 ? 0.64 : 0.82));
-        putColor(bodyOver.front, 7, y, bodyHair(bodyOver.front, 7, y, y === 3 ? 0.64 : 0.82));
+        putColor(
+          bodyOver.front,
+          0,
+          y,
+          bodyHair(bodyOver.front, 0, y, y === 3 ? 0.64 : 0.82),
+        );
+        putColor(
+          bodyOver.front,
+          7,
+          y,
+          bodyHair(bodyOver.front, 7, y, y === 3 ? 0.64 : 0.82),
+        );
       }
     }
     for (const [rect, x, y, color] of [
@@ -1830,9 +2200,17 @@ function composeHair(
       putColor(rect, x, y, color);
     }
   }
-  if (hairBackShape === "long" || hairBackShape === "rounded" || hairBackShape === "tapered") {
+  if (
+    hairBackShape === "long" ||
+    hairBackShape === "rounded" ||
+    hairBackShape === "tapered"
+  ) {
     const edgeRows =
-      hairBackShape === "long" ? 8 : hairBackShape === "rounded" ? 7 : Math.min(6, over.back.h);
+      hairBackShape === "long"
+        ? 8
+        : hairBackShape === "rounded"
+          ? 7
+          : Math.min(6, over.back.h);
     for (let y = 2; y < edgeRows; y++) connectBackEdge(y);
   }
 
@@ -1875,10 +2253,48 @@ function composeHair(
       clearPixel(over.top, x, y);
     }
     for (const [rect, points] of [
-      [over.top, [[1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [0, 2], [7, 2]]],
-      [over.front, [[1, 0], [2, 0], [5, 0], [6, 0], [1, 1], [6, 1]]],
-      [over.right, [[1, 0], [2, 0], [1, 1], [2, 1]]],
-      [over.left, [[5, 0], [6, 0], [5, 1], [6, 1]]],
+      [
+        over.top,
+        [
+          [1, 0],
+          [2, 0],
+          [3, 0],
+          [4, 0],
+          [5, 0],
+          [6, 0],
+          [0, 2],
+          [7, 2],
+        ],
+      ],
+      [
+        over.front,
+        [
+          [1, 0],
+          [2, 0],
+          [5, 0],
+          [6, 0],
+          [1, 1],
+          [6, 1],
+        ],
+      ],
+      [
+        over.right,
+        [
+          [1, 0],
+          [2, 0],
+          [1, 1],
+          [2, 1],
+        ],
+      ],
+      [
+        over.left,
+        [
+          [5, 0],
+          [6, 0],
+          [5, 1],
+          [6, 1],
+        ],
+      ],
     ] as const) {
       for (const [x, y] of points) putColor(rect, x, y, outlineLight);
     }
@@ -1900,7 +2316,12 @@ function composeHair(
     ] as const) {
       putColor(over.top, px(x), y, color);
     }
-    for (const [x, y] of [[0, 1], [1, 1], [2, 2], [3, 2]] as const) {
+    for (const [x, y] of [
+      [0, 1],
+      [1, 1],
+      [2, 2],
+      [3, 2],
+    ] as const) {
       putColor(over.front, px(x), y, x <= 1 ? outlineLight : outlineMid);
     }
     putColor(mirror ? over.left : over.right, mirror ? 7 : 0, 2, outlineDark);
@@ -1908,8 +2329,20 @@ function composeHair(
   } else if (hairSilhouette === "tousled" || hairSilhouette === "spiky") {
     const tufts =
       hairSilhouette === "spiky"
-        ? ([[1, 0], [2, 1], [4, 0], [5, 1], [6, 0]] as const)
-        : ([[1, 1], [2, 0], [4, 1], [5, 0], [6, 2]] as const);
+        ? ([
+            [1, 0],
+            [2, 1],
+            [4, 0],
+            [5, 1],
+            [6, 0],
+          ] as const)
+        : ([
+            [1, 1],
+            [2, 0],
+            [4, 1],
+            [5, 0],
+            [6, 2],
+          ] as const);
     for (const [x, y] of tufts) {
       putColor(over.top, x, y, (x + y) % 2 === 0 ? outlineLight : outlineDark);
       putColor(over.front, x, Math.min(2, y + 1), outlineMid);
@@ -1926,7 +2359,8 @@ function composeHair(
       for (let y = 1; y < Math.min(rect.h, sideEdgeRows + 1); y++) {
         const waveX = mirror ? 6 - (y % 3) : 1 + (y % 3);
         paintStrand(rect, waveX, y, mirror ? 1 : 0);
-        if (y % 2 === 0) paintStrand(rect, mirror ? waveX - 1 : waveX + 1, y, 2);
+        if (y % 2 === 0)
+          paintStrand(rect, mirror ? waveX - 1 : waveX + 1, y, 2);
       }
     }
   } else {
@@ -1959,7 +2393,11 @@ function composeHair(
   }
 
   const bangTone = (x: number, y: number) => {
-    const baseTone = hairVolumePixel(hairColor, over.front.x + x, over.front.y + y);
+    const baseTone = hairVolumePixel(
+      hairColor,
+      over.front.x + x,
+      over.front.y + y,
+    );
     if ((x + y) % 4 === 0) return mixRgb(baseTone, strandLight, 0.32);
     if ((x + y) % 3 === 0) return shadeRgb(baseTone, 0.7);
     return baseTone;
@@ -1977,10 +2415,15 @@ function composeHair(
     putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
   };
   const splitCenterFringe =
-    style.bangs === "straight" && hairPart === "center" && bangsDensity !== "dense";
-  const partedStraightFringe = style.bangs === "straight" && hairPart !== "none";
+    style.bangs === "straight" &&
+    hairPart === "center" &&
+    bangsDensity !== "dense";
+  const partedStraightFringe =
+    style.bangs === "straight" && hairPart !== "none";
   if (style.bangs === "straight") {
-    for (const x of splitCenterFringe ? [0, 1, 2, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7]) {
+    for (const x of splitCenterFringe
+      ? [0, 1, 2, 5, 6, 7]
+      : [0, 1, 2, 3, 4, 5, 6, 7]) {
       paintBang(x, 1);
     }
     for (const x of [0, 1, 2, 3, 4, 5, 6, 7]) {
@@ -2000,7 +2443,8 @@ function composeHair(
   } else if (style.bangs === "side") {
     const mirror = style.hairPart === "right";
     const px = (x: number) => (mirror ? 7 - x : x);
-    for (const x of [0, 1, 2, 3, 4, 5, 6]) paintBang(px(x), 1, x < 3 ? 1.04 : 0.9);
+    for (const x of [0, 1, 2, 3, 4, 5, 6])
+      paintBang(px(x), 1, x < 3 ? 1.04 : 0.9);
     for (const x of [0, 1, 2, 3, 4]) paintBang(px(x), 2, x < 2 ? 0.86 : 0.98);
     for (const x of [0, 1, 2]) paintBang(px(x), 3, 0.72);
     wrapTemple(2, mirror ? 0.78 : 1, mirror ? 1 : 0.78);
@@ -2034,12 +2478,12 @@ function composeHair(
               ? [1, 5, 7]
               : [0, 2, 6]
             : hairPart === "left"
-          ? [0, 2, 3, 6]
-          : hairPart === "right"
-            ? [1, 4, 5, 7]
-            : splitCenterFringe
-              ? [0, 2, 5, 7]
-              : [1, 3, 4, 6];
+              ? [0, 2, 3, 6]
+              : hairPart === "right"
+                ? [1, 4, 5, 7]
+                : splitCenterFringe
+                  ? [0, 2, 5, 7]
+                  : [1, 3, 4, 6];
       for (const x of straightTipXs) {
         paintBang(x, 3, 0.66);
       }
@@ -2116,14 +2560,18 @@ function composeHair(
               rect,
               x,
               y,
-              shadeRgb(bangTone(x, y), row >= 3 ? 0.58 : (x + row + phase) % 3 === 0 ? 0.78 : 0.9),
+              shadeRgb(
+                bangTone(x, y),
+                row >= 3 ? 0.58 : (x + row + phase) % 3 === 0 ? 0.78 : 0.9,
+              ),
             );
           }
         }
       }
       const lastProfileY = profileRows.length;
       for (let y = 2; y <= lastProfileY; y++) {
-        const tipShade = y === lastProfileY ? 0.58 : y === lastProfileY - 1 ? 0.74 : 0.9;
+        const tipShade =
+          y === lastProfileY ? 0.58 : y === lastProfileY - 1 ? 0.74 : 0.9;
         const left = shadeRgb(bangTone(0, y), tipShade);
         const right = shadeRgb(bangTone(7, y), tipShade);
         putColor(over.front, 0, y, left);
@@ -2140,62 +2588,78 @@ function composeHair(
         }
       }
     } else {
-    const lastTempleRow = bangsLength === "eye" ? 5 : 4;
-    for (let y = 2; y <= lastTempleRow; y++) {
-      const tip = y === lastTempleRow;
-      const left = shadeRgb(bangTone(0, y), tip ? 0.58 : y === 3 ? 0.74 : 0.9);
-      const right = shadeRgb(bangTone(7, y), tip ? 0.58 : y === 3 ? 0.74 : 0.9);
-      const leftInner = shadeRgb(left, tip ? 0.76 : 0.86);
-      const rightInner = shadeRgb(right, tip ? 0.76 : 0.86);
-      const leftDepth = shadeRgb(left, tip ? 0.62 : 0.74);
-      const rightDepth = shadeRgb(right, tip ? 0.62 : 0.74);
+      const lastTempleRow = bangsLength === "eye" ? 5 : 4;
+      for (let y = 2; y <= lastTempleRow; y++) {
+        const tip = y === lastTempleRow;
+        const left = shadeRgb(
+          bangTone(0, y),
+          tip ? 0.58 : y === 3 ? 0.74 : 0.9,
+        );
+        const right = shadeRgb(
+          bangTone(7, y),
+          tip ? 0.58 : y === 3 ? 0.74 : 0.9,
+        );
+        const leftInner = shadeRgb(left, tip ? 0.76 : 0.86);
+        const rightInner = shadeRgb(right, tip ? 0.76 : 0.86);
+        const leftDepth = shadeRgb(left, tip ? 0.62 : 0.74);
+        const rightDepth = shadeRgb(right, tip ? 0.62 : 0.74);
 
-      putColor(over.front, 0, y, left);
-      putColor(over.front, 7, y, right);
-      putColor(over.right, 7, y, left);
-      putColor(over.left, 0, y, right);
-      putColor(over.right, 6, y, leftInner);
-      putColor(over.left, 1, y, rightInner);
-      if (y >= 3) {
-        putColor(over.front, 1, y, leftInner);
-        putColor(over.front, 6, y, rightInner);
-        putColor(over.right, 5, y, leftDepth);
-        putColor(over.left, 2, y, rightDepth);
+        putColor(over.front, 0, y, left);
+        putColor(over.front, 7, y, right);
+        putColor(over.right, 7, y, left);
+        putColor(over.left, 0, y, right);
+        putColor(over.right, 6, y, leftInner);
+        putColor(over.left, 1, y, rightInner);
+        if (y >= 3) {
+          putColor(over.front, 1, y, leftInner);
+          putColor(over.front, 6, y, rightInner);
+          putColor(over.right, 5, y, leftDepth);
+          putColor(over.left, 2, y, rightDepth);
+        }
+        if (y <= 3) {
+          const backAtX7 = shadeRgb(left, 0.72);
+          const backAtX0 = shadeRgb(right, 0.72);
+          putColor(over.back, 7, y, backAtX7);
+          putColor(over.back, 0, y, backAtX0);
+          putColor(over.right, 0, y, backAtX7);
+          putColor(over.left, 7, y, backAtX0);
+        }
+        if (tip) {
+          putColor(over.back, 7, y, shadeRgb(left, 0.64));
+          putColor(over.back, 0, y, shadeRgb(right, 0.64));
+          putColor(over.right, 4, y, shadeRgb(left, 0.54));
+          putColor(over.left, 3, y, shadeRgb(right, 0.54));
+        }
+        putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
+        putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
+        if (y >= 4) {
+          putColor(over.top, 1, Math.min(7, y + 1), shadeRgb(leftInner, 0.92));
+          putColor(over.top, 6, Math.min(7, y + 1), shadeRgb(rightInner, 0.92));
+        }
       }
-      if (y <= 3) {
-        const backAtX7 = shadeRgb(left, 0.72);
-        const backAtX0 = shadeRgb(right, 0.72);
-        putColor(over.back, 7, y, backAtX7);
-        putColor(over.back, 0, y, backAtX0);
-        putColor(over.right, 0, y, backAtX7);
-        putColor(over.left, 7, y, backAtX0);
-      }
-      if (tip) {
-        putColor(over.back, 7, y, shadeRgb(left, 0.64));
-        putColor(over.back, 0, y, shadeRgb(right, 0.64));
-        putColor(over.right, 4, y, shadeRgb(left, 0.54));
-        putColor(over.left, 3, y, shadeRgb(right, 0.54));
-      }
-      putColor(over.top, 0, Math.min(7, y + 1), shadeRgb(left, 1.04));
-      putColor(over.top, 7, Math.min(7, y + 1), shadeRgb(right, 1.04));
-      if (y >= 4) {
-        putColor(over.top, 1, Math.min(7, y + 1), shadeRgb(leftInner, 0.92));
-        putColor(over.top, 6, Math.min(7, y + 1), shadeRgb(rightInner, 0.92));
-      }
-    }
-    const lowerTipRow = Math.min(6, lastTempleRow + 1);
-    const leftLower = shadeRgb(bangTone(0, lowerTipRow), 0.5);
-    const rightLower = shadeRgb(bangTone(7, lowerTipRow), 0.5);
-    const leftLowerInner = shadeRgb(leftLower, 0.74);
-    const rightLowerInner = shadeRgb(rightLower, 0.74);
-    putColor(over.right, 5, lowerTipRow, leftLowerInner);
-    putColor(over.right, 4, lowerTipRow, shadeRgb(leftLowerInner, 0.76));
-    putColor(over.left, 2, lowerTipRow, rightLowerInner);
-    putColor(over.left, 3, lowerTipRow, shadeRgb(rightLowerInner, 0.76));
-    putColor(over.back, 7, lowerTipRow, shadeRgb(leftLower, 0.72));
-    putColor(over.back, 0, lowerTipRow, shadeRgb(rightLower, 0.72));
-    putColor(over.top, 1, Math.min(7, lowerTipRow + 1), shadeRgb(leftLowerInner, 0.92));
-    putColor(over.top, 6, Math.min(7, lowerTipRow + 1), shadeRgb(rightLowerInner, 0.92));
+      const lowerTipRow = Math.min(6, lastTempleRow + 1);
+      const leftLower = shadeRgb(bangTone(0, lowerTipRow), 0.5);
+      const rightLower = shadeRgb(bangTone(7, lowerTipRow), 0.5);
+      const leftLowerInner = shadeRgb(leftLower, 0.74);
+      const rightLowerInner = shadeRgb(rightLower, 0.74);
+      putColor(over.right, 5, lowerTipRow, leftLowerInner);
+      putColor(over.right, 4, lowerTipRow, shadeRgb(leftLowerInner, 0.76));
+      putColor(over.left, 2, lowerTipRow, rightLowerInner);
+      putColor(over.left, 3, lowerTipRow, shadeRgb(rightLowerInner, 0.76));
+      putColor(over.back, 7, lowerTipRow, shadeRgb(leftLower, 0.72));
+      putColor(over.back, 0, lowerTipRow, shadeRgb(rightLower, 0.72));
+      putColor(
+        over.top,
+        1,
+        Math.min(7, lowerTipRow + 1),
+        shadeRgb(leftLowerInner, 0.92),
+      );
+      putColor(
+        over.top,
+        6,
+        Math.min(7, lowerTipRow + 1),
+        shadeRgb(rightLowerInner, 0.92),
+      );
     }
   }
 
@@ -2208,7 +2672,13 @@ function composeHair(
     const gapXs =
       visibleFringeOpening === "center" && style.bangs === "curtain"
         ? [3, 4]
-        : [visibleFringeOpening === "left" ? 2 : visibleFringeOpening === "right" ? 5 : 3];
+        : [
+            visibleFringeOpening === "left"
+              ? 2
+              : visibleFringeOpening === "right"
+                ? 5
+                : 3,
+          ];
     for (const x of gapXs) {
       clearPixel(over.front, x, 2);
       if (bangsLength === "brow" || bangsLength === "eye") {
@@ -2228,10 +2698,20 @@ function composeHair(
     // 어깨까지 내려오는 뒷머리 (몸통 뒤 overlay) + 옆 볼륨
     // Complete long-hair coverage without erasing the directional waves,
     // seam shading and side-lock clusters already composed above.
-    fillTransparent(CLASSIC_LAYOUT.body.overlay.back, 0, 0, 8, 4, true);
-    fillTransparent(CLASSIC_LAYOUT.body.overlay.back, 1, 4, 6, 1, true);
-    fillTransparent(over.right, 0, 0, 8, 6, true);
-    fillTransparent(over.left, 0, 0, 8, 6, true);
+    const backDrape = CLASSIC_LAYOUT.body.overlay.back;
+    for (let y = 0; y < 5; y++) {
+      const strandXs =
+        y === 0
+          ? [0, 1, 2, 5, 6, 7]
+          : [0, y % 2 === 0 ? 2 : 3, y % 2 === 0 ? 5 : 4, 7];
+      for (const x of strandXs) fillTransparent(backDrape, x, y, 1, 1, true);
+    }
+    for (const rect of [over.right, over.left]) {
+      for (let y = 0; y < 6; y++) {
+        const strandXs = y === 0 ? [1, 2, 5, 6] : y < 4 ? [0, 1, 6, 7] : [0, 7];
+        for (const x of strandXs) fillTransparent(rect, x, y, 1, 1, true);
+      }
+    }
   }
   if (s === "ponytail") {
     fill(over.back, 2, 1, 4, 7, true);
@@ -2246,6 +2726,52 @@ function composeHair(
     fill(over.left, 0, 0, 3, 8, true);
     fill(CLASSIC_LAYOUT.body.overlay.right, 0, 0, 4, 4, true);
     fill(CLASSIC_LAYOUT.body.overlay.left, 0, 0, 4, 4, true);
+  }
+
+  if (s === "long") {
+    // The base cube already supplies a continuous mass of hair. Retain only
+    // connected rims and staggered strands on the enlarged cube so long hair
+    // gains depth without becoming a second solid helmet.
+    const retainRows = (rect: Rect, rows: readonly (readonly number[])[]) => {
+      for (let y = 0; y < rect.h; y++) {
+        const keep = new Set(rows[y] ?? []);
+        for (let x = 0; x < rect.w; x++) {
+          if (!keep.has(x)) clearPixel(rect, x, y);
+        }
+      }
+    };
+    retainRows(over.top, [
+      [1, 2, 3, 4, 5, 6],
+      [0, 1, 2, 5, 6, 7],
+      [0, 1, 3, 6, 7],
+      [0, 1, 4, 6, 7],
+      [0, 1, 3, 6, 7],
+      [0, 1, 4, 6, 7],
+      [0, 1, 3, 6, 7],
+      [1, 2, 5, 6],
+    ]);
+    const longSideRows = Array.from({ length: 8 }, (_, y) =>
+      y === 0
+        ? [0, 1, 2, 5, 6, 7]
+        : y === 7
+          ? [0, 1, 3, 4, 6, 7]
+          : [0, 1, y % 2 === 0 ? 2 : 5, 6, 7],
+    );
+    retainRows(over.right, longSideRows);
+    retainRows(
+      over.left,
+      longSideRows.map((row) => row.map((x) => 7 - x)),
+    );
+    retainRows(
+      over.back,
+      Array.from({ length: 8 }, (_, y) => [
+        0,
+        y % 2 === 0 ? 1 : 2,
+        y === 4 || y === 7 ? 3 : y === 6 ? 4 : -1,
+        y % 2 === 0 ? 6 : 5,
+        7,
+      ]),
+    );
   }
 
   const longerSide = style.sideHairAsymmetry ?? "none";
@@ -2266,7 +2792,8 @@ function composeHair(
       height: number,
     ) => {
       for (let y = y0; y < Math.min(rect.h, y0 + height); y++) {
-        for (let x = x0; x < Math.min(rect.w, x0 + width); x++) restore(rect, x, y);
+        for (let x = x0; x < Math.min(rect.w, x0 + width); x++)
+          restore(rect, x, y);
       }
     };
     const trimFrom =
@@ -2294,7 +2821,10 @@ function composeHair(
       restoreRect(body.front, bodyFrontX, 3, 3, body.front.h - 3);
       restoreRect(bodySide, 0, 3, bodySide.w, bodySide.h - 3);
       restoreRect(body.back, bodyBackX, 3, 3, body.back.h - 3);
-      const arm = shorterSide === "left" ? CLASSIC_LAYOUT.rightArm.overlay : CLASSIC_LAYOUT.leftArm.overlay;
+      const arm =
+        shorterSide === "left"
+          ? CLASSIC_LAYOUT.rightArm.overlay
+          : CLASSIC_LAYOUT.leftArm.overlay;
       for (const rect of [arm.front, arm.back, arm.right, arm.left]) {
         restoreRect(rect, 0, 3, rect.w, rect.h - 3);
       }
@@ -2303,7 +2833,10 @@ function composeHair(
 
   const accessory = style.hairAccessory ?? "none";
   if (accessory !== "none") {
-    const accessoryColors: Record<NonNullable<FaceStyle["hairAccessoryColor"]>, Rgb> = {
+    const accessoryColors: Record<
+      NonNullable<FaceStyle["hairAccessoryColor"]>,
+      Rgb
+    > = {
       black: [42, 40, 42],
       brown: [132, 86, 62],
       white: [238, 234, 228],
@@ -2353,11 +2886,16 @@ function composeHair(
       putColor(over.top, mx(x), y, color);
     const putBackAccessory = (x: number, y: number, color: Rgb) =>
       putColor(over.back, mx(x), y, color);
-    const drawFrontFlower = (cx: number, cy: number) => drawFlower(over.front, mx(cx), cy);
-    const drawSideFlower = (cx: number, cy: number) => drawFlower(sideFace, sx(cx), cy);
-    const drawTopFlower = (cx: number, cy: number) => drawFlower(over.top, mx(cx), cy);
-    const drawFrontRibbon = (cx: number, cy: number) => drawRibbon(over.front, mx(cx), cy);
-    const drawSideRibbon = (cx: number, cy: number) => drawRibbon(sideFace, sx(cx), cy);
+    const drawFrontFlower = (cx: number, cy: number) =>
+      drawFlower(over.front, mx(cx), cy);
+    const drawSideFlower = (cx: number, cy: number) =>
+      drawFlower(sideFace, sx(cx), cy);
+    const drawTopFlower = (cx: number, cy: number) =>
+      drawFlower(over.top, mx(cx), cy);
+    const drawFrontRibbon = (cx: number, cy: number) =>
+      drawRibbon(over.front, mx(cx), cy);
+    const drawSideRibbon = (cx: number, cy: number) =>
+      drawRibbon(sideFace, sx(cx), cy);
 
     if (accessory === "flower") {
       if (accessorySide === "center") {
@@ -2423,8 +2961,18 @@ function composeHair(
     } else if (accessory === "clip") {
       const clipPoints =
         accessorySide === "center"
-          ? ([[3, 2], [4, 2], [3, 3], [4, 3]] as const)
-          : ([[0, 2], [1, 2], [2, 2], [1, 3]] as const);
+          ? ([
+              [3, 2],
+              [4, 2],
+              [3, 3],
+              [4, 3],
+            ] as const)
+          : ([
+              [0, 2],
+              [1, 2],
+              [2, 2],
+              [1, 3],
+            ] as const);
       for (const [x, y] of clipPoints) {
         putColor(over.front, accessorySide === "center" ? x : mx(x), y, clip);
       }
@@ -2487,8 +3035,10 @@ function composeHair(
     adjacentX: number,
     y: number,
   ) => {
-    const primaryIndex = ((primary.y + y) * ATLAS_SIZE + primary.x + primaryX) * 4;
-    const adjacentIndex = ((adjacent.y + y) * ATLAS_SIZE + adjacent.x + adjacentX) * 4;
+    const primaryIndex =
+      ((primary.y + y) * ATLAS_SIZE + primary.x + primaryX) * 4;
+    const adjacentIndex =
+      ((adjacent.y + y) * ATLAS_SIZE + adjacent.x + adjacentX) * 4;
     const sourceIndex =
       atlas.rgba[primaryIndex + 3] !== 0
         ? primaryIndex
@@ -2530,7 +3080,12 @@ function composeHat(atlas: RawImage, hatColor: Rgb, style: FaceStyle): void {
   const fill = (rect: Rect, y0: number, h: number, shade = 1) => {
     for (let y = y0; y < Math.min(rect.h, y0 + h); y++) {
       for (let x = 0; x < rect.w; x++) {
-        put(rect, x, y, shadeRgb(hairPixel(hatColor, rect.x + x, rect.y + y, 0.04), shade));
+        put(
+          rect,
+          x,
+          y,
+          shadeRgb(hairPixel(hatColor, rect.x + x, rect.y + y, 0.04), shade),
+        );
       }
     }
   };
@@ -2591,13 +3146,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     atlas.rgba[d + 2] = 0;
     atlas.rgba[d + 3] = 0;
   };
-  const copy = (
-    src: Rect,
-    dst: Rect,
-    x: number,
-    y: number,
-    shade = 0.94,
-  ) => put(dst, x, y, shadeRgb(sample(src, x, y), shade));
+  const copy = (src: Rect, dst: Rect, x: number, y: number, shade = 0.94) =>
+    put(dst, x, y, shadeRgb(sample(src, x, y), shade));
   const shadeBase = (rect: Rect, x: number, y: number, shade: number) => {
     put(rect, x, y, shadeRgb(sample(rect, x, y), shade));
   };
@@ -2668,7 +3218,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const layer = style.outerLayer ?? "none";
   const topType = style.topType ?? "tshirt";
   const outerGarment = style.outerGarment ?? "none";
-  const declaredTopColor = style.topColor ? hexToRgb(style.topColor, [92, 92, 92]) : null;
+  const declaredTopColor = style.topColor
+    ? hexToRgb(style.topColor, [92, 92, 92])
+    : null;
   const stabilizeGarmentColor = (sampled: Rgb, weight = 0.68) =>
     declaredTopColor ? mixRgb(sampled, declaredTopColor, weight) : sampled;
   const layeredTop =
@@ -2683,27 +3235,50 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       for (let x = 0; x < baseTop.w; x++) {
         const edge = x === 0 || x === baseTop.w - 1 || y === 0;
         const fold = (x + y) % 3 === 0;
-        put(baseTop, x, y, shadeRgb(garmentColor, edge ? 0.86 : fold ? 1.04 : 0.96));
+        put(
+          baseTop,
+          x,
+          y,
+          shadeRgb(garmentColor, edge ? 0.86 : fold ? 1.04 : 0.96),
+        );
       }
     }
     if (!raised) return;
     for (let y = 0; y < overlayTop.h; y++) {
       for (let x = 0; x < overlayTop.w; x++) {
         const edge = x === 0 || x === overlayTop.w - 1 || y === 0;
-        const fold = (x + y) % 3 === 0;
-        put(overlayTop, x, y, shadeRgb(garmentColor, edge ? 0.76 : fold ? 1.06 : 0.92));
+        const fold =
+          y === 1 &&
+          (x === Math.floor(overlayTop.w / 2) - 1 ||
+            x === Math.floor(overlayTop.w / 2));
+        if (!edge && !fold) continue;
+        put(
+          overlayTop,
+          x,
+          y,
+          shadeRgb(garmentColor, edge ? 0.76 : fold ? 1.06 : 0.92),
+        );
       }
     }
   };
   const bodyShoulderColor = stabilizeGarmentColor(
     mixRgb(averageRect(baseFront, 2, 5), averageRect(baseBack, 2, 5), 0.34),
   );
-  paintGarmentTop(body.base.top, body.overlay.top, bodyShoulderColor, layeredTop);
+  paintGarmentTop(
+    body.base.top,
+    body.overlay.top,
+    bodyShoulderColor,
+    layeredTop,
+  );
   if (style.sleeveLength !== "sleeveless") {
     for (const part of ["rightArm", "leftArm"] as const) {
       const arm = CLASSIC_LAYOUT[part];
       const sleeveColor = stabilizeGarmentColor(
-        mixRgb(averageRect(arm.base.front, 2, 5), averageRect(arm.base.back, 2, 5), 0.3),
+        mixRgb(
+          averageRect(arm.base.front, 2, 5),
+          averageRect(arm.base.back, 2, 5),
+          0.3,
+        ),
       );
       paintGarmentTop(arm.base.top, arm.overlay.top, sleeveColor, layeredTop);
     }
@@ -2737,10 +3312,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       [body.base.right, body.overlay.right],
       [body.base.left, body.overlay.left],
     ] as const) {
-      for (let y = 0; y < dstRect.h - 1; y++) {
-        for (let x = 0; x < dstRect.w; x++) {
-          volumeCopy(srcRect, dstRect, x, y, y === 0 ? "lit" : "mid");
-        }
+      // Fabric volume belongs on the base. The raised layer marks only the
+      // shoulder ridge, physical seams and hem so it does not become a box.
+      for (let x = 0; x < dstRect.w; x++)
+        volumeCopy(srcRect, dstRect, x, 0, "lit");
+      for (let y = 1; y < dstRect.h - 1; y++) {
+        volumeCopy(srcRect, dstRect, 0, y, "mid");
+        if (y % 2 === 0) volumeCopy(srcRect, dstRect, dstRect.w - 1, y, "mid");
       }
       for (let x = 0; x < dstRect.w; x++) {
         volumeCopy(srcRect, dstRect, x, dstRect.h - 1, "hem");
@@ -2749,7 +3327,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   }
 
   if (outerGarment !== "none") {
-    const sideSample = mixRgb(sample(baseFront, 1, 5), sample(baseFront, 6, 5), 0.5);
+    const sideSample = mixRgb(
+      sample(baseFront, 1, 5),
+      sample(baseFront, 6, 5),
+      0.5,
+    );
     const backSample = averageRect(baseBack, 2, 6);
     const panelBase = mixRgb(sideSample, backSample, 0.42);
     const panelColor =
@@ -2760,17 +3342,28 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           : outerGarment === "vest"
             ? shadeRgb(panelBase, 0.96)
             : shadeRgb(panelBase, 0.9);
-    const trimColor = shadeRgb(panelColor, outerGarment === "cardigan" ? 0.74 : 0.68);
+    const trimColor = shadeRgb(
+      panelColor,
+      outerGarment === "cardigan" ? 0.74 : 0.68,
+    );
     const litPanel = shadeRgb(panelColor, 1.1);
     const hemPanel = shadeRgb(panelColor, 0.72);
 
-    const panelXs = [0, 1, 2, 5, 6, 7] as const;
+    const panelXs = [0, 2, 5, 7] as const;
     for (let y = 0; y < front.h; y++) {
       for (const x of panelXs) {
         const edge = x === 0 || x === 7;
         const opening = x === 2 || x === 5;
         const shade =
-          y === front.h - 1 ? 0.72 : y === 0 ? 1.08 : edge ? 0.86 : opening ? 0.78 : 0.98;
+          y === front.h - 1
+            ? 0.72
+            : y === 0
+              ? 1.08
+              : edge
+                ? 0.86
+                : opening
+                  ? 0.78
+                  : 0.98;
         put(front, x, y, shadeRgb(panelColor, shade));
       }
       put(front, 2, y, y % 3 === 0 ? trimColor : shadeRgb(trimColor, 1.08));
@@ -2811,7 +3404,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
 
       for (const y of [2, 5, 8] as const) {
         put(front, 1, y, y === 5 ? buttonColor : shadeRgb(buttonColor, 0.94));
-        put(front, 6, y, y === 5 ? shadeRgb(buttonColor, 0.88) : shadeRgb(buttonColor, 0.78));
+        put(
+          front,
+          6,
+          y,
+          y === 5 ? shadeRgb(buttonColor, 0.88) : shadeRgb(buttonColor, 0.78),
+        );
       }
       for (const [x, y, color] of [
         [1, 7, pocketLight],
@@ -2825,11 +3423,21 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       }
       for (let x = 0; x < front.w; x++) {
         if (x === 3 || x === 4) continue;
-        put(front, x, front.h - 2, x % 2 === 0 ? pipingShadow : shadeRgb(pipingColor, 0.82));
+        put(
+          front,
+          x,
+          front.h - 2,
+          x % 2 === 0 ? pipingShadow : shadeRgb(pipingColor, 0.82),
+        );
       }
       for (let y = 1; y < front.h - 2; y++) {
         put(front, 0, y, y % 2 === 0 ? shadeRgb(yarnLight, 0.94) : yarnShadow);
-        put(front, 7, y, y % 2 === 0 ? shadeRgb(yarnShadow, 0.88) : shadeRgb(yarnLight, 0.86));
+        put(
+          front,
+          7,
+          y,
+          y % 2 === 0 ? shadeRgb(yarnShadow, 0.88) : shadeRgb(yarnLight, 0.86),
+        );
         if (y % 3 === 1) {
           put(front, 1, y, shadeRgb(yarnLight, 1.04));
           put(front, 6, y, shadeRgb(yarnShadow, 0.9));
@@ -2837,28 +3445,47 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       }
     }
 
-    for (let y = 0; y < back.h; y++) {
-      for (let x = 0; x < back.w; x++) {
-        const shade = y === back.h - 1 ? 0.72 : x === 0 || x === back.w - 1 ? 0.82 : 0.94;
-        put(back, x, y, shadeRgb(panelColor, shade));
-      }
-      if (outerGarment === "cardigan" || outerGarment === "coat") {
+    for (let x = 0; x < back.w; x++) {
+      put(
+        back,
+        x,
+        0,
+        shadeRgb(panelColor, x === 0 || x === back.w - 1 ? 0.82 : 1.02),
+      );
+      put(back, x, back.h - 1, hemPanel);
+    }
+    for (let y = 1; y < back.h - 1; y++) {
+      put(back, 0, y, shadeRgb(panelColor, 0.82));
+      if (y % 2 === 0) put(back, back.w - 1, y, shadeRgb(panelColor, 0.9));
+      if (
+        (outerGarment === "cardigan" || outerGarment === "coat") &&
+        y % 3 === 1
+      ) {
         put(back, 3, y, shadeRgb(panelColor, y >= back.h - 3 ? 0.7 : 0.84));
         put(back, 4, y, shadeRgb(panelColor, y >= back.h - 3 ? 0.64 : 0.78));
       }
     }
     for (const rect of [body.overlay.right, body.overlay.left]) {
-      for (let y = 0; y < rect.h; y++) {
-        for (let x = 0; x < rect.w; x++) {
-          const shade = y === rect.h - 1 ? 0.72 : x === 0 || x === rect.w - 1 ? 0.82 : 0.96;
-          put(rect, x, y, shadeRgb(panelColor, shade));
-        }
-        if ((outerGarment === "cardigan" || outerGarment === "coat") && y >= rect.h - 4) {
+      for (let x = 0; x < rect.w; x++) {
+        put(rect, x, 0, litPanel);
+        put(rect, x, rect.h - 1, hemPanel);
+      }
+      for (let y = 1; y < rect.h - 1; y++) {
+        put(rect, 0, y, shadeRgb(panelColor, 0.82));
+        if (y % 2 === 0) put(rect, rect.w - 1, y, shadeRgb(panelColor, 0.92));
+        if (
+          (outerGarment === "cardigan" || outerGarment === "coat") &&
+          y >= rect.h - 4
+        ) {
           put(rect, 0, y, shadeRgb(trimColor, y === rect.h - 1 ? 0.58 : 0.78));
-          put(rect, rect.w - 1, y, shadeRgb(panelColor, y === rect.h - 1 ? 0.62 : 0.82));
+          put(
+            rect,
+            rect.w - 1,
+            y,
+            shadeRgb(panelColor, y === rect.h - 1 ? 0.62 : 0.82),
+          );
         }
       }
-      for (let x = 0; x < rect.w; x++) put(rect, x, 0, litPanel);
     }
     if (outerGarment === "cardigan") {
       const sidePocketLight = mixRgb(panelColor, [255, 238, 232], 0.24);
@@ -2882,42 +3509,48 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         const arm = CLASSIC_LAYOUT[part];
         for (const faceName of ["front", "back", "right", "left"] as const) {
           const dst = arm.overlay[faceName];
-          for (let y = 0; y < dst.h; y++) {
-            for (let x = 0; x < dst.w; x++) {
-              const cuff = y >= dst.h - 2;
-              const edge = x === 0 || x === dst.w - 1;
-              const shade = cuff ? 0.72 : y === 0 ? 1.06 : edge ? 0.84 : 0.96;
-              put(dst, x, y, shadeRgb(panelColor, shade));
-            }
+          const broadFace = faceName === "front" || faceName === "back";
+          const shoulderXs = broadFace
+            ? [0, dst.w - 1]
+            : [part === "rightArm" ? 0 : dst.w - 1];
+          for (const x of shoulderXs)
+            put(dst, x, 0, shadeRgb(panelColor, 1.06));
+          for (let x = 0; x < dst.w; x++)
+            put(dst, x, dst.h - 1, shadeRgb(panelColor, 0.72));
+          const seamX = part === "rightArm" ? 0 : dst.w - 1;
+          for (let y = 1; y < dst.h - 1; y += 2) {
+            put(dst, seamX, y, shadeRgb(panelColor, 0.84));
           }
           for (const foldY of [3, 6, 9] as const) {
             if (foldY >= dst.h - 2) continue;
-            for (let x = 0; x < dst.w; x++) {
-              const edge = x === 0 || x === dst.w - 1;
-              const shade =
-                faceName === "front" || faceName === "right"
-                  ? edge
-                    ? 0.72
-                    : 0.82
-                  : edge
-                    ? 0.66
-                    : 0.76;
-              put(dst, x, foldY, shadeRgb(panelColor, shade));
-            }
+            if (!broadFace) continue;
             const highlightX = part === "rightArm" ? 1 : dst.w - 2;
+            put(dst, highlightX, foldY, shadeRgb(panelColor, 0.78));
             put(dst, highlightX, foldY + 1, shadeRgb(panelColor, 1.1));
           }
-          if (outerGarment === "cardigan") {
+          if (outerGarment === "cardigan" && broadFace) {
             const cuffLight = mixRgb(panelColor, [255, 238, 232], 0.18);
             const cuffShadow = shadeRgb(panelColor, 0.58);
             const sleeveYarn = mixRgb(panelColor, [255, 238, 232], 0.14);
-            for (let x = 0; x < dst.w; x++) {
-              put(dst, x, dst.h - 3, x % 2 === 0 ? shadeRgb(cuffLight, 0.9) : cuffShadow);
-              put(dst, x, dst.h - 2, x === 0 || x === dst.w - 1 ? cuffShadow : shadeRgb(cuffLight, 0.76));
-            }
+            for (let x = 0; x < dst.w; x++)
+              put(
+                dst,
+                x,
+                dst.h - 2,
+                x === 0 || x === dst.w - 1
+                  ? cuffShadow
+                  : shadeRgb(cuffLight, 0.76),
+              );
             for (let y = 1; y < dst.h - 3; y += 2) {
               const yarnX = part === "rightArm" ? 1 : Math.max(0, dst.w - 2);
-              put(dst, yarnX, y, y % 4 === 1 ? shadeRgb(sleeveYarn, 1.08) : shadeRgb(panelColor, 0.68));
+              put(
+                dst,
+                yarnX,
+                y,
+                y % 4 === 1
+                  ? shadeRgb(sleeveYarn, 1.08)
+                  : shadeRgb(panelColor, 0.68),
+              );
             }
           }
         }
@@ -2926,37 +3559,24 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           const cuffShadow = shadeRgb(panelColor, 0.58);
           const shoulderLight = shadeRgb(panelColor, 1.08);
           const shoulderShadow = shadeRgb(panelColor, 0.74);
-          for (let y = 0; y < arm.overlay.top.h; y++) {
-            for (let x = 0; x < arm.overlay.top.w; x++) {
-              const outerEdge = x === 0 || x === arm.overlay.top.w - 1 || y === 0;
-              const diagonalFold = (x + y) % 3 === 0;
-              put(
-                arm.overlay.top,
-                x,
-                y,
-                outerEdge
-                  ? shoulderShadow
-                  : diagonalFold
-                    ? shadeRgb(shoulderLight, 0.9)
-                    : shoulderLight,
-              );
-            }
-          }
-          for (let y = 0; y < arm.overlay.bottom.h; y++) {
-            for (let x = 0; x < arm.overlay.bottom.w; x++) {
-              const edge = x === 0 || x === arm.overlay.bottom.w - 1 || y === arm.overlay.bottom.h - 1;
-              put(
-                arm.overlay.bottom,
-                x,
-                y,
-                edge
-                  ? cuffShadow
-                  : (x + y) % 2 === 0
-                    ? shadeRgb(cuffLight, 0.88)
-                    : shadeRgb(cuffShadow, 0.84),
-              );
-            }
-          }
+          for (let x = 0; x < arm.overlay.top.w; x++)
+            put(
+              arm.overlay.top,
+              x,
+              0,
+              x === 0 || x === arm.overlay.top.w - 1
+                ? shoulderShadow
+                : shoulderLight,
+            );
+          for (let x = 0; x < arm.overlay.bottom.w; x++)
+            put(
+              arm.overlay.bottom,
+              x,
+              arm.overlay.bottom.h - 1,
+              x === 0 || x === arm.overlay.bottom.w - 1
+                ? cuffShadow
+                : shadeRgb(cuffLight, 0.88),
+            );
         }
       }
     }
@@ -2979,7 +3599,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
 
   const neckAccessory = style.neckAccessory ?? "none";
   if (neckAccessory !== "none") {
-    const paleAccent = mixRgb(averageRect(baseFront, 0, 2), [255, 250, 242], 0.72);
+    const paleAccent = mixRgb(
+      averageRect(baseFront, 0, 2),
+      [255, 250, 242],
+      0.72,
+    );
     const accentShadow = shadeRgb(paleAccent, 0.72);
     const darkAccent = shadeRgb(averageRect(baseFront, 2, 3), 0.48);
     if (neckAccessory === "bow") {
@@ -3005,23 +3629,57 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       put(front, 4, 5, shadeRgb(accentShadow, 0.9));
       put(front, 3, 6, shadeRgb(paleAccent, 0.82));
       put(front, 4, 6, shadeRgb(accentShadow, 0.78));
-      put(body.overlay.top, 2, body.overlay.top.h - 1, shadeRgb(paleAccent, 1.04));
+      put(
+        body.overlay.top,
+        2,
+        body.overlay.top.h - 1,
+        shadeRgb(paleAccent, 1.04),
+      );
       put(body.overlay.top, 3, body.overlay.top.h - 1, paleAccent);
       put(body.overlay.top, 4, body.overlay.top.h - 1, accentShadow);
-      put(body.overlay.top, 5, body.overlay.top.h - 1, shadeRgb(paleAccent, 0.94));
+      put(
+        body.overlay.top,
+        5,
+        body.overlay.top.h - 1,
+        shadeRgb(paleAccent, 0.94),
+      );
       put(body.overlay.right, 0, 1, shadeRgb(paleAccent, 0.88));
       put(body.overlay.right, 1, 1, shadeRgb(paleAccent, 0.76));
       put(body.overlay.right, 0, 2, shadeRgb(paleAccent, 0.82));
       put(body.overlay.right, 1, 3, shadeRgb(accentShadow, 0.86));
-      put(body.overlay.left, body.overlay.left.w - 1, 1, shadeRgb(paleAccent, 0.88));
-      put(body.overlay.left, body.overlay.left.w - 2, 1, shadeRgb(paleAccent, 0.76));
-      put(body.overlay.left, body.overlay.left.w - 1, 2, shadeRgb(paleAccent, 0.82));
-      put(body.overlay.left, body.overlay.left.w - 2, 3, shadeRgb(accentShadow, 0.86));
+      put(
+        body.overlay.left,
+        body.overlay.left.w - 1,
+        1,
+        shadeRgb(paleAccent, 0.88),
+      );
+      put(
+        body.overlay.left,
+        body.overlay.left.w - 2,
+        1,
+        shadeRgb(paleAccent, 0.76),
+      );
+      put(
+        body.overlay.left,
+        body.overlay.left.w - 1,
+        2,
+        shadeRgb(paleAccent, 0.82),
+      );
+      put(
+        body.overlay.left,
+        body.overlay.left.w - 2,
+        3,
+        shadeRgb(accentShadow, 0.86),
+      );
       if (outerGarment === "cardigan") {
         const bowLight = mixRgb(paleAccent, [255, 255, 255], 0.18);
         const bowMid = shadeRgb(paleAccent, 0.86);
         const bowDeep = shadeRgb(accentShadow, 0.72);
-        const shirtPanel = mixRgb(paleAccent, averageRect(baseFront, 2, 5), 0.18);
+        const shirtPanel = mixRgb(
+          paleAccent,
+          averageRect(baseFront, 2, 5),
+          0.18,
+        );
         put(front, 3, 0, bowLight);
         put(front, 4, 0, bowMid);
         put(front, 2, 1, bowLight);
@@ -3055,13 +3713,27 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       put(front, 4, 3, shadeRgb(darkAccent, 0.82));
       put(front, 3, 4, shadeRgb(darkAccent, 0.72));
     } else if (neckAccessory === "scarf") {
-      for (const [x, y] of [[2, 0], [3, 0], [4, 0], [5, 0], [2, 1], [5, 1]] as const) {
+      for (const [x, y] of [
+        [2, 0],
+        [3, 0],
+        [4, 0],
+        [5, 0],
+        [2, 1],
+        [5, 1],
+      ] as const) {
         put(front, x, y, paleAccent);
       }
       put(front, 3, 2, accentShadow);
       put(front, 4, 3, accentShadow);
     } else if (neckAccessory === "collar") {
-      for (const [x, y] of [[1, 0], [2, 0], [5, 0], [6, 0], [2, 1], [5, 1]] as const) {
+      for (const [x, y] of [
+        [1, 0],
+        [2, 0],
+        [5, 0],
+        [6, 0],
+        [2, 1],
+        [5, 1],
+      ] as const) {
         put(front, x, y, paleAccent);
       }
     }
@@ -3124,7 +3796,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
               sample(baseRect, baseRect.w - 2, y),
               0.5,
             );
-            put(baseRect, 0, y, shadeRgb(trouserCore, faceName === "front" ? 0.86 : 0.78));
+            put(
+              baseRect,
+              0,
+              y,
+              shadeRgb(trouserCore, faceName === "front" ? 0.86 : 0.78),
+            );
             put(
               baseRect,
               baseRect.w - 1,
@@ -3137,29 +3814,54 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       for (const faceName of ["front", "back", "right", "left"] as const) {
         const src = leg.base[faceName];
         const dst = leg.overlay[faceName];
+        const broadFace = faceName === "front" || faceName === "back";
         for (let x = 0; x < dst.w; x++) {
-          volumeCopy(src, dst, x, 0, "lit");
+          if (broadFace || x === 0 || x === dst.w - 1)
+            volumeCopy(src, dst, x, 0, "lit");
         }
         for (const foldY of [4, 7] as const) {
-          for (let x = 0; x < dst.w; x++) {
-            const edge = x === 0 || x === dst.w - 1;
+          const foldXs = broadFace
+            ? [1, 2]
+            : [part === "rightLeg" ? 1 : dst.w - 2];
+          for (const x of foldXs) {
+            const edge = !broadFace;
             put(
               dst,
               x,
               foldY,
-              shadeRgb(sample(src, x, foldY), faceName === "front" ? (edge ? 0.78 : 0.86) : edge ? 0.7 : 0.8),
+              shadeRgb(
+                sample(src, x, foldY),
+                faceName === "front" ? (edge ? 0.78 : 0.86) : edge ? 0.7 : 0.8,
+              ),
             );
           }
           const highlightX = part === "rightLeg" ? 1 : dst.w - 2;
-          put(dst, highlightX, Math.min(dst.h - 1, foldY + 1), shadeRgb(sample(src, highlightX, foldY), 1.08));
+          put(
+            dst,
+            highlightX,
+            Math.min(dst.h - 1, foldY + 1),
+            shadeRgb(sample(src, highlightX, foldY), 1.08),
+          );
         }
       }
-      copy(leg.base.front, leg.overlay.front, part === "rightLeg" ? 0 : 3, 2, 0.74);
-      const outerFace = part === "rightLeg" ? leg.overlay.right : leg.overlay.left;
+      copy(
+        leg.base.front,
+        leg.overlay.front,
+        part === "rightLeg" ? 0 : 3,
+        2,
+        0.74,
+      );
+      const outerFace =
+        part === "rightLeg" ? leg.overlay.right : leg.overlay.left;
       const outerBase = part === "rightLeg" ? leg.base.right : leg.base.left;
       const seamX = part === "rightLeg" ? 0 : outerFace.w - 1;
       for (let y = 1; y < outerFace.h - 2; y++) {
-        put(outerFace, seamX, y, shadeRgb(sample(outerBase, seamX, y), y % 3 === 0 ? 0.62 : 0.74));
+        put(
+          outerFace,
+          seamX,
+          y,
+          shadeRgb(sample(outerBase, seamX, y), y % 3 === 0 ? 0.56 : 0.62),
+        );
       }
     }
   }
@@ -3176,19 +3878,24 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       averageRect(body.base.back, body.base.back.h - 2, 2),
       0.5,
     );
-    const bottomColor = mixRgb(legTop, bodyLower, style.bottomType === "skirt" ? 0.22 : 0.12);
+    const bottomColor = mixRgb(
+      legTop,
+      bodyLower,
+      style.bottomType === "skirt" ? 0.22 : 0.12,
+    );
     const hemColor = shadeRgb(bottomColor, 0.78);
     const litColor = shadeRgb(bottomColor, 1.08);
     const plaidThread = mixRgb(bottomColor, [244, 231, 218], 0.42);
     const plaidShadow = shadeRgb(bottomColor, 0.58);
     const plaidCross = shadeRgb(bottomColor, 0.46);
 
-    const paintLowerTorso = (rect: Rect, rows: number) => {
+    const paintLowerTorso = (baseRect: Rect, rect: Rect, rows: number) => {
       for (let y = rect.h - rows; y < rect.h; y++) {
         for (let x = 0; x < rect.w; x++) {
           const localY = y - (rect.h - rows);
           const pleat =
-            (style.bottomType === "skirt" || bottomPattern === "pleated") && x % 3 === 1
+            (style.bottomType === "skirt" || bottomPattern === "pleated") &&
+            x % 3 === 1
               ? 0.86
               : x % 4 === 0
                 ? 1.06
@@ -3197,23 +3904,37 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           if (bottomPattern === "plaid") {
             if (x === 1 || x === 5) color = plaidShadow;
             if (x === 3 || x === 6) color = mixRgb(color, plaidThread, 0.42);
-            if (localY === 1 || localY === rows - 1) color = mixRgb(color, plaidThread, 0.38);
+            if (localY === 1 || localY === rows - 1)
+              color = mixRgb(color, plaidThread, 0.38);
             if ((x === 1 || x === 5) && localY === 1) color = plaidCross;
-            if ((x === 3 || x === 6) && localY === rows - 1) color = shadeRgb(plaidThread, 0.82);
+            if ((x === 3 || x === 6) && localY === rows - 1)
+              color = shadeRgb(plaidThread, 0.82);
           } else if (bottomPattern === "striped" && localY % 2 === 1) {
             color = shadeRgb(bottomColor, 0.72);
-          } else if (bottomPattern === "lace" && y === rect.h - 1 && x % 2 === 0) {
+          } else if (
+            bottomPattern === "lace" &&
+            y === rect.h - 1 &&
+            x % 2 === 0
+          ) {
             color = mixRgb(bottomColor, [255, 248, 240], 0.55);
           }
-          put(rect, x, y, color);
+          put(baseRect, x, y, shadeRgb(color, 0.98));
+          const raised =
+            y === rect.h - 1 ||
+            x === 0 ||
+            x === rect.w - 1 ||
+            (bottomPattern === "plaid" &&
+              (x === 1 || x === 5 || localY === 1)) ||
+            (bottomPattern === "pleated" && x % 3 === 1);
+          if (raised) put(rect, x, y, color);
         }
       }
     };
 
     const torsoRows = style.bottomType === "skirt" ? 4 : 2;
-    paintLowerTorso(front, torsoRows);
-    paintLowerTorso(back, torsoRows);
-    const paintSideLowerTorso = (rect: Rect, rows: number) => {
+    paintLowerTorso(body.base.front, front, torsoRows);
+    paintLowerTorso(body.base.back, back, torsoRows);
+    const paintSideLowerTorso = (baseRect: Rect, rect: Rect, rows: number) => {
       for (let y = rect.h - rows; y < rect.h; y++) {
         for (let x = 0; x < rect.w; x++) {
           const localY = y - (rect.h - rows);
@@ -3221,11 +3942,18 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           const centerPleat = x % 2 === 1;
           let color = shadeRgb(
             bottomColor,
-            y === rect.h - 1 ? 0.74 : edgePleat ? 0.82 : centerPleat ? 0.94 : 1.04,
+            y === rect.h - 1
+              ? 0.74
+              : edgePleat
+                ? 0.82
+                : centerPleat
+                  ? 0.94
+                  : 1.04,
           );
           if (bottomPattern === "plaid") {
             if (x === 1 || x === rect.w - 2) color = plaidShadow;
-            if (x === 0 || x === rect.w - 1) color = mixRgb(color, plaidThread, 0.34);
+            if (x === 0 || x === rect.w - 1)
+              color = mixRgb(color, plaidThread, 0.34);
             if (localY === 1 || localY === rows - 1) {
               color = mixRgb(color, plaidThread, 0.36);
             }
@@ -3236,15 +3964,27 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             color = shadeRgb(bottomColor, 0.72);
           } else if (bottomPattern === "pleated" && centerPleat) {
             color = shadeRgb(bottomColor, 0.74);
-          } else if (bottomPattern === "lace" && y === rect.h - 1 && x % 2 === 0) {
+          } else if (
+            bottomPattern === "lace" &&
+            y === rect.h - 1 &&
+            x % 2 === 0
+          ) {
             color = mixRgb(bottomColor, [255, 248, 240], 0.55);
           }
-          put(rect, x, y, color);
+          put(baseRect, x, y, shadeRgb(color, 0.98));
+          const raised =
+            y === rect.h - 1 ||
+            x === 0 ||
+            x === rect.w - 1 ||
+            (bottomPattern === "plaid" &&
+              (x === 1 || x === rect.w - 2 || localY === 1)) ||
+            (bottomPattern === "pleated" && centerPleat);
+          if (raised) put(rect, x, y, color);
         }
       }
     };
-    paintSideLowerTorso(body.overlay.right, torsoRows);
-    paintSideLowerTorso(body.overlay.left, torsoRows);
+    paintSideLowerTorso(body.base.right, body.overlay.right, torsoRows);
+    paintSideLowerTorso(body.base.left, body.overlay.left, torsoRows);
 
     for (const part of ["rightLeg", "leftLeg"] as const) {
       const leg = CLASSIC_LAYOUT[part];
@@ -3253,20 +3993,37 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         const dst = leg.overlay[faceName];
         for (let y = 0; y < coverRows; y++) {
           for (let x = 0; x < dst.w; x++) {
-            const tone = y === 0 ? litColor : y === coverRows - 1 ? hemColor : bottomColor;
+            const tone =
+              y === 0 ? litColor : y === coverRows - 1 ? hemColor : bottomColor;
             let color = tone;
             if (bottomPattern === "plaid" && (x === 1 || y === 1)) {
               color = x === 1 && y === 1 ? plaidCross : shadeRgb(tone, 0.72);
-            } else if (bottomPattern === "plaid" && x === 2 && (faceName === "front" || faceName === "back")) {
+            } else if (
+              bottomPattern === "plaid" &&
+              x === 2 &&
+              (faceName === "front" || faceName === "back")
+            ) {
               color = mixRgb(tone, plaidThread, 0.45);
-            } else if (bottomPattern === "plaid" && x === 0 && (faceName === "right" || faceName === "left")) {
+            } else if (
+              bottomPattern === "plaid" &&
+              x === 0 &&
+              (faceName === "right" || faceName === "left")
+            ) {
               color = mixRgb(tone, plaidThread, 0.34);
             } else if (bottomPattern === "pleated" && x % 2 === 1) {
               color = shadeRgb(tone, 0.76);
-            } else if (bottomPattern === "lace" && y === coverRows - 1 && x % 2 === 0) {
+            } else if (
+              bottomPattern === "lace" &&
+              y === coverRows - 1 &&
+              x % 2 === 0
+            ) {
               color = mixRgb(tone, [255, 248, 240], 0.55);
             }
-            if (bottomPattern === "plaid" && y === coverRows - 1 && x % 2 === 0) {
+            if (
+              bottomPattern === "plaid" &&
+              y === coverRows - 1 &&
+              x % 2 === 0
+            ) {
               color = mixRgb(color, plaidThread, 0.24);
             }
             put(dst, x, y, color);
@@ -3286,7 +4043,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         const midY = Math.min(rect.h - 1, startY + 1);
         const lowY = Math.max(startY, rect.h - 2);
         for (let x = 0; x < rect.w; x++) {
-          const thread = x % 2 === 0 ? plaidThread : shadeRgb(plaidThread, 0.82);
+          const thread =
+            x % 2 === 0 ? plaidThread : shadeRgb(plaidThread, 0.82);
           put(rect, x, midY, x === 1 || x === rect.w - 2 ? plaidCross : thread);
           if (x % 3 === 0) put(rect, x, lowY, shadeRgb(plaidThread, 0.9));
         }
@@ -3304,13 +4062,26 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const topFrontY = Math.max(0, bodyTop.h - 1);
       const topBackY = 0;
       for (let x = 0; x < bodyTop.w; x++) {
-        const edgeThread = x % 2 === 0 ? plaidThread : shadeRgb(plaidThread, 0.78);
+        const edgeThread =
+          x % 2 === 0 ? plaidThread : shadeRgb(plaidThread, 0.78);
         const preservesCenterBow =
           (style.neckAccessory ?? "none") === "bow" && (x === 3 || x === 4);
         if (!preservesCenterBow) {
-          put(bodyTop, x, topFrontY, x === 1 || x === bodyTop.w - 2 ? plaidCross : edgeThread);
+          put(
+            bodyTop,
+            x,
+            topFrontY,
+            x === 1 || x === bodyTop.w - 2 ? plaidCross : edgeThread,
+          );
         }
-        put(bodyTop, x, topBackY, x === 1 || x === bodyTop.w - 2 ? plaidShadow : shadeRgb(edgeThread, 0.84));
+        put(
+          bodyTop,
+          x,
+          topBackY,
+          x === 1 || x === bodyTop.w - 2
+            ? plaidShadow
+            : shadeRgb(edgeThread, 0.84),
+        );
       }
       for (const x of [1, Math.max(1, bodyTop.w - 2)] as const) {
         for (let y = 0; y < bodyTop.h; y++) {
@@ -3327,15 +4098,30 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         for (const faceName of ["front", "back", "right", "left"] as const) {
           const dst = leg.overlay[faceName];
           const coverRows = style.bottomType === "skirt" ? 3 : 2;
-          const verticalX = Math.min(dst.w - 1, faceName === "front" || faceName === "back" ? 2 : 1);
+          const verticalX = Math.min(
+            dst.w - 1,
+            faceName === "front" || faceName === "back" ? 2 : 1,
+          );
           const shadowX = Math.min(dst.w - 1, 1);
           for (let y = 0; y < coverRows; y++) {
-            put(dst, verticalX, y, y === 1 ? plaidCross : mixRgb(plaidThread, litColor, 0.18));
+            put(
+              dst,
+              verticalX,
+              y,
+              y === 1 ? plaidCross : mixRgb(plaidThread, litColor, 0.18),
+            );
             put(dst, shadowX, y, y === 1 ? plaidCross : plaidShadow);
           }
           if (coverRows > 1) {
             for (let x = 0; x < dst.w; x++) {
-              put(dst, x, 1, x === verticalX || x === shadowX ? plaidCross : shadeRgb(plaidThread, x % 2 === 0 ? 0.94 : 0.78));
+              put(
+                dst,
+                x,
+                1,
+                x === verticalX || x === shadowX
+                  ? plaidCross
+                  : shadeRgb(plaidThread, x % 2 === 0 ? 0.94 : 0.78),
+              );
             }
           }
         }
@@ -3346,7 +4132,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const bottomAccent = style.bottomAccent ?? "none";
   if (bottomAccent !== "none") {
     const waistColor = shadeRgb(
-      mixRgb(averageRect(body.base.front, body.base.front.h - 2, 2), averageRect(body.base.back, body.base.back.h - 2, 2), 0.5),
+      mixRgb(
+        averageRect(body.base.front, body.base.front.h - 2, 2),
+        averageRect(body.base.back, body.base.back.h - 2, 2),
+        0.5,
+      ),
       0.48,
     );
     const accentLight = mixRgb(waistColor, [238, 230, 218], 0.34);
@@ -3371,7 +4161,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         const leg = CLASSIC_LAYOUT[part];
         const outerX = part === "rightLeg" ? 0 : leg.overlay.front.w - 1;
         for (let y = 1; y < leg.overlay.front.h - 2; y++) {
-          put(leg.overlay.front, outerX, y, y % 3 === 0 ? shadeRgb(stripe, 0.78) : stripe);
+          put(
+            leg.overlay.front,
+            outerX,
+            y,
+            y % 3 === 0 ? shadeRgb(stripe, 0.78) : stripe,
+          );
         }
         for (const rect of [leg.overlay.right, leg.overlay.left]) {
           for (let y = 1; y < rect.h - 2; y++) put(rect, 0, y, stripe);
@@ -3384,7 +4179,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           const rect = leg.overlay[faceName];
           for (let y = rect.h - 4; y < rect.h - 2; y++) {
             for (let x = 0; x < rect.w; x++) {
-              put(rect, x, y, y % 2 === 0 ? accentLight : shadeRgb(accentLight, 0.76));
+              put(
+                rect,
+                x,
+                y,
+                y % 2 === 0 ? accentLight : shadeRgb(accentLight, 0.76),
+              );
             }
           }
         }
@@ -3408,8 +4208,16 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   }
 
   // 긴 외투 tail: 치마/바지 위쪽 다리 overlay에 열린 앞판과 뒤판을 이어서 허리 아래로 내려온 실루엣을 만든다.
-  if (outerGarment === "cardigan" || outerGarment === "coat" || outerGarment === "open_jacket") {
-    const sideSample = mixRgb(sample(baseFront, 1, 5), sample(baseFront, 6, 5), 0.5);
+  if (
+    outerGarment === "cardigan" ||
+    outerGarment === "coat" ||
+    outerGarment === "open_jacket"
+  ) {
+    const sideSample = mixRgb(
+      sample(baseFront, 1, 5),
+      sample(baseFront, 6, 5),
+      0.5,
+    );
     const backSample = averageRect(baseBack, 2, 6);
     const panelBase = mixRgb(sideSample, backSample, 0.42);
     const tailColor =
@@ -3418,10 +4226,17 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         : outerGarment === "coat"
           ? shadeRgb(panelBase, 0.82)
           : shadeRgb(panelBase, 0.9);
-    const tailRows = outerGarment === "coat" ? 4 : outerGarment === "cardigan" ? 3 : 2;
-    const trimColor = shadeRgb(tailColor, outerGarment === "cardigan" ? 0.72 : 0.66);
+    const tailRows =
+      outerGarment === "coat" ? 4 : outerGarment === "cardigan" ? 3 : 2;
+    const trimColor = shadeRgb(
+      tailColor,
+      outerGarment === "cardigan" ? 0.72 : 0.66,
+    );
     const foldLight = shadeRgb(tailColor, 1.12);
-    const foldShadow = shadeRgb(tailColor, outerGarment === "cardigan" ? 0.56 : 0.5);
+    const foldShadow = shadeRgb(
+      tailColor,
+      outerGarment === "cardigan" ? 0.56 : 0.5,
+    );
     const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay;
     const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay;
 
@@ -3429,20 +4244,45 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const lower = y === tailRows - 1;
       const shade = lower ? 0.68 : y === 0 ? 1.02 : 0.88;
       put(rightLeg.front, 0, y, shadeRgb(tailColor, shade));
-      put(rightLeg.front, 1, y, y % 2 === 0 ? trimColor : shadeRgb(trimColor, 1.08));
-      put(leftLeg.front, 2, y, y % 2 === 0 ? shadeRgb(trimColor, 0.88) : trimColor);
+      put(
+        rightLeg.front,
+        1,
+        y,
+        y % 2 === 0 ? trimColor : shadeRgb(trimColor, 1.08),
+      );
+      put(
+        leftLeg.front,
+        2,
+        y,
+        y % 2 === 0 ? shadeRgb(trimColor, 0.88) : trimColor,
+      );
       put(leftLeg.front, 3, y, shadeRgb(tailColor, shade - 0.02));
 
-      for (const rect of [rightLeg.right, rightLeg.left, leftLeg.right, leftLeg.left]) {
+      for (const rect of [
+        rightLeg.right,
+        rightLeg.left,
+        leftLeg.right,
+        leftLeg.left,
+      ]) {
         for (let x = 0; x < rect.w; x++) {
           const edge = x === 0 || x === rect.w - 1;
-          put(rect, x, y, shadeRgb(tailColor, lower ? 0.68 : edge ? 0.78 : 0.9));
+          put(
+            rect,
+            x,
+            y,
+            shadeRgb(tailColor, lower ? 0.68 : edge ? 0.78 : 0.9),
+          );
         }
       }
       for (const rect of [rightLeg.back, leftLeg.back]) {
         for (let x = 0; x < rect.w; x++) {
           const edge = x === 0 || x === rect.w - 1;
-          put(rect, x, y, shadeRgb(tailColor, lower ? 0.66 : edge ? 0.76 : 0.88));
+          put(
+            rect,
+            x,
+            y,
+            shadeRgb(tailColor, lower ? 0.66 : edge ? 0.76 : 0.88),
+          );
         }
         put(rect, rect.w - 1, y, shadeRgb(trimColor, lower ? 0.62 : 0.78));
       }
@@ -3461,7 +4301,10 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       put(rightLeg.back, 1, 1, shadeRgb(foldLight, 0.9));
       put(leftLeg.back, leftLeg.back.w - 2, 1, shadeRgb(foldLight, 0.9));
 
-      if (outerGarment === "cardigan" && (style.bottomType === "skirt" || style.bottomType === "shorts")) {
+      if (
+        outerGarment === "cardigan" &&
+        (style.bottomType === "skirt" || style.bottomType === "shorts")
+      ) {
         const longHemLight = mixRgb(tailColor, [255, 234, 230], 0.18);
         const longHemShadow = shadeRgb(trimColor, 0.58);
         put(rightLeg.front, 0, 3, shadeRgb(tailColor, 0.64));
@@ -3486,14 +4329,37 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     for (const faceName of ["front", "back", "right", "left"] as const) {
       const src = leg.base[faceName];
       const dst = leg.overlay[faceName];
-      for (let x = 0; x < dst.w; x++) {
-        volumeCopy(src, dst, x, dst.h - 2, faceName === "front" ? "lit" : "mid");
-        volumeCopy(src, dst, x, dst.h - 1, "mid");
+      const raisedXs =
+        faceName === "front"
+          ? [0, 1, 2, 3]
+          : faceName === "back"
+            ? [1, 2]
+            : faceName === "right"
+              ? [0, 1]
+              : [2, 3];
+      for (const x of raisedXs) {
+        volumeCopy(
+          src,
+          dst,
+          x,
+          dst.h - 2,
+          faceName === "front" ? "lit" : "mid",
+        );
       }
+      for (const x of raisedXs.filter(
+        (x) => x === 0 || x === dst.w - 1 || faceName === "front",
+      ))
+        volumeCopy(src, dst, x, dst.h - 1, "mid");
     }
     for (let y = 0; y < leg.overlay.bottom.h; y++) {
       for (let x = 0; x < leg.overlay.bottom.w; x++) {
-        volumeCopy(leg.base.bottom, leg.overlay.bottom, x, y, "hem");
+        if (
+          x === 0 ||
+          y === 0 ||
+          x === leg.overlay.bottom.w - 1 ||
+          y === leg.overlay.bottom.h - 1
+        )
+          volumeCopy(leg.base.bottom, leg.overlay.bottom, x, y, "hem");
       }
     }
   }
@@ -3505,7 +4371,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     style.neckAccessory === "bow" ||
     style.bottomAccent === "ribbon";
   const explicitShoeStyle = style.shoeStyle;
-  const shoeStyle = explicitShoeStyle ?? (dressyShoes ? "dress_shoes" : "sneakers");
+  const shoeStyle =
+    explicitShoeStyle ?? (dressyShoes ? "dress_shoes" : "sneakers");
   if (explicitShoeStyle || dressyShoes) {
     for (const part of ["rightLeg", "leftLeg"] as const) {
       const leg = CLASSIC_LAYOUT[part];
@@ -3556,7 +4423,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           put(side, side.w - 1, side.h - 2, strap);
           put(side, side.w - 1, side.h - 1, shadeRgb(strap, 0.82));
         }
-        for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, leather);
+        for (const x of [1, 2])
+          put(leg.overlay.back, x, leg.overlay.back.h - 2, leather);
       } else if (shoeStyle === "sandals") {
         const strap = shadeRgb(mixRgb(shoeBase, [92, 64, 44], 0.42), 0.76);
         const sole = mixRgb(shoeBase, [232, 208, 178], 0.5);
@@ -3587,7 +4455,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           put(side, side.w - 1, side.h - 1, sole);
           put(side, side.w - 1, side.h - 3, lace);
         }
-        for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.88));
+        for (const x of [1, 2])
+          put(
+            leg.overlay.back,
+            x,
+            leg.overlay.back.h - 2,
+            shadeRgb(shoeAccent, 0.88),
+          );
       } else {
         const sole = shadeRgb(mixRgb(shoeBase, [255, 252, 244], 0.62), 0.82);
         const soleShadow = shadeRgb(sole, 0.72);
@@ -3616,9 +4490,20 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         }
         for (let x = 0; x < leg.overlay.bottom.w; x++) {
           put(leg.overlay.bottom, x, 0, x % 2 === 0 ? sole : soleShadow);
-          put(leg.overlay.bottom, x, leg.overlay.bottom.h - 1, x % 2 === 0 ? soleShadow : shadeRgb(sole, 0.9));
+          put(
+            leg.overlay.bottom,
+            x,
+            leg.overlay.bottom.h - 1,
+            x % 2 === 0 ? soleShadow : shadeRgb(sole, 0.9),
+          );
         }
-        for (const x of [1, 2]) put(leg.overlay.back, x, leg.overlay.back.h - 2, shadeRgb(shoeAccent, 0.9));
+        for (const x of [1, 2])
+          put(
+            leg.overlay.back,
+            x,
+            leg.overlay.back.h - 2,
+            shadeRgb(shoeAccent, 0.9),
+          );
         put(leg.overlay.back, 0, leg.overlay.back.h - 2, shoeBright);
         put(leg.overlay.back, 3, leg.overlay.back.h - 2, bowShadow);
         put(leg.overlay.back, 1, leg.overlay.back.h - 3, strapDeep);
@@ -3676,36 +4561,111 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                   ? 0.9
                   : 1.02;
             put(baseRect, x, y, shadeRgb(baseColor, wrinkle));
-            put(overRect, x, y, shadeRgb(baseColor, y % 2 === 0 ? 0.9 : 1.08));
+          }
+          if (legwear !== "leg_warmers") {
+            // A single raised rib keeps long socks readable in profile while
+            // the base layer carries the continuous fabric colour.
+            const ribX =
+              faceName === "left"
+                ? overRect.w - 1
+                : faceName === "right"
+                  ? 0
+                  : 1;
+            put(
+              overRect,
+              ribX,
+              y,
+              shadeRgb(baseColor, y % 3 === 0 ? 0.76 : 0.94),
+            );
+            if ((faceName === "front" || faceName === "back") && y % 3 === 0) {
+              put(
+                overRect,
+                Math.min(overRect.w - 1, ribX + 1),
+                y,
+                shadeRgb(baseColor, 1.08),
+              );
+            }
           }
           if (legwear === "leg_warmers") {
             const ribbed = y % 2 === 1 || y === legwearRows.end;
             if (ribbed) {
-              for (let x = 0; x < overRect.w; x++) {
+              const ribXs =
+                faceName === "front" || faceName === "back"
+                  ? [0, 1, 2, 3]
+                  : faceName === "right"
+                    ? [0, 1]
+                    : [2, 3];
+              for (const x of ribXs) {
                 const sideEdge = x === 0 || x === overRect.w - 1;
-                put(overRect, x, y, sideEdge ? shadeRgb(ribShadow, 0.9) : ribShadow);
+                put(
+                  overRect,
+                  x,
+                  y,
+                  sideEdge ? shadeRgb(ribShadow, 0.9) : ribShadow,
+                );
               }
             } else if (faceName === "front" || faceName === "back") {
               for (const x of [1, 2]) put(overRect, x, y, ribLight);
             } else {
-              put(overRect, faceName === "right" ? 0 : overRect.w - 1, y, ribLight);
-              put(overRect, faceName === "right" ? 1 : overRect.w - 2, y, shadeRgb(ribLight, 0.9));
+              put(
+                overRect,
+                faceName === "right" ? 0 : overRect.w - 1,
+                y,
+                ribLight,
+              );
+              put(
+                overRect,
+                faceName === "right" ? 1 : overRect.w - 2,
+                y,
+                shadeRgb(ribLight, 0.9),
+              );
             }
             if (faceName === "front" || faceName === "back") {
               const foldX = y % 2 === 0 ? 2 : 1;
               const liftX = foldX === 1 ? 2 : 1;
-              put(overRect, foldX, y, ribbed ? shadeRgb(ribShadow, 0.82) : shadeRgb(ribLight, 0.96));
-              put(overRect, liftX, y, ribbed ? shadeRgb(ribLight, 0.72) : shadeRgb(ribLight, 1.12));
+              put(
+                overRect,
+                foldX,
+                y,
+                ribbed ? shadeRgb(ribShadow, 0.82) : shadeRgb(ribLight, 0.96),
+              );
+              put(
+                overRect,
+                liftX,
+                y,
+                ribbed ? shadeRgb(ribLight, 0.72) : shadeRgb(ribLight, 1.12),
+              );
             } else {
               const outerX = faceName === "right" ? 0 : overRect.w - 1;
               const innerX = faceName === "right" ? 1 : overRect.w - 2;
-              put(overRect, outerX, y, ribbed ? shadeRgb(ribShadow, 0.72) : ribLight);
-              put(overRect, innerX, y, ribbed ? shadeRgb(ribShadow, 0.9) : shadeRgb(ribLight, 0.94));
+              put(
+                overRect,
+                outerX,
+                y,
+                ribbed ? shadeRgb(ribShadow, 0.72) : ribLight,
+              );
+              put(
+                overRect,
+                innerX,
+                y,
+                ribbed ? shadeRgb(ribShadow, 0.9) : shadeRgb(ribLight, 0.94),
+              );
             }
           }
         }
-        for (let x = 0; x < overRect.w; x++) {
-          put(overRect, x, legwearRows.start, x % 2 === 0 ? topLace : shadeRgb(topLace, 0.82));
+        const rimXs =
+          faceName === "front" || faceName === "back"
+            ? [0, 1, 2, 3]
+            : faceName === "right"
+              ? [0, 1]
+              : [2, 3];
+        for (const x of rimXs) {
+          put(
+            overRect,
+            x,
+            legwearRows.start,
+            x % 2 === 0 ? topLace : shadeRgb(topLace, 0.82),
+          );
         }
         if (legwear === "leg_warmers") {
           const laceY = Math.max(0, legwearRows.start - 1);
@@ -3713,18 +4673,43 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           const ankleFoldY = Math.max(legwearRows.start, ankleCuffY - 1);
           const scallopA = shadeRgb(topLace, 1.08);
           const scallopB = shadeRgb(topLace, 0.76);
-          const cuffLight = shadeRgb(mixRgb(baseColor, [255, 250, 244], 0.42), 1.04);
+          const cuffLight = shadeRgb(
+            mixRgb(baseColor, [255, 250, 244], 0.42),
+            1.04,
+          );
           const cuffDark = shadeRgb(baseColor, 0.48);
-          for (let x = 0; x < overRect.w; x++) {
+          for (const x of rimXs) {
             const edge = x === 0 || x === overRect.w - 1;
             put(overRect, x, laceY, x % 2 === 0 ? scallopA : scallopB);
             if (!edge && (faceName === "front" || faceName === "back")) {
-              put(overRect, x, legwearRows.start + 1, x % 2 === 0 ? shadeRgb(scallopA, 0.94) : ribShadow);
+              put(
+                overRect,
+                x,
+                legwearRows.start + 1,
+                x % 2 === 0 ? shadeRgb(scallopA, 0.94) : ribShadow,
+              );
             }
-            put(baseRect, x, ankleCuffY, x % 2 === 0 ? shadeRgb(baseColor, 0.62) : shadeRgb(baseColor, 0.76));
-            put(overRect, x, ankleCuffY, x % 2 === 0 ? cuffDark : shadeRgb(cuffDark, 0.82));
+            put(
+              baseRect,
+              x,
+              ankleCuffY,
+              x % 2 === 0
+                ? shadeRgb(baseColor, 0.62)
+                : shadeRgb(baseColor, 0.76),
+            );
+            put(
+              overRect,
+              x,
+              ankleCuffY,
+              x % 2 === 0 ? cuffDark : shadeRgb(cuffDark, 0.82),
+            );
             if (!edge) {
-              put(overRect, x, ankleFoldY, x % 2 === 0 ? cuffLight : shadeRgb(cuffDark, 0.9));
+              put(
+                overRect,
+                x,
+                ankleFoldY,
+                x % 2 === 0 ? cuffLight : shadeRgb(cuffDark, 0.9),
+              );
             }
           }
           if (faceName === "right" || faceName === "left") {
@@ -3732,7 +4717,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             const innerX = faceName === "right" ? 1 : overRect.w - 2;
             put(overRect, outerX, laceY, scallopA);
             put(overRect, innerX, laceY, scallopB);
-            put(overRect, outerX, legwearRows.start + 1, shadeRgb(scallopB, 0.82));
+            put(
+              overRect,
+              outerX,
+              legwearRows.start + 1,
+              shadeRgb(scallopB, 0.82),
+            );
             put(overRect, outerX, ankleCuffY, cuffDark);
             put(overRect, innerX, ankleFoldY, shadeRgb(cuffLight, 0.9));
           } else {
@@ -3752,7 +4742,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     for (const part of targetParts) drawLegwear(part);
 
     if (asym === "left" || asym === "right") {
-      const opposite = asym === "left" ? CLASSIC_LAYOUT.rightLeg : CLASSIC_LAYOUT.leftLeg;
+      const opposite =
+        asym === "left" ? CLASSIC_LAYOUT.rightLeg : CLASSIC_LAYOUT.leftLeg;
       const bow: Rgb = [248, 242, 232];
       const bowLight = shadeRgb(bow, 1.06);
       const bowShade: Rgb = [212, 192, 184];
@@ -3775,7 +4766,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       ] as const) {
         put(frontLeg, x, y, color);
       }
-      for (const rect of [opposite.overlay.right, opposite.overlay.left, opposite.overlay.back]) {
+      for (const rect of [
+        opposite.overlay.right,
+        opposite.overlay.left,
+        opposite.overlay.back,
+      ]) {
         for (let x = 0; x < rect.w; x++) {
           put(rect, x, 1, x % 2 === 0 ? bowLight : shadeRgb(bow, 0.9));
         }
@@ -3785,7 +4780,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         put(rect, 0, 3, bowShade);
         put(rect, rect.w - 1, 3, bowDeep);
       }
-      const outerSide = asym === "left" ? opposite.overlay.right : opposite.overlay.left;
+      const outerSide =
+        asym === "left" ? opposite.overlay.right : opposite.overlay.left;
       for (const [x, y, color] of [
         [0, 1, bowLight],
         [1, 1, bow],
@@ -3815,7 +4811,10 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
               rect,
               x,
               y,
-              shadeRgb(bodyShoulderColor, edgeDistance === 0 ? 0.82 : y === 0 ? 0.98 : 0.9),
+              shadeRgb(
+                bodyShoulderColor,
+                edgeDistance === 0 ? 0.82 : y === 0 ? 0.98 : 0.9,
+              ),
             );
           }
         }
@@ -3831,7 +4830,10 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     const taperShoulder = (baseRect: Rect, overlayRect: Rect) => {
       const sampleY = Math.min(baseRect.h - 1, 3);
       const inset = baseRect.w >= 6 ? 2 : 1;
-      const leftGarment = stabilizeGarmentColor(sample(baseRect, inset, sampleY), 0.74);
+      const leftGarment = stabilizeGarmentColor(
+        sample(baseRect, inset, sampleY),
+        0.74,
+      );
       const rightGarment = stabilizeGarmentColor(
         sample(baseRect, baseRect.w - 1 - inset, sampleY),
         0.74,
@@ -3842,7 +4844,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         // silhouette slopes inward; transparent outer pixels must never expose
         // those segmentation remnants.
         put(baseRect, 0, y, shadeRgb(leftGarment, y === 0 ? 1.02 : 0.96));
-        put(baseRect, baseRect.w - 1, y, shadeRgb(rightGarment, y === 0 ? 0.94 : 0.9));
+        put(
+          baseRect,
+          baseRect.w - 1,
+          y,
+          shadeRgb(rightGarment, y === 0 ? 0.94 : 0.9),
+        );
         clear(overlayRect, 0, y);
         clear(overlayRect, overlayRect.w - 1, y);
       }
@@ -3856,7 +4863,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     const topSampleY = Math.min(topBase.h - 1, 1);
     const topGarment = mixRgb(
       sample(topBase, Math.max(0, Math.floor(topBase.w / 2) - 1), topSampleY),
-      sample(topBase, Math.min(topBase.w - 1, Math.floor(topBase.w / 2)), topSampleY),
+      sample(
+        topBase,
+        Math.min(topBase.w - 1, Math.floor(topBase.w / 2)),
+        topSampleY,
+      ),
       0.5,
     );
     for (const [x, y, shade] of [
@@ -4025,7 +5036,10 @@ function sliceFigure(
 
   const shoulderY = findShoulderRow(src, bg, minY, maxY, xr);
   const headRows = { y0: minY, y1: shoulderY };
-  const torsoRows = { y0: shoulderY, y1: shoulderY + (maxY + 1 - shoulderY) * 0.5 };
+  const torsoRows = {
+    y0: shoulderY,
+    y1: shoulderY + (maxY + 1 - shoulderY) * 0.5,
+  };
   const legRows = { y0: torsoRows.y1, y1: maxY + 1 };
 
   const headSpan = columnSpan(src, bg, headRows.y0, headRows.y1, xr);
@@ -4037,7 +5051,12 @@ function sliceFigure(
   const torsoWidth = torsoSpan.x1 - torsoSpan.x0;
   const legWidth = legSpan.x1 - legSpan.x0;
   return {
-    head: { x0: headSpan.x0, x1: headSpan.x1, y0: headRows.y0, y1: headRows.y1 },
+    head: {
+      x0: headSpan.x0,
+      x1: headSpan.x1,
+      y0: headRows.y0,
+      y1: headRows.y1,
+    },
     body: {
       x0: torsoSpan.x0 + torsoWidth * 0.25,
       x1: torsoSpan.x1 - torsoWidth * 0.25,
@@ -4113,7 +5132,10 @@ export function packFrontViewToAtlas(
   const head = CLASSIC_LAYOUT.head;
   const sampledHairColor = medianColor(
     src,
-    { ...front.head, y1: front.head.y0 + (front.head.y1 - front.head.y0) * 0.22 },
+    {
+      ...front.head,
+      y1: front.head.y0 + (front.head.y1 - front.head.y0) * 0.22,
+    },
     bg,
   );
   const sampledSkinColor = medianColor(
@@ -4168,7 +5190,10 @@ export function packFrontViewToAtlas(
   fillRectFromRegion(atlas, body.base.front, src, front.body, bg);
   const torsoTopColor = medianColor(
     src,
-    { ...front.body, y1: front.body.y0 + (front.body.y1 - front.body.y0) * 0.15 },
+    {
+      ...front.body,
+      y1: front.body.y0 + (front.body.y1 - front.body.y0) * 0.15,
+    },
     bg,
   );
   completeSides(atlas, body.base, torsoTopColor, torsoTopColor);
@@ -4181,15 +5206,26 @@ export function packFrontViewToAtlas(
   // ---------- 팔 ----------
   // 정면 뷰: 화면 왼쪽 = 캐릭터의 오른팔. 뒷면 뷰: 화면 왼쪽 = 캐릭터의 왼팔.
   const arms = [
-    { part: "rightArm" as const, frontRegion: front.viewLeftArm, backRegion: back?.viewRightArm },
-    { part: "leftArm" as const, frontRegion: front.viewRightArm, backRegion: back?.viewLeftArm },
+    {
+      part: "rightArm" as const,
+      frontRegion: front.viewLeftArm,
+      backRegion: back?.viewRightArm,
+    },
+    {
+      part: "leftArm" as const,
+      frontRegion: front.viewRightArm,
+      backRegion: back?.viewLeftArm,
+    },
   ];
   for (const { part, frontRegion, backRegion } of arms) {
     const box = CLASSIC_LAYOUT[part].base;
     fillRectFromRegion(atlas, box.front, src, frontRegion, bg);
     const sleeveColor = medianColor(
       src,
-      { ...frontRegion, y1: frontRegion.y0 + (frontRegion.y1 - frontRegion.y0) * 0.2 },
+      {
+        ...frontRegion,
+        y1: frontRegion.y0 + (frontRegion.y1 - frontRegion.y0) * 0.2,
+      },
       bg,
     );
     completeSides(atlas, box, sleeveColor, skinColor); // 아래면 = 손 (피부색)
@@ -4202,20 +5238,34 @@ export function packFrontViewToAtlas(
 
   // ---------- 다리 ----------
   const legs = [
-    { part: "rightLeg" as const, frontRegion: front.viewLeftLeg, backRegion: back?.viewRightLeg },
-    { part: "leftLeg" as const, frontRegion: front.viewRightLeg, backRegion: back?.viewLeftLeg },
+    {
+      part: "rightLeg" as const,
+      frontRegion: front.viewLeftLeg,
+      backRegion: back?.viewRightLeg,
+    },
+    {
+      part: "leftLeg" as const,
+      frontRegion: front.viewRightLeg,
+      backRegion: back?.viewLeftLeg,
+    },
   ];
   for (const { part, frontRegion, backRegion } of legs) {
     const box = CLASSIC_LAYOUT[part].base;
     fillRectFromRegion(atlas, box.front, src, frontRegion, bg);
     const pantsColor = medianColor(
       src,
-      { ...frontRegion, y1: frontRegion.y0 + (frontRegion.y1 - frontRegion.y0) * 0.2 },
+      {
+        ...frontRegion,
+        y1: frontRegion.y0 + (frontRegion.y1 - frontRegion.y0) * 0.2,
+      },
       bg,
     );
     const shoeColor = medianColor(
       src,
-      { ...frontRegion, y0: frontRegion.y1 - (frontRegion.y1 - frontRegion.y0) * 0.12 },
+      {
+        ...frontRegion,
+        y0: frontRegion.y1 - (frontRegion.y1 - frontRegion.y0) * 0.12,
+      },
       bg,
     );
     completeSides(atlas, box, pantsColor, shoeColor);
