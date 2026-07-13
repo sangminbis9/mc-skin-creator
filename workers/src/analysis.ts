@@ -1095,8 +1095,13 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
 // ---------- Scout 호출 ----------
 
 export type AnalysisCallResult =
-  | { ok: true; analysis: PhotoAnalysis }
-  | { ok: false; reason: "ai_error" | "invalid_response"; detail: string };
+  | { ok: true; analysis: PhotoAnalysis; attempts: number }
+  | {
+      ok: false;
+      reason: "ai_error" | "invalid_response" | "quota_exceeded";
+      detail: string;
+      attempts: number;
+    };
 
 /**
  * 사진 분석 실행. json_schema 유도 → 실패 시 json_object로 1회 재시도.
@@ -1116,8 +1121,20 @@ export async function runPhotoAnalysis(
     },
   ];
 
-  const attempts: Array<Record<string, unknown>> = [
-    { type: "json_schema", json_schema: PHOTO_ANALYSIS_SCHEMA },
+  // Workers AI follows the OpenAI-compatible response_format shape here.
+  // `json_schema.name` is required; passing the schema object directly makes
+  // the provider reject the request before inference and forces every request
+  // onto the less reliable free-form JSON retry.
+  const responseFormats: Array<Record<string, unknown>> = [
+    {
+      type: "json_schema",
+      json_schema: {
+        name: "minecraft_skin_photo_analysis",
+        description:
+          "Structured portrait, hair, face and outfit analysis for a Minecraft skin",
+        schema: PHOTO_ANALYSIS_SCHEMA,
+      },
+    },
     { type: "json_object" },
   ];
   const primaryModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
@@ -1127,10 +1144,12 @@ export async function runPhotoAnalysis(
 
   let lastDetail = "";
   let sawInvalidResponse = false;
+  let attempts = 0;
   for (const visionModel of visionModels) {
-    for (const responseFormat of attempts) {
+    for (const responseFormat of responseFormats) {
       let parsed: unknown;
       try {
+        attempts += 1;
         const modelOptions = visionModel.includes("moonshotai/")
           ? { chat_template_kwargs: { thinking: false } }
           : {};
@@ -1145,6 +1164,14 @@ export async function runPhotoAnalysis(
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         lastDetail = `${visionModel}: ${detail}`;
+        if (isWorkersAiQuotaError(detail)) {
+          return {
+            ok: false,
+            reason: "quota_exceeded",
+            detail: lastDetail,
+            attempts,
+          };
+        }
         continue;
       }
       if (parsed === null || parsed === undefined) {
@@ -1154,7 +1181,7 @@ export async function runPhotoAnalysis(
       }
       const validated = validatePhotoAnalysis(parsed);
       if (validated.ok) {
-        return { ok: true, analysis: validated.analysis };
+        return { ok: true, analysis: validated.analysis, attempts };
       }
       sawInvalidResponse = true;
       lastDetail = `${visionModel}: schema validation failed: ${validated.errors.join("; ")}`;
@@ -1164,7 +1191,17 @@ export async function runPhotoAnalysis(
     ok: false,
     reason: sawInvalidResponse ? "invalid_response" : "ai_error",
     detail: lastDetail,
+    attempts,
   };
+}
+
+function isWorkersAiQuotaError(detail: string): boolean {
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("4006") ||
+    normalized.includes("daily free allocation") ||
+    (normalized.includes("neurons") && normalized.includes("used up"))
+  );
 }
 
 /** Normalize Workers AI native (`response`) and chat-completions (`choices`) output. */

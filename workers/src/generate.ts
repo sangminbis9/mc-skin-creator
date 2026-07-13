@@ -83,10 +83,33 @@ export async function generateSkin(
 
   // ---------- 1) 사진 분석 ----------
   const analysisResult = await runPhotoAnalysis(env, analysisImageDataUrl);
-  let spent = NEURONS_VISION_ANALYSIS;
+  // Every provider invocation consumes Workers AI capacity, including schema
+  // retries and fallback-model attempts. Count all of them so the app quota
+  // cannot claim capacity remains after the Cloudflare allocation is spent.
+  let spent = analysisResult.attempts * NEURONS_VISION_ANALYSIS;
   if (!analysisResult.ok) {
     console.log("analysis failed:", analysisResult.reason, analysisResult.detail);
-    // ai_error는 호출 자체가 실패했을 수 있어 보수적으로 분석 1회 비용만 계상
+    // Persist only provider/schema diagnostics, never the uploaded image or
+    // model response. This makes production failures inspectable even when a
+    // sampled tail misses the request.
+    await env.MCSKIN_KV.put(
+      "diagnostic:last-analysis-failure",
+      JSON.stringify({
+        at: new Date().toISOString(),
+        reason: analysisResult.reason,
+        detail: analysisResult.detail.slice(0, 1500),
+        attempts: analysisResult.attempts,
+      }),
+      { expirationTtl: 60 * 60 * 24 },
+    ).catch(() => undefined);
+    if (analysisResult.reason === "quota_exceeded") {
+      return fail(
+        429,
+        "오늘의 AI 생성 수량이 마감됐어요",
+        "quota_exceeded",
+        spent,
+      );
+    }
     return fail(
       502,
       analysisResult.reason === "invalid_response"

@@ -28,7 +28,11 @@ export function requestSkinGeneration(
   imageDataUrl: string,
   analysisImageDataUrl?: string,
 ): Promise<GenerateResponse> {
-  const requestKey = `${imageDataUrl}\u0000${analysisImageDataUrl ?? ""}`;
+  // React StrictMode remounts effects during local development. Share the same
+  // in-flight request without retaining the full private photo in a Map key.
+  const requestKey = `${dataFingerprint(imageDataUrl)}:${dataFingerprint(
+    analysisImageDataUrl ?? "",
+  )}`;
   const existing = inFlightGenerations.get(requestKey);
   if (existing) {
     return existing;
@@ -43,6 +47,14 @@ export function requestSkinGeneration(
   };
   request.then(clearRequest, clearRequest);
   return request;
+}
+
+function dataFingerprint(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(i), 0x01000193);
+  }
+  return `${value.length}-${(hash >>> 0).toString(16)}`;
 }
 
 async function performSkinGeneration(

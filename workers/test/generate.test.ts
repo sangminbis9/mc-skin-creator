@@ -559,6 +559,28 @@ describe("generateSkin", () => {
     const result = await generateSkin(env, await photoDataUrl());
     expect(result.status).toBe(502);
     expect(result.body.errorCode).toBe("ai_failed");
+    expect(result.neuronsSpent).toBe(4 * 170);
+    expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
+      "diagnostic:last-analysis-failure",
+      expect.stringContaining('"attempts":4'),
+      { expirationTtl: 60 * 60 * 24 },
+    );
+  });
+
+  it("Workers AI shared quota exhaustion returns quota_exceeded without fallback calls", async () => {
+    const env = makeEnv(makeAnalysis());
+    env.AI.run = vi.fn(async () => {
+      throw new Error(
+        "4006: you have used up your daily free allocation of 10,000 neurons",
+      );
+    }) as unknown as Env["AI"]["run"];
+
+    const result = await generateSkin(env, await photoDataUrl());
+
+    expect(result.status).toBe(429);
+    expect(result.body.errorCode).toBe("quota_exceeded");
+    expect(result.neuronsSpent).toBe(170);
+    expect(env.AI.run).toHaveBeenCalledTimes(1);
   });
 
   it("data URL이 아니면 400", async () => {

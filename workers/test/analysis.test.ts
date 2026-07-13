@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ANALYSIS_PROMPT,
   extractAnalysisPayload,
+  PHOTO_ANALYSIS_SCHEMA,
   runPhotoAnalysis,
   validatePhotoAnalysis,
 } from "../src/analysis";
@@ -36,6 +37,7 @@ describe("runPhotoAnalysis", () => {
       "primary-model",
       "fallback-model",
     ]);
+    expect(result).toMatchObject({ attempts: 3 });
   });
 
   it("falls back when the primary model emits invalid structured output", async () => {
@@ -64,6 +66,16 @@ describe("runPhotoAnalysis", () => {
 
     expect(result.ok).toBe(true);
     expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[1]).toMatchObject({
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "minecraft_skin_photo_analysis",
+          schema: PHOTO_ANALYSIS_SCHEMA,
+        },
+      },
+    });
+    expect(result).toMatchObject({ attempts: 1 });
   });
 
   it("returns ai_error when both models throw", async () => {
@@ -78,6 +90,27 @@ describe("runPhotoAnalysis", () => {
 
     expect(result).toMatchObject({ ok: false, reason: "ai_error" });
     expect(run).toHaveBeenCalledTimes(4);
+    expect(result).toMatchObject({ attempts: 4 });
+  });
+
+  it("stops immediately when Workers AI reports the shared daily neuron limit", async () => {
+    const run = vi.fn(async () => {
+      throw new Error(
+        "4006: you have used up your daily free allocation of 10,000 neurons",
+      );
+    });
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "quota_exceeded",
+      attempts: 1,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("returns invalid_response when neither model emits JSON", async () => {
@@ -90,6 +123,7 @@ describe("runPhotoAnalysis", () => {
 
     expect(result).toMatchObject({ ok: false, reason: "invalid_response" });
     expect(run).toHaveBeenCalledTimes(4);
+    expect(result).toMatchObject({ attempts: 4 });
   });
 });
 
