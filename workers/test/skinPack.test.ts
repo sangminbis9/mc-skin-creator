@@ -1907,6 +1907,34 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[frontBootEdge]).toBeLessThan(atlas.rgba[frontBootCenter]);
   });
 
+  it("explicit sneakers keep laces and a side-wrapping sole readable", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "pants",
+      bottomAccent: "cuffs",
+      shoeStyle: "sneakers",
+    })!.atlas;
+    const right = CLASSIC_LAYOUT.rightLeg.overlay;
+    const cuff =
+      ((right.front.y + right.front.h - 4) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const lace =
+      ((right.front.y + right.front.h - 3) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const toe =
+      ((right.front.y + right.front.h - 2) * ATLAS_SIZE + right.front.x + 1) * 4;
+    const sideSole =
+      ((right.right.y + right.right.h - 1) * ATLAS_SIZE +
+        right.right.x +
+        right.right.w -
+        1) *
+      4;
+
+    expect(atlas.rgba[cuff + 3]).toBe(255);
+    expect(atlas.rgba[lace + 3]).toBe(255);
+    expect(atlas.rgba[toe + 3]).toBe(255);
+    expect(atlas.rgba[sideSole + 3]).toBe(255);
+    expect(atlas.rgba[lace]).not.toBe(atlas.rgba[toe]);
+  });
+
   it("neckAccessory=bow와 bottomPattern=plaid이면 목 리본과 체크 하의를 overlay에 보존한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

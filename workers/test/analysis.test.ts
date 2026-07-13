@@ -45,6 +45,10 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("Do not summarize it as simply \"asymmetric\"");
     expect(ANALYSIS_PROMPT).toContain("legwearAsymmetry \"left\" or \"right\"");
     expect(ANALYSIS_PROMPT).toContain("repeat that side in outfitPrompt");
+    expect(ANALYSIS_PROMPT).toContain(
+      "Never return the completely generic combination of plain pants + no accent + no legwear + sneakers",
+    );
+    expect(ANALYSIS_PROMPT).toContain("describe the shoe color/construction");
   });
 
   it("analysis prompt distinguishes fringe density and side-hair profile", () => {

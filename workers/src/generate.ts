@@ -606,6 +606,17 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     style.legwear = "socks";
     style.legwearAsymmetry = "both";
     style.shoeStyle = "dress_shoes";
+  } else if (structuredGenericLower) {
+    // Structured analysis can still collapse an unseen lower half into the most
+    // generic possible answer. Preserve its garment and shoe choices, but add a
+    // small construction cue grounded in the visible top so the 64x64 result
+    // does not read as an undifferentiated rectangle.
+    style.bottomAccent =
+      topType === "sweater" || topType === "hoodie" || style.bottomType === "jeans"
+        ? "cuffs"
+        : smartCasualTop
+          ? "belt"
+          : "side_stripe";
   }
 
   const bottomType = style.bottomType ?? "pants";

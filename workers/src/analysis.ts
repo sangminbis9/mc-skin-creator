@@ -153,7 +153,7 @@ STEP 4 — inferred: for body parts and clothing NOT visible, design choices tha
 - Never base clothing choices on gender presentation or facial stereotypes; use only visible clothing cues, colors and mood.
 - If there are no clothing cues at all, choose neutral casual wear that harmonizes with skin/hair colors. Vary between shirt, knit, hoodie or light jacket depending on the photo's mood — do not always default to a plain t-shirt.
 - If a region IS visible in the photo, set its inferred entry to null.
-- If the lower body is NOT visible, also fill inferred.lowerBodyDesign with concrete Minecraft-ready choices for bottomType, pattern, accent, legwear, asymmetry and shoe style. If the lower body IS visible, set inferred.lowerBodyDesign to null. Prefer a detailed but coherent design over a generic plain lower half.
+- If the lower body is NOT visible, also fill inferred.lowerBodyDesign with concrete Minecraft-ready choices for bottomType, pattern, accent, legwear, asymmetry and shoe style. If the lower body IS visible, set inferred.lowerBodyDesign to null. Prefer a detailed but coherent design over a generic plain lower half. Never return the completely generic combination of plain pants + no accent + no legwear + sneakers: infer at least one low-resolution construction cue (pattern, belt, cuffs, side stripe or legwear) from the visible top, and describe the shoe color/construction in inferred.shoes.
 - For inferred lower-body designs with one-sided legwear or ribbons, use legwearAsymmetry "left" or "right" from the viewer's perspective and repeat that side in outfitPrompt.
 
 STEP 5 — prompts for an image generation model:

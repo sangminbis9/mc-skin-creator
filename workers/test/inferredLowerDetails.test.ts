@@ -580,4 +580,97 @@ describe("inferred lower-body completion", () => {
     expect(decoded.rgba[thighRibbon + 3]).toBe(255);
     expect(decoded.rgba[shoeBow + 3]).toBe(255);
   });
+
+  it("adds trouser cuffs and sneaker construction when an upper-body sweater analysis is generic", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "dark charcoal cable-knit sweater",
+          accessories: "silver chain with a round pendant",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: {
+            value: "dark charcoal slim-fit pants",
+            rationale: "the dark neutral color continues the visible knit sweater",
+          },
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "none",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            shoeStyle: "sneakers",
+            rationale: "generic dark lower half",
+          },
+          shoes: {
+            value: "black low-top sneakers",
+            rationale: "neutral casual shoes match the sweater",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          garmentTexture: "knit",
+          outerLayer: "heavy",
+          necklace: "silver",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          topType: "sweater",
+          bottomType: "pants",
+        },
+        outfitPrompt:
+          "Preserve the visible dark cable-knit sweater and silver pendant; complete it with dark pants and black low-top sneakers.",
+      }),
+    );
+    const frontPng = await encodePng(makeFrontBackView());
+    const provider = providerOf({
+      ok: true,
+      imageBytes: frontPng,
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay;
+    const cuff =
+      ((rightLeg.front.y + rightLeg.front.h - 4) * ATLAS_SIZE +
+        rightLeg.front.x +
+        1) *
+      4;
+    const lace =
+      ((rightLeg.front.y + rightLeg.front.h - 3) * ATLAS_SIZE +
+        rightLeg.front.x +
+        1) *
+      4;
+    const sideSole =
+      ((rightLeg.right.y + rightLeg.right.h - 1) * ATLAS_SIZE +
+        rightLeg.right.x +
+        rightLeg.right.w -
+        1) *
+      4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[cuff + 3]).toBe(255);
+    expect(decoded.rgba[lace + 3]).toBe(255);
+    expect(decoded.rgba[sideSole + 3]).toBe(255);
+    expect(decoded.rgba[lace]).toBeGreaterThan(decoded.rgba[cuff]);
+  });
 });
