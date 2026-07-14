@@ -25,7 +25,7 @@ export const NEURONS_IMAGE_INPUT_TILE = 6;
 export const NEURONS_IMAGE_OUTPUT_TILE = 27;
 /** 이미지 생성 1회 호출 — front_view 전략(사진 1장 입력 + 1024x512 정면·뒷면 출력 = 타일 2개) 기준 */
 export const NEURONS_IMAGE_GEN_CALL =
-  NEURONS_IMAGE_INPUT_TILE + 2 * NEURONS_IMAGE_OUTPUT_TILE;
+  2 * NEURONS_IMAGE_INPUT_TILE + 2 * NEURONS_IMAGE_OUTPUT_TILE;
 
 /** quota 남은 횟수 표시용 — 분석 1회 + 이미지 생성 1회 (재시도 없는 정상 경로) */
 export const NEURONS_PER_GENERATION_ESTIMATE =
@@ -53,15 +53,33 @@ function nextResetIso(now = new Date()): string {
   return next.toISOString();
 }
 
-async function getUsedNeurons(env: Env): Promise<number> {
-  const raw = await env.MCSKIN_KV.get(`quota:${dayKey()}`);
+async function getUsedNeurons(env: Env, now = new Date()): Promise<number> {
+  const raw = await env.MCSKIN_KV.get(`quota:${dayKey(now)}`);
   const used = raw === null ? 0 : parseInt(raw, 10);
   return Number.isFinite(used) ? used : 0;
 }
 
-export async function getQuotaStatus(env: Env): Promise<QuotaStatus> {
+function providerClosedKey(now = new Date()): string {
+  return `quota:provider-closed:${dayKey(now)}`;
+}
+
+export async function getQuotaStatus(
+  env: Env,
+  now = new Date(),
+): Promise<QuotaStatus> {
   const limit = dailyLimitNeurons(env);
-  const used = await getUsedNeurons(env);
+  const [used, providerClosed] = await Promise.all([
+    getUsedNeurons(env, now),
+    env.MCSKIN_KV.get(providerClosedKey(now)),
+  ]);
+  if (providerClosed !== null) {
+    return {
+      level: "closed",
+      remainingGenerations: 0,
+      resetAtIso: nextResetIso(now),
+      usedRatio: 1,
+    };
+  }
   const remaining = Math.max(0, limit - used);
   const usedRatio = Math.min(1, used / limit);
   const remainingGenerations = Math.floor(
@@ -75,7 +93,7 @@ export async function getQuotaStatus(env: Env): Promise<QuotaStatus> {
           ? "almost"
           : "available",
     remainingGenerations,
-    resetAtIso: nextResetIso(),
+    resetAtIso: nextResetIso(now),
     usedRatio,
   };
 }
@@ -90,5 +108,24 @@ export async function commitNeurons(env: Env, neurons: number): Promise<void> {
   // 이틀치 TTL — 자정 넘어간 키는 자연 소멸
   await env.MCSKIN_KV.put(key, String(used + neurons), {
     expirationTtl: 60 * 60 * 48,
+  });
+}
+
+/**
+ * Cloudflare's allocation is shared outside this Worker's local estimate. If
+ * the provider reports exhaustion, close the current UTC day so the app does
+ * not keep accepting requests that are guaranteed to fail.
+ */
+export async function markProviderQuotaExhausted(
+  env: Env,
+  now = new Date(),
+): Promise<void> {
+  const resetAt = new Date(nextResetIso(now)).getTime();
+  const ttlSeconds = Math.max(
+    60,
+    Math.ceil((resetAt - now.getTime()) / 1000) + 60,
+  );
+  await env.MCSKIN_KV.put(providerClosedKey(now), "1", {
+    expirationTtl: ttlSeconds,
   });
 }

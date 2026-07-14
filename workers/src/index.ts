@@ -9,7 +9,12 @@
 
 import { bumpMetric, getMetric, METRICS, type Metric } from "./analytics";
 import { generateSkin } from "./generate";
-import { commitNeurons, dayKey, getQuotaStatus } from "./quota";
+import {
+  commitNeurons,
+  dayKey,
+  getQuotaStatus,
+  markProviderQuotaExhausted,
+} from "./quota";
 import type { Env } from "./types";
 
 const CORS_HEADERS: Record<string, string> = {
@@ -104,6 +109,9 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
 
   // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
   await commitNeurons(env, result.neuronsSpent);
+  if (result.body.errorCode === "quota_exceeded") {
+    await markProviderQuotaExhausted(env);
+  }
   await bumpMetric(env, result.success ? "successes" : "failures");
   if (result.success && result.body.generationMode) {
     await bumpMetric(
