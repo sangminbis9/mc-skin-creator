@@ -4,6 +4,7 @@ import { measureAtlasCraft, validateAtlasCraft } from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
 import { REFERENCE_SKIN_BASE64 } from "./fixtures/referenceSkin";
 import { makeFrontView } from "./helpers";
+import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 
 describe("handcrafted atlas quality metrics", () => {
   it("keeps the rich procedural reference style in the handcrafted skin quality range", async () => {
@@ -118,6 +119,12 @@ describe("handcrafted atlas quality metrics", () => {
     expect(validateAtlasCraft(procedural, decoratedStyle).ok).toBe(true);
     expect(
       validateAtlasCraft(compactMale, {
+        eyeSpacing: "average",
+        eyeTilt: "level",
+        glasses: "none",
+        mouthShape: "small",
+        bangs: "straight",
+        fringeOpening: "center",
         hairstyle: "short",
         sideHairLength: "short",
         outerLayer: "heavy",
@@ -144,6 +151,52 @@ describe("handcrafted atlas quality metrics", () => {
     expect(
       compactMetrics.overlayHorizontalSeamColorDistance,
     ).toBeLessThanOrEqual(80);
+  });
+
+  it("rejects hair that covers both irises and a one-sided profile collapse", () => {
+    const style = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight" as const,
+      bangsLength: "brow" as const,
+      fringeOpening: "center" as const,
+      sideHairLength: "short" as const,
+      sideHairShape: "ear_hugging" as const,
+      outerLayer: "heavy" as const,
+      garmentTexture: "knit" as const,
+    };
+    const source = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
+    expect(validateAtlasCraft(source, style).ok).toBe(true);
+
+    const hiddenEyes = { ...source, rgba: new Uint8Array(source.rgba) };
+    const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
+    const hairSource =
+      (faceOverlay.y * ATLAS_SIZE + faceOverlay.x) * 4;
+    for (const x of [2, 5]) {
+      const target =
+        ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + x) * 4;
+      hiddenEyes.rgba.set(
+        hiddenEyes.rgba.slice(hairSource, hairSource + 4),
+        target,
+      );
+      hiddenEyes.rgba[target + 3] = 255;
+    }
+    expect(
+      validateAtlasCraft(hiddenEyes, style).problems.join(" / "),
+    ).toContain("readable eye");
+
+    const missingSide = { ...source, rgba: new Uint8Array(source.rgba) };
+    const leftSide = CLASSIC_LAYOUT.head.overlay.left;
+    for (let y = 0; y < leftSide.h; y++) {
+      for (let x = 0; x < leftSide.w; x++) {
+        const offset =
+          ((leftSide.y + y) * ATLAS_SIZE + leftSide.x + x) * 4;
+        missingSide.rgba.set([0, 0, 0, 0], offset);
+      }
+    }
+    expect(
+      validateAtlasCraft(missingSide, style).problems.join(" / "),
+    ).toContain("side hair is disconnected");
   });
 
   const styleMatrix = [

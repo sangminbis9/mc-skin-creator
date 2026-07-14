@@ -318,6 +318,12 @@ export interface AtlasCraftMetrics {
 
 /** Analysis-derived expectations for rejecting flat default-looking skins. */
 export interface AtlasCraftStyle {
+  eyeSpacing?: string;
+  eyeTilt?: string;
+  glasses?: string;
+  mouthShape?: string;
+  bangs?: string;
+  fringeOpening?: string;
   hairstyle?: string;
   sideHairLength?: string;
   hairAccessory?: string;
@@ -567,6 +573,145 @@ export function validateAtlasCraft(
       24
   ) {
     problems.push("legwear lacks a readable second-layer cluster");
+  }
+
+  // FaceStyle always supplies these fields in the live pipeline. Keeping the
+  // check opt-in lets external reference atlases use craft metrics without
+  // assuming they share our exact facial landmark coordinates.
+  const validateIdentity =
+    style.eyeSpacing !== undefined ||
+    style.eyeTilt !== undefined ||
+    style.mouthShape !== undefined;
+  if (validateIdentity) {
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
+    const eyePairs =
+      style.eyeSpacing === "wide"
+        ? ([
+            [0, 1],
+            [7, 6],
+          ] as const)
+        : style.eyeSpacing === "close"
+          ? ([
+              [1, 2],
+              [5, 4],
+            ] as const)
+          : ([
+              [1, 2],
+              [6, 5],
+            ] as const);
+    const outerEyeY =
+      style.eyeTilt === "upturned"
+        ? 3
+        : style.eyeTilt === "downturned"
+          ? 5
+          : 4;
+    const offsetAt = (rect: Rect, x: number, y: number) =>
+      ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    const skinBuckets = new Map<
+      number,
+      { count: number; r: number; g: number; b: number }
+    >();
+    const excluded = new Set<string>();
+    for (const [outer, inner] of eyePairs) {
+      excluded.add(`${outer},${outerEyeY}`);
+      excluded.add(`${inner},4`);
+    }
+    for (let x = 2; x <= 5; x++) excluded.add(`${x},6`);
+    for (let y = 4; y <= 6; y++) {
+      for (let x = 0; x < face.w; x++) {
+        if (excluded.has(`${x},${y}`)) continue;
+        const offset = offsetAt(face, x, y);
+        const key =
+          ((atlas.rgba[offset] >> 4) << 8) |
+          ((atlas.rgba[offset + 1] >> 4) << 4) |
+          (atlas.rgba[offset + 2] >> 4);
+        const bucket = skinBuckets.get(key) ?? {
+          count: 0,
+          r: 0,
+          g: 0,
+          b: 0,
+        };
+        bucket.count++;
+        bucket.r += atlas.rgba[offset];
+        bucket.g += atlas.rgba[offset + 1];
+        bucket.b += atlas.rgba[offset + 2];
+        skinBuckets.set(key, bucket);
+      }
+    }
+    const skinBucket = [...skinBuckets.values()].sort(
+      (first, second) => second.count - first.count,
+    )[0];
+    const skin: [number, number, number] = skinBucket
+      ? [
+          skinBucket.r / skinBucket.count,
+          skinBucket.g / skinBucket.count,
+          skinBucket.b / skinBucket.count,
+        ]
+      : [0, 0, 0];
+    const distanceFromSkin = (x: number, y: number) => {
+      const offset = offsetAt(face, x, y);
+      return (
+        Math.abs(atlas.rgba[offset] - skin[0]) +
+        Math.abs(atlas.rgba[offset + 1] - skin[1]) +
+        Math.abs(atlas.rgba[offset + 2] - skin[2])
+      );
+    };
+
+    let readableEyes = 0;
+    for (const [outer, inner] of eyePairs) {
+      const irisOffset = offsetAt(faceOverlay, inner, 4);
+      const outerOffset = offsetAt(faceOverlay, outer, outerEyeY);
+      const irisVisible =
+        style.glasses !== "none" ||
+        (atlas.rgba[irisOffset + 3] === 0 &&
+          atlas.rgba[outerOffset + 3] === 0);
+      if (irisVisible && distanceFromSkin(inner, 4) >= 45) readableEyes++;
+    }
+    if (readableEyes < 2)
+      problems.push(`face has only ${readableEyes} readable eye(s)`);
+
+    const mouthXs =
+      style.mouthShape === "wide" ? [2, 3, 4, 5] : [3, 4];
+    const mouthPixels = mouthXs.filter(
+      (x) => distanceFromSkin(x, 6) >= 30,
+    ).length;
+    if (mouthPixels < Math.min(2, mouthXs.length))
+      problems.push(`mouth landmark is not readable (${mouthPixels} pixels)`);
+
+    if (styledHair) {
+      const rightSide = opaqueStatsIn(
+        atlas,
+        CLASSIC_LAYOUT.head.overlay.right,
+      ).pixels;
+      const leftSide = opaqueStatsIn(
+        atlas,
+        CLASSIC_LAYOUT.head.overlay.left,
+      ).pixels;
+      if (rightSide < 4 || leftSide < 4) {
+        problems.push(
+          `side hair is disconnected (right ${rightSide}, left ${leftSide})`,
+        );
+      }
+    }
+
+    if (
+      style.bangs !== "none" &&
+      style.fringeOpening !== "none" &&
+      !has(style.hairAccessory)
+    ) {
+      const openingXs =
+        style.fringeOpening === "center"
+          ? [3, 4]
+          : [style.fringeOpening === "left" ? 2 : 5];
+      const openPixels = openingXs.filter((x) =>
+        [1, 2, 3].some(
+          (y) => atlas.rgba[offsetAt(faceOverlay, x, y) + 3] === 0,
+        ),
+      ).length;
+      if (openPixels === 0)
+        problems.push("fringe opening is hidden by the outer hair layer");
+    }
   }
 
   return { ok: problems.length === 0, problems };
