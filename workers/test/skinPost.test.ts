@@ -5,6 +5,7 @@ import {
   downscaleToAtlas,
   restoreGeneratedOverlayAlpha,
   validateAtlas,
+  validateAtlasCraft,
   validateFinalAtlas,
 } from "../src/skinPost";
 import {
@@ -229,5 +230,27 @@ describe("restoreGeneratedOverlayAlpha", () => {
         atlas.rgba[((overlay.y + 1) * ATLAS_SIZE + overlay.x + x) * 4 + 3],
       ).toBe(255);
     }
+  });
+});
+
+describe("validateAtlasCraft", () => {
+  it("rejects a valid template that has no authored outer-layer detail", () => {
+    const atlas = applyUvMask(makeSyntheticAtlas());
+    for (let i = 0; i < ATLAS_SIZE * ATLAS_SIZE; i++) {
+      if (ZONES[i] === "overlay") {
+        atlas.rgba.set([0, 0, 0, 0], i * 4);
+      }
+    }
+
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+    const verdict = validateAtlasCraft(atlas, {
+      hairstyle: "long",
+      sideHairLength: "shoulder",
+      hairAccessory: "flower",
+      outerGarment: "cardigan",
+      legwear: "leg_warmers",
+    });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.problems.join(" / ")).toContain("outer-layer");
   });
 });

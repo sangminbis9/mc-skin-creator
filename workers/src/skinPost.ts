@@ -316,6 +316,20 @@ export interface AtlasCraftMetrics {
   overlayPixelsByPart: Record<BodyPart, number>;
 }
 
+/** Analysis-derived expectations for rejecting flat default-looking skins. */
+export interface AtlasCraftStyle {
+  hairstyle?: string;
+  sideHairLength?: string;
+  hairAccessory?: string;
+  garmentTexture?: string;
+  outerLayer?: string;
+  outerGarment?: string;
+  neckAccessory?: string;
+  bottomPattern?: string;
+  bottomAccent?: string;
+  legwear?: string;
+}
+
 /**
  * Measures hand-authored pixel-art signals without assuming every subject must
  * wear the same amount of outer-layer detail. Consumers can compare these
@@ -442,6 +456,120 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
     detailedBaseFaces,
     overlayPixelsByPart,
   };
+}
+
+/**
+ * Style-aware quality gate. Format validation alone cannot distinguish a
+ * detailed authored skin from a technically valid but flat template. These
+ * conservative floors sit below the bundled handcrafted reference while
+ * still requiring clustered shading, sparse second layers, and the regions
+ * promised by the photo analysis.
+ */
+export function validateAtlasCraft(
+  atlas: RawImage,
+  style: AtlasCraftStyle,
+): AtlasValidation {
+  const problems: string[] = [];
+  const metrics = measureAtlasCraft(atlas);
+  const value = (candidate: string | undefined) => candidate ?? "none";
+  const has = (candidate: string | undefined) => value(candidate) !== "none";
+  const longSideHair = ["cheek", "jaw", "shoulder"].includes(
+    value(style.sideHairLength),
+  );
+  const styledHair = !["none", "bald", "buzz"].includes(
+    value(style.hairstyle),
+  );
+  const richStyle =
+    style.outerLayer === "heavy" ||
+    styledHair ||
+    longSideHair ||
+    has(style.hairAccessory) ||
+    has(style.outerGarment) ||
+    has(style.neckAccessory) ||
+    has(style.legwear) ||
+    !["none", "plain"].includes(value(style.bottomPattern)) ||
+    has(style.bottomAccent) ||
+    !["none", "plain"].includes(value(style.garmentTexture));
+
+  if (metrics.baseColorCount < 16)
+    problems.push(`base palette too small (${metrics.baseColorCount})`);
+  if (metrics.detailedBaseFaces < 18)
+    problems.push(`too few shaded base faces (${metrics.detailedBaseFaces})`);
+  if (metrics.overlayColorCount < 6)
+    problems.push(`outer-layer palette too small (${metrics.overlayColorCount})`);
+  if (metrics.populatedOverlayFaces < 6)
+    problems.push(
+      `too few populated outer-layer faces (${metrics.populatedOverlayFaces})`,
+    );
+  if (metrics.shadedOverlayFaces < 6)
+    problems.push(`too few shaded outer-layer faces (${metrics.shadedOverlayFaces})`);
+  if (metrics.solidOverlayFaces > 0)
+    problems.push(`solid outer-layer shells found (${metrics.solidOverlayFaces})`);
+  if (metrics.overlayVerticalSeamMismatches > 16)
+    problems.push(
+      `outer-layer vertical seams disconnected (${metrics.overlayVerticalSeamMismatches})`,
+    );
+  if (metrics.overlayVerticalSeamColorDistance > 8)
+    problems.push(
+      `outer-layer seam colours diverge (${metrics.overlayVerticalSeamColorDistance.toFixed(1)})`,
+    );
+
+  if (richStyle) {
+    if (metrics.opaqueOverlayPixels < 120)
+      problems.push(`rich style lacks outer-layer volume (${metrics.opaqueOverlayPixels})`);
+    if (metrics.overlayColorCount < 12)
+      problems.push(`rich style palette too small (${metrics.overlayColorCount})`);
+    if (metrics.populatedOverlayFaces < 12)
+      problems.push(
+        `rich style misses connected faces (${metrics.populatedOverlayFaces})`,
+      );
+    if (metrics.shadedOverlayFaces < 10)
+      problems.push(`rich style lacks face shading (${metrics.shadedOverlayFaces})`);
+  }
+
+  if (
+    (styledHair || longSideHair || has(style.hairAccessory)) &&
+    metrics.overlayPixelsByPart.head < 50
+  ) {
+    problems.push(
+      `hair silhouette lacks head outer-layer pixels (${metrics.overlayPixelsByPart.head})`,
+    );
+  }
+  if (has(style.hairAccessory) && metrics.overlayPixelsByPart.head < 60) {
+    problems.push(
+      `hair accessory lacks a readable head cluster (${metrics.overlayPixelsByPart.head})`,
+    );
+  }
+  if (
+    style.sideHairLength === "shoulder" &&
+    metrics.overlayPixelsByPart.body < 30
+  ) {
+    problems.push(
+      `shoulder hair does not continue onto the torso (${metrics.overlayPixelsByPart.body})`,
+    );
+  }
+  if (has(style.outerGarment)) {
+    if (metrics.overlayPixelsByPart.body < 40)
+      problems.push(
+        `outer garment lacks torso construction (${metrics.overlayPixelsByPart.body})`,
+      );
+    if (
+      metrics.overlayPixelsByPart.rightArm < 16 ||
+      metrics.overlayPixelsByPart.leftArm < 16
+    ) {
+      problems.push("outer garment does not continue across both sleeves");
+    }
+  }
+  if (
+    has(style.legwear) &&
+    metrics.overlayPixelsByPart.rightLeg +
+      metrics.overlayPixelsByPart.leftLeg <
+      24
+  ) {
+    problems.push("legwear lacks a readable second-layer cluster");
+  }
+
+  return { ok: problems.length === 0, problems };
 }
 
 /**

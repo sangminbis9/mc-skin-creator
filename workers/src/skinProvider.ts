@@ -8,19 +8,11 @@ import type { PhotoAnalysis } from "./analysis";
 import { buildFrontBackGuidePng } from "./assets/frontBackGuide";
 import { buildFourViewGuidePng } from "./assets/fourViewGuide";
 import { base64ToBytes, sniffImageSize } from "./png";
-import {
-  buildFourViewPrompt,
-  buildFrontViewPrompt,
-  buildSkinPrompt,
-} from "./skinPrompt";
+import { buildFourViewPrompt, buildFrontViewPrompt } from "./skinPrompt";
 import type { Env } from "./types";
-import { UV_GUIDE_PNG_B64 } from "./assets/uvGuide";
 
-/**
- * front_view: 정면 전신 캐릭터 1장 생성 (skinPack이 atlas로 조립) — 기본 전략
- * direct_atlas: 모델이 atlas를 직접 그리게 시도 (현재 FLUX는 배치를 자주 어긴다)
- */
-export type GenerationStrategy = "front_view" | "four_view" | "direct_atlas";
+/** Image models produce character views; skinPack alone owns UV placement. */
+export type GenerationStrategy = "front_view" | "four_view";
 
 export interface SkinGenerationRequest {
   analysis: PhotoAnalysis;
@@ -48,21 +40,9 @@ const FLUX_MODEL_QUALITY = "@cf/black-forest-labs/flux-2-klein-9b";
 /** FLUX 입력 이미지 제약: 512x512보다 작아야 한다 */
 const MAX_INPUT_EDGE = 511;
 const MIN_INPUT_EDGE = 64;
-/** direct_atlas 출력 크기 (64의 배수, 후처리에서 8x8 셀 축소) */
-const OUTPUT_SIZE = 512;
 /** front_view 출력 크기: 정면+뒷면 두 뷰가 나란히 (512x512 타일 2개 비용) */
 const FRONT_VIEW_WIDTH = 1024;
 const FRONT_VIEW_HEIGHT = 512;
-
-/**
- * 스타일 참고 스킨(448x448 PNG base64) 조회 순서:
- * 1) env.STYLE_REF_B64 — 로컬 개발 전용(.dev.vars, gitignore 대상).
- *    사용 권리가 확인되지 않은 참고 이미지는 저장소/원격에 올리지 않는다.
- * 2) KV "asset:style-ref-448" — 운영용. 프로젝트가 소유한 참고 스킨을
- *    확보한 뒤에만 이 키에 업로드한다.
- * 둘 다 없으면 스타일 참고 없이(2-이미지 모드) 동작한다.
- */
-export const STYLE_REF_KV_KEY = "asset:style-ref-448";
 
 function dataUrlToBytes(
   dataUrl: string,
@@ -79,25 +59,7 @@ function dataUrlToBytes(
 }
 
 export class FluxKleinProvider implements SkinGenerationProvider {
-  private styleRefPromise: Promise<Uint8Array | null> | null = null;
-
   constructor(private readonly env: Env) {}
-
-  private loadStyleRef(): Promise<Uint8Array | null> {
-    this.styleRefPromise ??= (async () => {
-      try {
-        const local = this.env.STYLE_REF_B64;
-        if (local) {
-          return base64ToBytes(local.trim());
-        }
-        const b64 = await this.env.MCSKIN_KV.get(STYLE_REF_KV_KEY);
-        return b64 ? base64ToBytes(b64) : null;
-      } catch {
-        return null;
-      }
-    })();
-    return this.styleRefPromise;
-  }
 
   async generate(
     request: SkinGenerationRequest,
@@ -141,22 +103,13 @@ export class FluxKleinProvider implements SkinGenerationProvider {
       // 가이드가 두 뷰의 크기·간격을 안정화하고, 배치는 서버 코드가 최종 보장한다.
       prompt = buildFrontViewPrompt(request.analysis);
       images = [photo.bytes, await buildFrontBackGuidePng()];
-    } else if (request.mode === "four_view") {
+    } else {
       prompt = buildFourViewPrompt(request.analysis);
       images = [photo.bytes, await buildFourViewGuidePng()];
-    } else {
-      const styleRef = await this.loadStyleRef();
-      const hasStyleRef = styleRef !== null;
-      prompt = buildSkinPrompt(request.analysis, { hasStyleRef });
-      images = hasStyleRef
-        ? [styleRef, photo.bytes, base64ToBytes(UV_GUIDE_PNG_B64)]
-        : [photo.bytes, base64ToBytes(UV_GUIDE_PNG_B64)];
     }
 
-    const isViewSheet =
-      request.mode === "front_view" || request.mode === "four_view";
-    const width = isViewSheet ? FRONT_VIEW_WIDTH : OUTPUT_SIZE;
-    const height = isViewSheet ? FRONT_VIEW_HEIGHT : OUTPUT_SIZE;
+    const width = FRONT_VIEW_WIDTH;
+    const height = FRONT_VIEW_HEIGHT;
     const form = new FormData();
     images.forEach((bytes, index) => {
       const mime = bytes === photo.bytes ? photo.mime : "image/png";

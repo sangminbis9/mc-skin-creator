@@ -13,13 +13,12 @@ import {
   makeFourViewSheet,
   makeFrontBackView,
   makeSyntheticAtlas,
-  upscale,
 } from "./helpers";
 
 function makeEnv(
   analysis: unknown,
   imageGen = true,
-  strategy = "direct_atlas",
+  strategy = "front_view",
 ): Env {
   return {
     AI: {
@@ -52,8 +51,8 @@ function providerOf(
 }
 
 async function goodFluxOutput(): Promise<SkinGenerationResult> {
-  const png = await encodePng(upscale(makeSyntheticAtlas(), 8));
-  return { ok: true, imageBytes: png, inputTiles: 3, outputTiles: 1 };
+  const png = await encodePng(makeFrontBackView());
+  return { ok: true, imageBytes: png, inputTiles: 2, outputTiles: 2 };
 }
 
 describe("generateSkin", () => {
@@ -221,63 +220,28 @@ describe("generateSkin", () => {
     expect(decoded.rgba[sleeve]).toBeGreaterThan(decoded.rgba[sleeveFold]);
   });
 
-  it("direct_atlas 전략: 이미지 생성 성공 → 64x64 유효 atlas + 비용 215 Neurons", async () => {
-    const env = makeEnv(makeAnalysis());
-    const provider = providerOf([await goodFluxOutput()]);
+  it("legacy direct_atlas configuration is forced onto safe front-view packing", async () => {
+    const env = makeEnv(makeAnalysis(), true, "direct_atlas");
+    const frontPng = await encodePng(makeFrontBackView());
+    let requestedMode = "";
+    const provider: SkinGenerationProvider = {
+      async generate(request) {
+        requestedMode = request.mode;
+        return {
+          ok: true,
+          imageBytes: frontPng,
+          inputTiles: 2,
+          outputTiles: 2,
+        };
+      },
+    };
+
     const result = await generateSkin(env, await photoDataUrl(), provider);
 
     expect(result.status).toBe(200);
     expect(result.body.generationMode).toBe("image");
-    expect(result.body.skinPngBase64).toBeTruthy();
-    expect(result.body.features).toBeTruthy();
-    expect(result.body.analysis?.framing).toBe("upper_body");
-    expect(provider.calls).toBe(1);
-    // 분석 170 + (입력 3타일 x 6 + 출력 27) = 215
-    expect(result.neuronsSpent).toBe(215);
-
-    // 반환된 PNG가 실제로 유효한 64x64 atlas인지
-    const decoded = await decodePng(
-      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
-        c.charCodeAt(0),
-      ),
-    );
-    expect(decoded.width).toBe(64);
-    expect(decoded.height).toBe(64);
-    expect(validateFinalAtlas(decoded).ok).toBe(true);
-  });
-
-  it("direct_atlas restores transparent cutouts from an opaque generated overlay", async () => {
-    const atlas = makeSyntheticAtlas();
-    const base = CLASSIC_LAYOUT.body.base.front;
-    const overlay = CLASSIC_LAYOUT.body.overlay.front;
-    for (let y = 0; y < overlay.h; y++) {
-      for (let x = 0; x < overlay.w; x++) {
-        const source = ((base.y + y) * ATLAS_SIZE + base.x + x) * 4;
-        const target = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
-        atlas.rgba.set(atlas.rgba.slice(source, source + 4), target);
-        atlas.rgba[target + 3] = 255;
-      }
-    }
-    const accent = ((overlay.y + 5) * ATLAS_SIZE + overlay.x + 3) * 4;
-    atlas.rgba.set([238, 72, 118, 255], accent);
-    const generated = await encodePng(upscale(atlas, 8));
-    const provider = providerOf([
-      { ok: true, imageBytes: generated, inputTiles: 3, outputTiles: 1 },
-    ]);
-
-    const result = await generateSkin(
-      makeEnv(makeAnalysis()),
-      await photoDataUrl(),
-      provider,
-    );
-    const decoded = await decodePng(
-      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
-        character.charCodeAt(0),
-      ),
-    );
-    const duplicate = ((overlay.y + 1) * ATLAS_SIZE + overlay.x + 1) * 4;
-    expect(decoded.rgba[duplicate + 3]).toBe(0);
-    expect(decoded.rgba[accent + 3]).toBe(255);
+    expect(requestedMode).toBe("front_view");
+    expect(result.neuronsSpent).toBe(236);
   });
 
   it("생성 결과가 atlas 검증에 실패하면 seed를 바꿔 1회 재시도한다", async () => {
@@ -294,7 +258,7 @@ describe("generateSkin", () => {
     const result = await generateSkin(env, await photoDataUrl(), provider);
     expect(provider.calls).toBe(2);
     expect(result.body.generationMode).toBe("image");
-    expect(result.neuronsSpent).toBe(170 + 45 + 45);
+    expect(result.neuronsSpent).toBe(170 + 45 + 66);
   });
 
   it("두 번 모두 실패하면 분석 기반 절차적 atlas를 내려보낸다", async () => {
@@ -571,7 +535,7 @@ describe("generateSkin", () => {
     expect(provider.calls).toBe(2);
     expect(result.body.generationMode).toBe("image");
     // 실패한 1회차는 과금 집계에서 제외(성공 응답을 받지 못함), 성공 1회차만 45
-    expect(result.neuronsSpent).toBe(215);
+    expect(result.neuronsSpent).toBe(236);
   });
 
   it("feature flag가 꺼져 있으면 provider를 호출하지 않는다", async () => {

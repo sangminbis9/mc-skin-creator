@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodePng } from "../src/png";
-import { measureAtlasCraft } from "../src/skinPost";
+import { measureAtlasCraft, validateAtlasCraft } from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
 import { REFERENCE_SKIN_BASE64 } from "./fixtures/referenceSkin";
 import { makeFrontView } from "./helpers";
@@ -103,6 +103,27 @@ describe("handcrafted atlas quality metrics", () => {
       shoeStyle: "sneakers",
     })!.atlas;
     const compactMetrics = measureAtlasCraft(compactMale);
+    const decoratedStyle = {
+      hairstyle: "long",
+      sideHairLength: "shoulder",
+      hairAccessory: "flower",
+      outerLayer: "heavy",
+      outerGarment: "cardigan",
+      neckAccessory: "bow",
+      bottomPattern: "plaid",
+      bottomAccent: "ribbon",
+      legwear: "leg_warmers",
+    };
+    expect(validateAtlasCraft(reference, decoratedStyle).ok).toBe(true);
+    expect(validateAtlasCraft(procedural, decoratedStyle).ok).toBe(true);
+    expect(
+      validateAtlasCraft(compactMale, {
+        hairstyle: "short",
+        sideHairLength: "short",
+        outerLayer: "heavy",
+        garmentTexture: "knit",
+      }).ok,
+    ).toBe(true);
     expect(compactMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(
       referenceMetrics.opaqueOverlayPixels * 2 + 100,
     );
