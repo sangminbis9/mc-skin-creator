@@ -1348,6 +1348,15 @@ function composeHair(
             : [0, 1, 6, 7];
       paintSideRow(base.right, sideRows - 1, bottomHairXs, false);
       paintSideRow(base.left, sideRows - 1, bottomHairXs, true);
+      if (earExposure === "partial" && sideRows < base.right.h) {
+        // Carry the inner cube one row around the visible ear. Without this
+        // bracket the exact side view exposes a broad skin rectangle beneath
+        // a flat hair band, even though the outer layer contains temple locks.
+        // The two centre cells remain a readable 2 px ear window.
+        const earBracketXs = [0, 1, 2, 5, 6, 7] as const;
+        paintSideRow(base.right, sideRows, earBracketXs, false);
+        paintSideRow(base.left, sideRows, earBracketXs, true);
+      }
     } else {
       fill(base.right, 0, 0, 8, Math.max(0, sideRows - 1));
       fill(base.left, 0, 0, 8, Math.max(0, sideRows - 1));
@@ -2622,12 +2631,12 @@ function composeHair(
                 [0, 1, 6, 7],
                 [0, 7],
               ]
-            : [
-                [1, 2, 3, 4, 5, 6],
-                [0, 1, 2, 5, 6, 7],
-                [0, 1, 6, 7],
-                [0, 7],
-              ];
+          : [
+              [1, 2, 3, 4, 5, 6],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 7],
+            ];
       for (const [rect, phase] of [
         [over.right, 0],
         [over.left, 1],

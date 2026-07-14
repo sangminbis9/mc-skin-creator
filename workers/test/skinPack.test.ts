@@ -1088,6 +1088,8 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, head.overlay.front, 2, 3)).toBe(0);
     expect(alphaAt(atlas, head.overlay.front, 5, 3)).toBe(0);
     for (const rect of [head.overlay.right, head.overlay.left]) {
+      expect(alphaAt(atlas, rect, 2, 3)).toBe(255);
+      expect(alphaAt(atlas, rect, 5, 3)).toBe(255);
       expect(alphaAt(atlas, rect, 0, 4)).toBe(255);
       expect(alphaAt(atlas, rect, 7, 4)).toBe(255);
       for (const x of [1, 2, 3, 4, 5, 6])
@@ -1123,6 +1125,20 @@ describe("packFrontViewToAtlas", () => {
     );
     expect(redAt(atlas, head.base.left, 4, 3)).toBeGreaterThan(
       redAt(atlas, head.base.left, 6, 3) + 50,
+    );
+    // The base layer wraps around a two-pixel ear window instead of exposing
+    // a broad rectangular side of the head under the second-layer hair cap.
+    expect(redAt(atlas, head.base.right, 2, 4)).toBeLessThan(
+      redAt(atlas, head.base.right, 3, 4) - 50,
+    );
+    expect(redAt(atlas, head.base.right, 5, 4)).toBeLessThan(
+      redAt(atlas, head.base.right, 4, 4) - 50,
+    );
+    expect(redAt(atlas, head.base.left, 2, 4)).toBeLessThan(
+      redAt(atlas, head.base.left, 3, 4) - 50,
+    );
+    expect(redAt(atlas, head.base.left, 5, 4)).toBeLessThan(
+      redAt(atlas, head.base.left, 4, 4) - 50,
     );
     expect(
       Math.abs(
