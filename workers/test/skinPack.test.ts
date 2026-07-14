@@ -1580,6 +1580,41 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("long face-framing hair leaves a side-profile window inside sparse outer locks", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairSilhouette: "tousled",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+      earExposure: "covered",
+      hairAccessory: "none",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head;
+
+    expect(redAt(atlas, head.base.right, 4, 4)).toBeGreaterThan(
+      redAt(atlas, head.base.right, 1, 4) + 50,
+    );
+    expect(redAt(atlas, head.base.left, 3, 4)).toBeGreaterThan(
+      redAt(atlas, head.base.left, 6, 4) + 50,
+    );
+    expect(redAt(atlas, head.base.right, 4, 2)).toBeLessThan(
+      redAt(atlas, head.base.right, 4, 4) - 50,
+    );
+    expect(alphaAt(atlas, head.overlay.right, 3, 4)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.right, 4, 4)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.left, 3, 4)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.left, 4, 4)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.right, 0, 4)).toBe(255);
+    expect(alphaAt(atlas, head.overlay.left, 7, 4)).toBe(255);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   const representativeHairStyles = [
     {
       hairstyle: "buzz",

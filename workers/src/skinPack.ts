@@ -1418,7 +1418,47 @@ function composeHair(
   // 옆머리 (렌더는 가장자리 확장뿐이라 항상 카테고리로 채움)
   // Rounded outer-layer cut-outs must reveal hair, not portrait skin.
   fill(base.top, 0, 0, 8, 8);
-  if (roundedFringeCut) {
+  if (s === "long" && sideHairShape === "face_framing") {
+    const paintLongSideRow = (
+      rect: Rect,
+      y: number,
+      hairXs: readonly number[],
+      mirrored: boolean,
+    ) => {
+      const hairSet = new Set(hairXs);
+      for (let x = 0; x < 8; x++) {
+        if (hairSet.has(x)) {
+          fill(rect, x, y, 1, 1);
+        } else {
+          const isFarHalf = mirrored ? x < 4 : x >= 4;
+          putColor(rect, x, y, shadeRgb(skinColor, isFarHalf ? 0.87 : 0.9));
+        }
+      }
+    };
+    // Long face-framing hair still exposes a cheek/profile window on the
+    // inner head cube. Filling all 8x8 side pixels produces a rectangular
+    // helmet that no sparse second-layer silhouette can correct.
+    fill(base.right, 0, 0, 8, 3);
+    fill(base.left, 0, 0, 8, 3);
+    const rightRows = [
+      [0, 1, 2, 3, 7],
+      [0, 1, 2, 7],
+      [0, 1, 2, 7],
+      [0, 1, 7],
+      [0, 1, 7],
+    ] as const;
+    for (let row = 0; row < rightRows.length; row++) {
+      const y = row + 3;
+      const rightXs = rightRows[row];
+      paintLongSideRow(base.right, y, rightXs, false);
+      paintLongSideRow(
+        base.left,
+        y,
+        rightXs.map((x) => 7 - x),
+        true,
+      );
+    }
+  } else if (roundedFringeCut) {
     const paintSideRow = (
       rect: Rect,
       y: number,

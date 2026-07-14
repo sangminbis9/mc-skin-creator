@@ -986,7 +986,7 @@ function completeVisibleAccessoryDetails(
 
     const accessoryNames =
       "flower|flowers|floral|hair bow|bow in hair|head bow|hair ribbon|ribbon in hair|head ribbon|hair clip|barrette|hairpin";
-    for (const color of [
+    const accessoryColors = [
       "black",
       "brown",
       "white",
@@ -998,20 +998,55 @@ function completeVisibleAccessoryDetails(
       "blue",
       "purple",
       "pink",
-    ] as const) {
-      const colorBeforeAccessory = new RegExp(
-        `\\b${color}\\b(?:\\s+[a-z-]+){0,3}\\s+(?:${accessoryNames})\\b`,
-      );
-      const accessoryBeforeColor = new RegExp(
-        `\\b(?:${accessoryNames})\\b(?:\\s+[a-z-]+){0,3}\\s+${color}\\b`,
-      );
-      if (
-        colorBeforeAccessory.test(sideText) ||
-        accessoryBeforeColor.test(sideText)
-      ) {
-        style.hairAccessoryColor = color;
-        break;
+    ] as const;
+    type AccessoryColor = (typeof accessoryColors)[number];
+    const closestColor = (
+      direction: "before" | "after",
+    ): AccessoryColor | null => {
+      let best: { color: AccessoryColor; distance: number; index: number } | null =
+        null;
+      for (const color of accessoryColors) {
+        const pattern =
+          direction === "before"
+            ? new RegExp(
+                `\\b${color}\\b((?:\\s+[a-z-]+){0,3})\\s+(?:${accessoryNames})\\b`,
+                "g",
+              )
+            : new RegExp(
+                `\\b(?:${accessoryNames})\\b((?:\\s+[a-z-]+){0,3})\\s+${color}\\b`,
+                "g",
+              );
+        for (const match of sideText.matchAll(pattern)) {
+          const end = (match.index ?? 0) + match[0].length;
+          if (
+            direction === "after" &&
+            /^\s+(?:leaf|leaves|foliage|stem|stems)\b/.test(sideText.slice(end))
+          ) {
+            continue;
+          }
+          const distance = match[1].trim()
+            ? match[1].trim().split(/\s+/).length
+            : 0;
+          const candidate = { color, distance, index: match.index ?? 0 };
+          if (
+            best === null ||
+            candidate.distance < best.distance ||
+            (candidate.distance === best.distance && candidate.index < best.index)
+          ) {
+            best = candidate;
+          }
+        }
       }
+      return best?.color ?? null;
+    };
+    // In descriptions such as "pink flowers with green leaves", the petal
+    // colour precedes the accessory while the foliage colour follows it.
+    // Prefer the closest colour before the accessory and only fall back to a
+    // trailing colour when no such petal/bow/clip colour exists.
+    const recoveredAccessoryColor =
+      closestColor("before") ?? closestColor("after");
+    if (recoveredAccessoryColor) {
+      style.hairAccessoryColor = recoveredAccessoryColor;
     }
   }
 

@@ -161,4 +161,45 @@ describe("hair accessory recovery", () => {
     expect(decoded.rgba[petal + 2]).toBeGreaterThan(decoded.rgba[petal]);
     expect(decoded.rgba[petal + 3]).toBe(255);
   });
+
+  it("keeps pink petals when a pink flower description also mentions green leaves", async () => {
+    const base = makeAnalysis();
+    const env = makeEnv(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "long wavy light-brown hair with a viewer-left flower cluster",
+          accessories:
+            "Viewer-left cluster of pink and pale pink artificial flowers with green leaves as a hair accessory.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairAccessory: "flower",
+          hairAccessorySide: "left",
+          hairAccessoryColor: "pink",
+        },
+        identityPrompt:
+          "Long wavy light-brown hair with a pink flower cluster and green leaves on viewer-left.",
+      }),
+    );
+    const provider = providerOf({
+      ok: true,
+      imageBytes: await encodePng(makeFrontBackView()),
+      inputTiles: 2,
+      outputTiles: 2,
+    });
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const petal = ((front.y + 2) * ATLAS_SIZE + front.x) * 4;
+    const leaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
+
+    expect(result.status).toBe(200);
+    expect(decoded.rgba[petal]).toBeGreaterThan(decoded.rgba[petal + 1]);
+    expect(decoded.rgba[leaf + 1]).toBeGreaterThan(decoded.rgba[leaf]);
+  });
 });
