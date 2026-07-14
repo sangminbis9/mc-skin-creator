@@ -11,7 +11,9 @@ import {
   ALL_PARTS,
   ATLAS_SIZE,
   CLASSIC_LAYOUT,
+  getBoxUvSeams,
   type BoxUV,
+  type PixelPoint,
   type Rect,
 } from "./uvLayout";
 
@@ -386,46 +388,48 @@ function fillRectSolid(
 }
 
 /**
- * Finish every vertical outer-layer corner after all procedural details have
- * been composed. Front/back pixels are the semantic source of truth (they
- * carry photographed patterns and inferred rear construction); the adjacent
- * side edge inherits them. If only the side is populated, extend that pixel
- * back onto the empty front/back edge instead of leaving a one-pixel crack.
+ * Finish all twelve outer-layer cuboid edges after procedural details have
+ * been composed. Authored vertical faces carry the semantic pattern; their
+ * physically adjacent side/top/bottom edge inherits it. Vertical faces are
+ * reconciled in both directions because the procedural author may place a
+ * side-only lock or fold. Horizontal faces only inherit from their vertical
+ * source: a broad crown or sole must never leak into an open face silhouette.
  */
-function reconcileOverlayVerticalSeams(atlas: RawImage): void {
-  const copyPixel = (
-    source: Rect,
-    sourceX: number,
-    target: Rect,
-    targetX: number,
-    y: number,
-  ) => {
-    const sourceIndex = ((source.y + y) * ATLAS_SIZE + source.x + sourceX) * 4;
-    const targetIndex = ((target.y + y) * ATLAS_SIZE + target.x + targetX) * 4;
+function reconcileOverlaySeams(atlas: RawImage): void {
+  const copyPixel = (source: PixelPoint, target: PixelPoint) => {
+    const sourceIndex = (source.y * ATLAS_SIZE + source.x) * 4;
+    const targetIndex = (target.y * ATLAS_SIZE + target.x) * 4;
     for (let channel = 0; channel < 4; channel++) {
       atlas.rgba[targetIndex + channel] = atlas.rgba[sourceIndex + channel];
     }
   };
 
   for (const part of ALL_PARTS) {
-    const overlay = CLASSIC_LAYOUT[part].overlay;
-    const seams = [
-      [overlay.front, 0, overlay.right, overlay.right.w - 1],
-      [overlay.front, overlay.front.w - 1, overlay.left, 0],
-      [overlay.back, overlay.back.w - 1, overlay.right, 0],
-      [overlay.back, 0, overlay.left, overlay.left.w - 1],
-    ] as const;
-    for (const [primary, primaryX, side, sideX] of seams) {
-      for (let y = 0; y < Math.min(primary.h, side.h); y++) {
-        const primaryIndex =
-          ((primary.y + y) * ATLAS_SIZE + primary.x + primaryX) * 4;
-        const sideIndex = ((side.y + y) * ATLAS_SIZE + side.x + sideX) * 4;
-        const primaryOpaque = atlas.rgba[primaryIndex + 3] !== 0;
-        const sideOpaque = atlas.rgba[sideIndex + 3] !== 0;
-        if (primaryOpaque) {
-          copyPixel(primary, primaryX, side, sideX, y);
-        } else if (sideOpaque) {
-          copyPixel(side, sideX, primary, primaryX, y);
+    const seams = getBoxUvSeams(CLASSIC_LAYOUT[part].overlay);
+    for (const seam of seams.vertical) {
+      for (let index = 0; index < seam.primary.length; index++) {
+        const primary = seam.primary[index];
+        const adjacent = seam.adjacent[index];
+        const primaryIndex = (primary.y * ATLAS_SIZE + primary.x) * 4;
+        const adjacentIndex = (adjacent.y * ATLAS_SIZE + adjacent.x) * 4;
+        if (atlas.rgba[primaryIndex + 3] !== 0) {
+          copyPixel(primary, adjacent);
+        } else if (atlas.rgba[adjacentIndex + 3] !== 0) {
+          copyPixel(adjacent, primary);
+        }
+      }
+    }
+    for (const seam of seams.horizontal) {
+      for (let index = 0; index < seam.primary.length; index++) {
+        const primary = seam.primary[index];
+        const adjacent = seam.adjacent[index];
+        const primaryIndex = (primary.y * ATLAS_SIZE + primary.x) * 4;
+        const adjacentIndex = (adjacent.y * ATLAS_SIZE + adjacent.x) * 4;
+        if (
+          atlas.rgba[primaryIndex + 3] !== 0 &&
+          atlas.rgba[adjacentIndex + 3] === 0
+        ) {
+          copyPixel(primary, adjacent);
         }
       }
     }
@@ -5629,7 +5633,7 @@ export function packFrontViewToAtlas(
   composeHair(atlas, hairColor, skinColor, faceStyle, back !== null);
   preserveFaceReadability(atlas, faceStyle);
   composeHat(atlas, hatColor, faceStyle);
-  reconcileOverlayVerticalSeams(atlas);
+  reconcileOverlaySeams(atlas);
   applyShading(atlas);
 
   return { atlas, problems, hasBackView: back !== null };

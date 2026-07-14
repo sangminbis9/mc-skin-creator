@@ -16,10 +16,14 @@ import {
   type Rect,
 } from "../lib/skinAtlas";
 
-/** BoxGeometry 면 순서: +x(right), -x(left), +y(top), -y(bottom), +z(front), -z(back) */
+/**
+ * Three.js orders the first two BoxGeometry faces as geometric +x and -x.
+ * In a front view, -x is the character's anatomical right, so the Minecraft
+ * right/left UV faces intentionally appear in the opposite axis order.
+ */
 const FACE_ORDER: (keyof BoxUV)[] = [
-  "right",
   "left",
+  "right",
   "top",
   "bottom",
   "front",
@@ -120,7 +124,12 @@ export class SkinModel {
         side: THREE.DoubleSide,
       });
       const overlay = new THREE.Mesh(
-        buildPartGeometry(layout.overlay, w + inflate, h + inflate, d + inflate),
+        buildPartGeometry(
+          layout.overlay,
+          w + inflate,
+          h + inflate,
+          d + inflate,
+        ),
         overlayMaterial,
       );
       overlay.position.set(px, py, pz);

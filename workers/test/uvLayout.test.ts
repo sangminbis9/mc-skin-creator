@@ -4,6 +4,7 @@ import {
   ATLAS_SIZE,
   CLASSIC_LAYOUT,
   buildZoneMap,
+  getBoxUvSeams,
 } from "../src/uvLayout";
 import { CLASSIC_LAYOUT as CLIENT_LAYOUT } from "../../src/lib/skinAtlas";
 
@@ -26,5 +27,37 @@ describe("uvLayout", () => {
     expect(counts.base).toBe(1632);
     expect(counts.overlay).toBe(1632);
     expect(counts.outside).toBe(ATLAS_SIZE * ATLAS_SIZE - 3264);
+  });
+
+  it("maps all 12 physical cuboid edges with the renderer orientation", () => {
+    const box = CLASSIC_LAYOUT.head.overlay;
+    const seams = getBoxUvSeams(box);
+
+    expect(seams.vertical).toHaveLength(4);
+    expect(seams.horizontal).toHaveLength(8);
+    for (const seam of [...seams.vertical, ...seams.horizontal]) {
+      expect(seam.primary).toHaveLength(seam.adjacent.length);
+    }
+
+    // Screen-left is the character's anatomical right in a front view.
+    expect(seams.vertical[0].primary[0]).toEqual({
+      x: box.front.x,
+      y: box.front.y,
+    });
+    expect(seams.vertical[0].adjacent[0]).toEqual({
+      x: box.right.x + box.right.w - 1,
+      y: box.right.y,
+    });
+
+    // The front hairline meets the front-most row of the top face.
+    expect(seams.horizontal[0].adjacent[0]).toEqual({
+      x: box.top.x,
+      y: box.top.y + box.top.h - 1,
+    });
+    // SkinModel mirrors the bottom face, so its front edge runs right-to-left.
+    expect(seams.horizontal[4].adjacent[0]).toEqual({
+      x: box.bottom.x + box.bottom.w - 1,
+      y: box.bottom.y,
+    });
   });
 });

@@ -21,6 +21,96 @@ export interface BoxUV {
   back: Rect;
 }
 
+export interface PixelPoint {
+  x: number;
+  y: number;
+}
+
+export interface UvSeam {
+  /** The authored vertical face is the semantic source for this seam. */
+  primary: PixelPoint[];
+  /** The physically adjacent side, top, or bottom edge in the 3D renderer. */
+  adjacent: PixelPoint[];
+}
+
+export interface BoxUvSeams {
+  vertical: UvSeam[];
+  horizontal: UvSeam[];
+}
+
+function row(rect: Rect, y: number, reverse = false): PixelPoint[] {
+  return Array.from({ length: rect.w }, (_, index) => ({
+    x: rect.x + (reverse ? rect.w - 1 - index : index),
+    y: rect.y + y,
+  }));
+}
+
+function column(rect: Rect, x: number, reverse = false): PixelPoint[] {
+  return Array.from({ length: rect.h }, (_, index) => ({
+    x: rect.x + x,
+    y: rect.y + (reverse ? rect.h - 1 - index : index),
+  }));
+}
+
+/**
+ * Pixel pairs that touch on the rendered cuboid.
+ *
+ * These orientations follow SkinModel's Three.js BoxGeometry mapping exactly,
+ * including its mirrored bottom face. Keeping this in the shared Worker UV
+ * module prevents a visually false "seam match" between atlas edges that do
+ * not actually meet in 3D.
+ */
+export function getBoxUvSeams(box: BoxUV): BoxUvSeams {
+  return {
+    vertical: [
+      {
+        primary: column(box.front, 0),
+        adjacent: column(box.right, box.right.w - 1),
+      },
+      {
+        primary: column(box.front, box.front.w - 1),
+        adjacent: column(box.left, 0),
+      },
+      {
+        primary: column(box.back, 0),
+        adjacent: column(box.left, box.left.w - 1),
+      },
+      {
+        primary: column(box.back, box.back.w - 1),
+        adjacent: column(box.right, 0),
+      },
+    ],
+    horizontal: [
+      { primary: row(box.front, 0), adjacent: row(box.top, box.top.h - 1) },
+      { primary: row(box.back, 0), adjacent: row(box.top, 0, true) },
+      {
+        primary: row(box.right, 0),
+        adjacent: column(box.top, 0),
+      },
+      {
+        primary: row(box.left, 0),
+        adjacent: column(box.top, box.top.w - 1, true),
+      },
+      {
+        primary: row(box.front, box.front.h - 1),
+        adjacent: row(box.bottom, 0, true),
+      },
+      {
+        primary: row(box.back, box.back.h - 1),
+        adjacent: row(box.bottom, box.bottom.h - 1),
+      },
+      {
+        primary: row(box.right, box.right.h - 1),
+        adjacent: column(box.bottom, box.bottom.w - 1, true),
+      },
+      {
+        primary: row(box.left, box.left.h - 1),
+        adjacent: column(box.bottom, 0),
+      },
+    ],
+  };
+}
+
 /** 박스 전개도 좌표 계산: (u, v)는 전개도의 좌상단, (w, h, d)는 박스 크기 */
 function boxUV(u: number, v: number, w: number, h: number, d: number): BoxUV {
   return {
@@ -34,12 +124,7 @@ function boxUV(u: number, v: number, w: number, h: number, d: number): BoxUV {
 }
 
 export type BodyPart =
-  | "head"
-  | "body"
-  | "rightArm"
-  | "leftArm"
-  | "rightLeg"
-  | "leftLeg";
+  "head" | "body" | "rightArm" | "leftArm" | "rightLeg" | "leftLeg";
 
 export interface PartLayout {
   base: BoxUV;

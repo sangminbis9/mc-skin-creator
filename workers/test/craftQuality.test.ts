@@ -44,30 +44,39 @@ describe("handcrafted atlas quality metrics", () => {
     expect(referenceMetrics.opaqueOverlayPixels).toBe(269);
     expect(referenceMetrics.overlayPixelsByPart.head).toBe(103);
     expect(referenceMetrics.overlayPixelsByPart.body).toBe(63);
-    expect(proceduralMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(1_050);
+    expect(proceduralMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(1_120);
     expect(proceduralMetrics.overlayColorCount).toBeGreaterThan(
       referenceMetrics.overlayColorCount,
     );
     expect(proceduralMetrics.shadedOverlayFaces).toBeGreaterThanOrEqual(
       referenceMetrics.shadedOverlayFaces,
     );
-    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(220);
-    expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(280);
+    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(230);
+    expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(295);
     expect(proceduralMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(
-      130,
+      140,
     );
     expect(proceduralMetrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(
-      130,
+      140,
     );
     expect(proceduralMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
-      130,
+      140,
     );
     expect(proceduralMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(
-      180,
+      200,
     );
     expect(proceduralMetrics.solidOverlayFaces).toBe(0);
     expect(proceduralMetrics.overlayVerticalSeamMismatches).toBe(0);
     expect(proceduralMetrics.overlayVerticalSeamColorDistance).toBe(0);
+    expect(
+      proceduralMetrics.overlayHorizontalSeamMismatches,
+    ).toBeLessThanOrEqual(60);
+    expect(
+      proceduralMetrics.overlayHorizontalSeamColorDistance,
+    ).toBeLessThanOrEqual(80);
+    expect(
+      proceduralMetrics.baseHorizontalSeamColorDistance,
+    ).toBeLessThanOrEqual(200);
 
     const compactMale = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -95,19 +104,25 @@ describe("handcrafted atlas quality metrics", () => {
     })!.atlas;
     const compactMetrics = measureAtlasCraft(compactMale);
     expect(compactMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(
-      referenceMetrics.opaqueOverlayPixels * 2 + 50,
+      referenceMetrics.opaqueOverlayPixels * 2 + 100,
     );
     expect(compactMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(150);
-    expect(compactMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(130);
-    expect(compactMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(50);
-    expect(compactMetrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(50);
+    expect(compactMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(160);
+    expect(compactMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(60);
+    expect(compactMetrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(60);
     expect(compactMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
-      100,
+      110,
     );
-    expect(compactMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(100);
+    expect(compactMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(110);
     expect(compactMetrics.solidOverlayFaces).toBe(0);
     expect(compactMetrics.overlayVerticalSeamMismatches).toBe(0);
     expect(compactMetrics.overlayVerticalSeamColorDistance).toBe(0);
+    expect(compactMetrics.overlayHorizontalSeamMismatches).toBeLessThanOrEqual(
+      60,
+    );
+    expect(
+      compactMetrics.overlayHorizontalSeamColorDistance,
+    ).toBeLessThanOrEqual(80);
   });
 
   const styleMatrix = [
@@ -128,7 +143,7 @@ describe("handcrafted atlas quality metrics", () => {
     },
     {
       name: "short rounded knit portrait",
-      maxOverlayPixels: 580,
+      maxOverlayPixels: 644,
       style: {
         hairstyle: "short",
         hairVolume: "normal",
@@ -146,7 +161,7 @@ describe("handcrafted atlas quality metrics", () => {
     },
     {
       name: "medium layered jacket",
-      maxOverlayPixels: 930,
+      maxOverlayPixels: 994,
       style: {
         hairstyle: "medium",
         hairVolume: "normal",
@@ -181,7 +196,7 @@ describe("handcrafted atlas quality metrics", () => {
     },
     {
       name: "long decorated cardigan",
-      maxOverlayPixels: 1_050,
+      maxOverlayPixels: 1_114,
       style: {
         hairstyle: "long",
         hairTexture: "wavy",
@@ -213,18 +228,22 @@ describe("handcrafted atlas quality metrics", () => {
         ...style,
       })!.atlas;
       const metrics = measureAtlasCraft(atlas);
-
       expect(metrics.opaqueOverlayPixels).toBeLessThanOrEqual(maxOverlayPixels);
       expect(metrics.overlayPixelsByPart.head).toBeLessThanOrEqual(260);
-      expect(metrics.overlayPixelsByPart.body).toBeLessThanOrEqual(280);
-      expect(metrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(130);
-      expect(metrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(130);
-      expect(metrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(180);
-      expect(metrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(180);
+      expect(metrics.overlayPixelsByPart.body).toBeLessThanOrEqual(295);
+      expect(metrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(140);
+      expect(metrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(140);
+      expect(metrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(200);
+      expect(metrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(200);
       expect(metrics.shadedOverlayFaces).toBeGreaterThanOrEqual(8);
       expect(metrics.solidOverlayFaces).toBe(0);
       expect(metrics.overlayVerticalSeamMismatches).toBe(0);
       expect(metrics.overlayVerticalSeamColorDistance).toBe(0);
+      expect(metrics.overlayHorizontalSeamMismatches).toBeLessThanOrEqual(60);
+      expect(metrics.overlayHorizontalSeamColorDistance).toBeLessThanOrEqual(
+        80,
+      );
+      expect(metrics.baseHorizontalSeamColorDistance).toBeLessThanOrEqual(200);
     },
   );
 });

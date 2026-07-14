@@ -14,8 +14,10 @@ import {
   CLASSIC_LAYOUT,
   HEAD_FRONT,
   buildZoneMap,
+  getBoxUvSeams,
   type BodyPart,
   type Rect,
+  type UvSeam,
 } from "./uvLayout";
 
 const ZONE_MAP = buildZoneMap();
@@ -129,6 +131,52 @@ function opaqueStatsIn(
   return { pixels, colors: colors.size };
 }
 
+interface SeamStats {
+  mismatches: number;
+  samples: number;
+  colorDistanceSum: number;
+  opaquePairs: number;
+}
+
+function measureSeams(atlas: RawImage, seams: UvSeam[]): SeamStats {
+  const stats: SeamStats = {
+    mismatches: 0,
+    samples: 0,
+    colorDistanceSum: 0,
+    opaquePairs: 0,
+  };
+  for (const seam of seams) {
+    for (let index = 0; index < seam.primary.length; index++) {
+      const first = seam.primary[index];
+      const second = seam.adjacent[index];
+      const firstPixel = first.y * ATLAS_SIZE + first.x;
+      const secondPixel = second.y * ATLAS_SIZE + second.x;
+      const firstOpaque = atlas.rgba[firstPixel * 4 + 3] !== 0;
+      const secondOpaque = atlas.rgba[secondPixel * 4 + 3] !== 0;
+      stats.samples++;
+      if (firstOpaque !== secondOpaque) {
+        stats.mismatches++;
+        continue;
+      }
+      if (!firstOpaque) continue;
+      stats.opaquePairs++;
+      for (let channel = 0; channel < 3; channel++) {
+        stats.colorDistanceSum += Math.abs(
+          atlas.rgba[firstPixel * 4 + channel] -
+            atlas.rgba[secondPixel * 4 + channel],
+        );
+      }
+    }
+  }
+  return stats;
+}
+
+function averageSeamColorDistance(stats: SeamStats): number {
+  return stats.opaquePairs === 0
+    ? 0
+    : stats.colorDistanceSum / stats.opaquePairs;
+}
+
 export interface AtlasCraftMetrics {
   baseColorCount: number;
   overlayColorCount: number;
@@ -141,6 +189,13 @@ export interface AtlasCraftMetrics {
   overlayVerticalSeamColorDistance: number;
   overlayVerticalSeamMismatchesByPart: Record<BodyPart, number>;
   overlayVerticalSeamColorDistanceByPart: Record<BodyPart, number>;
+  overlayHorizontalSeamMismatches: number;
+  overlayHorizontalSeamSamples: number;
+  overlayHorizontalSeamColorDistance: number;
+  overlayHorizontalSeamMismatchesByPart: Record<BodyPart, number>;
+  overlayHorizontalSeamColorDistanceByPart: Record<BodyPart, number>;
+  baseHorizontalSeamColorDistance: number;
+  baseHorizontalSeamColorDistanceByPart: Record<BodyPart, number>;
   detailedBaseFaces: number;
   overlayPixelsByPart: Record<BodyPart, number>;
 }
@@ -164,6 +219,15 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
   const overlayVerticalSeamColorDistanceByPart = Object.fromEntries(
     ALL_PARTS.map((part) => [part, 0]),
   ) as Record<BodyPart, number>;
+  const overlayHorizontalSeamMismatchesByPart = Object.fromEntries(
+    ALL_PARTS.map((part) => [part, 0]),
+  ) as Record<BodyPart, number>;
+  const overlayHorizontalSeamColorDistanceByPart = Object.fromEntries(
+    ALL_PARTS.map((part) => [part, 0]),
+  ) as Record<BodyPart, number>;
+  const baseHorizontalSeamColorDistanceByPart = Object.fromEntries(
+    ALL_PARTS.map((part) => [part, 0]),
+  ) as Record<BodyPart, number>;
   let opaqueOverlayPixels = 0;
   let populatedOverlayFaces = 0;
   let shadedOverlayFaces = 0;
@@ -172,12 +236,16 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
   let overlayVerticalSeamSamples = 0;
   let overlayVerticalSeamColorDistanceSum = 0;
   let overlayVerticalSeamOpaquePairs = 0;
+  let overlayHorizontalSeamMismatches = 0;
+  let overlayHorizontalSeamSamples = 0;
+  let overlayHorizontalSeamColorDistanceSum = 0;
+  let overlayHorizontalSeamOpaquePairs = 0;
+  let baseHorizontalSeamColorDistanceSum = 0;
+  let baseHorizontalSeamOpaquePairs = 0;
   let detailedBaseFaces = 0;
   const overlayColors = new Set<number>();
 
   for (const part of ALL_PARTS) {
-    let partSeamColorDistance = 0;
-    let partOpaquePairs = 0;
     for (const rect of Object.values(CLASSIC_LAYOUT[part].base)) {
       if (opaqueStatsIn(atlas, rect).colors >= 3) detailedBaseFaces++;
     }
@@ -197,40 +265,33 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
       }
     }
 
-    const overlay = CLASSIC_LAYOUT[part].overlay;
-    const seamPairs = [
-      [overlay.front, 0, overlay.right, overlay.right.w - 1],
-      [overlay.front, overlay.front.w - 1, overlay.left, 0],
-      [overlay.back, overlay.back.w - 1, overlay.right, 0],
-      [overlay.back, 0, overlay.left, overlay.left.w - 1],
-    ] as const;
-    for (const [first, firstX, second, secondX] of seamPairs) {
-      for (let y = 0; y < Math.min(first.h, second.h); y++) {
-        const firstPixel = (first.y + y) * ATLAS_SIZE + first.x + firstX;
-        const secondPixel = (second.y + y) * ATLAS_SIZE + second.x + secondX;
-        const firstOpaque = atlas.rgba[firstPixel * 4 + 3] !== 0;
-        const secondOpaque = atlas.rgba[secondPixel * 4 + 3] !== 0;
-        overlayVerticalSeamSamples++;
-        if (firstOpaque !== secondOpaque) {
-          overlayVerticalSeamMismatches++;
-          overlayVerticalSeamMismatchesByPart[part]++;
-          continue;
-        }
-        if (!firstOpaque) continue;
-        overlayVerticalSeamOpaquePairs++;
-        partOpaquePairs++;
-        for (let channel = 0; channel < 3; channel++) {
-          const distance = Math.abs(
-            atlas.rgba[firstPixel * 4 + channel] -
-              atlas.rgba[secondPixel * 4 + channel],
-          );
-          overlayVerticalSeamColorDistanceSum += distance;
-          partSeamColorDistance += distance;
-        }
-      }
-    }
+    const overlaySeams = getBoxUvSeams(CLASSIC_LAYOUT[part].overlay);
+    const verticalStats = measureSeams(atlas, overlaySeams.vertical);
+    overlayVerticalSeamMismatches += verticalStats.mismatches;
+    overlayVerticalSeamSamples += verticalStats.samples;
+    overlayVerticalSeamColorDistanceSum += verticalStats.colorDistanceSum;
+    overlayVerticalSeamOpaquePairs += verticalStats.opaquePairs;
+    overlayVerticalSeamMismatchesByPart[part] = verticalStats.mismatches;
     overlayVerticalSeamColorDistanceByPart[part] =
-      partOpaquePairs === 0 ? 0 : partSeamColorDistance / partOpaquePairs;
+      averageSeamColorDistance(verticalStats);
+
+    const horizontalStats = measureSeams(atlas, overlaySeams.horizontal);
+    overlayHorizontalSeamMismatches += horizontalStats.mismatches;
+    overlayHorizontalSeamSamples += horizontalStats.samples;
+    overlayHorizontalSeamColorDistanceSum += horizontalStats.colorDistanceSum;
+    overlayHorizontalSeamOpaquePairs += horizontalStats.opaquePairs;
+    overlayHorizontalSeamMismatchesByPart[part] = horizontalStats.mismatches;
+    overlayHorizontalSeamColorDistanceByPart[part] =
+      averageSeamColorDistance(horizontalStats);
+
+    const baseHorizontalStats = measureSeams(
+      atlas,
+      getBoxUvSeams(CLASSIC_LAYOUT[part].base).horizontal,
+    );
+    baseHorizontalSeamColorDistanceSum += baseHorizontalStats.colorDistanceSum;
+    baseHorizontalSeamOpaquePairs += baseHorizontalStats.opaquePairs;
+    baseHorizontalSeamColorDistanceByPart[part] =
+      averageSeamColorDistance(baseHorizontalStats);
   }
 
   return {
@@ -248,6 +309,20 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
         : overlayVerticalSeamColorDistanceSum / overlayVerticalSeamOpaquePairs,
     overlayVerticalSeamMismatchesByPart,
     overlayVerticalSeamColorDistanceByPart,
+    overlayHorizontalSeamMismatches,
+    overlayHorizontalSeamSamples,
+    overlayHorizontalSeamColorDistance:
+      overlayHorizontalSeamOpaquePairs === 0
+        ? 0
+        : overlayHorizontalSeamColorDistanceSum /
+          overlayHorizontalSeamOpaquePairs,
+    overlayHorizontalSeamMismatchesByPart,
+    overlayHorizontalSeamColorDistanceByPart,
+    baseHorizontalSeamColorDistance:
+      baseHorizontalSeamOpaquePairs === 0
+        ? 0
+        : baseHorizontalSeamColorDistanceSum / baseHorizontalSeamOpaquePairs,
+    baseHorizontalSeamColorDistanceByPart,
     detailedBaseFaces,
     overlayPixelsByPart,
   };
