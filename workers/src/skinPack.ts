@@ -1457,6 +1457,21 @@ function composeHair(
         paintSideRow(base.right, sideRows, earBracketXs, false);
         paintSideRow(base.left, sideRows, earBracketXs, true);
       }
+    } else if (sideHairShape === "tapered") {
+      // A tapered short cut must narrow on the inner cube as well as on the
+      // outer layer. Leaving the first three rows solid makes transparent
+      // overlay cut-outs reveal a square hair cap instead of the ear/temple
+      // contour inferred from the portrait.
+      fill(base.right, 0, 0, 8, Math.max(0, sideRows - 2));
+      fill(base.left, 0, 0, 8, Math.max(0, sideRows - 2));
+      paintSideRow(base.right, sideRows - 2, [0, 1, 2, 5, 6, 7], false);
+      paintSideRow(base.left, sideRows - 2, [0, 1, 2, 5, 6, 7], true);
+      paintSideRow(base.right, sideRows - 1, [0, 1, 6, 7], false);
+      paintSideRow(base.left, sideRows - 1, [0, 1, 6, 7], true);
+      if (earExposure === "partial" && sideRows < base.right.h) {
+        paintSideRow(base.right, sideRows, [0, 7], false);
+        paintSideRow(base.left, sideRows, [0, 7], true);
+      }
     } else {
       fill(base.right, 0, 0, 8, Math.max(0, sideRows - 1));
       fill(base.left, 0, 0, 8, Math.max(0, sideRows - 1));
@@ -2707,7 +2722,10 @@ function composeHair(
     s !== "afro" &&
     style.hairTexture !== "coily"
   ) {
-    if (sideHairShape === "ear_hugging") {
+    if (
+      sideHairShape === "ear_hugging" ||
+      (sideHairShape === "tapered" && roundedFringeCut)
+    ) {
       // The generic strand pass above can leave isolated pixels below the
       // intended ear opening. Rebuild both side overlays from a clean mask so
       // the silhouette, not texture noise, controls their visible length.
@@ -2731,12 +2749,19 @@ function composeHair(
                 [0, 1, 6, 7],
                 [0, 7],
               ]
-            : [
-                [1, 2, 3, 4, 5, 6],
-                [0, 1, 2, 5, 6, 7],
-                [0, 1, 2, 5, 6, 7],
-                [0, 7],
-              ];
+            : sideHairShape === "tapered"
+              ? [
+                  [1, 2, 3, 4, 5, 6],
+                  [0, 1, 2, 5, 6, 7],
+                  [0, 1, 6, 7],
+                  [0, 7],
+                ]
+              : [
+                  [1, 2, 3, 4, 5, 6],
+                  [0, 1, 2, 5, 6, 7],
+                  [0, 1, 2, 5, 6, 7],
+                  [0, 7],
+                ];
       for (const [rect, phase] of [
         [over.right, 0],
         [over.left, 1],

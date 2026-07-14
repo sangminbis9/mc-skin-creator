@@ -1172,6 +1172,75 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("portrait-inferred tapered sides narrow across both layers and keep every physical seam connected", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight",
+      bangsLength: "brow",
+      bangsDensity: "dense",
+      fringeEdge: "blunt",
+      fringeOpening: "center",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      hairSilhouette: "rounded",
+      hairBackShape: "tapered",
+      hairPart: "left",
+      sideHairLength: "short",
+      sideHairShape: "tapered",
+      sideHairAsymmetry: "none",
+      earExposure: "partial",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head;
+
+    // The inner cube narrows before the ear instead of revealing a solid
+    // rectangular cap through the transparent second-layer profile.
+    for (const rect of [head.base.right, head.base.left]) {
+      expect(redAt(atlas, rect, 2, 2)).toBeLessThan(
+        redAt(atlas, rect, 3, 2) - 50,
+      );
+      expect(redAt(atlas, rect, 1, 3)).toBeLessThan(
+        redAt(atlas, rect, 3, 3) - 50,
+      );
+      expect(redAt(atlas, rect, 0, 4)).toBeLessThan(
+        redAt(atlas, rect, 3, 4) - 50,
+      );
+    }
+
+    // The outer cube steps from temple width to two edge locks, leaving the
+    // centre of the ear visible in an exact side view.
+    for (const rect of [head.overlay.right, head.overlay.left]) {
+      expect(alphaAt(atlas, rect, 2, 2)).toBe(255);
+      expect(alphaAt(atlas, rect, 3, 2)).toBe(0);
+      expect(alphaAt(atlas, rect, 1, 3)).toBe(255);
+      expect(alphaAt(atlas, rect, 2, 3)).toBe(0);
+      expect(alphaAt(atlas, rect, 3, 4)).toBe(0);
+      expect(alphaAt(atlas, rect, 4, 4)).toBe(0);
+    }
+
+    // Front/side/back joins use the physical Minecraft UV neighbours, so the
+    // tapered silhouette cannot break when the preview rotates.
+    for (let y = 0; y < 8; y++) {
+      expect(rgbaAt(atlas, head.overlay.front, 0, y)).toEqual(
+        rgbaAt(atlas, head.overlay.right, 7, y),
+      );
+      expect(rgbaAt(atlas, head.overlay.front, 7, y)).toEqual(
+        rgbaAt(atlas, head.overlay.left, 0, y),
+      );
+      expect(rgbaAt(atlas, head.overlay.back, 7, y)).toEqual(
+        rgbaAt(atlas, head.overlay.right, 0, y),
+      );
+      expect(rgbaAt(atlas, head.overlay.back, 0, y)).toEqual(
+        rgbaAt(atlas, head.overlay.left, 7, y),
+      );
+    }
+    expect(alphaAt(atlas, head.overlay.front, 3, 2)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.front, 3, 3)).toBe(0);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("fringeOpening cuts a real forehead gap through both base and outer hair layers", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,
