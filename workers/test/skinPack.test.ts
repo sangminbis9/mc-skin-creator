@@ -1126,6 +1126,22 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, head.base.left, 4, 3)).toBeGreaterThan(
       redAt(atlas, head.base.left, 6, 3) + 50,
     );
+    // Temple hair must descend continuously to the ear bracket. A one-row
+    // skin gap here makes the front fringe and side layer look disconnected
+    // in exact side views even though the UV seam itself is colour-matched.
+    for (const rect of [head.base.right, head.base.left]) {
+      for (const x of [2, 5]) {
+        expect(redAt(atlas, rect, x, 2)).toBeLessThan(
+          redAt(atlas, rect, 3, 4) - 50,
+        );
+        expect(redAt(atlas, rect, x, 3)).toBeLessThan(
+          redAt(atlas, rect, 3, 4) - 50,
+        );
+        expect(redAt(atlas, rect, x, 4)).toBeLessThan(
+          redAt(atlas, rect, 3, 4) - 50,
+        );
+      }
+    }
     // The base layer wraps around a two-pixel ear window instead of exposing
     // a broad rectangular side of the head under the second-layer hair cap.
     expect(redAt(atlas, head.base.right, 2, 4)).toBeLessThan(

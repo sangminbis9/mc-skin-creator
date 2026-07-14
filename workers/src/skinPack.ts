@@ -1345,7 +1345,7 @@ function composeHair(
           ? [0, 1, 2, 5, 6, 7]
           : earExposure === "visible"
             ? [0, 7]
-            : [0, 1, 6, 7];
+            : [0, 1, 2, 5, 6, 7];
       paintSideRow(base.right, sideRows - 1, bottomHairXs, false);
       paintSideRow(base.left, sideRows - 1, bottomHairXs, true);
       if (earExposure === "partial" && sideRows < base.right.h) {
