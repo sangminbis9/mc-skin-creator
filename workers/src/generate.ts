@@ -22,6 +22,7 @@ import {
 import {
   applyUvMask,
   downscaleToAtlas,
+  restoreGeneratedOverlayAlpha,
   validateAtlas,
   validateFinalAtlas,
 } from "./skinPost";
@@ -436,6 +437,9 @@ async function postprocess(
         verdict.problems.join(" / "),
       );
       return null;
+    }
+    if (mode === "direct_atlas") {
+      restoreGeneratedOverlayAlpha(atlas);
     }
     applyUvMask(atlas);
     const finalVerdict = validateFinalAtlas(atlas);
@@ -1003,8 +1007,11 @@ function completeVisibleAccessoryDetails(
     const closestColor = (
       direction: "before" | "after",
     ): AccessoryColor | null => {
-      let best: { color: AccessoryColor; distance: number; index: number } | null =
-        null;
+      let best: {
+        color: AccessoryColor;
+        distance: number;
+        index: number;
+      } | null = null;
       for (const color of accessoryColors) {
         const pattern =
           direction === "before"
@@ -1031,7 +1038,8 @@ function completeVisibleAccessoryDetails(
           if (
             best === null ||
             candidate.distance < best.distance ||
-            (candidate.distance === best.distance && candidate.index < best.index)
+            (candidate.distance === best.distance &&
+              candidate.index < best.index)
           ) {
             best = candidate;
           }

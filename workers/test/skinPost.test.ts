@@ -3,10 +3,16 @@ import type { RawImage } from "../src/png";
 import {
   applyUvMask,
   downscaleToAtlas,
+  restoreGeneratedOverlayAlpha,
   validateAtlas,
   validateFinalAtlas,
 } from "../src/skinPost";
-import { ATLAS_SIZE, HEAD_FRONT, buildZoneMap } from "../src/uvLayout";
+import {
+  ATLAS_SIZE,
+  CLASSIC_LAYOUT,
+  HEAD_FRONT,
+  buildZoneMap,
+} from "../src/uvLayout";
 import { makeSyntheticAtlas, upscale } from "./helpers";
 
 const ZONES = buildZoneMap();
@@ -34,7 +40,11 @@ describe("downscaleToAtlas", () => {
   });
 
   it("64 미만 입력은 거부한다", () => {
-    const tiny: RawImage = { width: 32, height: 32, rgba: new Uint8Array(32 * 32 * 4) };
+    const tiny: RawImage = {
+      width: 32,
+      height: 32,
+      rgba: new Uint8Array(32 * 32 * 4),
+    };
     expect(() => downscaleToAtlas(tiny)).toThrow();
   });
 });
@@ -67,7 +77,11 @@ describe("applyUvMask + validateFinalAtlas", () => {
   });
 
   it("64x64가 아니면 실패한다", () => {
-    const bad: RawImage = { width: 32, height: 32, rgba: new Uint8Array(32 * 32 * 4) };
+    const bad: RawImage = {
+      width: 32,
+      height: 32,
+      rgba: new Uint8Array(32 * 32 * 4),
+    };
     expect(validateFinalAtlas(bad).ok).toBe(false);
     expect(() => applyUvMask(bad)).toThrow();
   });
@@ -114,5 +128,106 @@ describe("validateAtlas (마스크 전 휴리스틱)", () => {
     const verdict = validateAtlas(atlas);
     expect(verdict.ok).toBe(false);
     expect(verdict.problems.join()).toContain("atlas");
+  });
+});
+
+describe("restoreGeneratedOverlayAlpha", () => {
+  it("turns generated background-colored overlay pixels transparent", () => {
+    const atlas = makeSyntheticAtlas();
+    for (let pixel = 0; pixel < ATLAS_SIZE * ATLAS_SIZE; pixel++) {
+      if (ZONES[pixel] === "outside") {
+        atlas.rgba.set([24, 24, 28, 255], pixel * 4);
+      }
+    }
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    for (let y = 0; y < overlay.h; y++) {
+      for (let x = 0; x < overlay.w; x++) {
+        atlas.rgba[((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4 + 3] = 0;
+      }
+    }
+    const backgroundPixel = (overlay.y * ATLAS_SIZE + overlay.x) * 4;
+    const darkHairPixel = (overlay.y * ATLAS_SIZE + overlay.x + 1) * 4;
+    atlas.rgba.set([24, 24, 28, 255], backgroundPixel);
+    atlas.rgba.set([18, 18, 20, 255], darkHairPixel);
+
+    restoreGeneratedOverlayAlpha(atlas);
+
+    expect(atlas.rgba[backgroundPixel + 3]).toBe(0);
+    expect(atlas.rgba[darkHairPixel + 3]).toBe(255);
+  });
+
+  it("removes an opaque base-layer copy while keeping distinct overlay detail", () => {
+    const atlas = makeSyntheticAtlas();
+    const base = CLASSIC_LAYOUT.body.base.front;
+    const overlay = CLASSIC_LAYOUT.body.overlay.front;
+    for (let y = 0; y < overlay.h; y++) {
+      for (let x = 0; x < overlay.w; x++) {
+        const source = ((base.y + y) * ATLAS_SIZE + base.x + x) * 4;
+        const target = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+        atlas.rgba.set(atlas.rgba.slice(source, source + 4), target);
+        atlas.rgba[target + 3] = 255;
+      }
+    }
+    const accent = ((overlay.y + 5) * ATLAS_SIZE + overlay.x + 3) * 4;
+    atlas.rgba.set([238, 72, 118, 255], accent);
+
+    restoreGeneratedOverlayAlpha(atlas);
+
+    const duplicate = ((overlay.y + 1) * ATLAS_SIZE + overlay.x + 1) * 4;
+    expect(atlas.rgba[duplicate + 3]).toBe(0);
+    expect(atlas.rgba[accent + 3]).toBe(255);
+  });
+
+  it("keeps solid head top and back faces for legitimate hair volume", () => {
+    const atlas = makeSyntheticAtlas();
+    for (const faceName of ["top", "back"] as const) {
+      const base = CLASSIC_LAYOUT.head.base[faceName];
+      const overlay = CLASSIC_LAYOUT.head.overlay[faceName];
+      for (let y = 0; y < overlay.h; y++) {
+        for (let x = 0; x < overlay.w; x++) {
+          const source = ((base.y + y) * ATLAS_SIZE + base.x + x) * 4;
+          const target = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+          atlas.rgba.set(atlas.rgba.slice(source, source + 4), target);
+          atlas.rgba[target + 3] = 255;
+        }
+      }
+    }
+
+    restoreGeneratedOverlayAlpha(atlas);
+
+    for (const faceName of ["top", "back"] as const) {
+      const overlay = CLASSIC_LAYOUT.head.overlay[faceName];
+      for (let y = overlay.y; y < overlay.y + overlay.h; y++) {
+        for (let x = overlay.x; x < overlay.x + overlay.w; x++) {
+          expect(atlas.rgba[(y * ATLAS_SIZE + x) * 4 + 3]).toBe(255);
+        }
+      }
+    }
+  });
+
+  it("preserves an already sparse authored overlay", () => {
+    const atlas = makeSyntheticAtlas();
+    const base = CLASSIC_LAYOUT.head.base.front;
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    for (let y = 0; y < overlay.h; y++) {
+      for (let x = 0; x < overlay.w; x++) {
+        const target = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+        atlas.rgba[target + 3] = 0;
+      }
+    }
+    for (let x = 2; x <= 5; x++) {
+      const source = ((base.y + 1) * ATLAS_SIZE + base.x + x) * 4;
+      const target = ((overlay.y + 1) * ATLAS_SIZE + overlay.x + x) * 4;
+      atlas.rgba.set(atlas.rgba.slice(source, source + 4), target);
+      atlas.rgba[target + 3] = 255;
+    }
+
+    restoreGeneratedOverlayAlpha(atlas);
+
+    for (let x = 2; x <= 5; x++) {
+      expect(
+        atlas.rgba[((overlay.y + 1) * ATLAS_SIZE + overlay.x + x) * 4 + 3],
+      ).toBe(255);
+    }
   });
 });

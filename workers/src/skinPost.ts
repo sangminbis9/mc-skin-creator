@@ -16,6 +16,7 @@ import {
   buildZoneMap,
   getBoxUvSeams,
   type BodyPart,
+  type BoxUV,
   type Rect,
   type UvSeam,
 } from "./uvLayout";
@@ -53,6 +54,121 @@ export function downscaleToAtlas(source: RawImage): RawImage {
     }
   }
   return { width: ATLAS_SIZE, height: ATLAS_SIZE, rgba: out };
+}
+
+type BoxFace = keyof BoxUV;
+
+const BOX_FACES: BoxFace[] = [
+  "top",
+  "bottom",
+  "right",
+  "front",
+  "left",
+  "back",
+];
+
+function rgbDistance(rgba: Uint8Array, first: number, second: number): number {
+  return (
+    Math.abs(rgba[first] - rgba[second]) +
+    Math.abs(rgba[first + 1] - rgba[second + 1]) +
+    Math.abs(rgba[first + 2] - rgba[second + 2])
+  );
+}
+
+function dominantOutsideColor(atlas: RawImage): [number, number, number] {
+  const buckets = new Map<
+    number,
+    { count: number; r: number; g: number; b: number }
+  >();
+  for (let pixel = 0; pixel < ATLAS_SIZE * ATLAS_SIZE; pixel++) {
+    if (ZONE_MAP[pixel] !== "outside") continue;
+    const offset = pixel * 4;
+    const key =
+      ((atlas.rgba[offset] >> 4) << 8) |
+      ((atlas.rgba[offset + 1] >> 4) << 4) |
+      (atlas.rgba[offset + 2] >> 4);
+    const bucket = buckets.get(key) ?? { count: 0, r: 0, g: 0, b: 0 };
+    bucket.count++;
+    bucket.r += atlas.rgba[offset];
+    bucket.g += atlas.rgba[offset + 1];
+    bucket.b += atlas.rgba[offset + 2];
+    buckets.set(key, bucket);
+  }
+  const dominant = [...buckets.values()].sort((a, b) => b.count - a.count)[0];
+  if (!dominant) return [0, 0, 0];
+  return [
+    Math.round(dominant.r / dominant.count),
+    Math.round(dominant.g / dominant.count),
+    Math.round(dominant.b / dominant.count),
+  ];
+}
+
+/**
+ * Image generators commonly return an opaque PNG even when the requested UV
+ * atlas contains transparent second-layer pixels. Recover those cut-outs
+ * before applying the strict UV mask:
+ *
+ * - pixels that still match the dominant outside background become transparent;
+ * - a nearly solid overlay face is treated as a painted copy of its base face,
+ *   and only materially different detail pixels are retained;
+ * - head top/back faces are allowed to stay solid because they legitimately
+ *   provide hair volume around the crown and rear silhouette.
+ *
+ * Sparse authored overlays are left alone, so collars, cuffs, hems, flowers,
+ * side hair and shoe straps keep their intended shapes.
+ */
+export function restoreGeneratedOverlayAlpha(atlas: RawImage): RawImage {
+  if (atlas.width !== ATLAS_SIZE || atlas.height !== ATLAS_SIZE) {
+    throw new Error("64x64 atlas required");
+  }
+  const [backgroundR, backgroundG, backgroundB] = dominantOutsideColor(atlas);
+  const backgroundDistance = (offset: number) =>
+    Math.abs(atlas.rgba[offset] - backgroundR) +
+    Math.abs(atlas.rgba[offset + 1] - backgroundG) +
+    Math.abs(atlas.rgba[offset + 2] - backgroundB);
+
+  for (const part of ALL_PARTS) {
+    const layout = CLASSIC_LAYOUT[part];
+    for (const face of BOX_FACES) {
+      const overlay = layout.overlay[face];
+      const base = layout.base[face];
+      const pixels: Array<{ overlayOffset: number; baseOffset: number }> = [];
+      let opaqueAfterBackground = 0;
+
+      for (let y = 0; y < overlay.h; y++) {
+        for (let x = 0; x < overlay.w; x++) {
+          const overlayOffset =
+            ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+          const baseOffset = ((base.y + y) * ATLAS_SIZE + base.x + x) * 4;
+          pixels.push({ overlayOffset, baseOffset });
+          if (
+            atlas.rgba[overlayOffset + 3] < 128 ||
+            backgroundDistance(overlayOffset) <= 9
+          ) {
+            atlas.rgba[overlayOffset + 3] = 0;
+          } else {
+            atlas.rgba[overlayOffset + 3] = 255;
+            opaqueAfterBackground++;
+          }
+        }
+      }
+
+      const canBeSolidHairVolume =
+        part === "head" && (face === "top" || face === "back");
+      const nearlySolid = opaqueAfterBackground / pixels.length >= 0.9;
+      if (!nearlySolid || canBeSolidHairVolume) continue;
+
+      for (const { overlayOffset, baseOffset } of pixels) {
+        if (
+          atlas.rgba[overlayOffset + 3] !== 0 &&
+          rgbDistance(atlas.rgba, overlayOffset, baseOffset) <= 30
+        ) {
+          atlas.rgba[overlayOffset + 3] = 0;
+        }
+      }
+    }
+  }
+  return atlas;
 }
 
 /** UV 마스크 적용: 영역 밖 투명 / base 불투명 / overlay 이진 alpha. 입력을 제자리 수정한다. */

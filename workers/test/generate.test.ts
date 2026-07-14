@@ -224,6 +224,40 @@ describe("generateSkin", () => {
     expect(validateFinalAtlas(decoded).ok).toBe(true);
   });
 
+  it("direct_atlas restores transparent cutouts from an opaque generated overlay", async () => {
+    const atlas = makeSyntheticAtlas();
+    const base = CLASSIC_LAYOUT.body.base.front;
+    const overlay = CLASSIC_LAYOUT.body.overlay.front;
+    for (let y = 0; y < overlay.h; y++) {
+      for (let x = 0; x < overlay.w; x++) {
+        const source = ((base.y + y) * ATLAS_SIZE + base.x + x) * 4;
+        const target = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+        atlas.rgba.set(atlas.rgba.slice(source, source + 4), target);
+        atlas.rgba[target + 3] = 255;
+      }
+    }
+    const accent = ((overlay.y + 5) * ATLAS_SIZE + overlay.x + 3) * 4;
+    atlas.rgba.set([238, 72, 118, 255], accent);
+    const generated = await encodePng(upscale(atlas, 8));
+    const provider = providerOf([
+      { ok: true, imageBytes: generated, inputTiles: 3, outputTiles: 1 },
+    ]);
+
+    const result = await generateSkin(
+      makeEnv(makeAnalysis()),
+      await photoDataUrl(),
+      provider,
+    );
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const duplicate = ((overlay.y + 1) * ATLAS_SIZE + overlay.x + 1) * 4;
+    expect(decoded.rgba[duplicate + 3]).toBe(0);
+    expect(decoded.rgba[accent + 3]).toBe(255);
+  });
+
   it("생성 결과가 atlas 검증에 실패하면 seed를 바꿔 1회 재시도한다", async () => {
     const flat = await encodePng({
       width: 512,
