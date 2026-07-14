@@ -129,8 +129,10 @@ describe("inferred lower-body completion", () => {
         inferred: {
           ...base.inferred,
           lowerBody: {
-            value: "dark pleated plaid skirt with small ribbon detail and white socks",
-            rationale: "the visible cardigan and bow collar create a preppy outfit",
+            value:
+              "dark pleated plaid skirt with small ribbon detail and white socks",
+            rationale:
+              "the visible cardigan and bow collar create a preppy outfit",
           },
           shoes: {
             value: "dark dress shoes",
@@ -177,7 +179,9 @@ describe("inferred lower-body completion", () => {
       ((bodyFront.y + bodyFront.h - 3) * ATLAS_SIZE + bodyFront.x + 2) * 4;
     const legTop = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
     const sockPixel =
-      ((rightLegFront.y + rightLegFront.h - 4) * ATLAS_SIZE + rightLegFront.x + 1) *
+      ((rightLegFront.y + rightLegFront.h - 4) * ATLAS_SIZE +
+        rightLegFront.x +
+        1) *
       4;
 
     expect(result.status).toBe(200);
@@ -206,7 +210,8 @@ describe("inferred lower-body completion", () => {
           lowerBody: {
             value:
               "beige plaid skort with pleated shorts construction and one viewer-left leg warmer",
-            rationale: "the visible cardigan and bow collar create a soft preppy outfit",
+            rationale:
+              "the visible cardigan and bow collar create a soft preppy outfit",
           },
           lowerBodyDesign: null,
           shoes: {
@@ -282,7 +287,8 @@ describe("inferred lower-body completion", () => {
           lowerBody: {
             value:
               "plaid skirt with a single viewer-left leg warmer and a small ribbon on the viewer-right thigh",
-            rationale: "the visible bow collar supports an asymmetric preppy lower outfit",
+            rationale:
+              "the visible bow collar supports an asymmetric preppy lower outfit",
           },
           lowerBodyDesign: null,
           shoes: {
@@ -352,7 +358,8 @@ describe("inferred lower-body completion", () => {
           lowerBody: {
             value:
               "pleated skirt with one viewer-left over-knee sock and a small viewer-right thigh bow",
-            rationale: "the visible bow collar supports a detailed asymmetric preppy outfit",
+            rationale:
+              "the visible bow collar supports a detailed asymmetric preppy outfit",
           },
           lowerBodyDesign: null,
           shoes: {
@@ -433,7 +440,8 @@ describe("inferred lower-body completion", () => {
             legwear: "leg_warmers",
             legwearAsymmetry: "left",
             shoeStyle: "dress_shoes",
-            rationale: "the visible bow and cardigan call for a dressy detailed lower half",
+            rationale:
+              "the visible bow and cardigan call for a dressy detailed lower half",
           },
           shoes: {
             value: "dark dress shoes",
@@ -481,8 +489,7 @@ describe("inferred lower-body completion", () => {
       ((bodyFront.y + bodyFront.h - 3) * ATLAS_SIZE + bodyFront.x + 2) * 4;
     const leftWarmer =
       ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
-    const rightBow =
-      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+    const rightBow = ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[bodyHem + 3]).toBe(255);
@@ -522,7 +529,8 @@ describe("inferred lower-body completion", () => {
             legwear: "none",
             legwearAsymmetry: "none",
             shoeStyle: "sneakers",
-            rationale: "generic structured output that underuses the visible cardigan and bow",
+            rationale:
+              "generic structured output that underuses the visible cardigan and bow",
           },
           shoes: {
             value: "simple sneakers",
@@ -565,12 +573,16 @@ describe("inferred lower-body completion", () => {
       ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
     const legTop = (rightLegFront.y * ATLAS_SIZE + rightLegFront.x + 1) * 4;
     const sockPixel =
-      ((rightLegFront.y + rightLegFront.h - 4) * ATLAS_SIZE + rightLegFront.x + 1) *
+      ((rightLegFront.y + rightLegFront.h - 4) * ATLAS_SIZE +
+        rightLegFront.x +
+        1) *
       4;
     const thighRibbon =
       ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
     const shoeBow =
-      ((rightLegFront.y + rightLegFront.h - 3) * ATLAS_SIZE + rightLegFront.x + 1) *
+      ((rightLegFront.y + rightLegFront.h - 3) * ATLAS_SIZE +
+        rightLegFront.x +
+        1) *
       4;
 
     expect(result.status).toBe(200);
@@ -601,7 +613,8 @@ describe("inferred lower-body completion", () => {
           ...base.inferred,
           lowerBody: {
             value: "dark charcoal slim-fit pants",
-            rationale: "the dark neutral color continues the visible knit sweater",
+            rationale:
+              "the dark neutral color continues the visible knit sweater",
           },
           lowerBodyDesign: {
             bottomType: "pants",
@@ -631,12 +644,27 @@ describe("inferred lower-body completion", () => {
           ...base.fallbackFeatures,
           topType: "sweater",
           bottomType: "pants",
+          bottomColor: "gray",
+          shoesColor: "black",
         },
         outfitPrompt:
           "Preserve the visible dark cable-knit sweater and silver pendant; complete it with dark pants and black low-top sneakers.",
       }),
     );
-    const frontPng = await encodePng(makeFrontBackView());
+    const guide = makeFrontBackView();
+    for (const offsetX of [0, 512]) {
+      for (let y = 330; y < 455; y++) {
+        for (let x = offsetX + 196; x < offsetX + 316; x++) {
+          guide.rgba.set([28, 206, 72, 255], (y * guide.width + x) * 4);
+        }
+      }
+      for (let y = 455; y < 480; y++) {
+        for (let x = offsetX + 196; x < offsetX + 316; x++) {
+          guide.rgba.set([24, 82, 226, 255], (y * guide.width + x) * 4);
+        }
+      }
+    }
+    const frontPng = await encodePng(guide);
     const provider = providerOf({
       ok: true,
       imageBytes: frontPng,
@@ -666,11 +694,30 @@ describe("inferred lower-body completion", () => {
         rightLeg.right.w -
         1) *
       4;
+    const trouserBase = CLASSIC_LAYOUT.rightLeg.base.front;
+    const trouserPixel =
+      ((trouserBase.y + 3) * ATLAS_SIZE + trouserBase.x + 1) * 4;
+    const shoePixel =
+      ((trouserBase.y + 10) * ATLAS_SIZE + trouserBase.x + 1) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[cuff + 3]).toBe(255);
     expect(decoded.rgba[lace + 3]).toBe(255);
     expect(decoded.rgba[sideSole + 3]).toBe(255);
     expect(decoded.rgba[lace]).toBeGreaterThan(decoded.rgba[cuff]);
+    const trouserChannels = Array.from(
+      decoded.rgba.slice(trouserPixel, trouserPixel + 3),
+    );
+    const shoeChannels = Array.from(
+      decoded.rgba.slice(shoePixel, shoePixel + 3),
+    );
+    expect(
+      Math.max(...trouserChannels) - Math.min(...trouserChannels),
+    ).toBeLessThan(35);
+    expect(Math.max(...shoeChannels) - Math.min(...shoeChannels)).toBeLessThan(
+      35,
+    );
+    expect(trouserChannels[1]).toBeLessThan(trouserChannels[0] + 25);
+    expect(shoeChannels[2]).toBeLessThan(shoeChannels[0] + 25);
   });
 });

@@ -19,7 +19,12 @@ import {
   packFrontViewToAtlas,
   type FaceStyle,
 } from "./skinPack";
-import { applyUvMask, downscaleToAtlas, validateAtlas, validateFinalAtlas } from "./skinPost";
+import {
+  applyUvMask,
+  downscaleToAtlas,
+  validateAtlas,
+  validateFinalAtlas,
+} from "./skinPost";
 import {
   FluxKleinProvider,
   type GenerationStrategy,
@@ -88,7 +93,11 @@ export async function generateSkin(
   // cannot claim capacity remains after the Cloudflare allocation is spent.
   let spent = analysisResult.attempts * NEURONS_VISION_ANALYSIS;
   if (!analysisResult.ok) {
-    console.log("analysis failed:", analysisResult.reason, analysisResult.detail);
+    console.log(
+      "analysis failed:",
+      analysisResult.reason,
+      analysisResult.detail,
+    );
     // Persist only provider/schema diagnostics, never the uploaded image or
     // model response. This makes production failures inspectable even when a
     // sampled tail misses the request.
@@ -172,7 +181,12 @@ export async function generateSkin(
       spent +=
         generated.inputTiles * NEURONS_IMAGE_INPUT_TILE +
         generated.outputTiles * NEURONS_IMAGE_OUTPUT_TILE;
-      const atlas = await postprocess(generated.imageBytes, attempt, mode, faceStyle);
+      const atlas = await postprocess(
+        generated.imageBytes,
+        attempt,
+        mode,
+        faceStyle,
+      );
       if (atlas) {
         skinPngBase64 = atlas;
         generationMode = "image";
@@ -207,7 +221,9 @@ function buildFaceStyle(
   const style: FaceStyle = {
     eyeColor: String(features.eyeColor),
     glassesColor: String(features.glassesColor),
-    eyebrowThickness: String(raw.eyebrowThickness ?? DEFAULT_FACE_STYLE.eyebrowThickness),
+    eyebrowThickness: String(
+      raw.eyebrowThickness ?? DEFAULT_FACE_STYLE.eyebrowThickness,
+    ),
     expression: String(raw.expression ?? DEFAULT_FACE_STYLE.expression),
     facialHair: String(raw.facialHair ?? DEFAULT_FACE_STYLE.facialHair),
     glasses: String(raw.glasses ?? DEFAULT_FACE_STYLE.glasses),
@@ -252,6 +268,8 @@ function buildFaceStyle(
     legwearAsymmetry: analysis.renderHints.legwearAsymmetry,
     topColor: String(features.topColor),
     topAccentColor: String(features.topAccentColor),
+    bottomColor: String(features.bottomColor),
+    shoesColor: String(features.shoesColor),
     topType: String(raw.topType ?? DEFAULT_FACE_STYLE.topType),
     sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
     bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
@@ -268,7 +286,8 @@ function featureRgb(
   fallback: [number, number, number],
 ): [number, number, number] {
   const value = features[key];
-  if (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value)) return fallback;
+  if (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value))
+    return fallback;
   return [
     Number.parseInt(value.slice(1, 3), 16),
     Number.parseInt(value.slice(3, 5), 16),
@@ -327,7 +346,8 @@ function buildProceduralFrontView(
     fill(316, 244, 376, 330, skin);
   }
 
-  const shortBottom = style.bottomType === "shorts" || style.bottomType === "skirt";
+  const shortBottom =
+    style.bottomType === "shorts" || style.bottomType === "skirt";
   if (shortBottom) {
     fill(196, 330, 316, 382, bottom);
     fill(196, 382, 316, 456, skin);
@@ -343,18 +363,27 @@ async function buildProceduralFallbackPng(
   style: FaceStyle,
 ): Promise<string | null> {
   try {
-    const packed = packFrontViewToAtlas(buildProceduralFrontView(features, style), style);
+    const packed = packFrontViewToAtlas(
+      buildProceduralFrontView(features, style),
+      style,
+    );
     if (!packed) return null;
     const atlas = packed.atlas;
     const verdict = validateAtlas(atlas);
     if (!verdict.ok) {
-      console.log("procedural fallback validation failed:", verdict.problems.join(" / "));
+      console.log(
+        "procedural fallback validation failed:",
+        verdict.problems.join(" / "),
+      );
       return null;
     }
     applyUvMask(atlas);
     const finalVerdict = validateFinalAtlas(atlas);
     if (!finalVerdict.ok) {
-      console.log("procedural fallback final validation failed:", finalVerdict.problems.join(" / "));
+      console.log(
+        "procedural fallback final validation failed:",
+        finalVerdict.problems.join(" / "),
+      );
       return null;
     }
     return bytesToBase64(await encodePng(atlas));
@@ -385,26 +414,36 @@ async function postprocess(
         return null;
       }
       if (!packed.hasBackView) {
-        console.log(`attempt ${attempt}: 뒷면 뷰가 없어 정체성 일관성 검증 실패`);
+        console.log(
+          `attempt ${attempt}: 뒷면 뷰가 없어 정체성 일관성 검증 실패`,
+        );
         return null;
       }
       atlas = packed.atlas;
     } else {
       if (decoded.width !== decoded.height || decoded.width < 64) {
-        console.log(`attempt ${attempt}: 비정사각 출력 ${decoded.width}x${decoded.height}`);
+        console.log(
+          `attempt ${attempt}: 비정사각 출력 ${decoded.width}x${decoded.height}`,
+        );
         return null;
       }
       atlas = downscaleToAtlas(decoded);
     }
     const verdict = validateAtlas(atlas);
     if (!verdict.ok) {
-      console.log(`attempt ${attempt}: atlas 검증 실패 —`, verdict.problems.join(" / "));
+      console.log(
+        `attempt ${attempt}: atlas 검증 실패 —`,
+        verdict.problems.join(" / "),
+      );
       return null;
     }
     applyUvMask(atlas);
     const finalVerdict = validateFinalAtlas(atlas);
     if (!finalVerdict.ok) {
-      console.log(`attempt ${attempt}: 최종 검증 실패 —`, finalVerdict.problems.join(" / "));
+      console.log(
+        `attempt ${attempt}: 최종 검증 실패 —`,
+        finalVerdict.problems.join(" / "),
+      );
       return null;
     }
     return bytesToBase64(await encodePng(atlas));
@@ -508,7 +547,10 @@ function paletteHex(
   return fallback;
 }
 
-function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+function completeInferredLowerDetails(
+  analysis: PhotoAnalysis,
+  style: FaceStyle,
+): void {
   if (analysis.visibleRegions.lowerBody) {
     completeVisibleLowerDetails(analysis, style);
     return;
@@ -557,15 +599,23 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     (style.shoeStyle ?? "sneakers") === "sneakers";
 
   if (!structuredLower) {
-    if (/\b(skort|skorts|culotte skirt|pleated culottes|plaid culottes|pleated shorts|plaid shorts)\b/.test(inferredText)) {
+    if (
+      /\b(skort|skorts|culotte skirt|pleated culottes|plaid culottes|pleated shorts|plaid shorts)\b/.test(
+        inferredText,
+      )
+    ) {
       style.bottomType = "skirt";
-    } else if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt)\b/.test(inferredText)) {
+    } else if (
+      /\b(skirt|pleated skirt|plaid skirt|tartan skirt)\b/.test(inferredText)
+    ) {
       style.bottomType = "skirt";
     } else if (/\b(shorts|short pants|culottes)\b/.test(inferredText)) {
       style.bottomType = "shorts";
     } else if (/\b(jeans|denim)\b/.test(inferredText)) {
       style.bottomType = "jeans";
-    } else if (/\b(pants|trousers|slacks|chinos|joggers)\b/.test(inferredText)) {
+    } else if (
+      /\b(pants|trousers|slacks|chinos|joggers)\b/.test(inferredText)
+    ) {
       style.bottomType = "pants";
     } else if ((style.bottomType ?? "pants") === "pants" && preppyTop) {
       style.bottomType = "skirt";
@@ -593,9 +643,15 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
 
     if (/\b(leg warmer|leg warmers)\b/.test(inferredText)) {
       style.legwear = "leg_warmers";
-    } else if (/\b(knee high|knee-high|knee highs|knee-highs|over knee|over-knee|over the knee|otk)\b/.test(inferredText)) {
+    } else if (
+      /\b(knee high|knee-high|knee highs|knee-highs|over knee|over-knee|over the knee|otk)\b/.test(
+        inferredText,
+      )
+    ) {
       style.legwear = "thigh_highs";
-    } else if (/\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(inferredText)) {
+    } else if (
+      /\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(inferredText)
+    ) {
       style.legwear = "thigh_highs";
     } else if (/\b(stockings|stocking|tights)\b/.test(inferredText)) {
       style.legwear = "stockings";
@@ -605,7 +661,9 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
 
     if ((style.legwear ?? "none") !== "none") {
       const oneSided =
-        /\b(one|single|only one|asymmetric|asymmetrical|one-sided)\b/.test(inferredText);
+        /\b(one|single|only one|asymmetric|asymmetrical|one-sided)\b/.test(
+          inferredText,
+        );
       const leftMention =
         /\b(viewer-left|left leg|left-side|left side|left thigh|left sock|left leg warmer)\b/.test(
           inferredText,
@@ -637,7 +695,9 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     // small construction cue grounded in the visible top so the 64x64 result
     // does not read as an undifferentiated rectangle.
     style.bottomAccent =
-      topType === "sweater" || topType === "hoodie" || style.bottomType === "jeans"
+      topType === "sweater" ||
+      topType === "hoodie" ||
+      style.bottomType === "jeans"
         ? "cuffs"
         : smartCasualTop
           ? "belt"
@@ -660,9 +720,10 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
     smartCasualTop &&
     !structuredLower
   ) {
-    style.bottomPattern = style.neckAccessory === "bow" || style.neckAccessory === "collar"
-      ? "pleated"
-      : "striped";
+    style.bottomPattern =
+      style.neckAccessory === "bow" || style.neckAccessory === "collar"
+        ? "pleated"
+        : "striped";
   }
 
   if (
@@ -676,7 +737,10 @@ function completeInferredLowerDetails(analysis: PhotoAnalysis, style: FaceStyle)
   }
 }
 
-function completeVisibleUpperDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+function completeVisibleUpperDetails(
+  analysis: PhotoAnalysis,
+  style: FaceStyle,
+): void {
   const upperText = [
     analysis.observed.clothing,
     analysis.observed.accessories,
@@ -717,12 +781,19 @@ function completeVisibleUpperDetails(analysis: PhotoAnalysis, style: FaceStyle):
     style.garmentTexture = "patterned";
   }
 
-  if (/\b(long sleeve|long-sleeve|long sleeves|sleeved cardigan|sleeved jacket)\b/.test(upperText)) {
+  if (
+    /\b(long sleeve|long-sleeve|long sleeves|sleeved cardigan|sleeved jacket)\b/.test(
+      upperText,
+    )
+  ) {
     style.sleeveLength = "long";
   }
 }
 
-function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+function completeVisibleLowerDetails(
+  analysis: PhotoAnalysis,
+  style: FaceStyle,
+): void {
   const visibleText = [
     analysis.observed.clothing,
     analysis.outfitPrompt,
@@ -732,9 +803,17 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
     .join(" ")
     .toLowerCase();
 
-  if (/\b(skort|skorts|culotte skirt|pleated culottes|plaid culottes|pleated shorts|plaid shorts)\b/.test(visibleText)) {
+  if (
+    /\b(skort|skorts|culotte skirt|pleated culottes|plaid culottes|pleated shorts|plaid shorts)\b/.test(
+      visibleText,
+    )
+  ) {
     style.bottomType = "skirt";
-  } else if (/\b(skirt|pleated skirt|plaid skirt|tartan skirt|miniskirt|mini skirt)\b/.test(visibleText)) {
+  } else if (
+    /\b(skirt|pleated skirt|plaid skirt|tartan skirt|miniskirt|mini skirt)\b/.test(
+      visibleText,
+    )
+  ) {
     style.bottomType = "skirt";
   } else if (/\b(shorts|short pants|culottes)\b/.test(visibleText)) {
     style.bottomType = "shorts";
@@ -762,7 +841,10 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
     style.bottomPattern = "lace";
   }
 
-  if (/\b(ribbon|bow)\b/.test(visibleText) && (style.bottomAccent ?? "none") === "none") {
+  if (
+    /\b(ribbon|bow)\b/.test(visibleText) &&
+    (style.bottomAccent ?? "none") === "none"
+  ) {
     style.bottomAccent = "ribbon";
   } else if (/\b(belt|belted)\b/.test(visibleText)) {
     style.bottomAccent = "belt";
@@ -774,9 +856,15 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
 
   if (/\b(leg warmer|leg warmers)\b/.test(visibleText)) {
     style.legwear = "leg_warmers";
-  } else if (/\b(knee high|knee-high|knee highs|knee-highs|over knee|over-knee|over the knee|otk)\b/.test(visibleText)) {
+  } else if (
+    /\b(knee high|knee-high|knee highs|knee-highs|over knee|over-knee|over the knee|otk)\b/.test(
+      visibleText,
+    )
+  ) {
     style.legwear = "thigh_highs";
-  } else if (/\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(visibleText)) {
+  } else if (
+    /\b(thigh high|thigh-high|thigh highs|thigh-highs)\b/.test(visibleText)
+  ) {
     style.legwear = "thigh_highs";
   } else if (/\b(stockings|stocking|tights)\b/.test(visibleText)) {
     style.legwear = "stockings";
@@ -785,20 +873,31 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
   }
 
   const legwearSideText = relevantClauses(
-    [analysis.observed.clothing, analysis.outfitPrompt, analysis.identityPrompt],
+    [
+      analysis.observed.clothing,
+      analysis.outfitPrompt,
+      analysis.identityPrompt,
+    ],
     /\b(leg warmer|leg warmers|knee[- ]?high|over[- ]?knee|otk|thigh[- ]?high|stocking|stockings|tights|sock|socks)\b/,
   );
   if ((style.legwear ?? "none") !== "none" && legwearSideText) {
-    const leftMention = /\b(viewer(?:'s)?[- ]left|left)\b/.test(legwearSideText);
-    const rightMention = /\b(viewer(?:'s)?[- ]right|right)\b/.test(legwearSideText);
+    const leftMention = /\b(viewer(?:'s)?[- ]left|left)\b/.test(
+      legwearSideText,
+    );
+    const rightMention = /\b(viewer(?:'s)?[- ]right|right)\b/.test(
+      legwearSideText,
+    );
     if (leftMention && !rightMention) {
       style.legwearAsymmetry = "left";
     } else if (rightMention && !leftMention) {
       style.legwearAsymmetry = "right";
     } else if (leftMention && rightMention) {
       style.legwearAsymmetry = "both";
-    } else if (/\b(one|single|asymmetric|asymmetrical|one-sided)\b/.test(legwearSideText)) {
-      style.legwearAsymmetry = style.legwearAsymmetry === "none" ? "left" : style.legwearAsymmetry;
+    } else if (
+      /\b(one|single|asymmetric|asymmetrical|one-sided)\b/.test(legwearSideText)
+    ) {
+      style.legwearAsymmetry =
+        style.legwearAsymmetry === "none" ? "left" : style.legwearAsymmetry;
     }
   }
 
@@ -813,7 +912,10 @@ function completeVisibleLowerDetails(analysis: PhotoAnalysis, style: FaceStyle):
   }
 }
 
-function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceStyle): void {
+function completeVisibleAccessoryDetails(
+  analysis: PhotoAnalysis,
+  style: FaceStyle,
+): void {
   const accessoryText = [
     analysis.observed.accessories,
     analysis.observed.hair,
@@ -846,22 +948,34 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
   if ((style.hairAccessory ?? "none") === "none") {
     if (
       /\b(flower|floral)\b/.test(hairAccessoryText) &&
-      /\b(hair|head|clip|accessory|viewer-left|viewer-right|left|right)\b/.test(hairAccessoryText)
+      /\b(hair|head|clip|accessory|viewer-left|viewer-right|left|right)\b/.test(
+        hairAccessoryText,
+      )
     ) {
       style.hairAccessory = "flower";
     } else if (/\b(hair bow|bow in hair|head bow)\b/.test(hairAccessoryText)) {
       style.hairAccessory = "bow";
-    } else if (/\b(hair ribbon|ribbon in hair|head ribbon)\b/.test(hairAccessoryText)) {
+    } else if (
+      /\b(hair ribbon|ribbon in hair|head ribbon)\b/.test(hairAccessoryText)
+    ) {
       style.hairAccessory = "ribbon";
-    } else if (/\b(hair clip|barrette|hairpin|pin in hair)\b/.test(hairAccessoryText)) {
+    } else if (
+      /\b(hair clip|barrette|hairpin|pin in hair)\b/.test(hairAccessoryText)
+    ) {
       style.hairAccessory = "clip";
     }
   }
 
   if ((style.hairAccessory ?? "none") !== "none") {
     const sideText = hairAccessorySideText || hairAccessoryText;
-    const leftMention = /\b(viewer(?:'s)?[- ]left|left side|left hair|left temple)\b/.test(sideText);
-    const rightMention = /\b(viewer(?:'s)?[- ]right|right side|right hair|right temple)\b/.test(sideText);
+    const leftMention =
+      /\b(viewer(?:'s)?[- ]left|left side|left hair|left temple)\b/.test(
+        sideText,
+      );
+    const rightMention =
+      /\b(viewer(?:'s)?[- ]right|right side|right hair|right temple)\b/.test(
+        sideText,
+      );
     if (rightMention && !leftMention) {
       style.hairAccessorySide = "right";
     } else if (leftMention && !rightMention) {
@@ -891,7 +1005,10 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
       const accessoryBeforeColor = new RegExp(
         `\\b(?:${accessoryNames})\\b(?:\\s+[a-z-]+){0,3}\\s+${color}\\b`,
       );
-      if (colorBeforeAccessory.test(sideText) || accessoryBeforeColor.test(sideText)) {
+      if (
+        colorBeforeAccessory.test(sideText) ||
+        accessoryBeforeColor.test(sideText)
+      ) {
         style.hairAccessoryColor = color;
         break;
       }
@@ -899,23 +1016,35 @@ function completeVisibleAccessoryDetails(analysis: PhotoAnalysis, style: FaceSty
   }
 
   if ((style.neckAccessory ?? "none") === "none") {
-    if (/\b(bow collar|neck bow|bow at the neck|bow tie)\b/.test(accessoryText)) {
+    if (
+      /\b(bow collar|neck bow|bow at the neck|bow tie)\b/.test(accessoryText)
+    ) {
       style.neckAccessory = "bow";
     } else if (/\b(necktie|tie)\b/.test(accessoryText)) {
       style.neckAccessory = "tie";
     } else if (/\b(scarf)\b/.test(accessoryText)) {
       style.neckAccessory = "scarf";
-    } else if (/\b(distinct collar|large collar|white collar|collared shirt)\b/.test(accessoryText)) {
+    } else if (
+      /\b(distinct collar|large collar|white collar|collared shirt)\b/.test(
+        accessoryText,
+      )
+    ) {
       style.neckAccessory = "collar";
     }
   }
 
   if ((style.necklace ?? "none") === "none") {
-    if (/\b(silver necklace|silver chain|silver pendant)\b/.test(accessoryText)) {
+    if (
+      /\b(silver necklace|silver chain|silver pendant)\b/.test(accessoryText)
+    ) {
       style.necklace = "silver";
-    } else if (/\b(gold necklace|gold chain|gold pendant)\b/.test(accessoryText)) {
+    } else if (
+      /\b(gold necklace|gold chain|gold pendant)\b/.test(accessoryText)
+    ) {
       style.necklace = "gold";
-    } else if (/\b(black necklace|dark necklace|dark chain)\b/.test(accessoryText)) {
+    } else if (
+      /\b(black necklace|dark necklace|dark chain)\b/.test(accessoryText)
+    ) {
       style.necklace = "dark";
     }
   }
@@ -940,13 +1069,37 @@ export function fallbackFeaturesToHex(
   return {
     ...source,
     skinTone: paletteHex(source.skinTone, SKIN_TONES, SKIN_TONES.light),
-    hairColor: paletteHex(source.hairColor, HAIR_COLORS, HAIR_COLORS["dark-brown"]),
+    hairColor: paletteHex(
+      source.hairColor,
+      HAIR_COLORS,
+      HAIR_COLORS["dark-brown"],
+    ),
     eyeColor: paletteHex(source.eyeColor, EYE_COLORS, EYE_COLORS["dark-brown"]),
-    glassesColor: paletteHex(source.glassesColor, CLOTHING_COLORS, CLOTHING_COLORS.black),
+    glassesColor: paletteHex(
+      source.glassesColor,
+      CLOTHING_COLORS,
+      CLOTHING_COLORS.black,
+    ),
     hatColor: paletteHex(source.hatColor, CLOTHING_COLORS, CLOTHING_COLORS.red),
-    topColor: paletteHex(source.topColor, CLOTHING_COLORS, CLOTHING_COLORS.blue),
-    topAccentColor: paletteHex(source.topAccentColor, CLOTHING_COLORS, CLOTHING_COLORS.white),
-    bottomColor: paletteHex(source.bottomColor, CLOTHING_COLORS, CLOTHING_COLORS.denim),
-    shoesColor: paletteHex(source.shoesColor, CLOTHING_COLORS, CLOTHING_COLORS.white),
+    topColor: paletteHex(
+      source.topColor,
+      CLOTHING_COLORS,
+      CLOTHING_COLORS.blue,
+    ),
+    topAccentColor: paletteHex(
+      source.topAccentColor,
+      CLOTHING_COLORS,
+      CLOTHING_COLORS.white,
+    ),
+    bottomColor: paletteHex(
+      source.bottomColor,
+      CLOTHING_COLORS,
+      CLOTHING_COLORS.denim,
+    ),
+    shoesColor: paletteHex(
+      source.shoesColor,
+      CLOTHING_COLORS,
+      CLOTHING_COLORS.white,
+    ),
   };
 }

@@ -88,6 +88,8 @@ export interface FaceStyle {
   shoeStyle?: "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals";
   topColor?: string;
   topAccentColor?: string;
+  bottomColor?: string;
+  shoesColor?: string;
   topType?: string;
   sleeveLength?: string;
   bottomType?: string;
@@ -140,6 +142,8 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   legwear: "none",
   legwearAsymmetry: "none",
   shoeStyle: undefined,
+  bottomColor: undefined,
+  shoesColor: undefined,
   topType: "tshirt",
   sleeveLength: "short",
   bottomType: "pants",
@@ -381,6 +385,53 @@ function fillRectSolid(
   }
 }
 
+/**
+ * Finish every vertical outer-layer corner after all procedural details have
+ * been composed. Front/back pixels are the semantic source of truth (they
+ * carry photographed patterns and inferred rear construction); the adjacent
+ * side edge inherits them. If only the side is populated, extend that pixel
+ * back onto the empty front/back edge instead of leaving a one-pixel crack.
+ */
+function reconcileOverlayVerticalSeams(atlas: RawImage): void {
+  const copyPixel = (
+    source: Rect,
+    sourceX: number,
+    target: Rect,
+    targetX: number,
+    y: number,
+  ) => {
+    const sourceIndex = ((source.y + y) * ATLAS_SIZE + source.x + sourceX) * 4;
+    const targetIndex = ((target.y + y) * ATLAS_SIZE + target.x + targetX) * 4;
+    for (let channel = 0; channel < 4; channel++) {
+      atlas.rgba[targetIndex + channel] = atlas.rgba[sourceIndex + channel];
+    }
+  };
+
+  for (const part of ALL_PARTS) {
+    const overlay = CLASSIC_LAYOUT[part].overlay;
+    const seams = [
+      [overlay.front, 0, overlay.right, overlay.right.w - 1],
+      [overlay.front, overlay.front.w - 1, overlay.left, 0],
+      [overlay.back, overlay.back.w - 1, overlay.right, 0],
+      [overlay.back, 0, overlay.left, overlay.left.w - 1],
+    ] as const;
+    for (const [primary, primaryX, side, sideX] of seams) {
+      for (let y = 0; y < Math.min(primary.h, side.h); y++) {
+        const primaryIndex =
+          ((primary.y + y) * ATLAS_SIZE + primary.x + primaryX) * 4;
+        const sideIndex = ((side.y + y) * ATLAS_SIZE + side.x + sideX) * 4;
+        const primaryOpaque = atlas.rgba[primaryIndex + 3] !== 0;
+        const sideOpaque = atlas.rgba[sideIndex + 3] !== 0;
+        if (primaryOpaque) {
+          copyPixel(primary, primaryX, side, sideX, y);
+        } else if (sideOpaque) {
+          copyPixel(side, sideX, primary, primaryX, y);
+        }
+      }
+    }
+  }
+}
+
 function averageAtlasRect(
   atlas: RawImage,
   rect: Rect,
@@ -425,7 +476,10 @@ function harmonizeGarmentChroma(
   applyRows = target.h,
 ): void {
   const sampleStart = Math.min(2, Math.max(0, applyRows - 1));
-  const sampleEnd = Math.max(sampleStart + 1, Math.min(applyRows, target.h - 2));
+  const sampleEnd = Math.max(
+    sampleStart + 1,
+    Math.min(applyRows, target.h - 2),
+  );
   const sourceAverage = averageAtlasRect(atlas, target, sampleStart, sampleEnd);
   const observedAverage = averageAtlasRect(
     atlas,
@@ -439,10 +493,7 @@ function harmonizeGarmentChroma(
   const sourceChroma = chroma(sourceAverage);
   const desiredChroma = chroma(desiredAverage);
   const delta = sourceChroma.map((value, channel) =>
-    Math.max(
-      -72,
-      Math.min(72, (desiredChroma[channel] - value) * 0.88),
-    ),
+    Math.max(-72, Math.min(72, (desiredChroma[channel] - value) * 0.88)),
   );
   if (delta.reduce((sum, value) => sum + Math.abs(value), 0) < 14) return;
 
@@ -471,9 +522,14 @@ function alignGarmentRectToDeclaredColor(
   target: Rect,
   declaredColor: Rgb | null,
   applyRows = target.h,
+  startRow = 0,
 ): void {
   if (!declaredColor) return;
-  for (let y = 0; y < Math.min(applyRows, target.h); y++) {
+  for (
+    let y = Math.max(0, startRow);
+    y < Math.min(target.h, startRow + applyRows);
+    y++
+  ) {
     for (let x = 0; x < target.w; x++) {
       const d = ((target.y + y) * ATLAS_SIZE + target.x + x) * 4;
       if (atlas.rgba[d + 3] < 128) continue;
@@ -2671,12 +2727,12 @@ function composeHair(
                 [0, 1, 6, 7],
                 [0, 7],
               ]
-          : [
-              [1, 2, 3, 4, 5, 6],
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 2, 5, 6, 7],
-              [0, 7],
-            ];
+            : [
+                [1, 2, 3, 4, 5, 6],
+                [0, 1, 2, 5, 6, 7],
+                [0, 1, 2, 5, 6, 7],
+                [0, 7],
+              ];
       for (const [rect, phase] of [
         [over.right, 0],
         [over.left, 1],
@@ -4049,11 +4105,18 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       averageRect(body.base.back, body.base.back.h - 2, 2),
       0.5,
     );
-    const bottomColor = mixRgb(
+    const sampledBottomColor = mixRgb(
       legTop,
       bodyLower,
       style.bottomType === "skirt" ? 0.22 : 0.12,
     );
+    const bottomColor = style.bottomColor
+      ? alignRgbChroma(
+          sampledBottomColor,
+          hexToRgb(style.bottomColor, sampledBottomColor),
+          0.94,
+        )
+      : sampledBottomColor;
     const hemColor = shadeRgb(bottomColor, 0.78);
     const litColor = shadeRgb(bottomColor, 1.08);
     const plaidThread = mixRgb(bottomColor, [244, 231, 218], 0.42);
@@ -5460,10 +5523,52 @@ export function packFrontViewToAtlas(
       backRegion: back?.viewLeftLeg,
     },
   ];
+  const declaredBottomColor = faceStyle.bottomColor
+    ? hexToRgb(faceStyle.bottomColor, [64, 64, 64])
+    : null;
+  const declaredShoesColor = faceStyle.shoesColor
+    ? hexToRgb(faceStyle.shoesColor, [48, 48, 48])
+    : null;
   for (const { part, frontRegion, backRegion } of legs) {
     const box = CLASSIC_LAYOUT[part].base;
     fillRectFromRegion(atlas, box.front, src, frontRegion, bg);
-    const pantsColor = medianColor(
+    const shoeRows = Math.min(3, box.front.h);
+    const garmentRows =
+      faceStyle.bottomType === "pants" || faceStyle.bottomType === "jeans"
+        ? box.front.h - shoeRows
+        : faceStyle.bottomType === "shorts"
+          ? Math.min(3, box.front.h - shoeRows)
+          : 0;
+    const exposedSkinRows =
+      faceStyle.bottomType === "skirt" || faceStyle.bottomType === "shorts"
+        ? box.front.h - shoeRows - garmentRows
+        : 0;
+    alignGarmentRectToDeclaredColor(
+      atlas,
+      box.front,
+      declaredBottomColor,
+      garmentRows,
+    );
+    if (exposedSkinRows > 0) {
+      fillRectSolid(
+        atlas,
+        {
+          x: box.front.x,
+          y: box.front.y + garmentRows,
+          w: box.front.w,
+          h: exposedSkinRows,
+        },
+        skinColor,
+      );
+    }
+    alignGarmentRectToDeclaredColor(
+      atlas,
+      box.front,
+      declaredShoesColor,
+      shoeRows,
+      box.front.h - shoeRows,
+    );
+    const sampledPantsColor = medianColor(
       src,
       {
         ...frontRegion,
@@ -5471,7 +5576,7 @@ export function packFrontViewToAtlas(
       },
       bg,
     );
-    const shoeColor = medianColor(
+    const sampledShoeColor = medianColor(
       src,
       {
         ...frontRegion,
@@ -5479,9 +5584,40 @@ export function packFrontViewToAtlas(
       },
       bg,
     );
+    const pantsColor = declaredBottomColor
+      ? alignRgbChroma(sampledPantsColor, declaredBottomColor)
+      : sampledPantsColor;
+    const shoeColor = declaredShoesColor
+      ? alignRgbChroma(sampledShoeColor, declaredShoesColor)
+      : sampledShoeColor;
     completeSides(atlas, box, pantsColor, shoeColor);
     if (backRegion) {
       fillRectFromRegion(atlas, box.back, src, backRegion, bg);
+      alignGarmentRectToDeclaredColor(
+        atlas,
+        box.back,
+        declaredBottomColor,
+        garmentRows,
+      );
+      if (exposedSkinRows > 0) {
+        fillRectSolid(
+          atlas,
+          {
+            x: box.back.x,
+            y: box.back.y + garmentRows,
+            w: box.back.w,
+            h: exposedSkinRows,
+          },
+          skinColor,
+        );
+      }
+      alignGarmentRectToDeclaredColor(
+        atlas,
+        box.back,
+        declaredShoesColor,
+        shoeRows,
+        box.back.h - shoeRows,
+      );
     } else {
       fillRectFromRect(atlas, box.back, box.front, 0.78, true);
     }
@@ -5493,6 +5629,7 @@ export function packFrontViewToAtlas(
   composeHair(atlas, hairColor, skinColor, faceStyle, back !== null);
   preserveFaceReadability(atlas, faceStyle);
   composeHat(atlas, hatColor, faceStyle);
+  reconcileOverlayVerticalSeams(atlas);
   applyShading(atlas);
 
   return { atlas, problems, hasBackView: back !== null };

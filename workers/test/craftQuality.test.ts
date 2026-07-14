@@ -44,7 +44,7 @@ describe("handcrafted atlas quality metrics", () => {
     expect(referenceMetrics.opaqueOverlayPixels).toBe(269);
     expect(referenceMetrics.overlayPixelsByPart.head).toBe(103);
     expect(referenceMetrics.overlayPixelsByPart.body).toBe(63);
-    expect(proceduralMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(1_000);
+    expect(proceduralMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(1_050);
     expect(proceduralMetrics.overlayColorCount).toBeGreaterThan(
       referenceMetrics.overlayColorCount,
     );
@@ -54,10 +54,10 @@ describe("handcrafted atlas quality metrics", () => {
     expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(220);
     expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(280);
     expect(proceduralMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(
-      110,
+      130,
     );
     expect(proceduralMetrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(
-      110,
+      130,
     );
     expect(proceduralMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
       130,
@@ -65,6 +65,9 @@ describe("handcrafted atlas quality metrics", () => {
     expect(proceduralMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(
       180,
     );
+    expect(proceduralMetrics.solidOverlayFaces).toBe(0);
+    expect(proceduralMetrics.overlayVerticalSeamMismatches).toBe(0);
+    expect(proceduralMetrics.overlayVerticalSeamColorDistance).toBe(0);
 
     const compactMale = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -92,14 +95,19 @@ describe("handcrafted atlas quality metrics", () => {
     })!.atlas;
     const compactMetrics = measureAtlasCraft(compactMale);
     expect(compactMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(
-      referenceMetrics.opaqueOverlayPixels * 2,
+      referenceMetrics.opaqueOverlayPixels * 2 + 50,
     );
     expect(compactMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(150);
     expect(compactMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(130);
     expect(compactMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(50);
     expect(compactMetrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(50);
-    expect(compactMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(85);
-    expect(compactMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(85);
+    expect(compactMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
+      100,
+    );
+    expect(compactMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(100);
+    expect(compactMetrics.solidOverlayFaces).toBe(0);
+    expect(compactMetrics.overlayVerticalSeamMismatches).toBe(0);
+    expect(compactMetrics.overlayVerticalSeamColorDistance).toBe(0);
   });
 
   const styleMatrix = [
@@ -120,7 +128,7 @@ describe("handcrafted atlas quality metrics", () => {
     },
     {
       name: "short rounded knit portrait",
-      maxOverlayPixels: 540,
+      maxOverlayPixels: 580,
       style: {
         hairstyle: "short",
         hairVolume: "normal",
@@ -138,7 +146,7 @@ describe("handcrafted atlas quality metrics", () => {
     },
     {
       name: "medium layered jacket",
-      maxOverlayPixels: 850,
+      maxOverlayPixels: 930,
       style: {
         hairstyle: "medium",
         hairVolume: "normal",
@@ -173,7 +181,7 @@ describe("handcrafted atlas quality metrics", () => {
     },
     {
       name: "long decorated cardigan",
-      maxOverlayPixels: 1_000,
+      maxOverlayPixels: 1_050,
       style: {
         hairstyle: "long",
         hairTexture: "wavy",
@@ -209,11 +217,14 @@ describe("handcrafted atlas quality metrics", () => {
       expect(metrics.opaqueOverlayPixels).toBeLessThanOrEqual(maxOverlayPixels);
       expect(metrics.overlayPixelsByPart.head).toBeLessThanOrEqual(260);
       expect(metrics.overlayPixelsByPart.body).toBeLessThanOrEqual(280);
-      expect(metrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(125);
-      expect(metrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(125);
+      expect(metrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(130);
+      expect(metrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(130);
       expect(metrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(180);
       expect(metrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(180);
       expect(metrics.shadedOverlayFaces).toBeGreaterThanOrEqual(8);
+      expect(metrics.solidOverlayFaces).toBe(0);
+      expect(metrics.overlayVerticalSeamMismatches).toBe(0);
+      expect(metrics.overlayVerticalSeamColorDistance).toBe(0);
     },
   );
 });

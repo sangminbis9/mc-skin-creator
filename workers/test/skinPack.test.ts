@@ -1838,9 +1838,10 @@ describe("packFrontViewToAtlas", () => {
         (sum, channel, index) => sum + Math.abs(channel - declared[index]),
         0,
       );
-      expect(distance, `shoulder ${shoulderIndex}: ${pixel.join(",")}`).toBeLessThan(
-        150,
-      );
+      expect(
+        distance,
+        `shoulder ${shoulderIndex}: ${pixel.join(",")}`,
+      ).toBeLessThan(150);
       expect(Math.max(...pixel) - Math.min(...pixel)).toBeLessThan(35);
       expect(pixel[2]).toBeLessThan(pixel[0] + 25);
     }
@@ -1965,6 +1966,9 @@ describe("packFrontViewToAtlas", () => {
   it("bottomType=skirt이면 몸통 하단과 다리 상단 overlay로 치마 밑단과 주름을 만든다", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
+      skinTone: "#d9a385",
+      bottomColor: "#b69c92",
+      shoesColor: "#eee4da",
       bottomType: "skirt",
     })!;
     const atlas = packed.atlas;
@@ -1982,6 +1986,18 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[rightLegTop + 3]).toBe(255);
     expect(atlas.rgba[leftLegTop + 3]).toBe(255);
     expect(atlas.rgba[bodyHem]).toBeLessThan(atlas.rgba[rightLegTop]);
+
+    for (const leg of [
+      CLASSIC_LAYOUT.rightLeg.base,
+      CLASSIC_LAYOUT.leftLeg.base,
+    ]) {
+      for (const face of [leg.front, leg.back, leg.right, leg.left]) {
+        const exposedLeg = ((face.y + 5) * ATLAS_SIZE + face.x + 1) * 4;
+        expect(atlas.rgba[exposedLeg]).toBeGreaterThan(
+          atlas.rgba[exposedLeg + 2] + 45,
+        );
+      }
+    }
 
     const shades = new Set<number>();
     for (let x = 0; x < bodyFront.w; x++) {
