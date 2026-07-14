@@ -21,6 +21,20 @@ export interface BoxUV {
   back: Rect;
 }
 
+/**
+ * Three.js BoxGeometry emits geometric +x, -x, +y, -y, +z, -z faces.
+ * From a Minecraft character's front, geometric -x is anatomical right, so
+ * right/left UV faces intentionally use the opposite raw-axis order.
+ */
+export const MINECRAFT_BOX_FACE_ORDER: (keyof BoxUV)[] = [
+  "left",
+  "right",
+  "top",
+  "bottom",
+  "front",
+  "back",
+];
+
 /** 박스 전개도 좌표 계산: (u, v)는 전개도의 좌상단, (w, h, d)는 박스 크기 */
 function boxUV(u: number, v: number, w: number, h: number, d: number): BoxUV {
   return {
@@ -34,12 +48,7 @@ function boxUV(u: number, v: number, w: number, h: number, d: number): BoxUV {
 }
 
 export type BodyPart =
-  | "head"
-  | "body"
-  | "rightArm"
-  | "leftArm"
-  | "rightLeg"
-  | "leftLeg";
+  "head" | "body" | "rightArm" | "leftArm" | "rightLeg" | "leftLeg";
 
 export interface PartLayout {
   /** 박스 크기 (게임 내 픽셀 단위) */
@@ -130,7 +139,9 @@ export function rectsOfGroup(group: PartGroup): Rect[] {
 }
 
 export function rectContains(rect: Rect, x: number, y: number): boolean {
-  return x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
+  return (
+    x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h
+  );
 }
 
 /** atlas 좌표가 어떤 부위에 속하는지 (없으면 null) */

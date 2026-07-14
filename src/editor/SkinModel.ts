@@ -9,26 +9,13 @@ import {
   ALL_PARTS,
   ATLAS_SIZE,
   CLASSIC_LAYOUT,
+  MINECRAFT_BOX_FACE_ORDER,
   PART_GROUPS,
   type BodyPart,
   type BoxUV,
   type PartGroup,
   type Rect,
 } from "../lib/skinAtlas";
-
-/**
- * Three.js orders the first two BoxGeometry faces as geometric +x and -x.
- * In a front view, -x is the character's anatomical right, so the Minecraft
- * right/left UV faces intentionally appear in the opposite axis order.
- */
-const FACE_ORDER: (keyof BoxUV)[] = [
-  "left",
-  "right",
-  "top",
-  "bottom",
-  "front",
-  "back",
-];
 
 /**
  * 면 UV 설정. 텍스처 flipY=false 기준으로 v = y / 64.
@@ -58,7 +45,7 @@ function setFaceUV(
 
 function buildPartGeometry(uvMap: BoxUV, w: number, h: number, d: number) {
   const geometry = new THREE.BoxGeometry(w, h, d);
-  FACE_ORDER.forEach((face, i) => {
+  MINECRAFT_BOX_FACE_ORDER.forEach((face, i) => {
     setFaceUV(geometry, i, uvMap[face], face === "bottom");
   });
   return geometry;

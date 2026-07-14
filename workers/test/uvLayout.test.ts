@@ -6,7 +6,10 @@ import {
   buildZoneMap,
   getBoxUvSeams,
 } from "../src/uvLayout";
-import { CLASSIC_LAYOUT as CLIENT_LAYOUT } from "../../src/lib/skinAtlas";
+import {
+  CLASSIC_LAYOUT as CLIENT_LAYOUT,
+  MINECRAFT_BOX_FACE_ORDER,
+} from "../../src/lib/skinAtlas";
 
 describe("uvLayout", () => {
   it("클라이언트 skinAtlas.ts와 좌표가 완전히 일치한다", () => {
@@ -30,6 +33,14 @@ describe("uvLayout", () => {
   });
 
   it("maps all 12 physical cuboid edges with the renderer orientation", () => {
+    expect(MINECRAFT_BOX_FACE_ORDER).toEqual([
+      "left",
+      "right",
+      "top",
+      "bottom",
+      "front",
+      "back",
+    ]);
     const box = CLASSIC_LAYOUT.head.overlay;
     const seams = getBoxUvSeams(box);
 
