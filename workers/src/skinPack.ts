@@ -172,6 +172,18 @@ function mixRgb(a: Rgb, b: Rgb, t: number): Rgb {
   ];
 }
 
+function alignRgbChroma(source: Rgb, target: Rgb, strength = 0.9): Rgb {
+  const luminance = (rgb: Rgb) =>
+    rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114;
+  const sourceLuminance = luminance(source);
+  const targetLuminance = Math.max(1, luminance(target));
+  const scale = sourceLuminance / targetLuminance;
+  const targetAtSourceLuminance = target.map((channel) =>
+    Math.max(0, Math.min(255, Math.round(channel * scale))),
+  ) as Rgb;
+  return mixRgb(source, targetAtSourceLuminance, strength);
+}
+
 interface Region {
   x0: number;
   y0: number;
@@ -444,6 +456,34 @@ function harmonizeGarmentChroma(
           Math.min(255, Math.round(atlas.rgba[d + channel] + delta[channel])),
         );
       }
+    }
+  }
+}
+
+/**
+ * Image-generation guides sometimes introduce a vivid shoulder or collar
+ * colour that is absent from the photo analysis. Preserve every pixel's
+ * luminance (and therefore folds/knit texture), while aligning garment hue to
+ * the analysed colour before deriving the other cube faces.
+ */
+function alignGarmentRectToDeclaredColor(
+  atlas: RawImage,
+  target: Rect,
+  declaredColor: Rgb | null,
+  applyRows = target.h,
+): void {
+  if (!declaredColor) return;
+  for (let y = 0; y < Math.min(applyRows, target.h); y++) {
+    for (let x = 0; x < target.w; x++) {
+      const d = ((target.y + y) * ATLAS_SIZE + target.x + x) * 4;
+      if (atlas.rgba[d + 3] < 128) continue;
+      const aligned = alignRgbChroma(
+        [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2]],
+        declaredColor,
+      );
+      atlas.rgba[d] = aligned[0];
+      atlas.rgba[d + 1] = aligned[1];
+      atlas.rgba[d + 2] = aligned[2];
     }
   }
 }
@@ -3351,7 +3391,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     ? hexToRgb(style.topColor, [92, 92, 92])
     : null;
   const stabilizeGarmentColor = (sampled: Rgb, weight = 0.68) =>
-    declaredTopColor ? mixRgb(sampled, declaredTopColor, weight) : sampled;
+    declaredTopColor
+      ? alignRgbChroma(sampled, declaredTopColor, Math.max(0.86, weight))
+      : sampled;
   const layeredTop =
     layer !== "none" || ["sweater", "hoodie", "jacket"].includes(topType);
   const paintGarmentTop = (
@@ -5316,8 +5358,12 @@ export function packFrontViewToAtlas(
 
   // ---------- 몸통 ----------
   const body = CLASSIC_LAYOUT.body;
+  const declaredTopColor = faceStyle.topColor
+    ? hexToRgb(faceStyle.topColor, [92, 92, 92])
+    : null;
   fillRectFromRegion(atlas, body.base.front, src, front.body, bg);
-  const torsoTopColor = medianColor(
+  alignGarmentRectToDeclaredColor(atlas, body.base.front, declaredTopColor);
+  const sampledTorsoTopColor = medianColor(
     src,
     {
       ...front.body,
@@ -5325,6 +5371,9 @@ export function packFrontViewToAtlas(
     },
     bg,
   );
+  const torsoTopColor = declaredTopColor
+    ? alignRgbChroma(sampledTorsoTopColor, declaredTopColor)
+    : sampledTorsoTopColor;
   completeSides(atlas, body.base, torsoTopColor, torsoTopColor);
   if (back) {
     fillRectFromRegion(atlas, body.base.back, src, back.body, bg);
@@ -5332,10 +5381,9 @@ export function packFrontViewToAtlas(
       atlas,
       body.base.back,
       body.base.front,
-      faceStyle.topColor
-        ? hexToRgb(faceStyle.topColor, torsoTopColor)
-        : null,
+      declaredTopColor,
     );
+    alignGarmentRectToDeclaredColor(atlas, body.base.back, declaredTopColor);
   } else {
     fillRectFromRect(atlas, body.base.back, body.base.front, 0.78, true);
   }
@@ -5357,7 +5405,17 @@ export function packFrontViewToAtlas(
   for (const { part, frontRegion, backRegion } of arms) {
     const box = CLASSIC_LAYOUT[part].base;
     fillRectFromRegion(atlas, box.front, src, frontRegion, bg);
-    const sleeveColor = medianColor(
+    const sleeveRows =
+      faceStyle.sleeveLength === "long"
+        ? box.front.h - 1
+        : Math.min(5, box.front.h);
+    alignGarmentRectToDeclaredColor(
+      atlas,
+      box.front,
+      declaredTopColor,
+      sleeveRows,
+    );
+    const sampledSleeveColor = medianColor(
       src,
       {
         ...frontRegion,
@@ -5365,18 +5423,23 @@ export function packFrontViewToAtlas(
       },
       bg,
     );
+    const sleeveColor = declaredTopColor
+      ? alignRgbChroma(sampledSleeveColor, declaredTopColor)
+      : sampledSleeveColor;
     completeSides(atlas, box, sleeveColor, skinColor); // 아래면 = 손 (피부색)
     if (backRegion) {
       fillRectFromRegion(atlas, box.back, src, backRegion, bg);
-      const sleeveRows =
-        faceStyle.sleeveLength === "long"
-          ? box.back.h - 1
-          : Math.min(5, box.back.h);
       harmonizeGarmentChroma(
         atlas,
         box.back,
         box.front,
-        faceStyle.topColor ? hexToRgb(faceStyle.topColor, sleeveColor) : null,
+        declaredTopColor,
+        sleeveRows,
+      );
+      alignGarmentRectToDeclaredColor(
+        atlas,
+        box.back,
+        declaredTopColor,
         sleeveRows,
       );
     } else {

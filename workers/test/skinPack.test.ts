@@ -1800,7 +1800,14 @@ describe("packFrontViewToAtlas", () => {
   });
 
   it("uses analysed top colour to remove saturated guide noise from shoulder rims", () => {
-    const atlas = packFrontViewToAtlas(makeFrontView(), {
+    const guide = makeFrontView();
+    for (let y = 180; y < 235; y++) {
+      for (let x = 136; x < 376; x++) {
+        const index = (y * guide.width + x) * 4;
+        guide.rgba.set([28, 112, 224, 255], index);
+      }
+    }
+    const atlas = packFrontViewToAtlas(guide, {
       ...DEFAULT_FACE_STYLE,
       topColor: "#585858",
       topType: "sweater",
@@ -1815,6 +1822,10 @@ describe("packFrontViewToAtlas", () => {
       return [atlas.rgba[index], atlas.rgba[index + 1], atlas.rgba[index + 2]];
     };
     const shoulderPixels = [
+      colorAt(CLASSIC_LAYOUT.body.base.front, 1, 0),
+      colorAt(CLASSIC_LAYOUT.body.base.front, 6, 1),
+      colorAt(CLASSIC_LAYOUT.rightArm.base.front, 1, 0),
+      colorAt(CLASSIC_LAYOUT.leftArm.base.front, 1, 1),
       colorAt(CLASSIC_LAYOUT.body.overlay.front, 1, 0),
       colorAt(CLASSIC_LAYOUT.body.overlay.front, 6, 0),
       colorAt(CLASSIC_LAYOUT.body.overlay.back, 1, 0),
@@ -1822,13 +1833,16 @@ describe("packFrontViewToAtlas", () => {
       colorAt(CLASSIC_LAYOUT.rightArm.overlay.top, 1, 1),
       colorAt(CLASSIC_LAYOUT.leftArm.overlay.top, 1, 1),
     ];
-    for (const pixel of shoulderPixels) {
+    for (const [shoulderIndex, pixel] of shoulderPixels.entries()) {
       const distance = pixel.reduce(
         (sum, channel, index) => sum + Math.abs(channel - declared[index]),
         0,
       );
-      expect(distance).toBeLessThan(120);
-      expect(Math.max(...pixel) - Math.min(...pixel)).toBeLessThan(60);
+      expect(distance, `shoulder ${shoulderIndex}: ${pixel.join(",")}`).toBeLessThan(
+        150,
+      );
+      expect(Math.max(...pixel) - Math.min(...pixel)).toBeLessThan(35);
+      expect(pixel[2]).toBeLessThan(pixel[0] + 25);
     }
 
     applyUvMask(atlas);
