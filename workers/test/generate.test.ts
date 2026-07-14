@@ -10,6 +10,7 @@ import type { Env } from "../src/types";
 import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 import {
   makeAnalysis,
+  makeFourViewSheet,
   makeFrontBackView,
   makeSyntheticAtlas,
   upscale,
@@ -114,6 +115,27 @@ describe("generateSkin", () => {
     );
     expect(validateFinalAtlas(decoded).ok).toBe(true);
     // 분석 170 + (사진+포즈가이드 2타일 x 6 + 출력 2타일 x 27) = 236
+    expect(result.neuronsSpent).toBe(236);
+  });
+
+  it("four_view strategy packs front, back and both profiles into a valid atlas", async () => {
+    const env = makeEnv(makeAnalysis(), true, "four_view");
+    const sheetPng = await encodePng(makeFourViewSheet());
+    const provider = providerOf([
+      { ok: true, imageBytes: sheetPng, inputTiles: 2, outputTiles: 2 },
+    ]);
+
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+
+    expect(result.status).toBe(200);
+    expect(result.body.generationMode).toBe("image");
+    expect(provider.calls).toBe(1);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    expect(validateFinalAtlas(decoded).ok).toBe(true);
     expect(result.neuronsSpent).toBe(236);
   });
 

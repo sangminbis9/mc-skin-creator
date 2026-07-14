@@ -6,8 +6,13 @@
 
 import type { PhotoAnalysis } from "./analysis";
 import { buildFrontBackGuidePng } from "./assets/frontBackGuide";
+import { buildFourViewGuidePng } from "./assets/fourViewGuide";
 import { base64ToBytes, sniffImageSize } from "./png";
-import { buildFrontViewPrompt, buildSkinPrompt } from "./skinPrompt";
+import {
+  buildFourViewPrompt,
+  buildFrontViewPrompt,
+  buildSkinPrompt,
+} from "./skinPrompt";
 import type { Env } from "./types";
 import { UV_GUIDE_PNG_B64 } from "./assets/uvGuide";
 
@@ -15,7 +20,7 @@ import { UV_GUIDE_PNG_B64 } from "./assets/uvGuide";
  * front_view: 정면 전신 캐릭터 1장 생성 (skinPack이 atlas로 조립) — 기본 전략
  * direct_atlas: 모델이 atlas를 직접 그리게 시도 (현재 FLUX는 배치를 자주 어긴다)
  */
-export type GenerationStrategy = "front_view" | "direct_atlas";
+export type GenerationStrategy = "front_view" | "four_view" | "direct_atlas";
 
 export interface SkinGenerationRequest {
   analysis: PhotoAnalysis;
@@ -25,7 +30,12 @@ export interface SkinGenerationRequest {
 }
 
 export type SkinGenerationResult =
-  | { ok: true; imageBytes: Uint8Array; inputTiles: number; outputTiles: number }
+  | {
+      ok: true;
+      imageBytes: Uint8Array;
+      inputTiles: number;
+      outputTiles: number;
+    }
   /** retryable: seed를 바꿔 재시도할 가치가 있는 실패 (moderation flag, 일시 오류 등) */
   | { ok: false; error: string; retryable: boolean };
 
@@ -89,14 +99,24 @@ export class FluxKleinProvider implements SkinGenerationProvider {
     return this.styleRefPromise;
   }
 
-  async generate(request: SkinGenerationRequest): Promise<SkinGenerationResult> {
+  async generate(
+    request: SkinGenerationRequest,
+  ): Promise<SkinGenerationResult> {
     const photo = dataUrlToBytes(request.photoDataUrl);
     if (!photo) {
-      return { ok: false, error: "사진 data URL을 해석하지 못함", retryable: false };
+      return {
+        ok: false,
+        error: "사진 data URL을 해석하지 못함",
+        retryable: false,
+      };
     }
     const size = sniffImageSize(photo.bytes);
     if (!size) {
-      return { ok: false, error: "사진 크기를 판별하지 못함 (PNG/JPEG 아님)", retryable: false };
+      return {
+        ok: false,
+        error: "사진 크기를 판별하지 못함 (PNG/JPEG 아님)",
+        retryable: false,
+      };
     }
     if (size.width > MAX_INPUT_EDGE || size.height > MAX_INPUT_EDGE) {
       // 구버전 클라이언트(448 축소 이전)의 큰 사진 — 이미지 생성은 건너뛴다
@@ -121,6 +141,9 @@ export class FluxKleinProvider implements SkinGenerationProvider {
       // 가이드가 두 뷰의 크기·간격을 안정화하고, 배치는 서버 코드가 최종 보장한다.
       prompt = buildFrontViewPrompt(request.analysis);
       images = [photo.bytes, await buildFrontBackGuidePng()];
+    } else if (request.mode === "four_view") {
+      prompt = buildFourViewPrompt(request.analysis);
+      images = [photo.bytes, await buildFourViewGuidePng()];
     } else {
       const styleRef = await this.loadStyleRef();
       const hasStyleRef = styleRef !== null;
@@ -130,8 +153,10 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         : [photo.bytes, base64ToBytes(UV_GUIDE_PNG_B64)];
     }
 
-    const width = request.mode === "front_view" ? FRONT_VIEW_WIDTH : OUTPUT_SIZE;
-    const height = request.mode === "front_view" ? FRONT_VIEW_HEIGHT : OUTPUT_SIZE;
+    const isViewSheet =
+      request.mode === "front_view" || request.mode === "four_view";
+    const width = isViewSheet ? FRONT_VIEW_WIDTH : OUTPUT_SIZE;
+    const height = isViewSheet ? FRONT_VIEW_HEIGHT : OUTPUT_SIZE;
     const form = new FormData();
     images.forEach((bytes, index) => {
       const mime = bytes === photo.bytes ? photo.mime : "image/png";
@@ -155,12 +180,15 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         this.env.IMAGE_MODEL_TIER === "quality"
           ? FLUX_MODEL_QUALITY
           : FLUX_MODEL_BALANCED;
-      const result = (await this.env.AI.run(model as never, {
-        multipart: {
-          body: formResponse.body,
-          contentType,
-        },
-      } as never)) as { image?: unknown };
+      const result = (await this.env.AI.run(
+        model as never,
+        {
+          multipart: {
+            body: formResponse.body,
+            contentType,
+          },
+        } as never,
+      )) as { image?: unknown };
       image = result?.image;
     } catch (error) {
       return {
@@ -181,7 +209,11 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         outputTiles: Math.ceil((width * height) / (512 * 512)),
       };
     } catch {
-      return { ok: false, error: "FLUX image base64 디코드 실패", retryable: true };
+      return {
+        ok: false,
+        error: "FLUX image base64 디코드 실패",
+        retryable: true,
+      };
     }
   }
 }

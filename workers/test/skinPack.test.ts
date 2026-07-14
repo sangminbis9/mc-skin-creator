@@ -8,7 +8,7 @@ import {
 import { applyUvMask, validateFinalAtlas } from "../src/skinPost";
 import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 
-import { makeFrontBackView, makeFrontView } from "./helpers";
+import { makeFourViewSheet, makeFrontBackView, makeFrontView } from "./helpers";
 
 function avgOfRect(
   atlas: RawImage,
@@ -2883,5 +2883,22 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(pointed, over, 1, 7)).toBe(0);
     expect(redAt(pointed, face, 3, 7)).toBeLessThan(redAt(square, face, 3, 7));
     expect(redAt(rounded, face, 1, 6)).not.toBe(redAt(soft, face, 1, 6));
+  });
+
+  it("four-view sheets preserve distinct left and right profile colors", () => {
+    const packed = packFrontViewToAtlas(
+      makeFourViewSheet(),
+      DEFAULT_FACE_STYLE,
+      4,
+    );
+    expect(packed).not.toBeNull();
+    expect(packed!.hasBackView).toBe(true);
+    expect(packed!.hasSideViews).toBe(true);
+    expect(packed!.viewCount).toBe(4);
+
+    const left = avgOfRect(packed!.atlas, CLASSIC_LAYOUT.body.base.left);
+    const right = avgOfRect(packed!.atlas, CLASSIC_LAYOUT.body.base.right);
+    expect(left[1]).toBeGreaterThan(left[2]);
+    expect(right[2]).toBeGreaterThan(right[1]);
   });
 });

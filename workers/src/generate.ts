@@ -161,7 +161,11 @@ export async function generateSkin(
   let generationMode: GenerationMode = "procedural_fallback";
   if (env.IMAGE_GENERATION_ENABLED === "true") {
     const mode: GenerationStrategy =
-      env.IMAGE_GEN_STRATEGY === "direct_atlas" ? "direct_atlas" : "front_view";
+      env.IMAGE_GEN_STRATEGY === "direct_atlas"
+        ? "direct_atlas"
+        : env.IMAGE_GEN_STRATEGY === "four_view"
+          ? "four_view"
+          : "front_view";
     // 얼굴 구조적 합성용 특징 (색은 hex로 매핑된 값, 나머지는 분류값 그대로)
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
@@ -407,9 +411,13 @@ async function postprocess(
   try {
     const decoded = await decodeImage(imageBytes);
     let atlas;
-    if (mode === "front_view") {
+    if (mode !== "direct_atlas") {
       // 정면 캐릭터 뷰 → 결정적 pack (UV 배치를 코드가 보장)
-      const packed = packFrontViewToAtlas(decoded, faceStyle);
+      const packed = packFrontViewToAtlas(
+        decoded,
+        faceStyle,
+        mode === "four_view" ? 4 : 2,
+      );
       if (!packed) {
         console.log(`attempt ${attempt}: 정면 뷰에서 캐릭터를 분리하지 못함`);
         return null;
@@ -417,6 +425,12 @@ async function postprocess(
       if (!packed.hasBackView) {
         console.log(
           `attempt ${attempt}: 뒷면 뷰가 없어 정체성 일관성 검증 실패`,
+        );
+        return null;
+      }
+      if (mode === "four_view" && !packed.hasSideViews) {
+        console.log(
+          `attempt ${attempt}: four-view sheet is missing a usable left or right profile`,
         );
         return null;
       }

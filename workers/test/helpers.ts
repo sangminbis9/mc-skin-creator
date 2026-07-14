@@ -141,7 +141,13 @@ export function makeSyntheticAtlas(seed = 1): RawImage {
 export function makeFrontView(): RawImage {
   const W = 512;
   const rgba = new Uint8Array(W * W * 4);
-  const fill = (x0: number, y0: number, x1: number, y1: number, c: number[]) => {
+  const fill = (
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    c: number[],
+  ) => {
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
         rgba.set([c[0], c[1], c[2], 255], (y * W + x) * 4);
@@ -192,6 +198,47 @@ export function makeFrontBackView(): RawImage {
   return { width, height: front.height, rgba };
 }
 
+/** Four separated views; profile torso colors make left/right UV routing testable. */
+export function makeFourViewSheet(): RawImage {
+  const source = makeFrontView();
+  const width = 1024;
+  const height = 512;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    rgba.set([232, 232, 236, 255], pixel * 4);
+  }
+  for (let view = 0; view < 4; view++) {
+    const offsetX = view * 256;
+    for (let y = 0; y < height; y++) {
+      for (let x = 128; x < 384; x++) {
+        const sourceOffset = (y * source.width + x) * 4;
+        const targetX = offsetX + x - 128;
+        const targetOffset = (y * width + targetX) * 4;
+        rgba.set(
+          source.rgba.subarray(sourceOffset, sourceOffset + 4),
+          targetOffset,
+        );
+      }
+    }
+    if (view >= 2) {
+      const color = view === 2 ? [42, 190, 72] : [52, 78, 218];
+      for (let y = 180; y < 330; y++) {
+        for (let x = offsetX + 8; x < offsetX + 248; x++) {
+          const target = (y * width + x) * 4;
+          const backgroundDistance =
+            Math.abs(rgba[target] - 232) +
+            Math.abs(rgba[target + 1] - 232) +
+            Math.abs(rgba[target + 2] - 236);
+          if (backgroundDistance > 72) {
+            rgba.set([color[0], color[1], color[2], 255], target);
+          }
+        }
+      }
+    }
+  }
+  return { width, height, rgba };
+}
+
 /** 64x64 → scale배 nearest 확대 (FLUX 512 출력 흉내) */
 export function upscale(image: RawImage, scale: number): RawImage {
   const w = image.width * scale;
@@ -200,7 +247,7 @@ export function upscale(image: RawImage, scale: number): RawImage {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const s =
-        ((Math.floor(y / scale) * image.width) + Math.floor(x / scale)) * 4;
+        (Math.floor(y / scale) * image.width + Math.floor(x / scale)) * 4;
       out.set(image.rgba.subarray(s, s + 4), (y * w + x) * 4);
     }
   }

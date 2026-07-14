@@ -85,6 +85,52 @@ export function buildFrontViewPrompt(analysis: PhotoAnalysis): string {
   return lines.join("\n");
 }
 
+/**
+ * Four orthographic views give the deterministic packer real left/right
+ * surface evidence instead of forcing it to mirror or guess every side face.
+ */
+export function buildFourViewPrompt(analysis: PhotoAnalysis): string {
+  const inferred = [
+    analysis.inferred.hairBack?.value,
+    analysis.inferred.upperBody?.value,
+    analysis.inferred.lowerBody?.value,
+    analysis.inferred.shoes?.value,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("; ");
+  const lines = [
+    "Use image 1 strictly as the composition guide. Replace its four guide figures with four orthographic views of the SAME blocky pixel-art character, preserving exact placement, scale, straight pose and spacing.",
+    "Left-to-right order is mandatory: FRONT view, true BACK view, character LEFT PROFILE, character RIGHT PROFILE. The two profile views must be genuine opposite sides, not repeated front or back views.",
+    "Keep all four figures completely separated on one solid very light gray background. Draw exactly four figures and nothing else.",
+    "Minecraft proportions: cubic head, rectangular torso, straight blocky arms and legs. Crisp low-resolution pixel clusters, hard edges and no antialiasing.",
+    `Design every view after the subject of image 0. Preserve identity, hairstyle silhouette, bangs, hair color, skin tone, accessories and clothing: ${analysis.identityPrompt}`,
+    framingPolicy(analysis, "Image 0"),
+    `Use these evidence-based completions consistently on unseen surfaces: ${inferred || analysis.outfitPrompt}.`,
+    `Face priorities: ${analysis.renderHints.faceShape} face, ${analysis.renderHints.eyeShape} ${analysis.renderHints.eyeTilt} eyes, ${analysis.renderHints.eyeSpacing} spacing, ${analysis.renderHints.eyebrowShape} eyebrows, ${analysis.renderHints.noseShape} nose and ${analysis.renderHints.mouthShape} mouth.`,
+    `Hair priorities: ${analysis.renderHints.bangsDensity} ${analysis.renderHints.bangsLength} ${analysis.renderHints.bangs} bangs with ${analysis.renderHints.fringeEdge} edge and ${analysis.renderHints.fringeOpening} opening; ${analysis.renderHints.hairTexture} ${analysis.renderHints.hairVolume}-volume ${analysis.renderHints.hairSilhouette} silhouette; ${analysis.renderHints.hairBackShape} back; ${analysis.renderHints.hairPart} part; ${analysis.renderHints.sideHairLength} ${analysis.renderHints.sideHairShape} side hair; ${analysis.renderHints.earExposure} ears.`,
+    `Clothing priorities: ${analysis.renderHints.garmentTexture} texture, ${analysis.renderHints.outerGarment} outer garment, ${analysis.renderHints.neckAccessory} neck detail, ${analysis.renderHints.bottomPattern} bottom pattern, ${analysis.renderHints.bottomAccent} accent and ${analysis.renderHints.legwearAsymmetry} ${analysis.renderHints.legwear}.`,
+    `Place the ${analysis.renderHints.hairAccessoryColor} ${analysis.renderHints.hairAccessory} on the subject's correct ${analysis.renderHints.hairAccessorySide} side and show it only in views where that physical side is visible.`,
+    "The left and right profiles are critical evidence: show the real side-hair length, temple contour, ear coverage, shoulder hair, cardigan or jacket thickness, sleeve construction, lower-garment side seam, asymmetric legwear and shoe profile.",
+    "Use Minecraft second-layer visual logic: irregular hair mass, bangs, side locks, collars, cardigan edges, cuffs, hems, bows, legwear bands and shoe straps should protrude visually from the base silhouette without becoming full rectangular shells.",
+    "Use 3-6 shade ramps per material, controlled highlights, shadows and asymmetric pixel clusters like a hand-authored premium Minecraft skin.",
+  ];
+  const avoid = [
+    "more or fewer than four figures",
+    "duplicate views",
+    "three-quarter views",
+    "cropped bodies",
+    "smooth gradients",
+    "photorealism",
+    "text",
+    "logos",
+    "ground shadows",
+  ];
+  if (analysis.negativePrompt.trim())
+    avoid.push(analysis.negativePrompt.trim());
+  lines.push(`Avoid: ${avoid.join(", ")}.`);
+  return lines.join("\n");
+}
+
 export function buildSkinPrompt(
   analysis: PhotoAnalysis,
   layout: ReferenceLayout,

@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { buildFrontViewPrompt, buildSkinPrompt } from "../src/skinPrompt";
+import {
+  buildFourViewPrompt,
+  buildFrontViewPrompt,
+  buildSkinPrompt,
+} from "../src/skinPrompt";
 import { makeAnalysis } from "./helpers";
 
 describe("buildSkinPrompt framing 정책", () => {
   it("face: 얼굴 보존 + 중성 캐주얼 전신 생성", () => {
-    const prompt = buildSkinPrompt(
-      makeAnalysis({ framing: "face" }),
-      { hasStyleRef: true },
-    );
+    const prompt = buildSkinPrompt(makeAnalysis({ framing: "face" }), {
+      hasStyleRef: true,
+    });
     expect(prompt).toContain("only the face/head");
     expect(prompt).toContain("neutral casual full-body outfit");
   });
@@ -44,7 +47,9 @@ describe("buildSkinPrompt framing 정책", () => {
     const prompt = buildFrontViewPrompt(makeAnalysis());
     expect(prompt).toContain("FRONT view");
     expect(prompt).toContain("BACK view");
-    expect(prompt).toContain("image 1 strictly as the composition and pose guide");
+    expect(prompt).toContain(
+      "image 1 strictly as the composition and pose guide",
+    );
     expect(prompt).toContain("silver glasses"); // identityPrompt 반영
     expect(prompt).toContain("knit garment texture");
     expect(prompt).toContain("side hair");
@@ -87,5 +92,18 @@ describe("buildSkinPrompt framing 정책", () => {
     const prompt = buildSkinPrompt(makeAnalysis(), { hasStyleRef: true });
     expect(prompt).toContain("no hat, no beard");
     expect(prompt).toContain("photorealism");
+  });
+
+  it("four_view prompt requires ordered front, back and opposite profiles", () => {
+    const prompt = buildFourViewPrompt(makeAnalysis());
+    expect(prompt).toContain("FRONT view");
+    expect(prompt).toContain("BACK view");
+    expect(prompt).toContain("LEFT PROFILE");
+    expect(prompt).toContain("RIGHT PROFILE");
+    expect(prompt).toContain("exactly four figures");
+    expect(prompt).toContain("side-hair length");
+    expect(prompt).toContain("asymmetric legwear");
+    expect(prompt).toContain("full rectangular shells");
+    expect(prompt).toContain("more or fewer than four figures");
   });
 });

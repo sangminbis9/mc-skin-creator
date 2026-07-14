@@ -7,7 +7,7 @@ export interface Env {
   VISION_FALLBACK_MODEL?: string;
   /** "true"일 때만 FLUX 이미지 생성 사용 (아니면 절차적 fallback만) */
   IMAGE_GENERATION_ENABLED?: string;
-  /** "front_view"(기본) | "direct_atlas" — 이미지 생성 전략 */
+  /** "front_view" | "four_view" | "direct_atlas" — 이미지 생성 전략 */
   IMAGE_GEN_STRATEGY?: string;
   /** "balanced"(기본, Klein 4B) | "quality"(Klein 9B, 유료 품질 우선) */
   IMAGE_MODEL_TIER?: string;

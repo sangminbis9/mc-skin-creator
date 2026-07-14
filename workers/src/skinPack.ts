@@ -21,6 +21,8 @@ export interface PackResult {
   atlas: RawImage;
   problems: string[];
   hasBackView: boolean;
+  hasSideViews: boolean;
+  viewCount: number;
 }
 
 /**
@@ -5269,6 +5271,7 @@ function columnSpan(
 function findFigureRanges(
   src: RawImage,
   bg: [number, number, number],
+  maxFigures = 2,
 ): Array<{ x0: number; x1: number }> {
   const counts = new Array<number>(src.width).fill(0);
   for (let y = 0; y < src.height; y++) {
@@ -5299,7 +5302,7 @@ function findFigureRanges(
   if (big.length >= 2) {
     // 가장 넓은 두 run을 좌→우 순서로
     big.sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0));
-    return big.slice(0, 2).sort((a, b) => a.x0 - b.x0);
+    return big.slice(0, maxFigures).sort((a, b) => a.x0 - b.x0);
   }
   return big.slice(0, 1);
 }
@@ -5393,9 +5396,72 @@ function sliceFigure(
   };
 }
 
+interface SideFigureSlices {
+  head: Region;
+  body: Region;
+  arm: Region;
+  leg: Region;
+}
+
+function sliceSideFigure(
+  src: RawImage,
+  bg: [number, number, number],
+  xr: { x0: number; x1: number },
+): SideFigureSlices | null {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let count = 0;
+  for (let y = 0; y < src.height; y++) {
+    for (let x = xr.x0; x < xr.x1; x++) {
+      if (!isCharacterPixel(src, x, y, bg)) continue;
+      count++;
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  const height = maxY - minY + 1;
+  if (count < (xr.x1 - xr.x0) * src.height * 0.025 || height < 64) {
+    return null;
+  }
+
+  const headRows = { y0: minY, y1: minY + height * 0.25 };
+  const torsoRows = { y0: headRows.y1, y1: minY + height * 0.625 };
+  const legRows = { y0: torsoRows.y1, y1: maxY + 1 };
+  const headSpan = columnSpan(src, bg, headRows.y0, headRows.y1, xr);
+  const torsoSpan = columnSpan(src, bg, torsoRows.y0, torsoRows.y1, xr);
+  const legSpan = columnSpan(src, bg, legRows.y0, legRows.y1, xr);
+  if (!headSpan || !torsoSpan || !legSpan) return null;
+
+  const inset = (span: { x0: number; x1: number }, ratio: number): Region => {
+    const width = span.x1 - span.x0;
+    return {
+      x0: span.x0 + width * ratio,
+      x1: span.x1 - width * ratio,
+      y0: 0,
+      y1: 0,
+    };
+  };
+  const body = inset(torsoSpan, 0.18);
+  body.y0 = torsoRows.y0;
+  body.y1 = torsoRows.y1;
+  const arm = inset(torsoSpan, 0.05);
+  arm.y0 = torsoRows.y0;
+  arm.y1 = torsoRows.y1;
+  const leg = inset(legSpan, 0.12);
+  leg.y0 = legRows.y0;
+  leg.y1 = legRows.y1;
+  return {
+    head: { ...headSpan, y0: headRows.y0, y1: headRows.y1 },
+    body,
+    arm,
+    leg,
+  };
+}
+
 export function packFrontViewToAtlas(
   src: RawImage,
   faceStyle: FaceStyle = DEFAULT_FACE_STYLE,
+  expectedViews: 2 | 4 = 2,
 ): PackResult | null {
   const bg = estimateBackground(src);
 
@@ -5411,7 +5477,7 @@ export function packFrontViewToAtlas(
   }
 
   // figure 탐지: 1개면 정면만, 2개면 [정면, 뒷면]
-  const ranges = findFigureRanges(src, bg);
+  const ranges = findFigureRanges(src, bg, expectedViews);
   if (ranges.length === 0) {
     return null;
   }
@@ -5420,6 +5486,14 @@ export function packFrontViewToAtlas(
     return null;
   }
   const back = ranges.length > 1 ? sliceFigure(src, bg, ranges[1]) : null;
+  const leftProfile =
+    expectedViews === 4 && ranges.length > 2
+      ? sliceSideFigure(src, bg, ranges[2])
+      : null;
+  const rightProfile =
+    expectedViews === 4 && ranges.length > 3
+      ? sliceSideFigure(src, bg, ranges[3])
+      : null;
 
   const problems: string[] = [];
   if (ranges.length > 1 && !back) {
@@ -5479,6 +5553,19 @@ export function packFrontViewToAtlas(
     },
     0.86,
   );
+  if (leftProfile) {
+    fillRectFromRegion(atlas, head.base.left, src, leftProfile.head, bg, true);
+  }
+  if (rightProfile) {
+    fillRectFromRegion(
+      atlas,
+      head.base.right,
+      src,
+      rightProfile.head,
+      bg,
+      true,
+    );
+  }
   // 뒷면: 뒷면 뷰가 있으면 실제 렌더(뒤통수), 없으면 머리카락색
   if (back) {
     fillRectFromRegion(atlas, head.base.back, src, back.head, bg);
@@ -5507,6 +5594,14 @@ export function packFrontViewToAtlas(
     ? alignRgbChroma(sampledTorsoTopColor, declaredTopColor)
     : sampledTorsoTopColor;
   completeSides(atlas, body.base, torsoTopColor, torsoTopColor);
+  if (leftProfile) {
+    fillRectFromRegion(atlas, body.base.left, src, leftProfile.body, bg);
+    alignGarmentRectToDeclaredColor(atlas, body.base.left, declaredTopColor);
+  }
+  if (rightProfile) {
+    fillRectFromRegion(atlas, body.base.right, src, rightProfile.body, bg);
+    alignGarmentRectToDeclaredColor(atlas, body.base.right, declaredTopColor);
+  }
   if (back) {
     fillRectFromRegion(atlas, body.base.back, src, back.body, bg);
     harmonizeGarmentChroma(
@@ -5559,6 +5654,24 @@ export function packFrontViewToAtlas(
       ? alignRgbChroma(sampledSleeveColor, declaredTopColor)
       : sampledSleeveColor;
     completeSides(atlas, box, sleeveColor, skinColor); // 아래면 = 손 (피부색)
+    if (leftProfile) {
+      fillRectFromRegion(atlas, box.left, src, leftProfile.arm, bg);
+      alignGarmentRectToDeclaredColor(
+        atlas,
+        box.left,
+        declaredTopColor,
+        sleeveRows,
+      );
+    }
+    if (rightProfile) {
+      fillRectFromRegion(atlas, box.right, src, rightProfile.arm, bg);
+      alignGarmentRectToDeclaredColor(
+        atlas,
+        box.right,
+        declaredTopColor,
+        sleeveRows,
+      );
+    }
     if (backRegion) {
       fillRectFromRegion(atlas, box.back, src, backRegion, bg);
       harmonizeGarmentChroma(
@@ -5660,6 +5773,38 @@ export function packFrontViewToAtlas(
       ? alignRgbChroma(sampledShoeColor, declaredShoesColor)
       : sampledShoeColor;
     completeSides(atlas, box, pantsColor, shoeColor);
+    for (const [profile, side] of [
+      [leftProfile, box.left],
+      [rightProfile, box.right],
+    ] as const) {
+      if (!profile) continue;
+      fillRectFromRegion(atlas, side, src, profile.leg, bg);
+      alignGarmentRectToDeclaredColor(
+        atlas,
+        side,
+        declaredBottomColor,
+        garmentRows,
+      );
+      if (exposedSkinRows > 0) {
+        fillRectSolid(
+          atlas,
+          {
+            x: side.x,
+            y: side.y + garmentRows,
+            w: side.w,
+            h: exposedSkinRows,
+          },
+          skinColor,
+        );
+      }
+      alignGarmentRectToDeclaredColor(
+        atlas,
+        side,
+        declaredShoesColor,
+        shoeRows,
+        side.h - shoeRows,
+      );
+    }
     if (backRegion) {
       fillRectFromRegion(atlas, box.back, src, backRegion, bg);
       alignGarmentRectToDeclaredColor(
@@ -5701,5 +5846,11 @@ export function packFrontViewToAtlas(
   reconcileOverlaySeams(atlas);
   applyShading(atlas);
 
-  return { atlas, problems, hasBackView: back !== null };
+  return {
+    atlas,
+    problems,
+    hasBackView: back !== null,
+    hasSideViews: leftProfile !== null && rightProfile !== null,
+    viewCount: ranges.length,
+  };
 }
