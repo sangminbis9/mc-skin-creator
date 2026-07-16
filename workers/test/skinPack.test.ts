@@ -832,6 +832,43 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.right, 6, 2)).toBe(255);
   });
 
+  it("long face-framing hair keeps a continuous cheek and jaw window below both eyes", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      faceShape: "oval",
+      jawShape: "soft",
+      eyeShape: "round",
+      eyeTilt: "downturned",
+      bangs: "curtain",
+      bangsLength: "brow",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+      hairAccessory: "flower",
+      hairAccessorySide: "left",
+    })!.atlas;
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+
+    for (const y of [5, 6, 7]) {
+      expect(alphaAt(atlas, overlay, 1, y)).toBe(0);
+      expect(alphaAt(atlas, overlay, 6, y)).toBe(0);
+    }
+    for (const y of [6, 7]) {
+      expect(alphaAt(atlas, overlay, 2, y)).toBe(0);
+      expect(alphaAt(atlas, overlay, 5, y)).toBe(0);
+    }
+    // Preserve the extreme outer locks so the hairstyle still frames the
+    // newly opened face instead of becoming a bare square head.
+    expect(alphaAt(atlas, overlay, 0, 6)).toBe(255);
+    expect(alphaAt(atlas, overlay, 7, 6)).toBe(255);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("straight bangs create layered front hair that wraps into temple side layers", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

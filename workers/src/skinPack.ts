@@ -1205,6 +1205,34 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
       clearOverlayPixel(outer, outerEyeY);
     }
   }
+
+  const longFaceFramingHair =
+    style.sideHairShape === "face_framing" &&
+    (style.sideHairLength === "jaw" || style.sideHairLength === "shoulder");
+  if (longFaceFramingHair) {
+    // Long locks belong on the extreme edge of the enlarged head cube. When
+    // their inner columns remain opaque below the eyes, the visible face
+    // collapses into a narrow vertical strip even though both irises pass the
+    // quality gate. Open a continuous cheek-to-jaw window while keeping x=0
+    // and x=7 as the two dimensional face-framing locks.
+    for (const y of [5, 6, 7]) {
+      clearOverlayPixel(1, y);
+      clearOverlayPixel(6, y);
+    }
+    // Rounded and soft faces need a wider lower cheek than a square/angular
+    // jaw. The centre four pixels remain untouched for every shape.
+    if (
+      style.faceShape === "round" ||
+      style.faceShape === "oval" ||
+      style.jawShape === "soft" ||
+      style.jawShape === "rounded"
+    ) {
+      clearOverlayPixel(2, 6);
+      clearOverlayPixel(5, 6);
+      clearOverlayPixel(2, 7);
+      clearOverlayPixel(5, 7);
+    }
+  }
 }
 
 /**
