@@ -326,6 +326,7 @@ export interface AtlasCraftStyle {
   fringeOpening?: string;
   hairstyle?: string;
   sideHairLength?: string;
+  sideHairShape?: string;
   hairAccessory?: string;
   garmentTexture?: string;
   outerLayer?: string;
@@ -483,6 +484,13 @@ export function validateAtlasCraft(
     value(style.sideHairLength),
   );
   const styledHair = !["none", "bald", "buzz"].includes(value(style.hairstyle));
+  // FaceStyle always supplies these fields in the live pipeline. Keeping
+  // identity and cross-part hairstyle checks opt-in lets external reference
+  // atlases use the general craft metrics without assuming our landmarks.
+  const validateIdentity =
+    style.eyeSpacing !== undefined ||
+    style.eyeTilt !== undefined ||
+    style.mouthShape !== undefined;
   const richStyle =
     style.outerLayer === "heavy" ||
     styledHair ||
@@ -564,6 +572,80 @@ export function validateAtlasCraft(
       `shoulder hair does not continue onto the torso (${metrics.overlayPixelsByPart.body})`,
     );
   }
+  if (validateIdentity && style.sideHairLength === "shoulder") {
+    const colorAt = (rect: Rect, x: number, y: number) => {
+      const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      return [
+        atlas.rgba[offset],
+        atlas.rgba[offset + 1],
+        atlas.rgba[offset + 2],
+        atlas.rgba[offset + 3],
+      ] as const;
+    };
+    const scalpPalette: Array<readonly [number, number, number]> = [];
+    const scalp = CLASSIC_LAYOUT.head.base.top;
+    for (let y = 0; y < scalp.h; y++) {
+      for (let x = 0; x < scalp.w; x++) {
+        const pixel = colorAt(scalp, x, y);
+        if (pixel[3] !== 0) scalpPalette.push([pixel[0], pixel[1], pixel[2]]);
+      }
+    }
+    const resemblesScalp = (rect: Rect, x: number, y: number) => {
+      const pixel = colorAt(rect, x, y);
+      if (pixel[3] === 0) return false;
+      return scalpPalette.some(
+        (hair) =>
+          Math.abs(pixel[0] - hair[0]) +
+            Math.abs(pixel[1] - hair[1]) +
+            Math.abs(pixel[2] - hair[2]) <=
+          105,
+      );
+    };
+    const torso = CLASSIC_LAYOUT.body.overlay;
+    const torsoPath = [
+      ...Array.from({ length: 7 }, (_, y) => [torso.front, 0, y] as const),
+      ...Array.from(
+        { length: 7 },
+        (_, y) => [torso.front, torso.front.w - 1, y] as const,
+      ),
+      ...Array.from({ length: 8 }, (_, y) => [torso.right, 0, y] as const),
+      ...Array.from(
+        { length: 8 },
+        (_, y) => [torso.left, torso.left.w - 1, y] as const,
+      ),
+    ];
+    const torsoHairPixels = torsoPath.filter(([rect, x, y]) =>
+      resemblesScalp(rect, x, y),
+    ).length;
+    const armHairPixels = (
+      arm: typeof CLASSIC_LAYOUT.rightArm.overlay,
+      side: Rect,
+    ) => {
+      const path = [
+        ...Array.from({ length: 6 }, (_, y) => [arm.front, 0, y] as const),
+        ...Array.from(
+          { length: 6 },
+          (_, y) => [arm.front, arm.front.w - 1, y] as const,
+        ),
+        ...Array.from({ length: 6 }, (_, y) => [side, 0, y] as const),
+        ...Array.from({ length: 4 }, (_, y) => [side, 1, y] as const),
+      ];
+      return path.filter(([rect, x, y]) => resemblesScalp(rect, x, y)).length;
+    };
+    const rightShoulderHair = armHairPixels(
+      CLASSIC_LAYOUT.rightArm.overlay,
+      CLASSIC_LAYOUT.rightArm.overlay.right,
+    );
+    const leftShoulderHair = armHairPixels(
+      CLASSIC_LAYOUT.leftArm.overlay,
+      CLASSIC_LAYOUT.leftArm.overlay.left,
+    );
+    if (torsoHairPixels < 12 || rightShoulderHair < 5 || leftShoulderHair < 5) {
+      problems.push(
+        `shoulder hair is not colour-connected across head, torso and arms (torso ${torsoHairPixels}, right ${rightShoulderHair}, left ${leftShoulderHair})`,
+      );
+    }
+  }
   if (has(style.outerGarment)) {
     if (metrics.overlayPixelsByPart.body < 40)
       problems.push(
@@ -584,13 +666,6 @@ export function validateAtlasCraft(
     problems.push("legwear lacks a readable second-layer cluster");
   }
 
-  // FaceStyle always supplies these fields in the live pipeline. Keeping the
-  // check opt-in lets external reference atlases use craft metrics without
-  // assuming they share our exact facial landmark coordinates.
-  const validateIdentity =
-    style.eyeSpacing !== undefined ||
-    style.eyeTilt !== undefined ||
-    style.mouthShape !== undefined;
   if (validateIdentity) {
     const face = CLASSIC_LAYOUT.head.base.front;
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;

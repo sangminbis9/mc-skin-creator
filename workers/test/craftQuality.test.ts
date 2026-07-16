@@ -170,11 +170,9 @@ describe("handcrafted atlas quality metrics", () => {
 
     const hiddenEyes = { ...source, rgba: new Uint8Array(source.rgba) };
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
-    const hairSource =
-      (faceOverlay.y * ATLAS_SIZE + faceOverlay.x) * 4;
+    const hairSource = (faceOverlay.y * ATLAS_SIZE + faceOverlay.x) * 4;
     for (const x of [2, 5]) {
-      const target =
-        ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + x) * 4;
+      const target = ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + x) * 4;
       hiddenEyes.rgba.set(
         hiddenEyes.rgba.slice(hairSource, hairSource + 4),
         target,
@@ -189,14 +187,60 @@ describe("handcrafted atlas quality metrics", () => {
     const leftSide = CLASSIC_LAYOUT.head.overlay.left;
     for (let y = 0; y < leftSide.h; y++) {
       for (let x = 0; x < leftSide.w; x++) {
-        const offset =
-          ((leftSide.y + y) * ATLAS_SIZE + leftSide.x + x) * 4;
+        const offset = ((leftSide.y + y) * ATLAS_SIZE + leftSide.x + x) * 4;
         missingSide.rgba.set([0, 0, 0, 0], offset);
       }
     }
     expect(
       validateAtlasCraft(missingSide, style).problems.join(" / "),
     ).toContain("side hair is disconnected");
+  });
+
+  it("rejects shoulder hair that stops at the head instead of crossing the torso and arms", () => {
+    const style = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long" as const,
+      bangs: "curtain" as const,
+      hairTexture: "wavy" as const,
+      hairVolume: "full" as const,
+      hairBackShape: "long" as const,
+      sideHairLength: "shoulder" as const,
+      sideHairShape: "face_framing" as const,
+      outerLayer: "heavy" as const,
+      outerGarment: "cardigan" as const,
+    };
+    const source = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
+    expect(validateAtlasCraft(source, style).ok).toBe(true);
+
+    const disconnected = { ...source, rgba: new Uint8Array(source.rgba) };
+    const repaint = (rect: { x: number; y: number }, x: number, y: number) => {
+      const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      disconnected.rgba.set([54, 116, 204, 255], offset);
+    };
+    const torso = CLASSIC_LAYOUT.body.overlay;
+    for (let y = 0; y < 8; y++) {
+      if (y < 7) {
+        repaint(torso.front, 0, y);
+        repaint(torso.front, torso.front.w - 1, y);
+      }
+      repaint(torso.right, 0, y);
+      repaint(torso.left, torso.left.w - 1, y);
+    }
+    for (const [arm, side] of [
+      [CLASSIC_LAYOUT.rightArm.overlay, CLASSIC_LAYOUT.rightArm.overlay.right],
+      [CLASSIC_LAYOUT.leftArm.overlay, CLASSIC_LAYOUT.leftArm.overlay.left],
+    ] as const) {
+      for (let y = 0; y < 6; y++) {
+        repaint(arm.front, 0, y);
+        repaint(arm.front, arm.front.w - 1, y);
+        repaint(side, 0, y);
+        if (y < 4) repaint(side, 1, y);
+      }
+    }
+
+    expect(
+      validateAtlasCraft(disconnected, style).problems.join(" / "),
+    ).toContain("shoulder hair is not colour-connected");
   });
 
   const styleMatrix = [
