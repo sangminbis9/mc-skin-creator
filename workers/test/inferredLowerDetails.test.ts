@@ -267,7 +267,7 @@ describe("inferred lower-body completion", () => {
     expect(decoded.rgba[plaidDark + 3]).toBe(255);
     expect(decoded.rgba[plaidDark]).toBeLessThan(decoded.rgba[plaidLight]);
     expect(decoded.rgba[legTop + 3]).toBe(255);
-    expect(decoded.rgba[bodyHem]).toBeLessThan(decoded.rgba[legTop]);
+    expect(decoded.rgba[bodyHem]).toBeLessThan(decoded.rgba[plaidLight]);
     expect(decoded.rgba[leftWarmer + 3]).toBe(255);
   });
 

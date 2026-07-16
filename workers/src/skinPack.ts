@@ -2029,7 +2029,9 @@ function composeHair(
           y,
           bodyHair(bodyOver.front, rightX, y, y >= 5 ? 0.72 : 0.94),
         );
-        if (y <= 4 || y % 2 === 0) {
+        const keepInnerFaceFramingStrand =
+          sideHairShape !== "face_framing" || y <= 2 || (y <= 5 && y % 2 === 0);
+        if (keepInnerFaceFramingStrand && (y <= 4 || y % 2 === 0)) {
           putColor(
             bodyOver.front,
             Math.min(2, leftX + 1),
@@ -2083,6 +2085,13 @@ function composeHair(
         [6, 6, torsoStrandDark],
         [7, 5, shadeRgb(torsoStrandDark, 0.9)],
       ] as const) {
+        if (
+          sideHairShape === "face_framing" &&
+          (x === 2 || x === 5) &&
+          y >= 3
+        ) {
+          continue;
+        }
         putColor(bodyOver.front, x, y, color);
       }
       putColor(bodyOver.right, 1, 3, shadeRgb(torsoStrandLight, 0.82));
@@ -3166,43 +3175,23 @@ function composeHair(
         putFrontAccessory(2, 3, flowerShade);
         putFrontAccessory(2, 1, leaf);
         putFrontAccessory(1, 4, leafDark);
-        // The side/top/back faces carry the flower volume. Keeping the front
-        // cluster at the temple leaves both eyes and the mouth readable.
+        // Keep the profile readable. A previous three-flower side cluster
+        // occupied most of the 8x8 face in exact side views and made the
+        // accessory look like a mask. One seam-connected bloom plus a few
+        // leaves is enough to create second-layer volume.
         drawSideFlower(6, 2);
-        drawSideFlower(6, 4);
-        drawSideFlower(3, 3);
-        putSideAccessory(4, 2, flowerLight);
-        putSideAccessory(4, 3, flowerPetal);
-        putSideAccessory(5, 4, flowerCenter);
         putSideAccessory(5, 1, leaf);
-        putSideAccessory(5, 3, leaf);
-        putSideAccessory(7, 4, flowerShade);
         putSideAccessory(4, 1, leafDark);
-        putSideAccessory(4, 5, leaf);
-        putSideAccessory(3, 1, leafDark);
-        putSideAccessory(2, 2, leaf);
-        putSideAccessory(2, 4, flowerShade);
-        putSideAccessory(3, 5, leaf);
+        putSideAccessory(5, 4, leaf);
         drawTopFlower(2, 5);
-        drawTopFlower(4, 5);
         putTopAccessory(1, 4, leaf);
-        putTopAccessory(1, 6, flowerPetal);
         putTopAccessory(2, 6, leaf);
         putTopAccessory(3, 6, leaf);
-        putTopAccessory(4, 6, flowerLight);
-        putTopAccessory(5, 6, leafDark);
         putTopAccessory(2, 7, flowerShade);
         putTopAccessory(3, 4, flowerLight);
-        putTopAccessory(5, 4, flowerShade);
-        putTopAccessory(6, 5, leaf);
-        putTopAccessory(6, 6, leafDark);
         putBackAccessory(0, 3, flowerPetal);
-        putBackAccessory(0, 4, flowerShade);
         putBackAccessory(1, 3, leaf);
-        putBackAccessory(1, 4, flowerCenter);
-        putBackAccessory(2, 4, leafDark);
-        putBackAccessory(2, 3, leaf);
-        putBackAccessory(3, 4, leafDark);
+        putBackAccessory(0, 4, leafDark);
       }
     } else if (accessory === "bow" || accessory === "ribbon") {
       if (accessorySide === "center") {

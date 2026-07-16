@@ -56,6 +56,235 @@ async function goodFluxOutput(): Promise<SkinGenerationResult> {
 }
 
 describe("generateSkin", () => {
+  it("preserves muted portrait colours instead of collapsing them to vivid fallback swatches", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      framing: "full_body",
+      visibleRegions: {
+        face: true,
+        hair: true,
+        upperBody: true,
+        lowerBody: true,
+        feet: true,
+      },
+      observed: {
+        face: "oval face with pale porcelain skin",
+        hair: "long wavy light-brown hair",
+        accessories: "pink flower hair accessory",
+        clothing:
+          "dusty rose pink cardigan, light beige plaid skort and cream Mary Jane shoes",
+        colorPalette: [
+          "dusty rose pink",
+          "light brown",
+          "light beige",
+          "cream",
+        ],
+      },
+      identityPrompt:
+        "An oval-faced person with pale skin and long wavy light-brown hair.",
+      outfitPrompt:
+        "A muted dusty-pink cardigan with a light beige plaid skort and off-white cream Mary Jane shoes.",
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        skinTone: "light",
+        hairColor: "light-brown",
+        hairstyle: "long",
+        topColor: "pink",
+        bottomType: "skirt",
+        bottomColor: "beige",
+        shoesColor: "beige",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.features).toMatchObject({
+      skinTone: "#f2d6c0",
+      hairColor: "#806052",
+      topColor: "#b7929d",
+      bottomColor: "#cbb8a3",
+      shoesColor: "#e8dfd1",
+    });
+  });
+
+  it("stabilizes explicit center-parted curtain hair across inconsistent enum hints", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "long wavy center-parted hair with curtain bangs and face-framing locks over the shoulders",
+      },
+      identityPrompt:
+        "Long wavy hair parted down the middle, with curtain bangs and strands that frame the face.",
+      renderHints: {
+        ...base.renderHints,
+        bangs: "straight",
+        bangsLength: "short",
+        fringeOpening: "left",
+        hairBackShape: "rounded",
+        hairPart: "left",
+        sideHairLength: "short",
+        sideHairShape: "flared",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.analysis?.renderHints).toMatchObject({
+      bangs: "curtain",
+      bangsLength: "brow",
+      fringeOpening: "center",
+      hairBackShape: "long",
+      hairPart: "center",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+    });
+  });
+
+  it("recovers subtle center fringe separation without inventing a root part", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "Long wavy hair with dense staggered brow bangs and a slight center separation between fringe clusters.",
+      },
+      identityPrompt:
+        "Long full wavy hair with face-framing shoulder locks and a subtle center separation in the bangs.",
+      renderHints: {
+        ...base.renderHints,
+        bangs: "straight",
+        bangsLength: "brow",
+        bangsDensity: "dense",
+        fringeEdge: "staggered",
+        fringeOpening: "left",
+        hairTexture: "wavy",
+        hairBackShape: "long",
+        hairPart: "left",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.analysis?.renderHints).toMatchObject({
+      bangs: "straight",
+      fringeOpening: "center",
+      hairPart: "left",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+    });
+  });
+
+  it("refines model-returned palette hex values using visible colour prose", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      framing: "full_body",
+      visibleRegions: {
+        face: true,
+        hair: true,
+        upperBody: true,
+        lowerBody: true,
+        feet: true,
+      },
+      observed: {
+        face: "Oval face shape, pale skin and a soft jaw.",
+        hair: "Long wavy light-brown hair.",
+        accessories: "pink flower",
+        clothing:
+          "Light pink/mauve cardigan, beige/tan plaid shorts and cream Mary Jane shoes.",
+        colorPalette: ["light pink", "mauve", "beige", "tan", "cream"],
+      },
+      identityPrompt:
+        "An oval-faced person with pale skin and long wavy light-brown hair.",
+      outfitPrompt:
+        "Light pink/mauve cardigan with beige/tan plaid culottes and cream Mary Jane shoes.",
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        skinTone: "unexpected-model-value",
+        hairColor: "#806052",
+        topColor: "unexpected-model-value",
+        bottomColor: "unexpected-model-value",
+        shoesColor: "unexpected-model-value",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.features).toMatchObject({
+      skinTone: "#f2d6c0",
+      hairColor: "#806052",
+      topColor: "#b7929d",
+      bottomColor: "#cbb8a3",
+      shoesColor: "#e8dfd1",
+    });
+  });
+
+  it("keeps vivid plain pink when the description does not say it is muted", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        clothing: "bright pink athletic jacket over a white shirt",
+      },
+      outfitPrompt:
+        "A vivid bright pink athletic jacket with black pants and white sneakers.",
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topColor: "pink",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.features?.topColor).toBe("#e58bb6");
+  });
+
+  it("does not transfer legwear or blouse colours onto unrelated garments", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        clothing:
+          "Blue denim jacket over a cream blouse, black shorts, soft pink leg warmers and black loafers.",
+      },
+      outfitPrompt:
+        "Blue denim jacket, cream blouse, black shorts, soft pink leg warmers and black loafers.",
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topColor: "blue",
+        bottomColor: "black",
+        shoesColor: "black",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.features).toMatchObject({
+      topColor: "#4d9de0",
+      bottomColor: "#22201e",
+      shoesColor: "#22201e",
+    });
+  });
+
   it("uses the high-resolution photo for analysis and the 448px photo for image generation", async () => {
     const env = makeEnv(makeAnalysis(), true, "front_view");
     const generationPhoto = await photoDataUrl();

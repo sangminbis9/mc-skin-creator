@@ -145,15 +145,19 @@ export async function generateSkin(
     };
   }
 
-  const features = fallbackFeaturesToHex(analysis.fallbackFeatures);
+  const renderAnalysis = normalizeAnalysisForRendering(analysis);
+  const features = refineFeatureColorsFromAnalysis(
+    renderAnalysis,
+    fallbackFeaturesToHex(renderAnalysis.fallbackFeatures),
+  );
   const summary: AnalysisSummary = {
-    framing: analysis.framing,
-    visibleRegions: analysis.visibleRegions,
-    observed: analysis.observed,
-    inferred: analysis.inferred,
-    renderHints: analysis.renderHints,
+    framing: renderAnalysis.framing,
+    visibleRegions: renderAnalysis.visibleRegions,
+    observed: renderAnalysis.observed,
+    inferred: renderAnalysis.inferred,
+    renderHints: renderAnalysis.renderHints,
   };
-  const faceStyle = buildFaceStyle(analysis, features);
+  const faceStyle = buildFaceStyle(renderAnalysis, features);
 
   // ---------- 2) 이미지 생성 (feature flag) ----------
   let skinPngBase64: string | null = null;
@@ -165,7 +169,7 @@ export async function generateSkin(
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
     for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
       const generated = await provider.generate({
-        analysis,
+        analysis: renderAnalysis,
         photoDataUrl: imageDataUrl,
         seed: (baseSeed + attempt * 7919) >>> 0,
         mode,
@@ -419,11 +423,15 @@ async function postprocess(
       mode === "four_view" ? 4 : 2,
     );
     if (!packed) {
-      console.log(`attempt ${attempt}: could not isolate generated character views`);
+      console.log(
+        `attempt ${attempt}: could not isolate generated character views`,
+      );
       return null;
     }
     if (!packed.hasBackView) {
-      console.log(`attempt ${attempt}: generated sheet has no usable back view`);
+      console.log(
+        `attempt ${attempt}: generated sheet has no usable back view`,
+      );
       return null;
     }
     if (mode === "four_view" && !packed.hasSideViews) {
@@ -497,7 +505,9 @@ const HAIR_COLORS: Record<string, string> = {
   black: "#1b1b1b",
   "dark-brown": "#3b2a1e",
   brown: "#5a3d28",
-  "light-brown": "#8a6240",
+  // A neutral brown is a safer low-resolution base than the previous orange
+  // swatch. Warm/copper hair is still represented by auburn and red.
+  "light-brown": "#806052",
   blonde: "#d8b569",
   platinum: "#e9dcc0",
   red: "#a53c22",
@@ -557,6 +567,207 @@ function paletteHex(
     }
   }
   return fallback;
+}
+
+function joinedAnalysisText(
+  values: Array<string | string[] | null | undefined>,
+): string {
+  return values
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase()
+    .replace(/[–—]/g, "-");
+}
+
+function mentionsColorNearItem(
+  text: string,
+  colorPattern: string,
+  itemPattern: string,
+  maxWords = 6,
+): boolean {
+  const bridge = `(?:\\s+[a-z0-9/-]+){0,${maxWords}}\\s+`;
+  return new RegExp(
+    `(?:${colorPattern})${bridge}(?:${itemPattern})\\b|\\b(?:${itemPattern})${bridge}(?:${colorPattern})`,
+    "i",
+  ).test(text);
+}
+
+/**
+ * Resolve contradictions between the free-form visual description and the
+ * compact render enums. The prose carries details such as "curtain bangs"
+ * that can be lost when the vision model picks a nearby enum on another run.
+ */
+export function normalizeAnalysisForRendering(
+  analysis: PhotoAnalysis,
+): PhotoAnalysis {
+  const renderHints = { ...analysis.renderHints };
+  const hairText = joinedAnalysisText([
+    analysis.observed.hair,
+    analysis.observed.accessories,
+    analysis.identityPrompt,
+    analysis.inferred.hairBack?.value,
+    analysis.inferred.hairBack?.rationale,
+  ]);
+
+  const explicitCenterPart =
+    /\b(center|centre|middle)[-\s]+part(?:ed|ing)?\b/.test(hairText) ||
+    /\bpart(?:ed|ing)?\s+(?:down\s+)?the\s+middle\b/.test(hairText);
+  const explicitCurtainBangs =
+    /\bcurtain[-\s]+bangs?\b/.test(hairText) ||
+    /\bcenter[-\s]+split[-\s]+bangs?\b/.test(hairText);
+  const explicitCenterOpening =
+    /\b(?:center|centre|middle)[-\s]+(?:fringe[-\s]+)?(?:gap|opening)\b/.test(
+      hairText,
+    ) ||
+    /\b(?:slight|small|subtle|visible|clear)?[-\s]*(?:center|centre|middle)[-\s]+separation\b/.test(
+      hairText,
+    ) ||
+    /\bseparation\s+(?:between|in)\s+(?:the\s+)?(?:center|centre|middle)?[-\s]*(?:fringe|bang|bangs|clusters?)\b/.test(
+      hairText,
+    );
+  const faceFraming =
+    /\bface[-\s]+framing\b/.test(hairText) ||
+    /\b(?:locks?|strands?|pieces?|bangs?)\s+(?:that\s+)?frame(?:s|d)?\s+(?:the\s+)?face\b/.test(
+      hairText,
+    ) ||
+    explicitCurtainBangs;
+  const longHair =
+    /\b(?:long|chest[-\s]+length|waist[-\s]+length|mid[-\s]+back|past[-\s]+the[-\s]+shoulders?)\b/.test(
+      hairText,
+    ) || renderHints.hairBackShape === "long";
+  const shoulderSideHair =
+    /\b(?:shoulder[-\s]+length|to[-\s]+the[-\s]+shoulders?|over[-\s]+the[-\s]+shoulders?|past[-\s]+the[-\s]+shoulders?)\b/.test(
+      hairText,
+    );
+
+  if (explicitCenterPart) {
+    renderHints.hairPart = "center";
+  }
+  if (explicitCurtainBangs) {
+    renderHints.bangs = "curtain";
+    renderHints.fringeOpening = "center";
+    renderHints.sideHairShape = "face_framing";
+    if (
+      renderHints.bangsLength === "none" ||
+      renderHints.bangsLength === "short"
+    ) {
+      renderHints.bangsLength = "brow";
+    }
+  } else if (explicitCenterOpening && renderHints.bangs !== "none") {
+    renderHints.fringeOpening = "center";
+    if (
+      renderHints.hairTexture !== "straight" &&
+      renderHints.bangsDensity !== "dense"
+    ) {
+      renderHints.bangs = "curtain";
+      renderHints.sideHairShape = "face_framing";
+    }
+  }
+  if (faceFraming) {
+    renderHints.sideHairShape = "face_framing";
+    if (
+      longHair &&
+      (renderHints.sideHairLength === "none" ||
+        renderHints.sideHairLength === "short")
+    ) {
+      renderHints.sideHairLength = shoulderSideHair ? "shoulder" : "jaw";
+    }
+  }
+  if (longHair) {
+    renderHints.hairBackShape = "long";
+  }
+
+  return { ...analysis, renderHints };
+}
+
+/**
+ * Preserve nuanced colour words from the analysis instead of collapsing them
+ * into the nearest vivid enum swatch. These colours also guide chroma
+ * alignment in the deterministic packer, so correcting them here affects all
+ * generated UV faces consistently.
+ */
+export function refineFeatureColorsFromAnalysis(
+  analysis: PhotoAnalysis,
+  features: Record<string, unknown>,
+): Record<string, unknown> {
+  const refined = { ...features };
+  const faceText = joinedAnalysisText([
+    analysis.observed.face,
+    analysis.identityPrompt,
+  ]);
+  const hairText = joinedAnalysisText([
+    analysis.observed.hair,
+    analysis.identityPrompt,
+    analysis.observed.colorPalette,
+  ]);
+  const topText = joinedAnalysisText([
+    analysis.observed.clothing,
+    analysis.outfitPrompt,
+  ]);
+  const bottomText = joinedAnalysisText([
+    analysis.observed.clothing,
+    analysis.outfitPrompt,
+    analysis.inferred.lowerBody?.value,
+    analysis.inferred.lowerBody?.rationale,
+  ]);
+  const shoesText = joinedAnalysisText([
+    analysis.observed.clothing,
+    analysis.outfitPrompt,
+    analysis.inferred.shoes?.value,
+    analysis.inferred.shoes?.rationale,
+  ]);
+
+  if (
+    /\b(?:very[-\s]+)?(?:pale|fair|porcelain)(?:[-\s]+skin(?:tone)?)?\b/.test(
+      faceText,
+    )
+  ) {
+    refined.skinTone = "#f2d6c0";
+  }
+
+  if (
+    /\b(?:ash(?:y)?|taupe|mushroom|cool[-\s]+toned|muted|rose)[-\s]+brown\b|\bbronde\b/.test(
+      hairText,
+    )
+  ) {
+    refined.hairColor = "#765b57";
+  }
+
+  const mutedPinkPattern =
+    "(?:(?:dusty|muted|desaturated|smoky|soft|pale|pastel)[-\\s]+(?:rose|pink)|dusty[-\\s]+rose|mauve|old[-\\s]+rose|rose[-\\s]+beige|pink[-\\s]+beige|light[-\\s]+pink(?:\\s*\\/\\s*mauve)?)";
+  const topGarmentPattern =
+    "(?:top|shirt|blouse|sweater|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey)";
+  if (mentionsColorNearItem(topText, mutedPinkPattern, topGarmentPattern, 7)) {
+    refined.topColor = "#b7929d";
+  }
+
+  const softBeigePattern =
+    "(?:(?:light|soft|muted|pale|cream)[-\\s]+(?:beige|tan)|taupe[-\\s]+beige|beige\\s*\\/\\s*tan|tan\\s*\\/\\s*beige|beige[-\\s]+tan|tan[-\\s]+beige|beige|tan)";
+  const lowerGarmentPattern =
+    "(?:bottoms?|skirt|skort|shorts|pants|trousers|jeans|culottes)";
+  const beigePatternedLower =
+    mentionsColorNearItem(
+      bottomText,
+      softBeigePattern,
+      lowerGarmentPattern,
+      7,
+    ) &&
+    /\b(?:plaid|check(?:ed|ered)?|tartan|light|soft|muted|pale)\b/.test(
+      bottomText,
+    );
+  if (beigePatternedLower) {
+    refined.bottomColor = "#cbb8a3";
+  }
+
+  const creamPattern = "(?:cream|off[-\\s]+white|ivory)";
+  const shoePattern =
+    "(?:shoes?|boots?|loafers?|sneakers?|sandals?|mary[-\\s]+janes?)";
+  if (mentionsColorNearItem(shoesText, creamPattern, shoePattern, 5)) {
+    refined.shoesColor = "#e8dfd1";
+  }
+
+  return refined;
 }
 
 function completeInferredLowerDetails(
