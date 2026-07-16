@@ -776,18 +776,21 @@ function composeFace(
           ? 0.12
           : 0.28,
     );
-    const outerEyeY =
-      eyeTilt === "upturned" ? 3 : eyeTilt === "downturned" ? 5 : 4;
-    if (outerEyeY !== 4) {
-      put(face, outer, 4, shadeRgb(skinColor, 0.98));
-    }
+    // Both eye anchors stay on the same row. At 8x8 resolution, moving the
+    // whole outer eye pixel up or down reads as a stray brow/cheek mark.
+    // Direction is expressed by a smaller adjacent eyelid accent instead.
     put(
       face,
       outer,
-      outerEyeY,
-      eyeTilt === "level" ? sclera : mixRgb(sclera, eye, 0.42),
+      4,
+      eyeTilt === "level" ? sclera : mixRgb(sclera, eye, 0.2),
     );
     put(face, inner, 4, eye);
+    if (eyeTilt === "upturned") {
+      put(face, outer, 3, mixRgb(eye, skinColor, 0.36));
+    } else if (eyeTilt === "downturned") {
+      put(face, outer, 5, mixRgb(eye, skinColor, 0.42));
+    }
     if (style.eyeShape === "round") {
       put(face, inner, 5, shadeRgb(eye, 0.78));
     }
@@ -1193,16 +1196,21 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
 
   // Reveal both the sclera/corner and the iris. Clearing only the iris pixel
   // left an opaque, near-black outer-layer corner beside it; at normal preview
-  // scale that merged with the fringe and made the face look eyeless. A tilted
-  // eye moves its outer corner off row 4, so open that exact row as well.
-  const outerEyeY =
-    style.eyeTilt === "upturned" ? 3 : style.eyeTilt === "downturned" ? 5 : 4;
+  // scale that merged with the fringe and made the face look eyeless. Tilt now
+  // keeps both anchors on row 4 and uses a neighboring base-layer accent, so
+  // open that optional accent position through a dense fringe as well.
+  const tiltAccentY =
+    style.eyeTilt === "upturned"
+      ? 3
+      : style.eyeTilt === "downturned"
+        ? 5
+        : null;
   for (const [outer, inner] of eyePairs) {
     for (const x of [outer, inner]) {
       clearOverlayPixel(x, 4);
     }
-    if (outerEyeY !== 4) {
-      clearOverlayPixel(outer, outerEyeY);
+    if (tiltAccentY !== null) {
+      clearOverlayPixel(outer, tiltAccentY);
     }
   }
 

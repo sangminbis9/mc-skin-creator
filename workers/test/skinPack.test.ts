@@ -2709,7 +2709,7 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(slanted, face, 5, 2)).toBeLessThan(redAt(arched, face, 5, 2));
   });
 
-  it("eyeTilt moves the outer eye corner above or below the level eye line", () => {
+  it("eyeTilt keeps both eye anchors level and shades an adjacent corner", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "short",
@@ -2733,6 +2733,16 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const face = CLASSIC_LAYOUT.head.base.front;
 
+    for (const atlas of [level, upturned, downturned]) {
+      expect(rgbaAt(atlas, face, 1, 4)).not.toEqual(rgbaAt(atlas, face, 1, 6));
+      expect(redAt(atlas, face, 2, 4)).toBeLessThan(
+        redAt(atlas, face, 2, 6) - 35,
+      );
+      expect(rgbaAt(atlas, face, 6, 4)).not.toEqual(rgbaAt(atlas, face, 6, 6));
+      expect(redAt(atlas, face, 5, 4)).toBeLessThan(
+        redAt(atlas, face, 5, 6) - 35,
+      );
+    }
     expect(redAt(upturned, face, 1, 2)).toBeLessThan(
       redAt(level, face, 1, 2) - 60,
     );
@@ -2742,6 +2752,12 @@ describe("packFrontViewToAtlas", () => {
     expect(rgbaAt(upturned, face, 1, 3)).not.toEqual(rgbaAt(level, face, 1, 3));
     expect(rgbaAt(downturned, face, 6, 5)).not.toEqual(
       rgbaAt(level, face, 6, 5),
+    );
+    expect(rgbaAt(upturned, face, 1, 4)).not.toEqual(
+      rgbaAt(upturned, face, 1, 3),
+    );
+    expect(rgbaAt(downturned, face, 1, 4)).not.toEqual(
+      rgbaAt(downturned, face, 1, 5),
     );
   });
 

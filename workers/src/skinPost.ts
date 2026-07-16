@@ -482,9 +482,7 @@ export function validateAtlasCraft(
   const longSideHair = ["cheek", "jaw", "shoulder"].includes(
     value(style.sideHairLength),
   );
-  const styledHair = !["none", "bald", "buzz"].includes(
-    value(style.hairstyle),
-  );
+  const styledHair = !["none", "bald", "buzz"].includes(value(style.hairstyle));
   const richStyle =
     style.outerLayer === "heavy" ||
     styledHair ||
@@ -502,15 +500,21 @@ export function validateAtlasCraft(
   if (metrics.detailedBaseFaces < 18)
     problems.push(`too few shaded base faces (${metrics.detailedBaseFaces})`);
   if (metrics.overlayColorCount < 6)
-    problems.push(`outer-layer palette too small (${metrics.overlayColorCount})`);
+    problems.push(
+      `outer-layer palette too small (${metrics.overlayColorCount})`,
+    );
   if (metrics.populatedOverlayFaces < 6)
     problems.push(
       `too few populated outer-layer faces (${metrics.populatedOverlayFaces})`,
     );
   if (metrics.shadedOverlayFaces < 6)
-    problems.push(`too few shaded outer-layer faces (${metrics.shadedOverlayFaces})`);
+    problems.push(
+      `too few shaded outer-layer faces (${metrics.shadedOverlayFaces})`,
+    );
   if (metrics.solidOverlayFaces > 0)
-    problems.push(`solid outer-layer shells found (${metrics.solidOverlayFaces})`);
+    problems.push(
+      `solid outer-layer shells found (${metrics.solidOverlayFaces})`,
+    );
   if (metrics.overlayVerticalSeamMismatches > 16)
     problems.push(
       `outer-layer vertical seams disconnected (${metrics.overlayVerticalSeamMismatches})`,
@@ -522,15 +526,21 @@ export function validateAtlasCraft(
 
   if (richStyle) {
     if (metrics.opaqueOverlayPixels < 120)
-      problems.push(`rich style lacks outer-layer volume (${metrics.opaqueOverlayPixels})`);
+      problems.push(
+        `rich style lacks outer-layer volume (${metrics.opaqueOverlayPixels})`,
+      );
     if (metrics.overlayColorCount < 12)
-      problems.push(`rich style palette too small (${metrics.overlayColorCount})`);
+      problems.push(
+        `rich style palette too small (${metrics.overlayColorCount})`,
+      );
     if (metrics.populatedOverlayFaces < 12)
       problems.push(
         `rich style misses connected faces (${metrics.populatedOverlayFaces})`,
       );
     if (metrics.shadedOverlayFaces < 10)
-      problems.push(`rich style lacks face shading (${metrics.shadedOverlayFaces})`);
+      problems.push(
+        `rich style lacks face shading (${metrics.shadedOverlayFaces})`,
+      );
   }
 
   if (
@@ -568,8 +578,7 @@ export function validateAtlasCraft(
   }
   if (
     has(style.legwear) &&
-    metrics.overlayPixelsByPart.rightLeg +
-      metrics.overlayPixelsByPart.leftLeg <
+    metrics.overlayPixelsByPart.rightLeg + metrics.overlayPixelsByPart.leftLeg <
       24
   ) {
     problems.push("legwear lacks a readable second-layer cluster");
@@ -600,12 +609,13 @@ export function validateAtlasCraft(
               [1, 2],
               [6, 5],
             ] as const);
-    const outerEyeY =
+    const outerEyeY = 4;
+    const tiltAccentY =
       style.eyeTilt === "upturned"
         ? 3
         : style.eyeTilt === "downturned"
           ? 5
-          : 4;
+          : null;
     const offsetAt = (rect: Rect, x: number, y: number) =>
       ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
     const skinBuckets = new Map<
@@ -616,6 +626,7 @@ export function validateAtlasCraft(
     for (const [outer, inner] of eyePairs) {
       excluded.add(`${outer},${outerEyeY}`);
       excluded.add(`${inner},4`);
+      if (tiltAccentY !== null) excluded.add(`${outer},${tiltAccentY}`);
     }
     for (let x = 2; x <= 5; x++) excluded.add(`${x},6`);
     for (let y = 4; y <= 6; y++) {
@@ -664,15 +675,13 @@ export function validateAtlasCraft(
       const outerOffset = offsetAt(faceOverlay, outer, outerEyeY);
       const irisVisible =
         style.glasses !== "none" ||
-        (atlas.rgba[irisOffset + 3] === 0 &&
-          atlas.rgba[outerOffset + 3] === 0);
+        (atlas.rgba[irisOffset + 3] === 0 && atlas.rgba[outerOffset + 3] === 0);
       if (irisVisible && distanceFromSkin(inner, 4) >= 45) readableEyes++;
     }
     if (readableEyes < 2)
       problems.push(`face has only ${readableEyes} readable eye(s)`);
 
-    const mouthXs =
-      style.mouthShape === "wide" ? [2, 3, 4, 5] : [3, 4];
+    const mouthXs = style.mouthShape === "wide" ? [2, 3, 4, 5] : [3, 4];
     const mouthPixels = mouthXs.filter(
       (x) => distanceFromSkin(x, 6) >= 30,
     ).length;
