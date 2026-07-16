@@ -3007,6 +3007,55 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(rounded, face, 1, 6)).not.toBe(redAt(soft, face, 1, 6));
   });
 
+  it("five face shapes keep distinct cheek-to-chin contour signatures", () => {
+    const makeFace = (faceShape: NonNullable<FaceStyle["faceShape"]>) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "short",
+        bangs: "none",
+        facialHair: "none",
+        glasses: "none",
+        faceShape,
+        // Face shape and jaw shape are independent analysis outputs. Keep the
+        // jaw constant here so each faceShape must contribute its own contour.
+        jawShape: "soft",
+      })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const shapes = {
+      round: makeFace("round"),
+      oval: makeFace("oval"),
+      long: makeFace("long"),
+      angular: makeFace("angular"),
+      square: makeFace("square"),
+    };
+    const contour = (atlas: RawImage) =>
+      [
+        [0, 6],
+        [1, 6],
+        [6, 6],
+        [7, 6],
+        [0, 7],
+        [1, 7],
+        [2, 7],
+        [3, 7],
+        [4, 7],
+        [5, 7],
+        [6, 7],
+        [7, 7],
+      ]
+        .map(([x, y]) => rgbaAt(atlas, face, x, y).slice(0, 3).join(","))
+        .join("|");
+
+    expect(new Set(Object.values(shapes).map(contour)).size).toBe(5);
+    expect(redAt(shapes.round, face, 1, 7)).toBeGreaterThan(
+      redAt(shapes.oval, face, 1, 7),
+    );
+    expect(redAt(shapes.long, face, 0, 7)).toBeLessThan(
+      redAt(shapes.oval, face, 0, 7),
+    );
+    expect(contour(shapes.angular)).not.toBe(contour(shapes.square));
+  });
+
   it("four-view sheets preserve distinct left and right profile colors", () => {
     const packed = packFrontViewToAtlas(
       makeFourViewSheet(),

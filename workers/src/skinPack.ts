@@ -990,6 +990,40 @@ function composeFace(
         ? "rounded"
         : "soft");
   if (style.facialHair === "none") {
+    const contourPair = (x: number, y: number, shade: number) => {
+      put(face, x, y, shadeRgb(skinColor, shade));
+      put(face, 7 - x, y, shadeRgb(skinColor, shade * 0.98));
+    };
+    // faceShape controls the broad cheek-to-chin route; jawShape below adds
+    // the local corner or chin treatment. Keeping them independent prevents
+    // angular and square analyses from collapsing into the same 8x8 face.
+    if (style.faceShape === "round") {
+      contourPair(0, 6, 0.92);
+      contourPair(0, 7, 0.84);
+      contourPair(1, 7, 0.94);
+    } else if (style.faceShape === "oval") {
+      contourPair(0, 6, 0.86);
+      contourPair(0, 7, 0.78);
+      contourPair(1, 7, 0.87);
+    } else if (style.faceShape === "long") {
+      contourPair(0, 6, 0.78);
+      contourPair(1, 6, 0.86);
+      contourPair(0, 7, 0.7);
+      contourPair(1, 7, 0.81);
+    } else if (style.faceShape === "angular") {
+      contourPair(0, 6, 0.87);
+      contourPair(1, 6, 0.8);
+      contourPair(0, 7, 0.72);
+      contourPair(1, 7, 0.83);
+      contourPair(2, 7, 0.9);
+    } else if (style.faceShape === "square") {
+      contourPair(0, 6, 0.79);
+      contourPair(1, 6, 0.84);
+      contourPair(0, 7, 0.75);
+      contourPair(1, 7, 0.76);
+      contourPair(2, 7, 0.84);
+    }
+
     if (jawShape === "square") {
       put(face, 1, 7, shadeRgb(skinColor, 0.86));
       put(face, 6, 7, shadeRgb(skinColor, 0.86));
