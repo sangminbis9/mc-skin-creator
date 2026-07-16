@@ -2208,12 +2208,13 @@ function composeHair(
               armHair(arm.front, outerX, y, shade * 0.92),
             );
           }
-          putColor(
-            sideFace,
-            y % 2,
-            y,
-            armHair(sideFace, y % 2, y, shade * 0.9),
-          );
+          // A side-view drape needs a continuous outer rail. Alternating
+          // columns by row looked textured from the front but became isolated
+          // checkerboard pixels when the model rotated ninety degrees.
+          putColor(sideFace, 0, y, armHair(sideFace, 0, y, shade * 0.9));
+          if (y <= 3) {
+            putColor(sideFace, 1, y, armHair(sideFace, 1, y, shade * 0.78));
+          }
         }
         for (const [x, y, color] of [
           [innerX, topY, torsoStrandLight],

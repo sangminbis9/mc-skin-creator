@@ -1535,6 +1535,35 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
+  it("shoulder hair drapes down arm side faces without checkerboard gaps", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      bangs: "curtain",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+    })!.atlas;
+    const sideFaces = [
+      CLASSIC_LAYOUT.rightArm.overlay.right,
+      CLASSIC_LAYOUT.leftArm.overlay.left,
+    ];
+
+    for (const side of sideFaces) {
+      for (let y = 0; y <= 5; y++) {
+        expect(alphaAt(atlas, side, 0, y)).toBe(255);
+      }
+      for (let y = 0; y <= 3; y++) {
+        expect(alphaAt(atlas, side, 1, y)).toBe(255);
+      }
+      for (let y = 4; y <= 5; y++) {
+        expect(alphaAt(atlas, side, 1, y)).toBe(0);
+      }
+    }
+  });
+
   it("sideHairAsymmetry keeps the named viewer-side lock longer across head and shoulder layers", () => {
     const makeAsymmetric = (sideHairAsymmetry: "left" | "right") =>
       packFrontViewToAtlas(makeFrontView(), {
