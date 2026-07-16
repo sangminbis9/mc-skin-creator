@@ -1652,6 +1652,52 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("long face-framing side layers taper in continuous rails instead of alternating speckles", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      bangs: "curtain",
+      bangsLength: "brow",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairSilhouette: "tousled",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+      earExposure: "covered",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head.overlay;
+
+    const transitions = (rect: Rect, x: number) => {
+      let count = 0;
+      for (let y = 1; y < rect.h; y++) {
+        const previous = alphaAt(atlas, rect, x, y - 1) !== 0;
+        const current = alphaAt(atlas, rect, x, y) !== 0;
+        if (previous !== current) count++;
+      }
+      return count;
+    };
+
+    for (const rect of [head.right, head.left]) {
+      // The front and rear rails remain physically connected from crown to
+      // jaw; texture is carried by colour changes rather than alpha holes.
+      for (const x of [0, 1, 6, 7]) {
+        for (let y = 0; y < rect.h; y++) {
+          expect(alphaAt(atlas, rect, x, y)).toBe(255);
+        }
+      }
+      // Inner contour pixels may taper and flare once, but must not jump
+      // between alternating rows like disconnected checkerboard strands.
+      for (const x of [2, 5]) {
+        expect(transitions(rect, x)).toBeLessThanOrEqual(2);
+      }
+      for (const y of [4, 5]) {
+        expect(alphaAt(atlas, rect, 3, y)).toBe(0);
+        expect(alphaAt(atlas, rect, 4, y)).toBe(0);
+      }
+    }
+  });
+
   const representativeHairStyles = [
     {
       hairstyle: "buzz",

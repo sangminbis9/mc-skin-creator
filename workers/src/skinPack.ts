@@ -3050,13 +3050,36 @@ function composeHair(
       [0, 1, 3, 6, 7],
       [1, 2, 5, 6],
     ]);
-    const longSideRows = Array.from({ length: 8 }, (_, y) =>
-      y === 0
-        ? [0, 1, 2, 5, 6, 7]
-        : y === 7
-          ? [0, 1, 3, 4, 6, 7]
-          : [0, 1, y % 2 === 0 ? 2 : 5, 6, 7],
-    );
+    const longSideRows =
+      sideHairShape === "face_framing"
+        ? [
+            [0, 1, 2, 5, 6, 7],
+            [0, 1, 2, 5, 6, 7],
+            [0, 1, 2, 5, 6, 7],
+            [0, 1, 2, 6, 7],
+            [0, 1, 6, 7],
+            [0, 1, 6, 7],
+            [0, 1, 5, 6, 7],
+            [0, 1, 5, 6, 7],
+          ]
+        : Array.from({ length: 8 }, (_, y) =>
+            y === 0
+              ? [0, 1, 2, 5, 6, 7]
+              : y === 7
+                ? [0, 1, 3, 4, 6, 7]
+                : [0, 1, y % 2 === 0 ? 2 : 5, 6, 7],
+          );
+    if (sideHairShape === "face_framing") {
+      // Earlier detail passes intentionally leave holes for texture. On an
+      // exact profile those holes became alternating isolated pixels, so
+      // complete the intended rails before applying the sparse silhouette.
+      for (let y = 0; y < longSideRows.length; y++) {
+        for (const x of longSideRows[y]) {
+          fillTransparent(over.right, x, y, 1, 1, true);
+          fillTransparent(over.left, 7 - x, y, 1, 1, true);
+        }
+      }
+    }
     retainRows(over.right, longSideRows);
     retainRows(
       over.left,
