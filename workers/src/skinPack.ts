@@ -779,13 +779,15 @@ function composeFace(
     // Both eye anchors stay on the same row. At 8x8 resolution, moving the
     // whole outer eye pixel up or down reads as a stray brow/cheek mark.
     // Direction is expressed by a smaller adjacent eyelid accent instead.
-    put(
-      face,
-      outer,
-      4,
-      eyeTilt === "level" ? sclera : mixRgb(sclera, eye, 0.2),
-    );
-    put(face, inner, 4, eye);
+    const outerEye =
+      style.eyeShape === "narrow"
+        ? mixRgb(sclera, eye, 0.46)
+        : eyeTilt === "level"
+          ? sclera
+          : mixRgb(sclera, eye, 0.2);
+    const iris = style.eyeShape === "narrow" ? shadeRgb(eye, 0.86) : eye;
+    put(face, outer, 4, outerEye);
+    put(face, inner, 4, iris);
     if (eyeTilt === "upturned") {
       put(face, outer, 3, mixRgb(eye, skinColor, 0.36));
     } else if (eyeTilt === "downturned") {
@@ -793,6 +795,13 @@ function composeFace(
     }
     if (style.eyeShape === "round") {
       put(face, inner, 5, shadeRgb(eye, 0.78));
+      if (eyeTilt !== "downturned") {
+        put(face, outer, 5, mixRgb(skinColor, eye, 0.18));
+      }
+    } else if (style.eyeShape === "almond") {
+      // A muted lower-inner taper distinguishes almond eyes from a one-pixel
+      // narrow line without turning them into the two-pixel-tall round shape.
+      put(face, inner, 5, mixRgb(skinColor, eye, 0.28));
     }
   }
   const browAccent =

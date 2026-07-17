@@ -2784,6 +2784,50 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(slanted, face, 5, 2)).toBeLessThan(redAt(arched, face, 5, 2));
   });
 
+  it("eyeShape keeps narrow, almond and round eyes vertically distinct", () => {
+    const shared: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      eyeSpacing: "average",
+      eyeTilt: "level",
+      eyebrowShape: "straight",
+      glasses: "none",
+    };
+    const narrow = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeShape: "narrow",
+    })!.atlas;
+    const almond = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeShape: "almond",
+    })!.atlas;
+    const round = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeShape: "round",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const signature = (atlas: RawImage) =>
+      [1, 2, 5, 6]
+        .flatMap((x) => [rgbaAt(atlas, face, x, 4), rgbaAt(atlas, face, x, 5)])
+        .flat()
+        .join(",");
+
+    expect(new Set([narrow, almond, round].map(signature)).size).toBe(3);
+    expect(redAt(narrow, face, 1, 4)).toBeLessThan(
+      redAt(almond, face, 1, 4) - 20,
+    );
+    expect(redAt(round, face, 2, 5)).toBeLessThan(
+      redAt(almond, face, 2, 5) - 25,
+    );
+    expect(redAt(almond, face, 2, 5)).toBeLessThan(
+      redAt(narrow, face, 2, 5) - 25,
+    );
+    expect(redAt(round, face, 1, 5)).toBeLessThan(
+      redAt(narrow, face, 1, 5) - 15,
+    );
+  });
+
   it("eyeTilt keeps both eye anchors level and shades an adjacent corner", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,
