@@ -3185,15 +3185,52 @@ function composeHair(
       const bodyFrontX = shorterSide === "left" ? 0 : body.front.w - 3;
       const bodySide = shorterSide === "left" ? body.right : body.left;
       const bodyBackX = shorterSide === "left" ? body.back.w - 3 : 0;
-      restoreRect(body.front, bodyFrontX, 3, 3, body.front.h - 3);
-      restoreRect(bodySide, 0, 3, bodySide.w, bodySide.h - 3);
-      restoreRect(body.back, bodyBackX, 3, 3, body.back.h - 3);
       const arm =
         shorterSide === "left"
           ? CLASSIC_LAYOUT.rightArm.overlay
           : CLASSIC_LAYOUT.leftArm.overlay;
-      for (const rect of [arm.front, arm.back, arm.right, arm.left]) {
-        restoreRect(rect, 0, 3, rect.w, rect.h - 3);
+
+      if (hairBackShape === "long") {
+        // A shorter face-framing lock does not mean that the long back hair
+        // disappears from the same shoulder. Keep a one-pixel outer rail on
+        // both sides and taper only the inner/lower pixels. Removing the whole
+        // torso and arm drape made slightly turned portraits produce a
+        // one-sided hairstyle even when the source had long hair on both
+        // shoulders.
+        const frontInnerX =
+          shorterSide === "left" ? bodyFrontX + 1 : bodyFrontX;
+        restoreRect(body.front, frontInnerX, 5, 2, body.front.h - 5);
+
+        if (shorterSide === "left") {
+          restoreRect(
+            bodySide,
+            1,
+            5,
+            Math.max(0, bodySide.w - 1),
+            bodySide.h - 5,
+          );
+        } else {
+          restoreRect(
+            bodySide,
+            0,
+            5,
+            Math.max(0, bodySide.w - 1),
+            bodySide.h - 5,
+          );
+        }
+
+        const backInnerX = shorterSide === "left" ? bodyBackX : bodyBackX + 1;
+        restoreRect(body.back, backInnerX, 5, 2, body.back.h - 5);
+        for (const rect of [arm.front, arm.back, arm.right, arm.left]) {
+          restoreRect(rect, 0, 5, rect.w, rect.h - 5);
+        }
+      } else {
+        restoreRect(body.front, bodyFrontX, 3, 3, body.front.h - 3);
+        restoreRect(bodySide, 0, 3, bodySide.w, bodySide.h - 3);
+        restoreRect(body.back, bodyBackX, 3, 3, body.back.h - 3);
+        for (const rect of [arm.front, arm.back, arm.right, arm.left]) {
+          restoreRect(rect, 0, 3, rect.w, rect.h - 3);
+        }
       }
     }
   }

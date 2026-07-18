@@ -1571,7 +1571,7 @@ describe("packFrontViewToAtlas", () => {
         hairstyle: "long",
         bangs: "curtain",
         hairTexture: "wavy",
-        hairBackShape: "long",
+        hairBackShape: "rounded",
         sideHairLength: "shoulder",
         sideHairAsymmetry,
         outerLayer: "none",
@@ -1596,6 +1596,55 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(rightLonger, body.front, 7, 6)).toBe(255);
     expect(alphaAt(rightLonger, body.right, 0, 6)).toBe(0);
     expect(alphaAt(rightLonger, body.left, body.left.w - 1, 6)).toBe(255);
+
+    applyUvMask(leftLonger);
+    applyUvMask(rightLonger);
+    expect(validateFinalAtlas(leftLonger).ok).toBe(true);
+    expect(validateFinalAtlas(rightLonger).ok).toBe(true);
+  });
+
+  it("long back hair keeps a bilateral shoulder rail when one face-framing lock is shorter", () => {
+    const makeAsymmetric = (sideHairAsymmetry: "left" | "right") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        bangs: "curtain",
+        hairTexture: "wavy",
+        hairBackShape: "long",
+        sideHairLength: "shoulder",
+        sideHairAsymmetry,
+        outerLayer: "none",
+        outerGarment: "none",
+      })!.atlas;
+    const leftLonger = makeAsymmetric("left");
+    const rightLonger = makeAsymmetric("right");
+    const body = CLASSIC_LAYOUT.body.overlay;
+    const rightArm = CLASSIC_LAYOUT.rightArm.overlay;
+    const leftArm = CLASSIC_LAYOUT.leftArm.overlay;
+
+    // Long back hair still reaches both shoulders, while the shorter side
+    // loses its inner/lower pixels and bottom arm tip.
+    expect(alphaAt(leftLonger, body.front, 0, 6)).toBe(255);
+    expect(alphaAt(leftLonger, body.front, 7, 6)).toBe(255);
+    expect(alphaAt(leftLonger, body.front, 6, 6)).toBe(0);
+    expect(alphaAt(leftLonger, body.right, 0, 6)).toBe(255);
+    expect(alphaAt(leftLonger, body.left, body.left.w - 1, 6)).toBe(255);
+    expect(alphaAt(leftLonger, body.left, body.left.w - 2, 6)).toBe(0);
+    expect(alphaAt(leftLonger, body.back, 0, 6)).toBe(255);
+    expect(alphaAt(leftLonger, body.back, 1, 6)).toBe(0);
+    expect(alphaAt(leftLonger, rightArm.front, 0, 5)).toBe(255);
+    expect(alphaAt(leftLonger, leftArm.front, 0, 5)).toBe(0);
+
+    expect(alphaAt(rightLonger, body.front, 0, 6)).toBe(255);
+    expect(alphaAt(rightLonger, body.front, 7, 6)).toBe(255);
+    expect(alphaAt(rightLonger, body.front, 1, 6)).toBe(0);
+    expect(alphaAt(rightLonger, body.right, 0, 6)).toBe(255);
+    expect(alphaAt(rightLonger, body.left, body.left.w - 1, 6)).toBe(255);
+    expect(alphaAt(rightLonger, body.right, 1, 6)).toBe(0);
+    expect(alphaAt(rightLonger, body.back, 7, 6)).toBe(255);
+    expect(alphaAt(rightLonger, body.back, 6, 6)).toBe(0);
+    expect(alphaAt(rightLonger, rightArm.front, 0, 5)).toBe(0);
+    expect(alphaAt(rightLonger, leftArm.front, 0, 5)).toBe(255);
 
     applyUvMask(leftLonger);
     applyUvMask(rightLonger);
