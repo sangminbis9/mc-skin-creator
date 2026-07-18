@@ -43,6 +43,7 @@ export function makeAnalysis(
     renderHints: {
       faceShape: "round",
       eyeShape: "round",
+      eyeSize: "average",
       eyeSpacing: "average",
       eyeTilt: "level",
       eyebrowShape: "arched",

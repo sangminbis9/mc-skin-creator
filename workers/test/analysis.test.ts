@@ -177,6 +177,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("fringeEdge");
     expect(ANALYSIS_PROMPT).toContain("fringeOpening");
     expect(ANALYSIS_PROMPT).toContain("independent from hairPart");
+    expect(ANALYSIS_PROMPT).toContain("eyeSize");
+    expect(ANALYSIS_PROMPT).toContain("actual eye opening");
     expect(ANALYSIS_PROMPT).toContain("eyeTilt");
     expect(ANALYSIS_PROMPT).toContain("solid rectangular bar");
     expect(ANALYSIS_PROMPT).toContain("visible scalp/root direction");

@@ -36,6 +36,7 @@ export interface InferredLowerBodyDesign {
 export interface PixelRenderHints {
   faceShape: "round" | "oval" | "long" | "angular" | "square";
   eyeShape: "narrow" | "almond" | "round";
+  eyeSize: "small" | "average" | "large";
   eyeSpacing: "close" | "average" | "wide";
   eyeTilt: "upturned" | "level" | "downturned";
   eyebrowShape: "straight" | "arched" | "slanted" | "soft";
@@ -176,7 +177,8 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry/spacing/tilt, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth shape, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
 - eyeTilt describes the line between each eye's inner and outer corner: upturned when the outer corners sit visibly higher, level when nearly horizontal, or downturned when the outer corners sit visibly lower. Judge geometry, not expression.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
@@ -254,6 +256,7 @@ Respond with ONLY a JSON object matching this shape:
   "renderHints": {
     "faceShape": "round" | "oval" | "long" | "angular" | "square",
     "eyeShape": "narrow" | "almond" | "round",
+    "eyeSize": "small" | "average" | "large",
     "eyeSpacing": "close" | "average" | "wide",
     "eyeTilt": "upturned" | "level" | "downturned",
     "eyebrowShape": "straight" | "arched" | "slanted" | "soft",
@@ -400,6 +403,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           enum: ["round", "oval", "long", "angular", "square"],
         },
         eyeShape: { type: "string", enum: ["narrow", "almond", "round"] },
+        eyeSize: { type: "string", enum: ["small", "average", "large"] },
         eyeSpacing: { type: "string", enum: ["close", "average", "wide"] },
         eyeTilt: { type: "string", enum: ["upturned", "level", "downturned"] },
         eyebrowShape: {
@@ -529,6 +533,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
       required: [
         "faceShape",
         "eyeShape",
+        "eyeSize",
         "eyeSpacing",
         "eyeTilt",
         "eyebrowShape",
@@ -665,6 +670,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
         renderHints: {
           faceShape: "oval",
           eyeShape: "almond",
+          eyeSize: "average",
           eyeSpacing: "average",
           eyeTilt: "level",
           eyebrowShape: "straight",
@@ -847,6 +853,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.eyeShape,
       ["narrow", "almond", "round"],
       "almond",
+    ),
+    eyeSize: enumValue(
+      "renderHints.eyeSize",
+      hints.eyeSize,
+      ["small", "average", "large"],
+      "average",
     ),
     eyeSpacing: enumValue(
       "renderHints.eyeSpacing",

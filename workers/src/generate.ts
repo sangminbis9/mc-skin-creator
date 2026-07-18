@@ -238,6 +238,7 @@ function buildFaceStyle(
     hatColor: String(features.hatColor),
     faceShape: analysis.renderHints.faceShape,
     eyeShape: analysis.renderHints.eyeShape,
+    eyeSize: analysis.renderHints.eyeSize,
     eyeSpacing: analysis.renderHints.eyeSpacing,
     eyeTilt: analysis.renderHints.eyeTilt,
     eyebrowShape: analysis.renderHints.eyebrowShape,
@@ -602,6 +603,10 @@ export function normalizeAnalysisForRendering(
   analysis: PhotoAnalysis,
 ): PhotoAnalysis {
   const renderHints = { ...analysis.renderHints };
+  const faceText = joinedAnalysisText([
+    analysis.observed.face,
+    analysis.identityPrompt,
+  ]);
   const hairText = joinedAnalysisText([
     analysis.observed.hair,
     analysis.observed.accessories,
@@ -609,6 +614,20 @@ export function normalizeAnalysisForRendering(
     analysis.inferred.hairBack?.value,
     analysis.inferred.hairBack?.rationale,
   ]);
+  const explicitlyLargeEyes =
+    /\b(?:large|big|prominent)(?:[-\s]+(?:slightly|open|bright|dark|light|brown|black|blue|green|gray|grey|hazel|almond|round|upturned|downturned)){0,4}[-\s]+eyes?\b/.test(
+      faceText,
+    ) ||
+    /\beyes?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:large|big|prominent)\b/.test(
+      faceText,
+    );
+  const explicitlySmallEyes =
+    /\b(?:small|compact|narrow)(?:[-\s]+(?:slightly|open|dark|light|brown|black|blue|green|gray|grey|hazel|almond|round|upturned|downturned)){0,4}[-\s]+eyes?\b/.test(
+      faceText,
+    ) ||
+    /\beyes?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:small|compact|narrow)\b/.test(
+      faceText,
+    );
 
   const explicitCenterPart =
     /\b(center|centre|middle)[-\s]+part(?:ed|ing)?\b/.test(hairText) ||
@@ -653,6 +672,11 @@ export function normalizeAnalysisForRendering(
 
   if (explicitCenterPart) {
     renderHints.hairPart = "center";
+  }
+  if (explicitlyLargeEyes) {
+    renderHints.eyeSize = "large";
+  } else if (explicitlySmallEyes) {
+    renderHints.eyeSize = "small";
   }
   if (explicitCurtainBangs) {
     renderHints.bangs = "curtain";

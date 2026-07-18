@@ -2886,6 +2886,51 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("eyeSize preserves small, average and large eye apertures as distinct pixel clusters", () => {
+    const shared: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      eyeShape: "almond",
+      eyeSpacing: "average",
+      eyeTilt: "level",
+      eyebrowShape: "straight",
+      glasses: "none",
+    };
+    const small = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeSize: "small",
+    })!.atlas;
+    const average = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeSize: "average",
+    })!.atlas;
+    const large = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      eyeSize: "large",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const signature = (atlas: RawImage) =>
+      [1, 2, 5, 6]
+        .flatMap((x) => [rgbaAt(atlas, face, x, 4), rgbaAt(atlas, face, x, 5)])
+        .flat()
+        .join(",");
+
+    expect(new Set([small, average, large].map(signature)).size).toBe(3);
+    expect(redAt(small, face, 1, 4)).toBeLessThan(
+      redAt(average, face, 1, 4) - 15,
+    );
+    expect(redAt(small, face, 2, 5)).toBeGreaterThan(
+      redAt(average, face, 2, 5) + 20,
+    );
+    expect(redAt(large, face, 2, 5)).toBeLessThan(
+      redAt(average, face, 2, 5) - 45,
+    );
+    expect(redAt(large, face, 1, 5)).toBeLessThan(
+      redAt(average, face, 1, 5) - 15,
+    );
+  });
+
   it("eyeTilt keeps both eye anchors level and shades an adjacent corner", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,

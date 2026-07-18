@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { generateSkin } from "../src/generate";
+import { generateSkin, normalizeAnalysisForRendering } from "../src/generate";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
 import type {
   SkinGenerationProvider,
@@ -56,6 +56,29 @@ async function goodFluxOutput(): Promise<SkinGenerationResult> {
 }
 
 describe("generateSkin", () => {
+  it("stabilizes explicitly described large and small eye apertures", () => {
+    const base = makeAnalysis();
+    const large = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face: "oval face with large slightly downturned light brown eyes",
+        },
+        renderHints: { ...base.renderHints, eyeSize: "average" },
+      }),
+    );
+    const small = normalizeAnalysisForRendering(
+      makeAnalysis({
+        identityPrompt:
+          "A long face with compact dark-brown eyes, a straight nose and thin lips.",
+        renderHints: { ...base.renderHints, eyeSize: "average" },
+      }),
+    );
+
+    expect(large.renderHints.eyeSize).toBe("large");
+    expect(small.renderHints.eyeSize).toBe("small");
+  });
+
   it("preserves muted portrait colours instead of collapsing them to vivid fallback swatches", async () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({

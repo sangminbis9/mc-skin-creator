@@ -44,6 +44,7 @@ export interface FaceStyle {
   hatColor?: string;
   faceShape?: "round" | "oval" | "long" | "angular" | "square";
   eyeShape?: "narrow" | "almond" | "round";
+  eyeSize?: "small" | "average" | "large";
   eyeSpacing?: "close" | "average" | "wide";
   eyeTilt?: "upturned" | "level" | "downturned";
   eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
@@ -113,6 +114,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   hatColor: undefined,
   faceShape: "oval",
   eyeShape: "almond",
+  eyeSize: "average",
   eyeSpacing: "average",
   eyeTilt: "level",
   eyebrowShape: "straight",
@@ -826,6 +828,7 @@ function composeFace(
     (style.bangsLength === "brow" || style.bangsLength === "eye");
   const eyebrowShape = style.eyebrowShape ?? "straight";
   const eyeTilt = style.eyeTilt ?? "level";
+  const eyeSize = style.eyeSize ?? "average";
   for (const [outer, inner] of eyePairs) {
     const outerBrowY = eyeTilt === "upturned" ? 2 : 3;
     put(
@@ -840,24 +843,35 @@ function composeFace(
       3,
       browOccludedByFringe ? mixRgb(brow, skinColor, 0.58) : brow,
     );
-    const sclera = mixRgb(
-      skinColor,
-      [238, 232, 222],
+    const baseScleraMix =
       style.eyeShape === "round"
         ? 0.36
         : style.eyeShape === "narrow"
           ? 0.12
-          : 0.28,
+          : 0.28;
+    const sclera = mixRgb(
+      skinColor,
+      [238, 232, 222],
+      Math.max(
+        0.08,
+        Math.min(
+          0.56,
+          baseScleraMix +
+            (eyeSize === "large" ? 0.14 : eyeSize === "small" ? -0.08 : 0),
+        ),
+      ),
     );
     // Both eye anchors stay on the same row. At 8x8 resolution, moving the
     // whole outer eye pixel up or down reads as a stray brow/cheek mark.
     // Direction is expressed by a smaller adjacent eyelid accent instead.
     const outerEye =
-      style.eyeShape === "narrow"
-        ? mixRgb(sclera, eye, 0.46)
-        : eyeTilt === "level"
-          ? sclera
-          : mixRgb(sclera, eye, 0.2);
+      eyeSize === "small"
+        ? mixRgb(skinColor, eye, 0.2)
+        : style.eyeShape === "narrow"
+          ? mixRgb(sclera, eye, 0.46)
+          : eyeTilt === "level"
+            ? sclera
+            : mixRgb(sclera, eye, 0.2);
     const iris = style.eyeShape === "narrow" ? shadeRgb(eye, 0.86) : eye;
     put(face, outer, 4, outerEye);
     put(face, inner, 4, iris);
@@ -866,7 +880,21 @@ function composeFace(
     } else if (eyeTilt === "downturned") {
       put(face, outer, 5, mixRgb(eye, skinColor, 0.42));
     }
-    if (style.eyeShape === "round") {
+    if (eyeSize === "small") {
+      // A single dark iris plus a skin-mixed corner is the smallest readable
+      // eye at 8x8. Avoid a second row, which would make every eye look large.
+    } else if (eyeSize === "large") {
+      // Large photographed eyes need a true two-row cluster. Keep the inner
+      // lower iris dark and the outer lower corner lighter so this reads as an
+      // eye opening rather than four identical square pixels.
+      put(face, inner, 5, shadeRgb(eye, 0.76));
+      put(
+        face,
+        outer,
+        5,
+        mixRgb(skinColor, eye, eyeTilt === "downturned" ? 0.26 : 0.2),
+      );
+    } else if (style.eyeShape === "round") {
       put(face, inner, 5, shadeRgb(eye, 0.78));
       if (eyeTilt !== "downturned") {
         put(face, outer, 5, mixRgb(skinColor, eye, 0.18));
@@ -1327,6 +1355,10 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
     }
     if (tiltAccentY !== null) {
       clearOverlayPixel(outer, tiltAccentY);
+    }
+    if (style.eyeSize === "large") {
+      clearOverlayPixel(outer, 5);
+      clearOverlayPixel(inner, 5);
     }
   }
 
