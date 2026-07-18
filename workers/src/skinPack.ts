@@ -3158,14 +3158,14 @@ function composeHair(
       }
     };
     retainRows(over.top, [
-      [1, 2, 3, 4, 5, 6],
+      [1, 2, 5, 6],
       [0, 1, 2, 5, 6, 7],
       [0, 1, 3, 6, 7],
-      [0, 1, 4, 6, 7],
-      [0, 1, 3, 6, 7],
-      [0, 1, 4, 6, 7],
-      [0, 1, 3, 6, 7],
+      [0, 4, 7],
+      [0, 2, 5, 7],
+      [0, 1, 6, 7],
       [1, 2, 5, 6],
+      [2, 5],
     ]);
     const longSideRows =
       sideHairShape === "face_framing"
@@ -3174,10 +3174,10 @@ function composeHair(
             [0, 1, 2, 5, 6, 7],
             [0, 1, 2, 5, 6, 7],
             [0, 1, 2, 6, 7],
-            [0, 1, 6, 7],
-            [0, 1, 6, 7],
-            [0, 1, 5, 6, 7],
-            [0, 1, 5, 6, 7],
+            [0, 7],
+            [0, 7],
+            [0, 7],
+            [0, 3, 4, 7],
           ]
         : Array.from({ length: 8 }, (_, y) =>
             y === 0
@@ -3202,16 +3202,16 @@ function composeHair(
       over.left,
       longSideRows.map((row) => row.map((x) => 7 - x)),
     );
-    retainRows(
-      over.back,
-      Array.from({ length: 8 }, (_, y) => [
-        0,
-        y % 2 === 0 ? 1 : 2,
-        y === 4 || y === 7 ? 3 : y === 6 ? 4 : -1,
-        y % 2 === 0 ? 6 : 5,
-        7,
-      ]),
-    );
+    retainRows(over.back, [
+      [0, 1, 6, 7],
+      [0, 2, 5, 7],
+      [0, 1, 6, 7],
+      [0, 2, 5, 7],
+      [0, 3, 7],
+      [0, 2, 5, 7],
+      [0, 4, 7],
+      [0, 3, 4, 7],
+    ]);
   }
 
   const longerSide = style.sideHairAsymmetry ?? "none";

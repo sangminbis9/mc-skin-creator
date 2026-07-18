@@ -17,12 +17,17 @@ describe("handcrafted atlas quality metrics", () => {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
       hairColor: "#6f4c45",
-      bangs: "curtain",
-      bangsLength: "eye",
+      bangs: "straight",
+      bangsLength: "brow",
+      bangsDensity: "dense",
+      fringeEdge: "staggered",
+      fringeOpening: "center",
       hairTexture: "wavy",
       hairVolume: "full",
       hairBackShape: "long",
+      hairPart: "right",
       sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
       hairAccessory: "flower",
       hairAccessorySide: "left",
       hairAccessoryColor: "pink",
@@ -44,14 +49,14 @@ describe("handcrafted atlas quality metrics", () => {
     expect(referenceMetrics.opaqueOverlayPixels).toBe(269);
     expect(referenceMetrics.overlayPixelsByPart.head).toBe(103);
     expect(referenceMetrics.overlayPixelsByPart.body).toBe(63);
-    expect(proceduralMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(1_020);
+    expect(proceduralMetrics.opaqueOverlayPixels).toBeLessThanOrEqual(995);
     expect(proceduralMetrics.overlayColorCount).toBeGreaterThan(
       referenceMetrics.overlayColorCount,
     );
     expect(proceduralMetrics.shadedOverlayFaces).toBeGreaterThanOrEqual(
       referenceMetrics.shadedOverlayFaces,
     );
-    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(230);
+    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(170);
     expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(265);
     expect(proceduralMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(
       125,

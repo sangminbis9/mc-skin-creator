@@ -1757,11 +1757,20 @@ describe("packFrontViewToAtlas", () => {
     };
 
     for (const rect of [head.right, head.left]) {
-      // The front and rear rails remain physically connected from crown to
-      // jaw; texture is carried by colour changes rather than alpha holes.
-      for (const x of [0, 1, 6, 7]) {
+      // One-pixel front and rear seam rails remain connected from crown to
+      // jaw. The inner rails stop once at the temple instead of boxing the
+      // entire side face inside a two-pixel frame.
+      for (const x of [0, 7]) {
         for (let y = 0; y < rect.h; y++) {
           expect(alphaAt(atlas, rect, x, y)).toBe(255);
+        }
+      }
+      for (const x of [1, 6]) {
+        for (let y = 0; y <= 3; y++) {
+          expect(alphaAt(atlas, rect, x, y)).toBe(255);
+        }
+        for (let y = 4; y <= 6; y++) {
+          expect(alphaAt(atlas, rect, x, y)).toBe(0);
         }
       }
       // Inner contour pixels may taper and flare once, but must not jump
