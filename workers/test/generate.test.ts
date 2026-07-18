@@ -528,18 +528,25 @@ describe("generateSkin", () => {
     );
     const head = CLASSIC_LAYOUT.head.overlay.front;
     const body = CLASSIC_LAYOUT.body.overlay.front;
-    const bodySide = CLASSIC_LAYOUT.body.overlay.right;
-    const armFront = CLASSIC_LAYOUT.rightArm.overlay.front;
+    const bodyBase = CLASSIC_LAYOUT.body.base.front;
+    const bodyBack = CLASSIC_LAYOUT.body.overlay.back;
+    const bodyBaseSide = CLASSIC_LAYOUT.body.base.right;
+    const armBaseFront = CLASSIC_LAYOUT.rightArm.base.front;
     const flowerPetal = ((head.y + 2) * ATLAS_SIZE + head.x + 1) * 4;
     const flowerLeaf = ((head.y + 1) * ATLAS_SIZE + head.x + 2) * 4;
     const bowWing = ((body.y + 1) * ATLAS_SIZE + body.x + 2) * 4;
     const bowKnot = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
-    const cardiganPanel = ((body.y + 5) * ATLAS_SIZE + body.x + 1) * 4;
-    const cardiganTrim = ((body.y + 5) * ATLAS_SIZE + body.x + 2) * 4;
+    const hairDrape =
+      ((bodyBack.y + 5) * ATLAS_SIZE + bodyBack.x + 3) * 4;
+    const cardiganPanel = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x + 1) * 4;
+    const cardiganLowerPanel = ((body.y + 10) * ATLAS_SIZE + body.x + 1) * 4;
+    const cardiganLowerTrim = ((body.y + 10) * ATLAS_SIZE + body.x + 2) * 4;
     const cardiganOpenCenter = ((body.y + 5) * ATLAS_SIZE + body.x + 3) * 4;
-    const cardiganSidePanel = ((bodySide.y + 5) * ATLAS_SIZE + bodySide.x) * 4;
-    const sleeve = ((armFront.y + 4) * ATLAS_SIZE + armFront.x + 1) * 4;
-    const sleeveFold = ((armFront.y + 3) * ATLAS_SIZE + armFront.x + 1) * 4;
+    const cardiganSidePanel =
+      ((bodyBaseSide.y + 5) * ATLAS_SIZE + bodyBaseSide.x) * 4;
+    const sleeve = ((armBaseFront.y + 4) * ATLAS_SIZE + armBaseFront.x + 1) * 4;
+    const sleeveFold =
+      ((armBaseFront.y + 3) * ATLAS_SIZE + armBaseFront.x + 1) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[flowerPetal + 3]).toBe(255);
@@ -552,16 +559,18 @@ describe("generateSkin", () => {
     expect(decoded.rgba[bowWing + 3]).toBe(255);
     expect(decoded.rgba[bowKnot + 3]).toBe(255);
     expect(decoded.rgba[bowWing]).toBeGreaterThan(decoded.rgba[bowKnot]);
+    expect(decoded.rgba[hairDrape + 3]).toBe(255);
     expect(decoded.rgba[cardiganPanel + 3]).toBe(255);
-    expect(decoded.rgba[cardiganTrim + 3]).toBe(255);
+    expect(decoded.rgba[cardiganLowerPanel + 3]).toBe(255);
+    expect(decoded.rgba[cardiganLowerTrim + 3]).toBe(255);
     expect(decoded.rgba[cardiganOpenCenter + 3]).toBe(0);
-    expect(decoded.rgba[cardiganTrim]).toBeLessThan(
-      decoded.rgba[cardiganPanel],
+    expect(decoded.rgba[cardiganLowerTrim]).toBeLessThan(
+      decoded.rgba[cardiganLowerPanel],
     );
     expect(decoded.rgba[cardiganSidePanel + 3]).toBe(255);
     expect(decoded.rgba[sleeve + 3]).toBe(255);
     expect(decoded.rgba[sleeveFold + 3]).toBe(255);
-    expect(decoded.rgba[sleeve]).toBeGreaterThan(decoded.rgba[sleeveFold]);
+    expect(decoded.rgba[sleeve]).not.toBe(decoded.rgba[sleeveFold]);
   });
 
   it("legacy direct_atlas configuration is forced onto safe front-view packing", async () => {
@@ -704,12 +713,14 @@ describe("generateSkin", () => {
     );
     const head = CLASSIC_LAYOUT.head.overlay.front;
     const body = CLASSIC_LAYOUT.body.overlay.front;
+    const bodyBase = CLASSIC_LAYOUT.body.base.front;
     const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const flower = ((head.y + 2) * ATLAS_SIZE + head.x + 1) * 4;
     const leftEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 2) * 4;
     const rightEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 5) * 4;
-    const cardiganPanel = ((body.y + 5) * ATLAS_SIZE + body.x + 1) * 4;
+    const hairDrape = ((body.y + 5) * ATLAS_SIZE + body.x) * 4;
+    const cardiganPanel = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x + 1) * 4;
     const cardiganCenter = ((body.y + 5) * ATLAS_SIZE + body.x + 3) * 4;
     const plaidDark = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 1) * 4;
     const plaidLight = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 2) * 4;
@@ -723,6 +734,7 @@ describe("generateSkin", () => {
     expect(decoded.rgba[flower]).toBeGreaterThan(decoded.rgba[flower + 1]);
     expect(decoded.rgba[leftEyeWindow + 3]).toBe(0);
     expect(decoded.rgba[rightEyeWindow + 3]).toBe(0);
+    expect(decoded.rgba[hairDrape + 3]).toBe(255);
     expect(decoded.rgba[cardiganPanel + 3]).toBe(255);
     expect(decoded.rgba[cardiganCenter + 3]).toBe(0);
     expect(decoded.rgba[plaidDark + 3]).toBe(255);

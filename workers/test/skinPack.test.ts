@@ -1484,31 +1484,30 @@ describe("packFrontViewToAtlas", () => {
     );
     expect(alphaAt(atlas, body.front, 0, 6)).toBe(255);
     expect(alphaAt(atlas, body.front, 7, 6)).toBe(255);
-    expect(alphaAt(atlas, body.front, 2, 4)).toBe(255);
-    expect(alphaAt(atlas, body.front, 5, 4)).toBe(255);
+    expect(alphaAt(atlas, body.front, 1, 7)).toBe(255);
+    expect(alphaAt(atlas, body.front, 6, 7)).toBe(255);
+    expect(alphaAt(atlas, body.front, 2, 8)).toBe(255);
+    expect(alphaAt(atlas, body.front, 5, 8)).toBe(255);
     expect(alphaAt(atlas, body.right, 1, 5)).toBe(255);
     expect(alphaAt(atlas, body.left, 2, 5)).toBe(255);
     expect(alphaAt(atlas, body.right, 0, 7)).toBe(255);
     expect(alphaAt(atlas, body.left, body.left.w - 1, 7)).toBe(255);
     expect(alphaAt(atlas, body.top, 0, body.top.h - 1)).toBe(255);
     expect(alphaAt(atlas, body.top, 7, body.top.h - 1)).toBe(255);
-    expect(alphaAt(atlas, body.top, 2, body.top.h - 1)).toBe(255);
+    expect(alphaAt(atlas, body.top, 1, body.top.h - 1)).toBe(255);
     expect(alphaAt(atlas, body.back, 3, 7)).toBe(255);
     expect(alphaAt(atlas, body.back, 4, 7)).toBe(255);
     expect(redAt(atlas, body.front, 0, 6)).not.toBe(
       redAt(atlas, body.front, 3, 6),
     );
-    expect(redAt(atlas, body.top, 2, body.top.h - 1)).toBeGreaterThan(
-      redAt(atlas, body.top, 0, body.top.h - 1),
-    );
     expect(alphaAt(atlas, body.front, 1, 2)).toBe(255);
-    expect(alphaAt(atlas, body.front, 1, 5)).toBe(255);
-    expect(alphaAt(atlas, body.front, 6, 6)).toBe(255);
+    expect(alphaAt(atlas, body.front, 1, 5)).toBe(0);
+    expect(alphaAt(atlas, body.front, 7, 6)).toBe(255);
     expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(
-      redAt(atlas, body.front, 1, 5),
+      redAt(atlas, body.front, 2, 8),
     );
     expect(redAt(atlas, body.front, 6, 2)).toBeGreaterThan(
-      redAt(atlas, body.front, 6, 6),
+      redAt(atlas, body.front, 5, 8),
     );
     expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
     expect(alphaAt(atlas, body.left, 2, 3)).toBe(255);
@@ -1529,13 +1528,15 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, leftArm.front, leftArm.front.w - 1, 0)).toBeGreaterThan(
       redAt(atlas, leftArm.front, leftArm.front.w - 1, 5),
     );
-    for (let y = 0; y < 8; y++) {
-      expect(alphaAt(atlas, body.right, 0, y)).toBe(255);
-      expect(alphaAt(atlas, body.left, body.left.w - 1, y)).toBe(255);
-    }
-    for (let y = 0; y <= 5; y++) {
-      expect(alphaAt(atlas, body.right, 1, y)).toBe(255);
-      expect(alphaAt(atlas, body.left, body.left.w - 2, y)).toBe(255);
+    for (let y = 0; y < 10; y++) {
+      const rightRow = [0, 1].filter(
+        (x) => alphaAt(atlas, body.right, x, y) === 255,
+      );
+      const leftRow = [body.left.w - 2, body.left.w - 1].filter(
+        (x) => alphaAt(atlas, body.left, x, y) === 255,
+      );
+      expect(rightRow.length).toBeGreaterThanOrEqual(1);
+      expect(leftRow.length).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -1656,47 +1657,49 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(rightLonger).ok).toBe(true);
   });
 
-  it("flower accessory on shoulder-length hair anchors an asymmetric decorated side drape", () => {
+  it("keeps flower colours on the head while shoulder drapes remain hair-coloured", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
+      hairColor: "#765b57",
       bangs: "curtain",
       hairTexture: "wavy",
       hairBackShape: "long",
       sideHairLength: "shoulder",
       hairAccessory: "flower",
       hairAccessorySide: "left",
+      hairAccessoryColor: "pink",
     })!.atlas;
+    const head = CLASSIC_LAYOUT.head.overlay;
     const body = CLASSIC_LAYOUT.body.overlay;
     const arm = CLASSIC_LAYOUT.rightArm.overlay;
 
-    expect(alphaAt(atlas, body.front, 0, 7)).toBe(255);
+    expect(alphaAt(atlas, body.front, 1, 7)).toBe(255);
     expect(alphaAt(atlas, body.front, 1, 1)).toBe(255);
-    expect(alphaAt(atlas, body.front, 1, 2)).toBe(255);
     expect(alphaAt(atlas, body.right, 0, 1)).toBe(255);
     expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
     expect(alphaAt(atlas, body.top, 0, body.top.h - 1)).toBe(255);
     expect(alphaAt(atlas, body.top, 1, body.top.h - 1)).toBe(255);
-    expect(alphaAt(atlas, body.top, 2, Math.max(0, body.top.h - 2))).toBe(255);
     expect(alphaAt(atlas, arm.front, 0, 1)).toBe(255);
     expect(alphaAt(atlas, arm.right, 1, 2)).toBe(255);
     expect(alphaAt(atlas, arm.top, 0, 1)).toBe(255);
     expect(alphaAt(atlas, arm.top, arm.top.w - 1, 2)).toBe(255);
-    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(
-      redAt(atlas, body.front, 1, 1),
+
+    // The flower still crosses the head front/side seam.
+    expect(greenAt(atlas, head.right, 5, 4)).toBeGreaterThan(
+      redAt(atlas, head.right, 5, 4),
     );
-    expect(redAt(atlas, body.front, 1, 1)).toBeLessThan(
-      redAt(atlas, body.front, 1, 2),
-    );
-    expect(redAt(atlas, body.top, 1, body.top.h - 1)).toBeGreaterThan(
-      redAt(atlas, body.top, 0, body.top.h - 1),
-    );
-    expect(redAt(atlas, body.front, 0, 0)).toBeGreaterThan(
-      redAt(atlas, body.front, 0, 7),
-    );
-    expect(redAt(atlas, body.right, 1, 3)).toBeGreaterThan(
-      redAt(atlas, body.right, 0, 7),
-    );
+    // Its leaf/petal colours must not leak onto the cardigan shoulder.
+    for (const [rect, x, y] of [
+      [body.front, 1, 1],
+      [body.right, 1, 3],
+      [arm.front, 0, 1],
+      [arm.right, 1, 2],
+    ] as const) {
+      const [red, green, blue] = rgbaAt(atlas, rect, x, y);
+      expect(red).toBeGreaterThan(green);
+      expect(red).toBeGreaterThan(blue);
+    }
   });
 
   it("long face-framing hair leaves a side-profile window inside sparse outer locks", () => {
