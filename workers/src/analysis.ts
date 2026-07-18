@@ -25,6 +25,8 @@ export interface InferredLowerBodyDesign {
   bottomAccent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
   legwear: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
   legwearAsymmetry: "none" | "left" | "right" | "both";
+  thighAccessory: "none" | "bow" | "ribbon" | "garter";
+  thighAccessorySide: "none" | "left" | "right" | "both";
   shoeStyle: "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals";
   rationale: string;
 }
@@ -88,6 +90,8 @@ export interface PixelRenderHints {
   bottomAccent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
   legwear: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
   legwearAsymmetry: "none" | "left" | "right" | "both";
+  thighAccessory: "none" | "bow" | "ribbon" | "garter";
+  thighAccessorySide: "none" | "left" | "right" | "both";
 }
 
 /** 절차적 fallback 생성기용 팔레트 분류 (기존 계약 유지) */
@@ -170,8 +174,8 @@ STEP 4 — inferred: for body parts and clothing NOT visible, design choices tha
 - Never base clothing choices on gender presentation or facial stereotypes; use only visible clothing cues, colors and mood.
 - If there are no clothing cues at all, choose neutral casual wear that harmonizes with skin/hair colors. Vary between shirt, knit, hoodie or light jacket depending on the photo's mood — do not always default to a plain t-shirt.
 - If a region IS visible in the photo, set its inferred entry to null.
-- If the lower body is NOT visible, also fill inferred.lowerBodyDesign with concrete Minecraft-ready choices for bottomType, pattern, accent, legwear, asymmetry and shoe style. If the lower body IS visible, set inferred.lowerBodyDesign to null. Prefer a detailed but coherent design over a generic plain lower half. Never return the completely generic combination of plain pants + no accent + no legwear + sneakers: infer at least one low-resolution construction cue (pattern, belt, cuffs, side stripe or legwear) from the visible top, and describe the shoe color/construction in inferred.shoes.
-- For inferred lower-body designs with one-sided legwear or ribbons, use legwearAsymmetry "left" or "right" from the viewer's perspective and repeat that side in outfitPrompt.
+- If the lower body is NOT visible, also fill inferred.lowerBodyDesign with concrete Minecraft-ready choices for bottomType, pattern, accent, legwear, asymmetry, optional thigh accessory and shoe style. If the lower body IS visible, set inferred.lowerBodyDesign to null. Prefer a detailed but coherent design over a generic plain lower half. Never return the completely generic combination of plain pants + no accent + no legwear + sneakers: infer at least one low-resolution construction cue (pattern, belt, cuffs, side stripe or legwear) from the visible top, and describe the shoe color/construction in inferred.shoes.
+- For inferred lower-body designs with one-sided legwear, use legwearAsymmetry "left" or "right" from the viewer's perspective. For a one-sided thigh bow, ribbon or garter, use thighAccessorySide independently. Repeat both exact sides in outfitPrompt; a thigh accessory can intentionally sit on the opposite leg from asymmetric legwear.
 
 STEP 5 — prompts for an image generation model:
 - identityPrompt: 2-4 sentences capturing the recognizable identity, as SPECIFIC as possible: face shape (round/oval/angular), skin tone, hair (exact color shade, parting direction, bangs style, length, texture like straight/wavy/curly), eye shape and color, eyebrow shape, nose/mouth impression, facial hair, glasses shape/color, hat, earrings, and any distinctive features. Avoid generic phrases — describe what makes THIS person recognizable.
@@ -205,7 +209,8 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
 - bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
 - legwear captures visible socks, stockings, leg warmers or thigh-highs. Treat knee-high, over-knee and OTK socks as thigh_highs for low-resolution rendering. legwearAsymmetry is "left" or "right" when only one leg has the distinctive legwear, "both" when both legs do, and "none" when no legwear is visible.
-- For full_body photos, renderHints.bottomPattern, bottomAccent, legwear and legwearAsymmetry must be based on the visible lower body whenever visible; do not default to plain/none if plaid, pleats, lace, ribbons, socks, stockings, leg warmers or asymmetric details are visible.
+- thighAccessory independently captures a bow, tied ribbon or garter visibly attached around the upper thigh. thighAccessorySide is its side from the VIEWER'S perspective. Use "none" for both fields when no thigh accessory exists. Never infer a thigh bow merely because the opposite leg has one-sided legwear.
+- For full_body photos, renderHints.bottomPattern, bottomAccent, legwear, legwearAsymmetry, thighAccessory and thighAccessorySide must be based on the visible lower body whenever visible; do not default to plain/none if plaid, pleats, lace, ribbons, socks, stockings, leg warmers or asymmetric details are visible.
 - outerLayer means whether clothing should visibly use Minecraft's second skin layer for volume (jacket/hoodie/heavy knit = heavy, shirt/light knit = light).
 - outerGarment captures a visible open cardigan, open jacket, coat, or vest silhouette. Use "none" for a single closed top.
 
@@ -251,6 +256,8 @@ Respond with ONLY a JSON object matching this shape:
       "bottomAccent": "none" | "belt" | "cuffs" | "side_stripe" | "ribbon",
       "legwear": "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs",
       "legwearAsymmetry": "none" | "left" | "right" | "both",
+      "thighAccessory": "none" | "bow" | "ribbon" | "garter",
+      "thighAccessorySide": "none" | "left" | "right" | "both",
       "shoeStyle": "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals",
       "rationale": str
     } | null,
@@ -293,7 +300,9 @@ Respond with ONLY a JSON object matching this shape:
     "bottomPattern": "plain" | "plaid" | "striped" | "pleated" | "lace",
     "bottomAccent": "none" | "belt" | "cuffs" | "side_stripe" | "ribbon",
     "legwear": "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs",
-    "legwearAsymmetry": "none" | "left" | "right" | "both"
+    "legwearAsymmetry": "none" | "left" | "right" | "both",
+    "thighAccessory": "none" | "bow" | "ribbon" | "garter",
+    "thighAccessorySide": "none" | "left" | "right" | "both"
   },
   "identityPrompt": str,
   "outfitPrompt": str,
@@ -334,6 +343,14 @@ const LOWER_BODY_DESIGN_SCHEMA = {
       type: "string",
       enum: ["none", "left", "right", "both"],
     },
+    thighAccessory: {
+      type: "string",
+      enum: ["none", "bow", "ribbon", "garter"],
+    },
+    thighAccessorySide: {
+      type: "string",
+      enum: ["none", "left", "right", "both"],
+    },
     shoeStyle: {
       type: "string",
       enum: ["sneakers", "dress_shoes", "boots", "loafers", "sandals"],
@@ -346,6 +363,8 @@ const LOWER_BODY_DESIGN_SCHEMA = {
     "bottomAccent",
     "legwear",
     "legwearAsymmetry",
+    "thighAccessory",
+    "thighAccessorySide",
     "shoeStyle",
     "rationale",
   ],
@@ -542,6 +561,14 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["none", "left", "right", "both"],
         },
+        thighAccessory: {
+          type: "string",
+          enum: ["none", "bow", "ribbon", "garter"],
+        },
+        thighAccessorySide: {
+          type: "string",
+          enum: ["none", "left", "right", "both"],
+        },
       },
       required: [
         "faceShape",
@@ -581,6 +608,8 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "bottomAccent",
         "legwear",
         "legwearAsymmetry",
+        "thighAccessory",
+        "thighAccessorySide",
       ],
     },
     identityPrompt: { type: "string" },
@@ -720,6 +749,8 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           bottomAccent: "none",
           legwear: "none",
           legwearAsymmetry: "none",
+          thighAccessory: "none",
+          thighAccessorySide: "none",
         },
         identityPrompt: "",
         outfitPrompt: "",
@@ -821,6 +852,16 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       ),
       legwearAsymmetry: enumField(
         "legwearAsymmetry",
+        ["none", "left", "right", "both"],
+        "none",
+      ),
+      thighAccessory: enumField(
+        "thighAccessory",
+        ["none", "bow", "ribbon", "garter"],
+        "none",
+      ),
+      thighAccessorySide: enumField(
+        "thighAccessorySide",
         ["none", "left", "right", "both"],
         "none",
       ),
@@ -1090,6 +1131,18 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     legwearAsymmetry: enumValue(
       "renderHints.legwearAsymmetry",
       hints.legwearAsymmetry,
+      ["none", "left", "right", "both"],
+      "none",
+    ),
+    thighAccessory: enumValue(
+      "renderHints.thighAccessory",
+      hints.thighAccessory,
+      ["none", "bow", "ribbon", "garter"],
+      "none",
+    ),
+    thighAccessorySide: enumValue(
+      "renderHints.thighAccessorySide",
+      hints.thighAccessorySide,
       ["none", "left", "right", "both"],
       "none",
     ),

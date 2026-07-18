@@ -78,6 +78,8 @@ export function makeAnalysis(
       bottomAccent: "none",
       legwear: "none",
       legwearAsymmetry: "none",
+      thighAccessory: "none",
+      thighAccessorySide: "none",
     },
     identityPrompt:
       "A person with a round face, short black hair with side-swept bangs, thick eyebrows and thin silver glasses, warm smile.",

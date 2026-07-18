@@ -2070,6 +2070,8 @@ describe("packFrontViewToAtlas", () => {
       bottomAccent: "ribbon",
       legwear: "leg_warmers",
       legwearAsymmetry: "left",
+      thighAccessory: "bow",
+      thighAccessorySide: "right",
       shoeStyle: "dress_shoes",
     },
   ] satisfies Array<Partial<FaceStyle>>;
@@ -2561,6 +2563,8 @@ describe("packFrontViewToAtlas", () => {
       bottomType: "skirt",
       legwear: "leg_warmers",
       legwearAsymmetry: "left",
+      thighAccessory: "bow",
+      thighAccessorySide: "right",
     })!;
     const atlas = packed.atlas;
     const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
@@ -2569,6 +2573,7 @@ describe("packFrontViewToAtlas", () => {
     const right = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const rightSide = CLASSIC_LAYOUT.rightLeg.overlay.right;
     const rightBack = CLASSIC_LAYOUT.rightLeg.overlay.back;
+    const rightTop = CLASSIC_LAYOUT.rightLeg.overlay.top;
     const warmer = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerLace = ((left.y + 1) * ATLAS_SIZE + left.x) * 4;
     const warmerLaceShadow = ((left.y + 1) * ATLAS_SIZE + left.x + 1) * 4;
@@ -2600,6 +2605,8 @@ describe("packFrontViewToAtlas", () => {
     const sideLongTail = ((rightSide.y + 4) * ATLAS_SIZE + rightSide.x) * 4;
     const backTopBand = ((rightBack.y + 1) * ATLAS_SIZE + rightBack.x + 2) * 4;
     const backBand = ((rightBack.y + 2) * ATLAS_SIZE + rightBack.x + 2) * 4;
+    const topAttachment =
+      ((rightTop.y + rightTop.h - 1) * ATLAS_SIZE + rightTop.x + 1) * 4;
 
     expect(atlas.rgba[warmer + 3]).toBe(255);
     expect(atlas.rgba[warmerLace + 3]).toBe(255);
@@ -2619,6 +2626,7 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[sideTopBand + 3]).toBe(255);
     expect(atlas.rgba[backTopBand + 3]).toBe(255);
     expect(atlas.rgba[backBand + 3]).toBe(255);
+    expect(atlas.rgba[topAttachment + 3]).toBe(255);
     expect(atlas.rgba[sideBand]).toBeGreaterThan(atlas.rgba[sideBand + 1]);
     expect(atlas.rgba[bowTopBand + 3]).toBe(255);
     expect(atlas.rgba[bowOuterWing + 3]).toBe(255);
@@ -2640,6 +2648,30 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[warmerAnkleFold]).toBeGreaterThan(
       atlas.rgba[warmerAnkleCuff],
     );
+  });
+
+  it("does not invent an opposite thigh bow from one-sided legwear alone", () => {
+    const style: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "skirt",
+      legwear: "leg_warmers",
+      legwearAsymmetry: "left",
+      thighAccessory: "none",
+      thighAccessorySide: "none",
+    };
+    const atlas = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
+    const baseline = packFrontViewToAtlas(makeFrontView(), {
+      ...style,
+      legwear: "none",
+      legwearAsymmetry: "none",
+    })!.atlas;
+    const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const right = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const warmer = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
+
+    expect(atlas.rgba[warmer + 3]).toBe(255);
+    expect(rgbaAt(atlas, right, 0, 2)).toEqual(rgbaAt(baseline, right, 0, 2));
+    expect(rgbaAt(atlas, right, 1, 4)).toEqual(rgbaAt(baseline, right, 1, 4));
   });
 
   it("dressy skirt outfits add visible shoe straps across front and side foot overlays", () => {

@@ -165,7 +165,14 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("Treat knee-high, over-knee and OTK socks as thigh_highs");
     expect(ANALYSIS_PROMPT).toContain("Do not summarize it as simply \"asymmetric\"");
     expect(ANALYSIS_PROMPT).toContain("legwearAsymmetry \"left\" or \"right\"");
-    expect(ANALYSIS_PROMPT).toContain("repeat that side in outfitPrompt");
+    expect(ANALYSIS_PROMPT).toContain("thighAccessorySide independently");
+    expect(ANALYSIS_PROMPT).toContain(
+      "a thigh accessory can intentionally sit on the opposite leg",
+    );
+    expect(ANALYSIS_PROMPT).toContain(
+      "Never infer a thigh bow merely because the opposite leg has one-sided legwear",
+    );
+    expect(ANALYSIS_PROMPT).toContain("Repeat both exact sides in outfitPrompt");
     expect(ANALYSIS_PROMPT).toContain(
       "Never return the completely generic combination of plain pants + no accent + no legwear + sneakers",
     );

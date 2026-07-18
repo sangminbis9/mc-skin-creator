@@ -770,6 +770,8 @@ describe("generateSkin", () => {
             bottomAccent: "belt",
             legwear: "none",
             legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
             shoeStyle: "dress_shoes",
             rationale:
               "dark tailored trousers and dress shoes complete the smart-casual upper body",

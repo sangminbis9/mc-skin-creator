@@ -273,6 +273,8 @@ function buildFaceStyle(
     bottomAccent: analysis.renderHints.bottomAccent,
     legwear: analysis.renderHints.legwear,
     legwearAsymmetry: analysis.renderHints.legwearAsymmetry,
+    thighAccessory: analysis.renderHints.thighAccessory,
+    thighAccessorySide: analysis.renderHints.thighAccessorySide,
     topColor: String(features.topColor),
     topAccentColor: String(features.topAccentColor),
     bottomColor: String(features.bottomColor),
@@ -616,6 +618,22 @@ export function normalizeAnalysisForRendering(
     analysis.inferred.hairBack?.value,
     analysis.inferred.hairBack?.rationale,
   ]);
+  const thighAccessoryClauses = relevantClauseList(
+    [
+      analysis.observed.clothing,
+      analysis.observed.accessories,
+      analysis.outfitPrompt,
+      analysis.inferred.lowerBody?.value,
+      analysis.inferred.lowerBody?.rationale,
+    ],
+    /\b(?:thigh|upper[- ]leg|garter)\b[\s\S]{0,48}\b(?:bow|ribbon|garter)\b|\b(?:bow|ribbon|garter)\b[\s\S]{0,48}\b(?:thigh|upper[- ]leg|garter)\b/,
+  ).filter(
+    (clause) =>
+      !/\b(?:no|without|missing|absent)\b[\s\S]{0,40}\b(?:thigh|upper[- ]leg|bow|ribbon|garter)\b/.test(
+        clause,
+      ),
+  );
+  const thighAccessoryText = thighAccessoryClauses.join(" ");
   const explicitlyLargeHairAccessory =
     /\b(?:large|big|oversized|prominent|statement)\b.{0,36}\b(?:flower|flowers|floral|bow|ribbon|accessory)\b/.test(
       hairText,
@@ -770,6 +788,29 @@ export function normalizeAnalysisForRendering(
     renderHints.sideHairAsymmetry = "none";
   }
 
+  if (thighAccessoryText) {
+    renderHints.thighAccessory = /\bbow\b/.test(thighAccessoryText)
+      ? "bow"
+      : /\bgarter\b/.test(thighAccessoryText)
+        ? "garter"
+        : "ribbon";
+    const leftMention = /\bviewer(?:'s)?[- ]left\b/.test(thighAccessoryText);
+    const rightMention = /\bviewer(?:'s)?[- ]right\b/.test(thighAccessoryText);
+    if (leftMention && !rightMention) {
+      renderHints.thighAccessorySide = "left";
+    } else if (rightMention && !leftMention) {
+      renderHints.thighAccessorySide = "right";
+    } else if (leftMention && rightMention) {
+      renderHints.thighAccessorySide = "both";
+    } else if (renderHints.thighAccessorySide === "none") {
+      renderHints.thighAccessorySide = "both";
+    }
+  } else if (renderHints.thighAccessory === "none") {
+    renderHints.thighAccessorySide = "none";
+  } else if (renderHints.thighAccessorySide === "none") {
+    renderHints.thighAccessorySide = "both";
+  }
+
   return { ...analysis, renderHints };
 }
 
@@ -878,16 +919,26 @@ function completeInferredLowerDetails(
     style.bottomAccent = structuredLower.bottomAccent;
     style.legwear = structuredLower.legwear;
     style.legwearAsymmetry = structuredLower.legwearAsymmetry;
+    style.thighAccessory = structuredLower.thighAccessory;
+    style.thighAccessorySide = structuredLower.thighAccessorySide;
     style.shoeStyle = structuredLower.shoeStyle;
   }
 
-  const lowerText = [
-    analysis.inferred.lowerBody?.value,
-    analysis.inferred.lowerBody?.rationale,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ")
-    .toLowerCase();
+  const inferredBottomAccentText = relevantClauseList(
+    [
+      analysis.inferred.lowerBody?.value,
+      analysis.inferred.lowerBody?.rationale,
+      analysis.outfitPrompt,
+    ],
+    /\b(?:bottom|bottoms|pants|trousers|jeans|shorts|skirt|skort|culottes|waist|waistband|belt|hem|cuff|side[- ]stripe|ribbon|bow)\b/,
+  )
+    .filter(
+      (clause) =>
+        !/\b(?:thigh|upper[- ]leg|garter)\b[\s\S]{0,48}\b(?:bow|ribbon|garter)\b|\b(?:bow|ribbon|garter)\b[\s\S]{0,48}\b(?:thigh|upper[- ]leg|garter)\b/.test(
+          clause,
+        ),
+    )
+    .join(" ");
   const inferredText = [
     analysis.inferred.lowerBody?.value,
     analysis.inferred.lowerBody?.rationale,
@@ -911,6 +962,7 @@ function completeInferredLowerDetails(
     (style.bottomPattern ?? "plain") === "plain" &&
     (style.bottomAccent ?? "none") === "none" &&
     (style.legwear ?? "none") === "none" &&
+    (style.thighAccessory ?? "none") === "none" &&
     (style.shoeStyle ?? "sneakers") === "sneakers";
 
   if (!structuredLower) {
@@ -946,13 +998,13 @@ function completeInferredLowerDetails(
       style.bottomPattern = "lace";
     }
 
-    if (/\b(ribbon|bow)\b/.test(lowerText)) {
+    if (/\b(ribbon|bow)\b/.test(inferredBottomAccentText)) {
       style.bottomAccent = "ribbon";
-    } else if (/\b(belt|belted)\b/.test(lowerText)) {
+    } else if (/\b(belt|belted)\b/.test(inferredBottomAccentText)) {
       style.bottomAccent = "belt";
-    } else if (/\b(cuff|cuffed|cuffs)\b/.test(lowerText)) {
+    } else if (/\b(cuff|cuffed|cuffs)\b/.test(inferredBottomAccentText)) {
       style.bottomAccent = "cuffs";
-    } else if (/\b(side stripe|side stripes)\b/.test(lowerText)) {
+    } else if (/\b(side stripe|side stripes)\b/.test(inferredBottomAccentText)) {
       style.bottomAccent = "side_stripe";
     }
 
@@ -1156,16 +1208,31 @@ function completeVisibleLowerDetails(
     style.bottomPattern = "lace";
   }
 
+  const lowerAccentText = relevantClauseList(
+    [
+      analysis.observed.clothing,
+      analysis.outfitPrompt,
+      analysis.identityPrompt,
+    ],
+    /\b(?:bottom|bottoms|pants|trousers|jeans|shorts|skirt|skort|culottes|waist|waistband|belt|hem|cuff|side[- ]stripe|ribbon|bow)\b/,
+  )
+    .filter(
+      (clause) =>
+        !/\b(?:thigh|upper[- ]leg|garter)\b[\s\S]{0,48}\b(?:bow|ribbon|garter)\b|\b(?:bow|ribbon|garter)\b[\s\S]{0,48}\b(?:thigh|upper[- ]leg|garter)\b/.test(
+          clause,
+        ),
+    )
+    .join(" ");
   if (
-    /\b(ribbon|bow)\b/.test(visibleText) &&
+    /\b(ribbon|bow)\b/.test(lowerAccentText) &&
     (style.bottomAccent ?? "none") === "none"
   ) {
     style.bottomAccent = "ribbon";
-  } else if (/\b(belt|belted)\b/.test(visibleText)) {
+  } else if (/\b(belt|belted)\b/.test(lowerAccentText)) {
     style.bottomAccent = "belt";
-  } else if (/\b(cuff|cuffed|cuffs)\b/.test(visibleText)) {
+  } else if (/\b(cuff|cuffed|cuffs)\b/.test(lowerAccentText)) {
     style.bottomAccent = "cuffs";
-  } else if (/\b(side stripe|side stripes)\b/.test(visibleText)) {
+  } else if (/\b(side stripe|side stripes)\b/.test(lowerAccentText)) {
     style.bottomAccent = "side_stripe";
   }
 

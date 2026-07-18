@@ -43,6 +43,8 @@ describe("handcrafted atlas quality metrics", () => {
       bottomAccent: "ribbon",
       legwear: "leg_warmers",
       legwearAsymmetry: "left",
+      thighAccessory: "bow",
+      thighAccessorySide: "right",
       shoeStyle: "dress_shoes",
     })!.atlas;
     const referenceMetrics = measureAtlasCraft(reference);
@@ -119,6 +121,7 @@ describe("handcrafted atlas quality metrics", () => {
       bottomPattern: "plaid",
       bottomAccent: "ribbon",
       legwear: "leg_warmers",
+      thighAccessory: "bow",
     };
     expect(validateAtlasCraft(reference, decoratedStyle).ok).toBe(true);
     expect(validateAtlasCraft(procedural, decoratedStyle).ok).toBe(true);

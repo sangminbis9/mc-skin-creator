@@ -335,6 +335,7 @@ export interface AtlasCraftStyle {
   bottomPattern?: string;
   bottomAccent?: string;
   legwear?: string;
+  thighAccessory?: string;
 }
 
 /**
@@ -499,6 +500,7 @@ export function validateAtlasCraft(
     has(style.outerGarment) ||
     has(style.neckAccessory) ||
     has(style.legwear) ||
+    has(style.thighAccessory) ||
     !["none", "plain"].includes(value(style.bottomPattern)) ||
     has(style.bottomAccent) ||
     !["none", "plain"].includes(value(style.garmentTexture));

@@ -92,6 +92,8 @@ export interface FaceStyle {
   bottomAccent?: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
   legwear?: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
   legwearAsymmetry?: "none" | "left" | "right" | "both";
+  thighAccessory?: "none" | "bow" | "ribbon" | "garter";
+  thighAccessorySide?: "none" | "left" | "right" | "both";
   shoeStyle?: "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals";
   topColor?: string;
   topAccentColor?: string;
@@ -151,6 +153,8 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   bottomAccent: "none",
   legwear: "none",
   legwearAsymmetry: "none",
+  thighAccessory: "none",
+  thighAccessorySide: "none",
   shoeStyle: undefined,
   bottomColor: undefined,
   shoesColor: undefined,
@@ -4848,17 +4852,28 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     } else if (bottomAccent === "ribbon") {
       const ribbon: Rgb = [238, 204, 214];
       const ribbonDark = shadeRgb(ribbon, 0.72);
-      for (const leg of [CLASSIC_LAYOUT.rightLeg, CLASSIC_LAYOUT.leftLeg]) {
-        const rect = leg.overlay.front;
-        for (const [x, y, color] of [
-          [0, 2, ribbon],
-          [1, 1, ribbon],
-          [1, 2, ribbonDark],
-          [2, 2, ribbon],
-          [1, 3, ribbonDark],
-        ] as const) {
-          put(rect, x, y, color);
+      const ribbonLight = shadeRgb(ribbon, 1.08);
+      for (const rect of [
+        body.overlay.front,
+        body.overlay.back,
+        body.overlay.right,
+        body.overlay.left,
+      ]) {
+        const y = Math.max(0, rect.h - 3);
+        for (let x = 0; x < rect.w; x++) {
+          put(rect, x, y, x % 2 === 0 ? ribbon : ribbonDark);
         }
+      }
+      const y = Math.max(0, front.h - 4);
+      for (const [x, dy, color] of [
+        [2, 0, ribbonLight],
+        [3, 1, ribbonDark],
+        [4, 1, ribbonLight],
+        [5, 0, ribbon],
+        [2, 2, ribbonDark],
+        [5, 2, ribbonDark],
+      ] as const) {
+        put(front, x, y + dy, color);
       }
     }
   }
@@ -5397,58 +5412,91 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
 
     for (const part of targetParts) drawLegwear(part);
 
-    if (asym === "left" || asym === "right") {
-      const opposite =
-        asym === "left" ? CLASSIC_LAYOUT.rightLeg : CLASSIC_LAYOUT.leftLeg;
-      const bow: Rgb = [248, 242, 232];
-      const bowLight = shadeRgb(bow, 1.06);
-      const bowShade: Rgb = [212, 192, 184];
-      const bowDeep = shadeRgb(bowShade, 0.72);
-      const frontLeg = opposite.overlay.front;
-      for (const [x, y, color] of [
-        [0, 1, bowShade],
-        [0, 2, bowLight],
-        [1, 1, bow],
-        [1, 2, bowDeep],
-        [2, 1, bowLight],
-        [2, 2, bowLight],
-        [3, 2, bow],
-        [0, 3, bowShade],
-        [1, 3, bow],
-        [2, 3, bowShade],
-        [3, 3, bowShade],
-        [1, 4, bowDeep],
-        [2, 4, bowShade],
-      ] as const) {
-        put(frontLeg, x, y, color);
-      }
-      for (const rect of [
-        opposite.overlay.right,
-        opposite.overlay.left,
-        opposite.overlay.back,
-      ]) {
-        for (let x = 0; x < rect.w; x++) {
-          put(rect, x, 1, x % 2 === 0 ? bowLight : shadeRgb(bow, 0.9));
+  }
+
+  const thighAccessory = style.thighAccessory ?? "none";
+  const thighAccessorySide = style.thighAccessorySide ?? "none";
+  if (thighAccessory !== "none" && thighAccessorySide !== "none") {
+    const targetParts =
+      thighAccessorySide === "left"
+        ? (["leftLeg"] as const)
+        : thighAccessorySide === "right"
+          ? (["rightLeg"] as const)
+          : (["rightLeg", "leftLeg"] as const);
+    const accent = hexToRgb(style.topAccentColor ?? "", [248, 242, 232]);
+    const light = shadeRgb(mixRgb(accent, [255, 250, 244], 0.36), 1.04);
+    const mid = shadeRgb(accent, 0.88);
+    const shade = shadeRgb(accent, 0.68);
+    const deep = shadeRgb(accent, 0.48);
+
+    const drawThighAccessory = (part: "rightLeg" | "leftLeg") => {
+      const leg = CLASSIC_LAYOUT[part].overlay;
+      const outerSide = part === "rightLeg" ? leg.right : leg.left;
+      const innerSide = part === "rightLeg" ? leg.left : leg.right;
+
+      if (thighAccessory === "bow") {
+        for (const [x, y, color] of [
+          [0, 1, mid],
+          [0, 2, light],
+          [1, 1, accent],
+          [1, 2, deep],
+          [2, 1, light],
+          [2, 2, accent],
+          [3, 2, light],
+          [0, 3, mid],
+          [1, 3, accent],
+          [2, 3, mid],
+          [3, 3, shade],
+          [1, 4, deep],
+          [2, 4, shade],
+        ] as const) {
+          put(leg.front, x, y, color);
         }
-        for (let x = 0; x < rect.w; x++) {
-          put(rect, x, 2, x % 2 === 0 ? bow : bowShade);
+        for (const rect of [leg.right, leg.left, leg.back]) {
+          for (let x = 0; x < rect.w; x++) {
+            put(rect, x, 1, x % 2 === 0 ? light : mid);
+            put(rect, x, 2, x % 2 === 0 ? accent : shade);
+          }
         }
-        put(rect, 0, 3, bowShade);
-        put(rect, rect.w - 1, 3, bowDeep);
+        for (const [x, y, color] of [
+          [0, 1, light],
+          [1, 1, accent],
+          [1, 2, deep],
+          [0, 3, mid],
+          [1, 3, accent],
+          [0, 4, deep],
+        ] as const) {
+          put(outerSide, x, y, color);
+        }
+        put(innerSide, innerSide.w - 1, 3, shade);
+      } else if (thighAccessory === "ribbon") {
+        for (const rect of [leg.front, leg.back, leg.right, leg.left]) {
+          for (let x = 0; x < rect.w; x++) {
+            put(rect, x, 2, x % 2 === 0 ? accent : shade);
+          }
+        }
+        put(leg.front, 1, 1, light);
+        put(leg.front, 2, 1, mid);
+        put(outerSide, 0, 3, mid);
+        put(outerSide, 1, 4, deep);
+      } else {
+        for (const rect of [leg.front, leg.back, leg.right, leg.left]) {
+          for (let x = 0; x < rect.w; x++) {
+            put(rect, x, 1, x % 2 === 0 ? mid : shade);
+            put(rect, x, 2, x % 2 === 0 ? deep : mid);
+          }
+        }
+        put(outerSide, 0, 1, light);
+        put(outerSide, 1, 2, deep);
       }
-      const outerSide =
-        asym === "left" ? opposite.overlay.right : opposite.overlay.left;
-      for (const [x, y, color] of [
-        [0, 1, bowLight],
-        [1, 1, bow],
-        [1, 2, bowDeep],
-        [0, 3, bowShade],
-        [1, 3, bow],
-        [0, 4, bowDeep],
-      ] as const) {
-        put(outerSide, x, y, color);
-      }
-    }
+
+      // Continue the raised attachment onto the top face so the accessory
+      // does not terminate as a floating front-only decal at the UV fold.
+      put(leg.top, 1, leg.top.h - 1, light);
+      put(leg.top, 2, leg.top.h - 1, mid);
+    };
+
+    for (const part of targetParts) drawThighAccessory(part);
   }
 
   // Break the perfectly rectangular outer torso at all four shoulder

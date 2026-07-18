@@ -439,6 +439,8 @@ describe("inferred lower-body completion", () => {
             bottomAccent: "ribbon",
             legwear: "leg_warmers",
             legwearAsymmetry: "left",
+            thighAccessory: "bow",
+            thighAccessorySide: "right",
             shoeStyle: "dress_shoes",
             rationale:
               "the visible bow and cardigan call for a dressy detailed lower half",
@@ -528,6 +530,8 @@ describe("inferred lower-body completion", () => {
             bottomAccent: "none",
             legwear: "none",
             legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
             shoeStyle: "sneakers",
             rationale:
               "generic structured output that underuses the visible cardigan and bow",
@@ -622,6 +626,8 @@ describe("inferred lower-body completion", () => {
             bottomAccent: "none",
             legwear: "none",
             legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
             shoeStyle: "sneakers",
             rationale: "generic dark lower half",
           },
