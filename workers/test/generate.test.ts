@@ -95,6 +95,70 @@ describe("generateSkin", () => {
     expect(compactFullLips.renderHints.lipFullness).toBe("full");
   });
 
+  it("preserves chest, waist and hip hair endpoints instead of collapsing all long hair to shoulder length", () => {
+    const base = makeAnalysis();
+    const normalizeLength = (
+      hair: string,
+      identityPrompt: string,
+      overallHairLength: typeof base.renderHints.overallHairLength,
+    ) =>
+      normalizeAnalysisForRendering(
+        makeAnalysis({
+          observed: { ...base.observed, hair },
+          identityPrompt,
+          renderHints: {
+            ...base.renderHints,
+            hairBackShape: "long",
+            overallHairLength,
+          },
+          fallbackFeatures: {
+            ...base.fallbackFeatures,
+            hairstyle: "long",
+          },
+        }),
+      ).renderHints.overallHairLength;
+
+    expect(
+      normalizeLength(
+        "long wavy hair falling past the shoulders to the chest",
+        "Long wavy chest-length hair.",
+        "shoulder",
+      ),
+    ).toBe("chest");
+    expect(
+      normalizeLength(
+        "long straight hair reaching the waist",
+        "Waist-length straight hair with a full back.",
+        "shoulder",
+      ),
+    ).toBe("waist");
+    expect(
+      normalizeLength(
+        "very long curls falling to the hips",
+        "Hip-length curly hair.",
+        "chest",
+      ),
+    ).toBe("hip");
+
+    const longFaceWithShortHair = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face: "long oval face",
+          hair: "short ear-length dark hair",
+        },
+        identityPrompt: "A long oval face with short hair around the ears.",
+        renderHints: {
+          ...base.renderHints,
+          hairBackShape: "tapered",
+          overallHairLength: "ear",
+        },
+      }),
+    );
+    expect(longFaceWithShortHair.renderHints.hairBackShape).toBe("tapered");
+    expect(longFaceWithShortHair.renderHints.overallHairLength).toBe("ear");
+  });
+
   it("preserves muted portrait colours instead of collapsing them to vivid fallback swatches", async () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({
@@ -536,8 +600,7 @@ describe("generateSkin", () => {
     const flowerLeaf = ((head.y + 1) * ATLAS_SIZE + head.x + 2) * 4;
     const bowWing = ((body.y + 1) * ATLAS_SIZE + body.x + 2) * 4;
     const bowKnot = ((body.y + 1) * ATLAS_SIZE + body.x + 3) * 4;
-    const hairDrape =
-      ((bodyBack.y + 5) * ATLAS_SIZE + bodyBack.x + 3) * 4;
+    const hairDrape = ((bodyBack.y + 5) * ATLAS_SIZE + bodyBack.x + 3) * 4;
     const cardiganPanel = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x + 1) * 4;
     const cardiganLowerPanel = ((body.y + 10) * ATLAS_SIZE + body.x + 1) * 4;
     const cardiganLowerTrim = ((body.y + 10) * ATLAS_SIZE + body.x + 2) * 4;

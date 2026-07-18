@@ -61,6 +61,8 @@ export interface FaceStyle {
   hairVolume?: "flat" | "normal" | "full";
   hairSilhouette?: "rounded" | "flat" | "swept" | "tousled" | "spiky";
   hairBackShape?: "tapered" | "rounded" | "long" | "tied" | "undercut";
+  overallHairLength?:
+    "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip";
   hairPart?: "none" | "center" | "left" | "right";
   sideHairLength?: "none" | "short" | "cheek" | "jaw" | "shoulder";
   sideHairShape?:
@@ -135,6 +137,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   hairVolume: "normal",
   hairSilhouette: "rounded",
   hairBackShape: "tapered",
+  overallHairLength: undefined,
   hairPart: "none",
   sideHairLength: "short",
   sideHairShape: "tapered",
@@ -164,6 +167,37 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
 };
 
 type Rgb = [number, number, number];
+
+type OverallHairLength = NonNullable<FaceStyle["overallHairLength"]>;
+
+function resolveOverallHairLength(style: FaceStyle): OverallHairLength {
+  if (style.overallHairLength) return style.overallHairLength;
+  if (style.hairstyle === "bald" || style.hairstyle === "buzz")
+    return "cropped";
+  if (style.hairBackShape === "long") return "waist";
+  if (style.hairstyle === "short") return "ear";
+  if (style.hairstyle === "medium" || style.hairstyle === "curly")
+    return "shoulder";
+  if (style.hairstyle === "long" || style.hairstyle === "twintails")
+    return "waist";
+  return "jaw";
+}
+
+function hairBodyRows(style: FaceStyle): number {
+  const rowsByLength: Record<OverallHairLength, number> = {
+    cropped: 0,
+    ear: 0,
+    jaw: 0,
+    shoulder: 4,
+    chest: 8,
+    waist: 12,
+    hip: 12,
+  };
+  return Math.max(
+    rowsByLength[resolveOverallHairLength(style)],
+    style.sideHairLength === "shoulder" ? 4 : 0,
+  );
+}
 
 function hexToRgb(hex: string, fallback: Rgb): Rgb {
   const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
@@ -1007,11 +1041,7 @@ function composeFace(
       : mouthShape === "thin"
         ? "thin"
         : "average");
-  const baseMouthColor = mixRgb(
-    shadeRgb(skinColor, 0.62),
-    [160, 74, 60],
-    0.5,
-  );
+  const baseMouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
   const mouthColor =
     lipFullness === "full"
       ? mixRgb(baseMouthColor, [184, 78, 78], 0.34)
@@ -2057,6 +2087,8 @@ function composeHair(
   }
 
   const sideHairLength = style.sideHairLength ?? "short";
+  const overallHairLength = resolveOverallHairLength(style);
+  const torsoHairRows = hairBodyRows(style);
   if (
     sideHairLength === "cheek" ||
     sideHairLength === "jaw" ||
@@ -2220,7 +2252,7 @@ function composeHair(
         putColor(over.back, 1, y, shadeRgb(rightTip, 0.62));
       }
     }
-    if (sideHairLength === "shoulder") {
+    if (torsoHairRows > 0) {
       const bodyOver = CLASSIC_LAYOUT.body.overlay;
       const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
         shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
@@ -2230,10 +2262,10 @@ function composeHair(
         style.hairTexture === "wavy" ? 0.24 : 0.16,
       );
       const torsoStrandDark = shadeRgb(hairColor, 0.52);
-      const leftFrontPath = [1, 1, 0, 1, 1, 0, 0, 1, 2, 1] as const;
-      const rightFrontPath = [6, 6, 7, 6, 6, 7, 7, 6, 5, 6] as const;
-      for (let y = 0; y < leftFrontPath.length; y++) {
-        const taperShade = y >= 8 ? 0.58 : y >= 6 ? 0.68 : 0.9;
+      const leftFrontPath = [1, 1, 0, 1, 1, 0, 0, 1, 2, 1, 2, 3] as const;
+      const rightFrontPath = [6, 6, 7, 6, 6, 7, 7, 6, 5, 6, 5, 4] as const;
+      for (let y = 0; y < Math.min(torsoHairRows, leftFrontPath.length); y++) {
+        const taperShade = y >= 10 ? 0.5 : y >= 8 ? 0.58 : y >= 6 ? 0.68 : 0.9;
         const leftX = leftFrontPath[y];
         const rightX = rightFrontPath[y];
         putColor(
@@ -2269,16 +2301,20 @@ function composeHair(
           );
         }
       }
-      for (const [x, y, color] of [
-        [1, 1, torsoStrandLight],
-        [0, 3, shadeRgb(torsoStrandLight, 0.86)],
-        [1, 6, torsoStrandDark],
-        [2, 8, shadeRgb(torsoStrandDark, 0.82)],
-        [6, 1, shadeRgb(torsoStrandLight, 0.94)],
-        [7, 4, shadeRgb(torsoStrandLight, 0.8)],
-        [6, 6, torsoStrandDark],
-        [5, 9, shadeRgb(torsoStrandDark, 0.78)],
-      ] as const) {
+      for (const [x, y, color] of (
+        [
+          [1, 1, torsoStrandLight],
+          [0, 3, shadeRgb(torsoStrandLight, 0.86)],
+          [1, 6, torsoStrandDark],
+          [2, 8, shadeRgb(torsoStrandDark, 0.82)],
+          [6, 1, shadeRgb(torsoStrandLight, 0.94)],
+          [7, 4, shadeRgb(torsoStrandLight, 0.8)],
+          [6, 6, torsoStrandDark],
+          [5, 9, shadeRgb(torsoStrandDark, 0.78)],
+          [2, 10, shadeRgb(torsoStrandLight, 0.66)],
+          [4, 11, shadeRgb(torsoStrandDark, 0.68)],
+        ] as const
+      ).filter(([, y]) => y < torsoHairRows)) {
         putColor(bodyOver.front, x, y, color);
       }
 
@@ -2293,9 +2329,11 @@ function composeHair(
         [0],
         [0, 1],
         [1],
+        [1, 2],
+        [2],
       ] as const;
-      for (let y = 0; y < leftSideRows.length; y++) {
-        const shade = y >= 8 ? 0.56 : y >= 6 ? 0.64 : 0.78;
+      for (let y = 0; y < Math.min(torsoHairRows, leftSideRows.length); y++) {
+        const shade = y >= 10 ? 0.48 : y >= 8 ? 0.56 : y >= 6 ? 0.64 : 0.78;
         for (const x of leftSideRows[y]) {
           putColor(
             bodyOver.right,
@@ -2317,10 +2355,14 @@ function composeHair(
           );
         }
       }
-      putColor(bodyOver.right, 1, 3, shadeRgb(torsoStrandLight, 0.82));
-      putColor(bodyOver.right, 0, 8, torsoStrandDark);
-      putColor(bodyOver.left, 2, 3, shadeRgb(torsoStrandLight, 0.82));
-      putColor(bodyOver.left, 3, 8, torsoStrandDark);
+      if (torsoHairRows > 3) {
+        putColor(bodyOver.right, 1, 3, shadeRgb(torsoStrandLight, 0.82));
+        putColor(bodyOver.left, 2, 3, shadeRgb(torsoStrandLight, 0.82));
+      }
+      if (torsoHairRows > 8) {
+        putColor(bodyOver.right, 0, 8, torsoStrandDark);
+        putColor(bodyOver.left, 3, 8, torsoStrandDark);
+      }
 
       const longBackRows = [
         [0, 1, 2, 3, 4, 5, 6, 7],
@@ -2333,6 +2375,8 @@ function composeHair(
         [1, 2, 3, 4, 5, 6],
         [1, 2, 3, 5, 6],
         [2, 3, 5],
+        [2, 3, 4, 5],
+        [3, 4],
       ] as const;
       const compactBackRows = [
         [0, 7],
@@ -2344,8 +2388,9 @@ function composeHair(
         [0, 3, 4, 7],
         [0, 3, 4, 7],
       ] as const;
-      const backRows =
-        hairBackShape === "long" ? longBackRows : compactBackRows;
+      const backRows = (
+        hairBackShape === "long" ? longBackRows : compactBackRows
+      ).slice(0, torsoHairRows);
       for (let y = 0; y < backRows.length; y++) {
         for (const x of backRows[y]) {
           const edge = x === 0 || x === bodyOver.back.w - 1;
@@ -2364,18 +2409,21 @@ function composeHair(
                   : highlight
                     ? 0.94
                     : 0.78;
-          putColor(
-            bodyOver.back,
-            x,
-            y,
-            bodyHair(bodyOver.back, x, y, shade),
-          );
+          putColor(bodyOver.back, x, y, bodyHair(bodyOver.back, x, y, shade));
         }
       }
-      putColor(bodyOver.back, 2, 2, torsoStrandLight);
-      putColor(bodyOver.back, 5, 5, shadeRgb(torsoStrandLight, 0.78));
-      putColor(bodyOver.back, 3, 8, shadeRgb(torsoStrandDark, 0.82));
-      putColor(bodyOver.back, 5, 9, torsoStrandDark);
+      for (const [x, y, color] of (
+        [
+          [2, 2, torsoStrandLight],
+          [5, 5, shadeRgb(torsoStrandLight, 0.78)],
+          [3, 8, shadeRgb(torsoStrandDark, 0.82)],
+          [5, 9, torsoStrandDark],
+          [2, 10, shadeRgb(torsoStrandLight, 0.64)],
+          [4, 11, shadeRgb(torsoStrandDark, 0.7)],
+        ] as const
+      ).filter(([, y]) => y < torsoHairRows)) {
+        putColor(bodyOver.back, x, y, color);
+      }
 
       const bodyTop = bodyOver.top;
       const topFrontY = Math.max(0, bodyTop.h - 1);
@@ -2411,7 +2459,7 @@ function composeHair(
         mirrorPhase: number,
       ) => {
         const topY = 0;
-        const lastY = Math.min(5, arm.front.h - 1);
+        const lastY = Math.min(torsoHairRows <= 4 ? 3 : 5, arm.front.h - 1);
         for (let y = 0; y <= lastY; y++) {
           const shade = y >= 4 ? 0.58 : y % 2 === mirrorPhase ? 0.82 : 0.7;
           putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
@@ -2509,7 +2557,7 @@ function composeHair(
           [bodyOver.right, 0, 1],
           [bodyOver.left, bodyOver.left.w - 1, bodyOver.left.w - 2],
         ] as const) {
-          for (let y = 1; y < 8; y++) {
+          for (let y = 1; y < Math.min(8, torsoHairRows); y++) {
             const waveColor =
               y % 3 === 1 ? layerLight : y % 3 === 2 ? layerMid : layerDark;
             paintLayerPixel(rect, edgeX, y, waveColor);
@@ -2555,7 +2603,11 @@ function composeHair(
       }
     }
   }
-  if (hairBackShape === "long" && sideHairLength !== "shoulder") {
+  if (
+    hairBackShape === "long" &&
+    sideHairLength !== "shoulder" &&
+    torsoHairRows > 0
+  ) {
     const bodyOver = CLASSIC_LAYOUT.body.overlay;
     const backDrapeLight = mixRgb(
       hairColor,
@@ -2566,28 +2618,36 @@ function composeHair(
     const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
       shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
 
-    for (let y = 0; y < 6; y++) {
+    for (let y = 0; y < torsoHairRows; y++) {
       const row =
         y < 2
           ? ([2, 3, 4, 5] as const)
-          : y < 4
+          : y < torsoHairRows - 2
             ? ([1, 2, 3, 4, 5, 6] as const)
-            : ([2, 3, 4, 5] as const);
+            : y === torsoHairRows - 1
+              ? ([3, 4] as const)
+              : ([2, 3, 4, 5] as const);
       for (const x of row) {
-        const shade = y >= 4 ? 0.62 : x === 2 || x === 5 ? 0.82 : 0.72;
+        const shade =
+          y >= torsoHairRows - 2 ? 0.56 : x === 2 || x === 5 ? 0.82 : 0.72;
         putColor(bodyOver.back, x, y, bodyHair(bodyOver.back, x, y, shade));
       }
       putColor(
         bodyOver.right,
         0,
         y,
-        bodyHair(bodyOver.right, 0, y, y >= 4 ? 0.58 : 0.78),
+        bodyHair(bodyOver.right, 0, y, y >= torsoHairRows - 2 ? 0.58 : 0.78),
       );
       putColor(
         bodyOver.left,
         bodyOver.left.w - 1,
         y,
-        bodyHair(bodyOver.left, bodyOver.left.w - 1, y, y >= 4 ? 0.58 : 0.78),
+        bodyHair(
+          bodyOver.left,
+          bodyOver.left.w - 1,
+          y,
+          y >= torsoHairRows - 2 ? 0.58 : 0.78,
+        ),
       );
       if (y <= 3 && sideHairLength === "jaw") {
         putColor(
@@ -2604,16 +2664,79 @@ function composeHair(
         );
       }
     }
-    for (const [rect, x, y, color] of [
-      [bodyOver.back, 2, 1, backDrapeLight],
-      [bodyOver.back, 5, 2, shadeRgb(backDrapeLight, 0.9)],
-      [bodyOver.back, 3, 5, backDrapeDark],
-      [bodyOver.back, 4, 5, shadeRgb(backDrapeDark, 0.9)],
-      [bodyOver.right, 1, 2, shadeRgb(backDrapeLight, 0.84)],
-      [bodyOver.left, bodyOver.left.w - 2, 2, shadeRgb(backDrapeLight, 0.84)],
-    ] as const) {
+    for (const [rect, x, y, color] of (
+      [
+        [bodyOver.back, 2, 1, backDrapeLight],
+        [bodyOver.back, 5, 2, shadeRgb(backDrapeLight, 0.9)],
+        [bodyOver.back, 3, Math.max(2, torsoHairRows - 1), backDrapeDark],
+        [
+          bodyOver.back,
+          4,
+          Math.max(2, torsoHairRows - 1),
+          shadeRgb(backDrapeDark, 0.9),
+        ],
+        [bodyOver.right, 1, 2, shadeRgb(backDrapeLight, 0.84)],
+        [bodyOver.left, bodyOver.left.w - 2, 2, shadeRgb(backDrapeLight, 0.84)],
+      ] as const
+    ).filter(([, , y]) => y < torsoHairRows)) {
       putColor(rect, x, y, color);
     }
+  }
+  if (
+    overallHairLength === "hip" &&
+    (s === "long" || hairBackShape === "long")
+  ) {
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay;
+    const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay;
+    const legHair = (rect: Rect, x: number, y: number, shade = 1) =>
+      shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
+    const paintHipTail = (
+      leg: typeof rightLeg,
+      outerSide: Rect,
+      frontEdgeX: number,
+      mirror: boolean,
+    ) => {
+      const backRows = [
+        [0, 1, 2, 3],
+        mirror ? [0, 1, 2] : [1, 2, 3],
+        [1, 2],
+        [mirror ? 1 : 2],
+      ] as const;
+      for (let y = 0; y < backRows.length; y++) {
+        for (const x of backRows[y]) {
+          putColor(
+            leg.back,
+            x,
+            y,
+            legHair(leg.back, x, y, y >= 2 ? 0.54 : x === 1 ? 0.84 : 0.7),
+          );
+        }
+        if (y < 3) {
+          putColor(
+            leg.front,
+            frontEdgeX,
+            y,
+            legHair(leg.front, frontEdgeX, y, y === 2 ? 0.56 : 0.76),
+          );
+          putColor(
+            outerSide,
+            0,
+            y,
+            legHair(outerSide, 0, y, y === 2 ? 0.52 : 0.7),
+          );
+        }
+      }
+      for (let x = 0; x < leg.top.w; x++) {
+        putColor(
+          leg.top,
+          x,
+          leg.top.h - 1,
+          legHair(leg.top, x, leg.top.h - 1, x === 1 || x === 2 ? 0.8 : 0.62),
+        );
+      }
+    };
+    paintHipTail(rightLeg, rightLeg.right, 0, false);
+    paintHipTail(leftLeg, leftLeg.left, leftLeg.front.w - 1, true);
   }
   if (
     hairBackShape === "long" ||
@@ -3758,16 +3881,10 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const layer = style.outerLayer ?? "none";
   const topType = style.topType ?? "tshirt";
   const outerGarment = style.outerGarment ?? "none";
-  const shoulderHairLayer =
-    style.hairstyle === "long" ||
-    style.hairBackShape === "long" ||
-    style.sideHairLength === "shoulder";
-  const shoulderHairRows = shoulderHairLayer
-    ? style.hairBackShape === "long"
-      ? 10
-      : 8
-    : 0;
-  const armHairRows = shoulderHairLayer ? 6 : 0;
+  const shoulderHairRows = hairBodyRows(style);
+  const shoulderHairLayer = shoulderHairRows > 0;
+  const armHairRows =
+    shoulderHairRows === 0 ? 0 : shoulderHairRows <= 4 ? 4 : 6;
   const declaredTopColor = style.topColor
     ? hexToRgb(style.topColor, [92, 92, 92])
     : null;
@@ -5396,7 +5513,6 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     };
 
     for (const part of targetParts) drawLegwear(part);
-
   }
 
   const thighAccessory = style.thighAccessory ?? "none";

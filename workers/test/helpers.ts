@@ -60,6 +60,7 @@ export function makeAnalysis(
       hairVolume: "normal",
       hairSilhouette: "rounded",
       hairBackShape: "tapered",
+      overallHairLength: "ear",
       hairPart: "right",
       sideHairLength: "short",
       sideHairShape: "tapered",

@@ -6,11 +6,7 @@ import {
   type FaceStyle,
 } from "../src/skinPack";
 import { applyUvMask, validateFinalAtlas } from "../src/skinPost";
-import {
-  ATLAS_SIZE,
-  CLASSIC_LAYOUT,
-  getBoxUvSeams,
-} from "../src/uvLayout";
+import { ATLAS_SIZE, CLASSIC_LAYOUT, getBoxUvSeams } from "../src/uvLayout";
 
 import { makeFourViewSheet, makeFrontBackView, makeFrontView } from "./helpers";
 
@@ -1458,6 +1454,45 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("overallHairLength gives shoulder, chest, waist and hip hair distinct connected endpoints", () => {
+    const makeLength = (
+      overallHairLength: NonNullable<FaceStyle["overallHairLength"]>,
+    ) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        hairColor: "#765b57",
+        bangs: "curtain",
+        hairTexture: "wavy",
+        hairBackShape: "long",
+        overallHairLength,
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+        outerLayer: "none",
+        outerGarment: "none",
+      })!.atlas;
+    const shoulder = makeLength("shoulder");
+    const chest = makeLength("chest");
+    const waist = makeLength("waist");
+    const hip = makeLength("hip");
+    const body = CLASSIC_LAYOUT.body.overlay;
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay;
+    const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay;
+
+    expect(alphaAt(shoulder, body.front, 1, 3)).toBe(255);
+    expect(alphaAt(shoulder, body.front, 0, 6)).toBe(0);
+    expect(alphaAt(chest, body.front, 1, 7)).toBe(255);
+    expect(alphaAt(chest, body.front, 1, 9)).toBe(0);
+    expect(alphaAt(waist, body.front, 3, 11)).toBe(255);
+    expect(alphaAt(waist, body.back, 4, 11)).toBe(255);
+    expect(alphaAt(waist, rightLeg.back, 2, 3)).toBe(0);
+    expect(alphaAt(waist, leftLeg.back, 1, 3)).toBe(0);
+    expect(alphaAt(hip, rightLeg.back, 2, 3)).toBe(255);
+    expect(alphaAt(hip, leftLeg.back, 1, 3)).toBe(255);
+    expect(alphaAt(hip, rightLeg.right, 0, 2)).toBe(255);
+    expect(alphaAt(hip, leftLeg.left, 0, 2)).toBe(255);
+  });
+
   it("shoulder-length side hair continues onto torso overlay as visible front and back strands", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -1762,11 +1797,7 @@ describe("packFrontViewToAtlas", () => {
       }
       return count;
     };
-    const reachesProfileSeam = (
-      rect: Rect,
-      startX: number,
-      startY: number,
-    ) => {
+    const reachesProfileSeam = (rect: Rect, startX: number, startY: number) => {
       const pending: Array<[number, number]> = [[startX, startY]];
       const visited = new Set<string>();
       while (pending.length > 0) {
@@ -2495,9 +2526,7 @@ describe("packFrontViewToAtlas", () => {
   });
 
   it("hairAccessoryScale distinguishes a subtle bloom from a large flower cluster", () => {
-    const makeFlower = (
-      hairAccessoryScale: "small" | "medium" | "large",
-    ) =>
+    const makeFlower = (hairAccessoryScale: "small" | "medium" | "large") =>
       packFrontViewToAtlas(makeFrontView(), {
         ...DEFAULT_FACE_STYLE,
         hairstyle: "long",

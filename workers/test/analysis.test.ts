@@ -133,7 +133,9 @@ describe("validatePhotoAnalysis", () => {
     expect(extractAnalysisPayload({ response: analysis })).toEqual(analysis);
     expect(
       extractAnalysisPayload({
-        choices: [{ message: { content: `result:\n${JSON.stringify(analysis)}` } }],
+        choices: [
+          { message: { content: `result:\n${JSON.stringify(analysis)}` } },
+        ],
       }),
     ).toEqual(analysis);
     expect(
@@ -155,16 +157,26 @@ describe("validatePhotoAnalysis", () => {
 
   it("analysis prompt requires visible lower-body, legwear asymmetry and shoe details", () => {
     expect(ANALYSIS_PROMPT).toContain("lower garment type");
-    expect(ANALYSIS_PROMPT).toContain("legwear asymmetry from the viewer's perspective");
+    expect(ANALYSIS_PROMPT).toContain(
+      "legwear asymmetry from the viewer's perspective",
+    );
     expect(ANALYSIS_PROMPT).toContain("shoe type/color");
     expect(ANALYSIS_PROMPT).toContain("viewer-left/viewer-right");
     expect(ANALYSIS_PROMPT).toContain("renderHints.bottomPattern");
-    expect(ANALYSIS_PROMPT).toContain("skorts, pleated shorts or skirt-like culottes");
-    expect(ANALYSIS_PROMPT).toContain("never default to \"pants\" for a visible skirt, skort");
+    expect(ANALYSIS_PROMPT).toContain(
+      "skorts, pleated shorts or skirt-like culottes",
+    );
+    expect(ANALYSIS_PROMPT).toContain(
+      'never default to "pants" for a visible skirt, skort',
+    );
     expect(ANALYSIS_PROMPT).toContain("knee-high or over-knee socks");
-    expect(ANALYSIS_PROMPT).toContain("Treat knee-high, over-knee and OTK socks as thigh_highs");
-    expect(ANALYSIS_PROMPT).toContain("Do not summarize it as simply \"asymmetric\"");
-    expect(ANALYSIS_PROMPT).toContain("legwearAsymmetry \"left\" or \"right\"");
+    expect(ANALYSIS_PROMPT).toContain(
+      "Treat knee-high, over-knee and OTK socks as thigh_highs",
+    );
+    expect(ANALYSIS_PROMPT).toContain(
+      'Do not summarize it as simply "asymmetric"',
+    );
+    expect(ANALYSIS_PROMPT).toContain('legwearAsymmetry "left" or "right"');
     expect(ANALYSIS_PROMPT).toContain("thighAccessorySide independently");
     expect(ANALYSIS_PROMPT).toContain(
       "a thigh accessory can intentionally sit on the opposite leg",
@@ -172,7 +184,9 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain(
       "Never infer a thigh bow merely because the opposite leg has one-sided legwear",
     );
-    expect(ANALYSIS_PROMPT).toContain("Repeat both exact sides in outfitPrompt");
+    expect(ANALYSIS_PROMPT).toContain(
+      "Repeat both exact sides in outfitPrompt",
+    );
     expect(ANALYSIS_PROMPT).toContain(
       "Never return the completely generic combination of plain pants + no accent + no legwear + sneakers",
     );
@@ -192,10 +206,16 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("solid rectangular bar");
     expect(ANALYSIS_PROMPT).toContain("visible scalp/root direction");
     expect(ANALYSIS_PROMPT).toContain("crown and temple OUTER CONTOUR");
-    expect(ANALYSIS_PROMPT).toContain("A smooth dome over staggered bangs is rounded");
+    expect(ANALYSIS_PROMPT).toContain(
+      "A smooth dome over staggered bangs is rounded",
+    );
+    expect(ANALYSIS_PROMPT).toContain("overallHairLength");
+    expect(ANALYSIS_PROMPT).toContain("chest-, waist- or hip-length hair");
     expect(ANALYSIS_PROMPT).toContain("sideHairShape");
     expect(ANALYSIS_PROMPT).toContain("sideHairAsymmetry");
-    expect(ANALYSIS_PROMPT).toContain("not merely because head rotation hides one side");
+    expect(ANALYSIS_PROMPT).toContain(
+      "not merely because head rotation hides one side",
+    );
     expect(ANALYSIS_PROMPT).toContain("ear_hugging");
     expect(ANALYSIS_PROMPT).toContain("earExposure");
     expect(ANALYSIS_PROMPT).toContain("keep left/right profiles coherent");
@@ -243,7 +263,9 @@ describe("validatePhotoAnalysis", () => {
   });
 
   it("허용되지 않은 framing은 명시적 오류로 반환한다 (조용한 기본값 대체 없음)", () => {
-    const result = validatePhotoAnalysis(makeAnalysis({ framing: "selfie" as never }));
+    const result = validatePhotoAnalysis(
+      makeAnalysis({ framing: "selfie" as never }),
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.join()).toContain("framing");

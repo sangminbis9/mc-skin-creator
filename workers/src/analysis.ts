@@ -55,18 +55,16 @@ export interface PixelRenderHints {
   hairVolume: "flat" | "normal" | "full";
   hairSilhouette: "rounded" | "flat" | "swept" | "tousled" | "spiky";
   hairBackShape: "tapered" | "rounded" | "long" | "tied" | "undercut";
+  overallHairLength:
+    "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip";
   hairPart: "none" | "center" | "left" | "right";
   sideHairLength: "none" | "short" | "cheek" | "jaw" | "shoulder";
-  sideHairShape: "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
+  sideHairShape:
+    "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut";
   sideHairAsymmetry: "none" | "left" | "right";
   earExposure: "covered" | "partial" | "visible";
   garmentTexture:
-    | "plain"
-    | "knit"
-    | "denim"
-    | "leather"
-    | "striped"
-    | "patterned";
+    "plain" | "knit" | "denim" | "leather" | "striped" | "patterned";
   outerLayer: "none" | "light" | "heavy";
   outerGarment: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
   necklace: "none" | "silver" | "gold" | "dark";
@@ -183,7 +181,7 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
 - eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
 - eyeTilt describes the line between each eye's inner and outer corner: upturned when the outer corners sit visibly higher, level when nearly horizontal, or downturned when the outer corners sit visibly lower. Judge geometry, not expression.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
@@ -198,6 +196,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - Classify hairSilhouette from the crown and temple OUTER CONTOUR, not from separated bang tips or individual highlight strands. Do not choose spiky merely because a straight fringe has jagged ends; spiky requires multiple clearly outward-pointing crown or temple tufts. A smooth dome over staggered bangs is rounded.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
+- overallHairLength records the lowest point reached by the main hair mass, not just the front fringe: cropped/scalp, ear, jaw, shoulder, chest, waist, or hip. Preserve clearly visible chest-, waist- or hip-length hair instead of collapsing every long hairstyle to shoulder length. If the endpoint is hidden by the crop, infer it conservatively from visible strands and inferred.hairBack and state that inference in identityPrompt.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - sideHairShape describes the side profile around the temple and ear: tapered narrows cleanly toward the ear, ear_hugging wraps around and partly frames the ear, face_framing forms longer front locks, flared pushes outward with visible volume, and undercut is close/shaved below the top. Infer it from both visible sides and keep left/right profiles coherent unless the photo clearly shows an asymmetric cut.
@@ -283,6 +282,7 @@ Respond with ONLY a JSON object matching this shape:
     "hairVolume": "flat" | "normal" | "full",
     "hairSilhouette": "rounded" | "flat" | "swept" | "tousled" | "spiky",
     "hairBackShape": "tapered" | "rounded" | "long" | "tied" | "undercut",
+    "overallHairLength": "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip",
     "hairPart": "none" | "center" | "left" | "right",
     "sideHairLength": "none" | "short" | "cheek" | "jaw" | "shoulder",
     "sideHairShape": "tapered" | "ear_hugging" | "face_framing" | "flared" | "undercut",
@@ -417,7 +417,13 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         lowerBodyDesign: LOWER_BODY_DESIGN_SCHEMA,
         shoes: INFERRED_ITEM_SCHEMA,
       },
-      required: ["hairBack", "upperBody", "lowerBody", "lowerBodyDesign", "shoes"],
+      required: [
+        "hairBack",
+        "upperBody",
+        "lowerBody",
+        "lowerBodyDesign",
+        "shoes",
+      ],
     },
     renderHints: {
       type: "object",
@@ -483,6 +489,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["tapered", "rounded", "long", "tied", "undercut"],
         },
+        overallHairLength: {
+          type: "string",
+          enum: ["cropped", "ear", "jaw", "shoulder", "chest", "waist", "hip"],
+        },
         hairPart: {
           type: "string",
           enum: ["none", "center", "left", "right"],
@@ -493,7 +503,13 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
         sideHairShape: {
           type: "string",
-          enum: ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
+          enum: [
+            "tapered",
+            "ear_hugging",
+            "face_framing",
+            "flared",
+            "undercut",
+          ],
         },
         sideHairAsymmetry: {
           type: "string",
@@ -590,6 +606,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "hairVolume",
         "hairSilhouette",
         "hairBackShape",
+        "overallHairLength",
         "hairPart",
         "sideHairLength",
         "sideHairShape",
@@ -639,9 +656,15 @@ export interface ValidationFailure {
   errors: string[];
 }
 
-export type ValidationResult = { ok: true; analysis: PhotoAnalysis } | ValidationFailure;
+export type ValidationResult =
+  { ok: true; analysis: PhotoAnalysis } | ValidationFailure;
 
-const FRAMINGS: Framing[] = ["face", "upper_body", "three_quarter", "full_body"];
+const FRAMINGS: Framing[] = [
+  "face",
+  "upper_body",
+  "three_quarter",
+  "full_body",
+];
 
 /**
  * 모델 응답을 명시적으로 검증한다.
@@ -684,7 +707,9 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     ) {
       failReason = obj.failReason as PhotoAnalysis["failReason"];
     } else if (quality === "fail") {
-      errors.push(`failReason: 허용되지 않은 값 ${JSON.stringify(obj.failReason)}`);
+      errors.push(
+        `failReason: 허용되지 않은 값 ${JSON.stringify(obj.failReason)}`,
+      );
     }
   }
 
@@ -703,7 +728,13 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           lowerBody: false,
           feet: false,
         },
-        observed: { face: "", hair: "", accessories: "", clothing: "", colorPalette: [] },
+        observed: {
+          face: "",
+          hair: "",
+          accessories: "",
+          clothing: "",
+          colorPalette: [],
+        },
         inferred: {
           hairBack: { value: "", rationale: "" },
           upperBody: null,
@@ -731,6 +762,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           hairVolume: "normal",
           hairSilhouette: "rounded",
           hairBackShape: "tapered",
+          overallHairLength: "ear",
           hairPart: "none",
           sideHairLength: "short",
           sideHairShape: "tapered",
@@ -829,12 +861,18 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       if (typeof fieldValue === "string" && allowed.includes(fieldValue as T)) {
         return fieldValue as T;
       }
-      errors.push(`${path}.${key}: ?덉슜?섏? ?딆? 媛?${JSON.stringify(fieldValue)}`);
+      errors.push(
+        `${path}.${key}: ?덉슜?섏? ?딆? 媛?${JSON.stringify(fieldValue)}`,
+      );
       return fallback;
     };
 
     return {
-      bottomType: enumField("bottomType", ["pants", "jeans", "shorts", "skirt"], "pants"),
+      bottomType: enumField(
+        "bottomType",
+        ["pants", "jeans", "shorts", "skirt"],
+        "pants",
+      ),
       bottomPattern: enumField(
         "bottomPattern",
         ["plain", "plaid", "striped", "pleated", "lace"],
@@ -876,7 +914,11 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
 
   const inf = (obj.inferred ?? {}) as Record<string, unknown>;
   const inferred = {
-    hairBack: parseInferredItem("inferred.hairBack", inf.hairBack, false) as InferredItem,
+    hairBack: parseInferredItem(
+      "inferred.hairBack",
+      inf.hairBack,
+      false,
+    ) as InferredItem,
     upperBody: parseInferredItem("inferred.upperBody", inf.upperBody, true),
     lowerBody: parseInferredItem("inferred.lowerBody", inf.lowerBody, true),
     lowerBodyDesign: parseLowerBodyDesign(
@@ -1013,6 +1055,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.hairBackShape,
       ["tapered", "rounded", "long", "tied", "undercut"],
       "tapered",
+    ),
+    overallHairLength: enumValue(
+      "renderHints.overallHairLength",
+      hints.overallHairLength,
+      ["cropped", "ear", "jaw", "shoulder", "chest", "waist", "hip"],
+      "ear",
     ),
     hairPart: enumValue(
       "renderHints.hairPart",
@@ -1247,13 +1295,16 @@ export async function runPhotoAnalysis(
         const modelOptions = visionModel.includes("moonshotai/")
           ? { chat_template_kwargs: { thinking: false } }
           : {};
-        const result = await env.AI.run(visionModel as never, {
-          messages,
-          max_tokens: 2600,
-          temperature: 0,
-          ...modelOptions,
-          response_format: responseFormat,
-        } as never);
+        const result = await env.AI.run(
+          visionModel as never,
+          {
+            messages,
+            max_tokens: 2600,
+            temperature: 0,
+            ...modelOptions,
+            response_format: responseFormat,
+          } as never,
+        );
         parsed = extractAnalysisPayload(result);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -1299,7 +1350,9 @@ function isWorkersAiQuotaError(detail: string): boolean {
 }
 
 /** Normalize Workers AI native (`response`) and chat-completions (`choices`) output. */
-export function extractAnalysisPayload(result: unknown): Record<string, unknown> | null {
+export function extractAnalysisPayload(
+  result: unknown,
+): Record<string, unknown> | null {
   if (typeof result !== "object" || result === null || Array.isArray(result)) {
     return null;
   }
@@ -1309,7 +1362,11 @@ export function extractAnalysisPayload(result: unknown): Record<string, unknown>
     const first = root.choices[0];
     if (typeof first === "object" && first !== null && !Array.isArray(first)) {
       const message = (first as Record<string, unknown>).message;
-      if (typeof message === "object" && message !== null && !Array.isArray(message)) {
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        !Array.isArray(message)
+      ) {
         content = (message as Record<string, unknown>).content;
       }
     }
@@ -1318,13 +1375,18 @@ export function extractAnalysisPayload(result: unknown): Record<string, unknown>
     content = content
       .map((item) => {
         if (typeof item === "string") return item;
-        if (typeof item !== "object" || item === null || Array.isArray(item)) return "";
+        if (typeof item !== "object" || item === null || Array.isArray(item))
+          return "";
         const block = item as Record<string, unknown>;
         return typeof block.text === "string" ? block.text : "";
       })
       .join("");
   }
-  if (typeof content === "object" && content !== null && !Array.isArray(content)) {
+  if (
+    typeof content === "object" &&
+    content !== null &&
+    !Array.isArray(content)
+  ) {
     return content as Record<string, unknown>;
   }
   return typeof content === "string" ? extractJson(content) : null;

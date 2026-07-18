@@ -255,6 +255,7 @@ function buildFaceStyle(
     hairVolume: analysis.renderHints.hairVolume,
     hairSilhouette: analysis.renderHints.hairSilhouette,
     hairBackShape: analysis.renderHints.hairBackShape,
+    overallHairLength: analysis.renderHints.overallHairLength,
     hairPart: analysis.renderHints.hairPart,
     sideHairLength: analysis.renderHints.sideHairLength,
     sideHairShape: analysis.renderHints.sideHairShape,
@@ -618,6 +619,18 @@ export function normalizeAnalysisForRendering(
     analysis.inferred.hairBack?.value,
     analysis.inferred.hairBack?.rationale,
   ]);
+  const hairDescriptionClauses = [
+    analysis.observed.hair,
+    analysis.identityPrompt,
+    analysis.inferred.hairBack?.value,
+    analysis.inferred.hairBack?.rationale,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .flatMap((value) => value.toLowerCase().split(/[.!?;,\n]+/))
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  const hairClauseMatches = (pattern: RegExp) =>
+    hairDescriptionClauses.some((clause) => pattern.test(clause));
   const thighAccessoryClauses = relevantClauseList(
     [
       analysis.observed.clothing,
@@ -698,9 +711,40 @@ export function normalizeAnalysisForRendering(
     ) ||
     explicitCurtainBangs;
   const longHair =
-    /\b(?:long|chest[-\s]+length|waist[-\s]+length|mid[-\s]+back|past[-\s]+the[-\s]+shoulders?)\b/.test(
-      hairText,
+    hairClauseMatches(
+      /\blong\b(?:(?!\b(?:face|jaw|nose|neck)\b)[\s\S]){0,48}\b(?:hair|locks?|strands?|tresses)\b|\b(?:hair|locks?|strands?|tresses)\b.{0,32}\b(?:long|past[-\s]+the[-\s]+shoulders?)\b|\b(?:chest|waist|hip)[-\s]+length\b|\bmid[-\s]+back\b/,
     ) || renderHints.hairBackShape === "long";
+  const explicitOverallHairLength:
+    "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip" | null =
+    hairClauseMatches(
+      /\b(?:hip|hips|upper[-\s]+thigh|seat)[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?(?:hips?|upper[-\s]+thighs?|seat)\b/,
+    )
+      ? "hip"
+      : hairClauseMatches(
+            /\bwaist[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?waist\b|\blower[-\s]+back\b/,
+          )
+        ? "waist"
+        : hairClauseMatches(
+              /\b(?:chest|bust|mid[-\s]+back)[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?(?:chest|bust|mid[-\s]+back)\b|\bpast[-\s]+the[-\s]+shoulders?\b/,
+            )
+          ? "chest"
+          : hairClauseMatches(
+                /\bshoulder[-\s]+(?:length|level)\b|\b(?:to|at|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?shoulders?\b/,
+              )
+            ? "shoulder"
+            : hairClauseMatches(
+                  /\b(?:jaw|chin)[-\s]+(?:length|level)\b|\b(?:to|at|around)\s+(?:the\s+)?(?:jaw|chin)\b/,
+                )
+              ? "jaw"
+              : hairClauseMatches(
+                    /\bear[-\s]+(?:length|level)\b|\b(?:to|at|around)\s+(?:the\s+)?ears?\b/,
+                  )
+                ? "ear"
+                : hairClauseMatches(
+                      /\b(?:cropped|buzz(?:ed)?|shaved|close[-\s]+cut)\b/,
+                    )
+                  ? "cropped"
+                  : null;
   const shoulderSideHair =
     /\b(?:shoulder[-\s]+length|to[-\s]+the[-\s]+shoulders?|over[-\s]+the[-\s]+shoulders?|past[-\s]+the[-\s]+shoulders?)\b/.test(
       hairText,
@@ -779,6 +823,18 @@ export function normalizeAnalysisForRendering(
   }
   if (longHair) {
     renderHints.hairBackShape = "long";
+    if (
+      !explicitOverallHairLength &&
+      ["cropped", "ear", "jaw"].includes(renderHints.overallHairLength)
+    ) {
+      // A prose description of genuinely long hair is stronger than a
+      // contradictory compact enum. Chest is a conservative fallback when
+      // the crop hides the exact endpoint.
+      renderHints.overallHairLength = "chest";
+    }
+  }
+  if (explicitOverallHairLength) {
+    renderHints.overallHairLength = explicitOverallHairLength;
   }
   if (renderHints.sideHairAsymmetry !== "none" && !explicitSideAsymmetry) {
     // A head turn, occlusion, or an accessory on one side must not be
@@ -1004,7 +1060,9 @@ function completeInferredLowerDetails(
       style.bottomAccent = "belt";
     } else if (/\b(cuff|cuffed|cuffs)\b/.test(inferredBottomAccentText)) {
       style.bottomAccent = "cuffs";
-    } else if (/\b(side stripe|side stripes)\b/.test(inferredBottomAccentText)) {
+    } else if (
+      /\b(side stripe|side stripes)\b/.test(inferredBottomAccentText)
+    ) {
       style.bottomAccent = "side_stripe";
     }
 
