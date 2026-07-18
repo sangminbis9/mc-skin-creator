@@ -6,7 +6,11 @@ import {
   type FaceStyle,
 } from "../src/skinPack";
 import { applyUvMask, validateFinalAtlas } from "../src/skinPost";
-import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
+import {
+  ATLAS_SIZE,
+  CLASSIC_LAYOUT,
+  getBoxUvSeams,
+} from "../src/uvLayout";
 
 import { makeFourViewSheet, makeFrontBackView, makeFrontView } from "./helpers";
 
@@ -1755,6 +1759,38 @@ describe("packFrontViewToAtlas", () => {
       }
       return count;
     };
+    const reachesProfileSeam = (
+      rect: Rect,
+      startX: number,
+      startY: number,
+    ) => {
+      const pending: Array<[number, number]> = [[startX, startY]];
+      const visited = new Set<string>();
+      while (pending.length > 0) {
+        const [x, y] = pending.pop()!;
+        const key = `${x},${y}`;
+        if (visited.has(key)) continue;
+        visited.add(key);
+        if (x === 0 || x === rect.w - 1) return true;
+        for (const [nextX, nextY] of [
+          [x - 1, y],
+          [x + 1, y],
+          [x, y - 1],
+          [x, y + 1],
+        ] as const) {
+          if (
+            nextX >= 0 &&
+            nextX < rect.w &&
+            nextY >= 0 &&
+            nextY < rect.h &&
+            alphaAt(atlas, rect, nextX, nextY) !== 0
+          ) {
+            pending.push([nextX, nextY]);
+          }
+        }
+      }
+      return false;
+    };
 
     for (const rect of [head.right, head.left]) {
       // One-pixel front and rear seam rails remain connected from crown to
@@ -1782,7 +1818,37 @@ describe("packFrontViewToAtlas", () => {
         expect(alphaAt(atlas, rect, 3, y)).toBe(0);
         expect(alphaAt(atlas, rect, 4, y)).toBe(0);
       }
+      for (let y = 0; y < rect.h; y++) {
+        for (let x = 0; x < rect.w; x++) {
+          if (alphaAt(atlas, rect, x, y) !== 0) {
+            expect(reachesProfileSeam(rect, x, y)).toBe(true);
+          }
+        }
+      }
     }
+
+    const horizontalSeams = getBoxUvSeams(head).horizontal;
+    for (const seam of horizontalSeams.slice(4)) {
+      for (let index = 0; index < seam.primary.length; index++) {
+        const primary = seam.primary[index];
+        const adjacent = seam.adjacent[index];
+        const primaryAlpha =
+          atlas.rgba[(primary.y * ATLAS_SIZE + primary.x) * 4 + 3];
+        if (primaryAlpha !== 0) {
+          expect(
+            atlas.rgba[(adjacent.y * ATLAS_SIZE + adjacent.x) * 4 + 3],
+          ).toBe(255);
+        }
+      }
+    }
+    let bottomOuterPixels = 0;
+    for (let y = 0; y < head.bottom.h; y++) {
+      for (let x = 0; x < head.bottom.w; x++) {
+        if (alphaAt(atlas, head.bottom, x, y) !== 0) bottomOuterPixels++;
+      }
+    }
+    expect(bottomOuterPixels).toBeGreaterThanOrEqual(6);
+    expect(bottomOuterPixels).toBeLessThanOrEqual(12);
   });
 
   const representativeHairStyles = [

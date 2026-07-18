@@ -318,7 +318,7 @@ describe("handcrafted atlas quality metrics", () => {
     },
     {
       name: "long decorated cardigan",
-      maxOverlayPixels: 1_020,
+      maxOverlayPixels: 1_024,
       style: {
         hairstyle: "long",
         hairTexture: "wavy",

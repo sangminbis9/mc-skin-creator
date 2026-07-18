@@ -468,13 +468,14 @@ function reconcileOverlaySeams(
           style.hairBackShape === "long" ||
           style.sideHairLength === "shoulder";
         const continuesHair =
-          topSeam &&
           longHair &&
           hairDistance <= 120 &&
-          (part === "head" ||
-            part === "body" ||
-            part === "rightArm" ||
-            part === "leftArm");
+          ((topSeam &&
+            (part === "head" ||
+              part === "body" ||
+              part === "rightArm" ||
+              part === "leftArm")) ||
+            (bottomSeam && part === "head"));
         const styledHair = !["none", "bald", "buzz"].includes(
           style.hairstyle ?? "none",
         );
@@ -3209,7 +3210,7 @@ function composeHair(
             [0, 7],
             [0, 7],
             [0, 7],
-            [0, 3, 4, 7],
+            [0, 7],
           ]
         : Array.from({ length: 8 }, (_, y) =>
             y === 0
