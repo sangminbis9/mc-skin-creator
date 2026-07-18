@@ -56,7 +56,7 @@ async function goodFluxOutput(): Promise<SkinGenerationResult> {
 }
 
 describe("generateSkin", () => {
-  it("stabilizes explicitly described large and small eye apertures", () => {
+  it("stabilizes explicitly described eye apertures and lip fullness", () => {
     const base = makeAnalysis();
     const large = normalizeAnalysisForRendering(
       makeAnalysis({
@@ -74,9 +74,25 @@ describe("generateSkin", () => {
         renderHints: { ...base.renderHints, eyeSize: "average" },
       }),
     );
+    const compactFullLips = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face: "oval face with large brown eyes and small full rosy lips",
+        },
+        renderHints: {
+          ...base.renderHints,
+          mouthShape: "small",
+          lipFullness: "average",
+        },
+      }),
+    );
 
     expect(large.renderHints.eyeSize).toBe("large");
     expect(small.renderHints.eyeSize).toBe("small");
+    expect(small.renderHints.lipFullness).toBe("thin");
+    expect(compactFullLips.renderHints.mouthShape).toBe("small");
+    expect(compactFullLips.renderHints.lipFullness).toBe("full");
   });
 
   it("preserves muted portrait colours instead of collapsing them to vivid fallback swatches", async () => {

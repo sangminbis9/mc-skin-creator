@@ -3101,6 +3101,11 @@ describe("packFrontViewToAtlas", () => {
       ...baseStyle,
       mouthShape: "full",
     })!.atlas;
+    const compactFull = packFrontViewToAtlas(makeFrontView(), {
+      ...baseStyle,
+      mouthShape: "small",
+      lipFullness: "full",
+    })!.atlas;
     const thin = packFrontViewToAtlas(makeFrontView(), {
       ...baseStyle,
       mouthShape: "thin",
@@ -3113,6 +3118,11 @@ describe("packFrontViewToAtlas", () => {
       greenAt(thin, face, 3, 6),
     );
     expect(redAt(thin, face, 2, 6)).toBe(redAt(small, face, 2, 6));
+    expect(redAt(compactFull, face, 2, 6)).toBe(redAt(small, face, 2, 6));
+    expect(redAt(compactFull, face, 5, 6)).toBe(redAt(small, face, 5, 6));
+    expect(redAt(compactFull, face, 3, 6)).toBeGreaterThan(
+      redAt(small, face, 3, 6) + 20,
+    );
   });
 
   it("clean faces keep low-res landmark shadows for under-eye, philtrum, mouth corners and chin", () => {

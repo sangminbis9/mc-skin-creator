@@ -244,6 +244,7 @@ function buildFaceStyle(
     eyebrowShape: analysis.renderHints.eyebrowShape,
     noseShape: analysis.renderHints.noseShape,
     mouthShape: analysis.renderHints.mouthShape,
+    lipFullness: analysis.renderHints.lipFullness,
     jawShape: analysis.renderHints.jawShape,
     bangs: analysis.renderHints.bangs,
     bangsLength: analysis.renderHints.bangsLength,
@@ -628,6 +629,20 @@ export function normalizeAnalysisForRendering(
     /\beyes?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:small|compact|narrow)\b/.test(
       faceText,
     );
+  const explicitlyFullLips =
+    /\b(?:full|plump|pillowy|defined)(?:[-\s]+(?:soft|rosy|pink|red|coral|neutral)){0,2}[-\s]+lips?\b/.test(
+      faceText,
+    ) ||
+    /\blips?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:full|plump|pillowy)\b/.test(
+      faceText,
+    );
+  const explicitlyThinLips =
+    /\b(?:thin|fine|subtle)(?:[-\s]+(?:soft|pale|neutral)){0,2}[-\s]+lips?\b/.test(
+      faceText,
+    ) ||
+    /\blips?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:thin|fine)\b/.test(
+      faceText,
+    );
 
   const explicitCenterPart =
     /\b(center|centre|middle)[-\s]+part(?:ed|ing)?\b/.test(hairText) ||
@@ -677,6 +692,15 @@ export function normalizeAnalysisForRendering(
     renderHints.eyeSize = "large";
   } else if (explicitlySmallEyes) {
     renderHints.eyeSize = "small";
+  }
+  if (explicitlyFullLips) {
+    renderHints.lipFullness = "full";
+  } else if (explicitlyThinLips) {
+    renderHints.lipFullness = "thin";
+  } else if (renderHints.mouthShape === "full") {
+    renderHints.lipFullness = "full";
+  } else if (renderHints.mouthShape === "thin") {
+    renderHints.lipFullness = "thin";
   }
   if (explicitCurtainBangs) {
     renderHints.bangs = "curtain";

@@ -50,6 +50,7 @@ export interface FaceStyle {
   eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
   noseShape?: "small" | "straight" | "rounded" | "prominent";
   mouthShape?: "small" | "wide" | "full" | "thin";
+  lipFullness?: "thin" | "average" | "full";
   jawShape?: "rounded" | "pointed" | "square" | "soft";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
@@ -120,6 +121,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   eyebrowShape: "straight",
   noseShape: "small",
   mouthShape: "small",
+  lipFullness: "average",
   jawShape: "soft",
   bangs: "none",
   bangsLength: "none",
@@ -991,8 +993,25 @@ function composeFace(
     put(face, noseX, 3, mixRgb(noseBridge, skinColor, 0.28));
   }
 
-  const mouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
   const mouthShape = style.mouthShape ?? "small";
+  const lipFullness =
+    style.lipFullness ??
+    (mouthShape === "full"
+      ? "full"
+      : mouthShape === "thin"
+        ? "thin"
+        : "average");
+  const baseMouthColor = mixRgb(
+    shadeRgb(skinColor, 0.62),
+    [160, 74, 60],
+    0.5,
+  );
+  const mouthColor =
+    lipFullness === "full"
+      ? mixRgb(baseMouthColor, [184, 78, 78], 0.34)
+      : lipFullness === "thin"
+        ? mixRgb(baseMouthColor, skinColor, 0.24)
+        : baseMouthColor;
   const mouthDark = shadeRgb(
     mouthColor,
     style.expression === "serious" ? 0.76 : 0.88,
@@ -1010,20 +1029,26 @@ function composeFace(
       6,
       style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark,
     );
-    put(face, 3, 6, mouthColor);
-    put(face, 4, 6, mouthColor);
+    put(face, 3, 6, lipFullness === "full" ? lipFull : mouthColor);
+    put(face, 4, 6, lipFullness === "full" ? lipLight : mouthColor);
     put(
       face,
       5,
       6,
       style.expression === "smile" ? shadeRgb(mouthColor, 1.1) : mouthDark,
     );
-  } else if (mouthShape === "full") {
+  } else if (mouthShape === "full" || lipFullness === "full") {
     put(face, 3, 6, lipFull);
-    put(face, 4, 6, lipFull);
-    put(overlay, 3, 7, lipLight);
-    put(overlay, 4, 7, shadeRgb(lipFull, 0.9));
-  } else if (mouthShape === "thin" || style.expression === "serious") {
+    put(face, 4, 6, shadeRgb(lipLight, 0.94));
+    if (mouthShape === "full") {
+      put(face, 2, 6, mixRgb(lipFull, skinColor, 0.42));
+      put(face, 5, 6, mixRgb(lipFull, skinColor, 0.48));
+    }
+  } else if (
+    mouthShape === "thin" ||
+    lipFullness === "thin" ||
+    style.expression === "serious"
+  ) {
     for (const x of [3, 4]) put(face, x, 6, mouthDark);
     if (mouthShape === "thin" && style.expression === "smile") {
       put(overlay, 2, 6, mixRgb(mouthDark, skinColor, 0.35));
