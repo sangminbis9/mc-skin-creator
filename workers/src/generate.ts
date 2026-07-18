@@ -640,6 +640,16 @@ export function normalizeAnalysisForRendering(
     /\b(?:shoulder[-\s]+length|to[-\s]+the[-\s]+shoulders?|over[-\s]+the[-\s]+shoulders?|past[-\s]+the[-\s]+shoulders?)\b/.test(
       hairText,
     );
+  const explicitlyShortSideHair =
+    /\b(?:cheek|chin|jaw)[-\s]+(?:length|level)\b/.test(hairText) ||
+    /\b(?:to|at|around)\s+(?:the\s+)?(?:cheeks?|chin|jaw)\b/.test(hairText);
+  const explicitSideAsymmetry =
+    /\b(?:viewer[-\s]+)?(?:left|right)\b.{0,48}\b(?:longer|shorter|fuller|thicker|asymmetric|asymmetrical)\b/.test(
+      hairText,
+    ) ||
+    /\b(?:longer|shorter|fuller|thicker|asymmetric|asymmetrical)\b.{0,48}\b(?:viewer[-\s]+)?(?:left|right)\b/.test(
+      hairText,
+    );
 
   if (explicitCenterPart) {
     renderHints.hairPart = "center";
@@ -666,7 +676,14 @@ export function normalizeAnalysisForRendering(
   }
   if (faceFraming) {
     renderHints.sideHairShape = "face_framing";
-    if (
+    if (longHair && !explicitlyShortSideHair) {
+      // "Long hair with face-framing strands" normally continues past the
+      // jaw even when a slightly turned portrait hides one shoulder. Only
+      // retain a cheek/jaw enum when the prose explicitly describes that
+      // shorter layer; otherwise the compact enum under-represents the
+      // visible long silhouette.
+      renderHints.sideHairLength = "shoulder";
+    } else if (
       longHair &&
       (renderHints.sideHairLength === "none" ||
         renderHints.sideHairLength === "short")
@@ -676,6 +693,13 @@ export function normalizeAnalysisForRendering(
   }
   if (longHair) {
     renderHints.hairBackShape = "long";
+  }
+  if (renderHints.sideHairAsymmetry !== "none" && !explicitSideAsymmetry) {
+    // A head turn, occlusion, or an accessory on one side must not be
+    // converted into a structurally one-sided haircut. The analysis contract
+    // requires a real asymmetry to be repeated in the prose, so discard an
+    // unsupported enum hint.
+    renderHints.sideHairAsymmetry = "none";
   }
 
   return { ...analysis, renderHints };

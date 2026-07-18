@@ -147,6 +147,82 @@ describe("generateSkin", () => {
     });
   });
 
+  it("keeps long face-framing hair on both shoulders unless shorter layers are explicitly described", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "long full wavy light-brown hair with curtain bangs and a pink flower on viewer-left",
+        accessories: "large pink flower on viewer-left hair",
+      },
+      identityPrompt:
+        "A person with long full wavy light-brown hair, curtain bangs and a pink flower on viewer-left.",
+      renderHints: {
+        ...base.renderHints,
+        bangs: "curtain",
+        hairTexture: "wavy",
+        hairVolume: "full",
+        hairBackShape: "long",
+        sideHairLength: "jaw",
+        sideHairShape: "face_framing",
+        sideHairAsymmetry: "left",
+        hairAccessory: "flower",
+        hairAccessorySide: "left",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        hairstyle: "long",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.analysis?.renderHints).toMatchObject({
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+      sideHairAsymmetry: "none",
+    });
+  });
+
+  it("preserves an explicitly described jaw-length asymmetric front layer", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "long wavy hair with a jaw-length face-framing layer that is fuller on viewer-right",
+      },
+      identityPrompt:
+        "Long wavy back hair with a fuller jaw-length lock on viewer-right.",
+      renderHints: {
+        ...base.renderHints,
+        hairBackShape: "long",
+        sideHairLength: "jaw",
+        sideHairShape: "face_framing",
+        sideHairAsymmetry: "right",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        hairstyle: "long",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.analysis?.renderHints).toMatchObject({
+      hairBackShape: "long",
+      sideHairLength: "jaw",
+      sideHairShape: "face_framing",
+      sideHairAsymmetry: "right",
+    });
+  });
+
   it("recovers subtle center fringe separation without inventing a root part", async () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({
