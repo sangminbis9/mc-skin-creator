@@ -2489,6 +2489,38 @@ describe("packFrontViewToAtlas", () => {
     expect(blue.rgba[petal + 3]).toBe(255);
   });
 
+  it("hairAccessoryScale distinguishes a subtle bloom from a large flower cluster", () => {
+    const makeFlower = (
+      hairAccessoryScale: "small" | "medium" | "large",
+    ) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        hairVolume: "full",
+        hairAccessory: "flower",
+        hairAccessoryScale,
+        hairAccessorySide: "left",
+        hairAccessoryColor: "pink",
+      })!.atlas;
+    const small = makeFlower("small");
+    const medium = makeFlower("medium");
+    const large = makeFlower("large");
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const mediumLeaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
+    const largeCrownPetal = (front.y * ATLAS_SIZE + front.x + 2) * 4;
+
+    expect(medium.rgba[mediumLeaf + 1]).toBeGreaterThan(
+      small.rgba[mediumLeaf + 1] + 25,
+    );
+    expect(medium.rgba[mediumLeaf + 1]).toBeGreaterThan(
+      medium.rgba[mediumLeaf],
+    );
+    expect(large.rgba[largeCrownPetal + 1]).toBeGreaterThan(
+      medium.rgba[largeCrownPetal + 1] + 50,
+    );
+    expect(large.rgba[largeCrownPetal + 3]).toBe(255);
+  });
+
   it("hairAccessorySide=right이면 꽃 장식을 반대쪽 head overlay 면으로 옮긴다", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

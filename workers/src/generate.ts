@@ -265,6 +265,7 @@ function buildFaceStyle(
     outerGarment: analysis.renderHints.outerGarment,
     necklace: analysis.renderHints.necklace,
     hairAccessory: analysis.renderHints.hairAccessory,
+    hairAccessoryScale: analysis.renderHints.hairAccessoryScale,
     hairAccessorySide: analysis.renderHints.hairAccessorySide,
     hairAccessoryColor: analysis.renderHints.hairAccessoryColor,
     neckAccessory: analysis.renderHints.neckAccessory,
@@ -615,6 +616,18 @@ export function normalizeAnalysisForRendering(
     analysis.inferred.hairBack?.value,
     analysis.inferred.hairBack?.rationale,
   ]);
+  const explicitlyLargeHairAccessory =
+    /\b(?:large|big|oversized|prominent|statement)\b.{0,36}\b(?:flower|flowers|floral|bow|ribbon|accessory)\b/.test(
+      hairText,
+    ) ||
+    /\b(?:flower|floral)[-\s]+(?:cluster|arrangement|bouquet|crown)\b/.test(
+      hairText,
+    ) ||
+    /\b(?:multiple|several|two|three)\b.{0,24}\bflowers?\b/.test(hairText);
+  const explicitlySmallHairAccessory =
+    /\b(?:small|tiny|delicate|subtle|miniature)\b.{0,28}\b(?:flower|bow|ribbon|clip|barrette|hairpin|accessory)\b/.test(
+      hairText,
+    );
   const explicitlyLargeEyes =
     /\b(?:large|big|prominent)(?:[-\s]+(?:slightly|open|bright|dark|light|brown|black|blue|green|gray|grey|hazel|almond|round|upturned|downturned)){0,4}[-\s]+eyes?\b/.test(
       faceText,
@@ -701,6 +714,13 @@ export function normalizeAnalysisForRendering(
     renderHints.lipFullness = "full";
   } else if (renderHints.mouthShape === "thin") {
     renderHints.lipFullness = "thin";
+  }
+  if (renderHints.hairAccessory !== "none") {
+    if (explicitlyLargeHairAccessory) {
+      renderHints.hairAccessoryScale = "large";
+    } else if (explicitlySmallHairAccessory) {
+      renderHints.hairAccessoryScale = "small";
+    }
   }
   if (explicitCurtainBangs) {
     renderHints.bangs = "curtain";

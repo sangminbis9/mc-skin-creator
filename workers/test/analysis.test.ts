@@ -193,6 +193,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("earExposure");
     expect(ANALYSIS_PROMPT).toContain("keep left/right profiles coherent");
     expect(ANALYSIS_PROMPT).toContain("hairAccessoryColor");
+    expect(ANALYSIS_PROMPT).toContain("hairAccessoryScale");
+    expect(ANALYSIS_PROMPT).toContain("multiple-flower cluster");
     expect(ANALYSIS_PROMPT).toContain("dominant petal color");
   });
 

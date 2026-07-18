@@ -73,6 +73,7 @@ export interface FaceStyle {
   outerGarment?: "none" | "cardigan" | "open_jacket" | "coat" | "vest";
   necklace?: "none" | "silver" | "gold" | "dark";
   hairAccessory?: "none" | "flower" | "bow" | "ribbon" | "clip";
+  hairAccessoryScale?: "small" | "medium" | "large";
   hairAccessorySide?: "left" | "right" | "center";
   hairAccessoryColor?:
     | "black"
@@ -142,6 +143,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   outerGarment: "none",
   necklace: "none",
   hairAccessory: "none",
+  hairAccessoryScale: "medium",
   hairAccessorySide: "left",
   hairAccessoryColor: "pink",
   neckAccessory: "none",
@@ -3401,6 +3403,12 @@ function composeHair(
       putColor(rect, cx, cy + 1, flowerShade);
       putColor(rect, cx, cy, flowerCenter);
     };
+    const drawMiniFlower = (rect: Rect, cx: number, cy: number) => {
+      putColor(rect, cx, cy, flowerCenter);
+      putColor(rect, cx - 1, cy, flowerPetal);
+      putColor(rect, cx + 1, cy, flowerShade);
+      putColor(rect, cx, cy - 1, flowerLight);
+    };
     const drawRibbon = (rect: Rect, cx: number, cy: number) => {
       putColor(rect, cx - 1, cy, ribbon);
       putColor(rect, cx + 1, cy, ribbon);
@@ -3409,6 +3417,7 @@ function composeHair(
       putColor(rect, cx + 2, cy - 1, shadeRgb(ribbon, 0.92));
     };
     const accessorySide = style.hairAccessorySide ?? "left";
+    const accessoryScale = style.hairAccessoryScale ?? "medium";
     const mirrorAccessory = accessorySide === "right";
     const sideFace = mirrorAccessory ? over.left : over.right;
     const mx = (x: number) => (mirrorAccessory ? 7 - x : x);
@@ -3425,6 +3434,10 @@ function composeHair(
       drawFlower(over.front, mx(cx), cy);
     const drawSideFlower = (cx: number, cy: number) =>
       drawFlower(sideFace, sx(cx), cy);
+    const drawFrontMiniFlower = (cx: number, cy: number) =>
+      drawMiniFlower(over.front, mx(cx), cy);
+    const drawSideMiniFlower = (cx: number, cy: number) =>
+      drawMiniFlower(sideFace, sx(cx), cy);
     const drawTopFlower = (cx: number, cy: number) =>
       drawFlower(over.top, mx(cx), cy);
     const drawFrontRibbon = (cx: number, cy: number) =>
@@ -3434,35 +3447,58 @@ function composeHair(
 
     if (accessory === "flower") {
       if (accessorySide === "center") {
-        drawFlower(over.front, 3, 2);
-        drawFlower(over.top, 3, 5);
-        putColor(over.front, 2, 3, leaf);
-        putColor(over.front, 4, 3, leafDark);
-        putColor(over.top, 2, 6, flowerLight);
-        putColor(over.top, 4, 6, flowerShade);
+        if (accessoryScale === "small") {
+          drawMiniFlower(over.front, 3, 2);
+          putColor(over.top, 3, 5, leaf);
+        } else {
+          drawFlower(over.front, 3, 2);
+          drawFlower(over.top, 3, 5);
+          putColor(over.front, 2, 3, leaf);
+          putColor(over.front, 4, 3, leafDark);
+          putColor(over.top, 2, 6, flowerLight);
+          putColor(over.top, 4, 6, flowerShade);
+          if (accessoryScale === "large") {
+            putColor(over.front, 5, 2, flowerPetal);
+            putColor(over.front, 5, 3, flowerCenter);
+            putColor(over.top, 5, 5, flowerLight);
+          }
+        }
       } else {
-        drawFrontFlower(1, 2);
-        putFrontAccessory(2, 2, flowerLight);
-        putFrontAccessory(2, 3, flowerShade);
-        putFrontAccessory(2, 1, leaf);
-        putFrontAccessory(1, 4, leafDark);
-        // Keep the profile readable. A previous three-flower side cluster
-        // occupied most of the 8x8 face in exact side views and made the
-        // accessory look like a mask. One seam-connected bloom plus a few
-        // leaves is enough to create second-layer volume.
-        drawSideFlower(6, 2);
-        putSideAccessory(5, 1, leaf);
-        putSideAccessory(4, 1, leafDark);
-        putSideAccessory(5, 4, leaf);
-        drawTopFlower(2, 5);
-        putTopAccessory(1, 4, leaf);
-        putTopAccessory(2, 6, leaf);
-        putTopAccessory(3, 6, leaf);
-        putTopAccessory(2, 7, flowerShade);
-        putTopAccessory(3, 4, flowerLight);
-        putBackAccessory(0, 3, flowerPetal);
-        putBackAccessory(1, 3, leaf);
-        putBackAccessory(0, 4, leafDark);
+        if (accessoryScale === "small") {
+          drawFrontMiniFlower(1, 2);
+          drawSideMiniFlower(6, 2);
+          putTopAccessory(2, 5, leaf);
+        } else {
+          drawFrontFlower(1, 2);
+          putFrontAccessory(2, 2, flowerLight);
+          putFrontAccessory(2, 3, flowerShade);
+          putFrontAccessory(2, 1, leaf);
+          putFrontAccessory(1, 4, leafDark);
+          // Keep the profile readable. A previous three-flower side cluster
+          // occupied most of the 8x8 face in exact side views and made the
+          // accessory look like a mask. One seam-connected bloom plus a few
+          // leaves is enough to create second-layer volume.
+          drawSideFlower(6, 2);
+          putSideAccessory(5, 1, leaf);
+          putSideAccessory(4, 1, leafDark);
+          putSideAccessory(5, 4, leaf);
+          drawTopFlower(2, 5);
+          putTopAccessory(1, 4, leaf);
+          putTopAccessory(2, 6, leaf);
+          putTopAccessory(3, 6, leaf);
+          putTopAccessory(2, 7, flowerShade);
+          putTopAccessory(3, 4, flowerLight);
+          putBackAccessory(0, 3, flowerPetal);
+          putBackAccessory(1, 3, leaf);
+          putBackAccessory(0, 4, leafDark);
+          if (accessoryScale === "large") {
+            putFrontAccessory(2, 0, flowerPetal);
+            putFrontAccessory(3, 0, flowerLight);
+            putFrontAccessory(3, 1, flowerCenter);
+            putTopAccessory(3, 3, flowerPetal);
+            putTopAccessory(4, 3, leaf);
+          }
+        }
       }
     } else if (accessory === "bow" || accessory === "ribbon") {
       if (accessorySide === "center") {

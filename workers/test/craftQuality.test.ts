@@ -29,6 +29,7 @@ describe("handcrafted atlas quality metrics", () => {
       sideHairLength: "shoulder",
       sideHairShape: "face_framing",
       hairAccessory: "flower",
+      hairAccessoryScale: "large",
       hairAccessorySide: "left",
       hairAccessoryColor: "pink",
       topType: "sweater",

@@ -199,6 +199,9 @@ describe("hair accessory recovery", () => {
     const leaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
 
     expect(result.status).toBe(200);
+    expect(result.body.analysis?.renderHints).toMatchObject({
+      hairAccessoryScale: "large",
+    });
     expect(decoded.rgba[petal]).toBeGreaterThan(decoded.rgba[petal + 1]);
     expect(decoded.rgba[leaf + 1]).toBeGreaterThan(decoded.rgba[leaf]);
   });

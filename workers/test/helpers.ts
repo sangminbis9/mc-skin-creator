@@ -70,6 +70,7 @@ export function makeAnalysis(
       outerGarment: "none",
       necklace: "none",
       hairAccessory: "none",
+      hairAccessoryScale: "medium",
       hairAccessorySide: "left",
       hairAccessoryColor: "pink",
       neckAccessory: "none",
