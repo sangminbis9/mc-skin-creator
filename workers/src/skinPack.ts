@@ -397,12 +397,30 @@ function fillRectSolid(
  * side-only lock or fold. Horizontal faces only inherit from their vertical
  * source: a broad crown or sole must never leak into an open face silhouette.
  */
-function reconcileOverlaySeams(atlas: RawImage): void {
+function reconcileOverlaySeams(
+  atlas: RawImage,
+  style: FaceStyle,
+  hairColor: Rgb,
+): void {
   const copyPixel = (source: PixelPoint, target: PixelPoint) => {
     const sourceIndex = (source.y * ATLAS_SIZE + source.x) * 4;
     const targetIndex = (target.y * ATLAS_SIZE + target.x) * 4;
     for (let channel = 0; channel < 4; channel++) {
       atlas.rgba[targetIndex + channel] = atlas.rgba[sourceIndex + channel];
+    }
+  };
+  const blendPixel = (
+    source: PixelPoint,
+    target: PixelPoint,
+    amount: number,
+  ) => {
+    const sourceIndex = (source.y * ATLAS_SIZE + source.x) * 4;
+    const targetIndex = (target.y * ATLAS_SIZE + target.x) * 4;
+    for (let channel = 0; channel < 3; channel++) {
+      atlas.rgba[targetIndex + channel] = Math.round(
+        atlas.rgba[targetIndex + channel] * (1 - amount) +
+          atlas.rgba[sourceIndex + channel] * amount,
+      );
     }
   };
 
@@ -421,15 +439,70 @@ function reconcileOverlaySeams(atlas: RawImage): void {
         }
       }
     }
-    for (const seam of seams.horizontal) {
+    for (let seamIndex = 0; seamIndex < seams.horizontal.length; seamIndex++) {
+      const seam = seams.horizontal[seamIndex];
       for (let index = 0; index < seam.primary.length; index++) {
         const primary = seam.primary[index];
         const adjacent = seam.adjacent[index];
         const primaryIndex = (primary.y * ATLAS_SIZE + primary.x) * 4;
         const adjacentIndex = (adjacent.y * ATLAS_SIZE + adjacent.x) * 4;
+        if (atlas.rgba[primaryIndex + 3] === 0) {
+          continue;
+        }
+        if (atlas.rgba[adjacentIndex + 3] !== 0) {
+          const preservesAuthoredSole =
+            seamIndex >= 4 && (part === "rightLeg" || part === "leftLeg");
+          if (!preservesAuthoredSole) blendPixel(primary, adjacent, 0.35);
+          continue;
+        }
+        const hairDistance =
+          Math.abs(atlas.rgba[primaryIndex] - hairColor[0]) +
+          Math.abs(atlas.rgba[primaryIndex + 1] - hairColor[1]) +
+          Math.abs(atlas.rgba[primaryIndex + 2] - hairColor[2]);
+        const topSeam = seamIndex < 4;
+        const bottomSeam = !topSeam;
+        const longHair =
+          style.hairstyle === "long" ||
+          style.hairBackShape === "long" ||
+          style.sideHairLength === "shoulder";
+        const continuesHair =
+          topSeam &&
+          longHair &&
+          hairDistance <= 120 &&
+          (part === "head" ||
+            part === "body" ||
+            part === "rightArm" ||
+            part === "leftArm");
+        const styledHair = !["none", "bald", "buzz"].includes(
+          style.hairstyle ?? "none",
+        );
+        const continuesCrown =
+          topSeam && part === "head" && styledHair && hairDistance <= 120;
+        const layeredGarment =
+          (style.outerLayer ?? "none") !== "none" ||
+          (style.outerGarment ?? "none") !== "none" ||
+          ["sweater", "hoodie", "jacket"].includes(style.topType ?? "tshirt");
+        const continuesShoulder =
+          topSeam &&
+          layeredGarment &&
+          (part === "body" || part === "rightArm" || part === "leftArm");
+        const continuesLowerBody =
+          topSeam && (part === "rightLeg" || part === "leftLeg");
+        const continuesCuff =
+          bottomSeam &&
+          (part === "rightArm" || part === "leftArm") &&
+          ((style.outerGarment ?? "none") !== "none" ||
+            style.sleeveLength === "long");
+        const continuesSole =
+          bottomSeam && (part === "rightLeg" || part === "leftLeg");
+
         if (
-          atlas.rgba[primaryIndex + 3] !== 0 &&
-          atlas.rgba[adjacentIndex + 3] === 0
+          continuesHair ||
+          continuesCrown ||
+          continuesShoulder ||
+          continuesLowerBody ||
+          continuesCuff ||
+          continuesSole
         ) {
           copyPixel(primary, adjacent);
         }
@@ -3754,6 +3827,10 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   }
 
   if (outerGarment !== "none") {
+    const shoulderHairLayer =
+      style.hairstyle === "long" ||
+      style.hairBackShape === "long" ||
+      style.sideHairLength === "shoulder";
     const sideSample = mixRgb(
       sample(baseFront, 1, 5),
       sample(baseFront, 6, 5),
@@ -3791,10 +3868,27 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                 : opening
                   ? 0.78
                   : 0.98;
-        put(front, x, y, shadeRgb(panelColor, shade));
+        const panelTone = shadeRgb(panelColor, shade);
+        // The base cube carries the continuous cardigan fabric. The enlarged
+        // cube keeps the opening trim and intermittent edge clusters, avoiding
+        // four uninterrupted raised columns that read as a rigid breastplate.
+        put(baseFront, x, y, shadeRgb(panelTone, 0.98));
+        const reservedForShoulderHair = shoulderHairLayer && y < 7;
+        if (
+          !reservedForShoulderHair &&
+          (x === 2 ||
+            x === 5 ||
+            y === 0 ||
+            y === front.h - 1 ||
+            ((x === 0 || x === 7) && y % 2 === 0))
+        ) {
+          put(front, x, y, panelTone);
+        }
       }
-      put(front, 2, y, y % 3 === 0 ? trimColor : shadeRgb(trimColor, 1.08));
-      put(front, 5, y, y % 3 === 0 ? shadeRgb(trimColor, 0.86) : trimColor);
+      if (!shoulderHairLayer || y >= 7) {
+        put(front, 2, y, y % 3 === 0 ? trimColor : shadeRgb(trimColor, 1.08));
+        put(front, 5, y, y % 3 === 0 ? shadeRgb(trimColor, 0.86) : trimColor);
+      }
     }
     for (const x of [0, 1, 2, 5, 6, 7] as const) {
       put(front, x, front.h - 1, hemPanel);
@@ -3873,18 +3967,24 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
 
     for (let x = 0; x < back.w; x++) {
-      put(
-        back,
-        x,
-        0,
-        shadeRgb(panelColor, x === 0 || x === back.w - 1 ? 0.82 : 1.02),
-      );
+      if (!shoulderHairLayer) {
+        put(
+          back,
+          x,
+          0,
+          shadeRgb(panelColor, x === 0 || x === back.w - 1 ? 0.82 : 1.02),
+        );
+      }
       put(back, x, back.h - 1, hemPanel);
     }
     for (let y = 1; y < back.h - 1; y++) {
-      put(back, 0, y, shadeRgb(panelColor, 0.82));
-      if (y % 2 === 0) put(back, back.w - 1, y, shadeRgb(panelColor, 0.9));
+      const reservedForShoulderHair = shoulderHairLayer && y < 8;
+      if (!reservedForShoulderHair) {
+        put(back, 0, y, shadeRgb(panelColor, 0.82));
+        if (y % 2 === 0) put(back, back.w - 1, y, shadeRgb(panelColor, 0.9));
+      }
       if (
+        !reservedForShoulderHair &&
         (outerGarment === "cardigan" || outerGarment === "coat") &&
         y % 3 === 1
       ) {
@@ -3894,13 +3994,17 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
     for (const rect of [body.overlay.right, body.overlay.left]) {
       for (let x = 0; x < rect.w; x++) {
-        put(rect, x, 0, litPanel);
+        if (!shoulderHairLayer) put(rect, x, 0, litPanel);
         put(rect, x, rect.h - 1, hemPanel);
       }
       for (let y = 1; y < rect.h - 1; y++) {
-        put(rect, 0, y, shadeRgb(panelColor, 0.82));
-        if (y % 2 === 0) put(rect, rect.w - 1, y, shadeRgb(panelColor, 0.92));
+        const reservedForShoulderHair = shoulderHairLayer && y < 8;
+        if (!reservedForShoulderHair) {
+          put(rect, 0, y, shadeRgb(panelColor, 0.82));
+          if (y % 2 === 0) put(rect, rect.w - 1, y, shadeRgb(panelColor, 0.92));
+        }
         if (
+          !reservedForShoulderHair &&
           (outerGarment === "cardigan" || outerGarment === "coat") &&
           y >= rect.h - 4
         ) {
@@ -3925,6 +4029,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         put(rect, 0, rect.h - 2, sidePocketShadow);
         put(rect, rect.w - 1, rect.h - 2, shadeRgb(sidePocketLight, 0.78));
         for (let y = 1; y < rect.h - 2; y += 2) {
+          if (shoulderHairLayer && y < 7) continue;
           put(rect, 0, y, sideYarnShadow);
           put(rect, rect.w - 1, y, shadeRgb(sideYarnLight, 0.9));
         }
@@ -3940,11 +4045,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           const shoulderXs = broadFace
             ? [0, dst.w - 1]
             : [part === "rightArm" ? 0 : dst.w - 1];
+          const seamX = part === "rightArm" ? 0 : dst.w - 1;
           for (const x of shoulderXs)
             put(dst, x, 0, shadeRgb(panelColor, 1.06));
-          for (let x = 0; x < dst.w; x++)
-            put(dst, x, dst.h - 1, shadeRgb(panelColor, 0.72));
-          const seamX = part === "rightArm" ? 0 : dst.w - 1;
+          for (let x = 0; x < dst.w; x++) {
+            if (broadFace || x === 0 || x === dst.w - 1) {
+              put(dst, x, dst.h - 1, shadeRgb(panelColor, 0.72));
+            }
+          }
           for (let y = 1; y < dst.h - 1; y += 2) {
             put(dst, seamX, y, shadeRgb(panelColor, 0.84));
           }
@@ -4190,8 +4298,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
 
   // 긴 소매의 커프는 팔 overlay로 분리해 몸통과 팔의 입체 경계를 만든다.
   if (
-    style.sleeveLength === "long" ||
-    ["sweater", "hoodie", "jacket"].includes(topType)
+    outerGarment === "none" &&
+    (style.sleeveLength === "long" ||
+      ["sweater", "hoodie", "jacket"].includes(topType))
   ) {
     for (const part of ["rightArm", "leftArm"] as const) {
       const arm = CLASSIC_LAYOUT[part];
@@ -4354,11 +4463,18 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           }
           put(baseRect, x, y, shadeRgb(color, 0.98));
           const raised =
-            y === rect.h - 1 ||
+            (y === rect.h - 1 &&
+              (x === 0 ||
+                x === rect.w - 1 ||
+                x % 2 === 0 ||
+                x === Math.floor(rect.w / 2) - 1 ||
+                x === Math.floor(rect.w / 2))) ||
             x === 0 ||
             x === rect.w - 1 ||
             (bottomPattern === "plaid" &&
-              (x === 1 || x === 5 || localY === 1)) ||
+              (x === 1 ||
+                x === 5 ||
+                (localY === 1 && (x <= 2 || x === rect.w - 2)))) ||
             (bottomPattern === "pleated" && x % 3 === 1);
           if (raised) put(rect, x, y, color);
         }
@@ -4407,11 +4523,16 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           }
           put(baseRect, x, y, shadeRgb(color, 0.98));
           const raised =
-            y === rect.h - 1 ||
+            (y === rect.h - 1 &&
+              (x === 0 ||
+                x === rect.w - 1 ||
+                x % 2 === 0 ||
+                x === Math.floor(rect.w / 2) - 1 ||
+                x === Math.floor(rect.w / 2))) ||
             x === 0 ||
             x === rect.w - 1 ||
             (bottomPattern === "plaid" &&
-              (x === 1 || x === rect.w - 2 || localY === 1)) ||
+              (x === 1 || x === rect.w - 2 || (localY === 1 && x <= 1))) ||
             (bottomPattern === "pleated" && centerPleat);
           if (raised) put(rect, x, y, color);
         }
@@ -4479,7 +4600,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         for (let x = 0; x < rect.w; x++) {
           const thread =
             x % 2 === 0 ? plaidThread : shadeRgb(plaidThread, 0.82);
-          put(rect, x, midY, x === 1 || x === rect.w - 2 ? plaidCross : thread);
+          if (x <= 2 || x >= rect.w - 2 || (rect.w <= 4 && x === rect.w - 2)) {
+            put(
+              rect,
+              x,
+              midY,
+              x === 1 || x === rect.w - 2 ? plaidCross : thread,
+            );
+          }
           if (x % 3 === 0) put(rect, x, lowY, shadeRgb(plaidThread, 0.9));
         }
         for (const x of [1, Math.max(1, rect.w - 2)] as const) {
@@ -5972,7 +6100,7 @@ export function packFrontViewToAtlas(
   composeHair(atlas, hairColor, skinColor, faceStyle, back !== null);
   preserveFaceReadability(atlas, faceStyle);
   composeHat(atlas, hatColor, faceStyle);
-  reconcileOverlaySeams(atlas);
+  reconcileOverlaySeams(atlas, faceStyle, hairColor);
   applyShading(atlas);
 
   return {

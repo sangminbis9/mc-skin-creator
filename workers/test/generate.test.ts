@@ -612,7 +612,7 @@ describe("generateSkin", () => {
           accessories:
             "pink flower on viewer-left hair and a white ribbon on viewer-right thigh",
           clothing:
-            "dusty-pink long cardigan, beige plaid pleated shorts, one viewer-left thigh-high sock and cream Mary Jane shoes",
+            "dusty-pink long cardigan, beige plaid pleated shorts. On viewer-left: one cream thigh-high sock. On viewer-right: no thigh-high sock, bare leg with a white ribbon. Cream Mary Jane shoes.",
           colorPalette: ["dusty pink", "beige", "cream", "light brown"],
         },
         renderHints: {
@@ -675,6 +675,7 @@ describe("generateSkin", () => {
     const plaidDark = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 1) * 4;
     const plaidLight = (rightLeg.y * ATLAS_SIZE + rightLeg.x + 2) * 4;
     const leftThighHigh = ((leftLeg.y + 4) * ATLAS_SIZE + leftLeg.x + 1) * 4;
+    const rightBare = ((rightLeg.y + 5) * ATLAS_SIZE + rightLeg.x + 3) * 4;
 
     expect(provider.calls).toBe(1);
     expect(result.body.generationMode).toBe("procedural_fallback");
@@ -688,6 +689,7 @@ describe("generateSkin", () => {
     expect(decoded.rgba[plaidDark + 3]).toBe(255);
     expect(decoded.rgba[plaidDark]).toBeLessThan(decoded.rgba[plaidLight]);
     expect(decoded.rgba[leftThighHigh + 3]).toBe(255);
+    expect(decoded.rgba[rightBare + 3]).toBe(0);
   });
 
   it("upper-body knit portraits keep a pendant and receive structured pants and dress shoes", async () => {

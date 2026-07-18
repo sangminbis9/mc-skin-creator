@@ -1119,7 +1119,7 @@ function completeVisibleLowerDetails(
     style.legwear = "socks";
   }
 
-  const legwearSideText = relevantClauses(
+  const legwearSideClauses = relevantClauseList(
     [
       analysis.observed.clothing,
       analysis.outfitPrompt,
@@ -1127,6 +1127,14 @@ function completeVisibleLowerDetails(
     ],
     /\b(leg warmer|leg warmers|knee[- ]?high|over[- ]?knee|otk|thigh[- ]?high|stocking|stockings|tights|sock|socks)\b/,
   );
+  const legwearSideText = legwearSideClauses
+    .filter(
+      (clause) =>
+        !/\b(?:no|without|bare|uncovered)\b[\s\S]{0,40}\b(?:leg warmer|leg warmers|knee[- ]?high|over[- ]?knee|otk|thigh[- ]?high|stocking|stockings|tights|sock|socks)\b/.test(
+          clause,
+        ),
+    )
+    .join(" ");
   if ((style.legwear ?? "none") !== "none" && legwearSideText) {
     const leftMention = /\b(viewer(?:'s)?[- ]left|left)\b/.test(
       legwearSideText,
@@ -1340,12 +1348,18 @@ function relevantClauses(
   values: Array<string | null | undefined>,
   relevant: RegExp,
 ): string {
+  return relevantClauseList(values, relevant).join(" ");
+}
+
+function relevantClauseList(
+  values: Array<string | null | undefined>,
+  relevant: RegExp,
+): string[] {
   return values
     .filter((value): value is string => typeof value === "string")
     .flatMap((value) => value.toLowerCase().split(/[.!?;,\n]+/))
     .map((clause) => clause.trim())
-    .filter((clause) => clause.length > 0 && relevant.test(clause))
-    .join(" ");
+    .filter((clause) => clause.length > 0 && relevant.test(clause));
 }
 
 export function fallbackFeaturesToHex(
