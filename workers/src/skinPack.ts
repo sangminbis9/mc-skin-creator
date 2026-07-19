@@ -1789,7 +1789,42 @@ function composeHair(
     }
   }
   // 뒷머리: 뒷면 뷰 렌더가 있으면 실제 렌더 유지
-  if (!hasBackView) {
+  // A generated rear view is useful for luminance variation, but image
+  // models can shift the same person's hair hue between views. Long hair
+  // covers the whole rear head, so keep only the sampled light/dark pattern
+  // while anchoring every pixel to the analysed hair colour.
+  const fullRearHair =
+    s === "long" ||
+    s === "twintails" ||
+    s === "afro" ||
+    style.hairBackShape === "long";
+  if (hasBackView && fullRearHair) {
+    for (let y = 0; y < backRows; y++) {
+      for (let x = 0; x < base.back.w; x++) {
+        const offset = ((base.back.y + y) * ATLAS_SIZE + base.back.x + x) * 4;
+        const sampled: Rgb = [
+          atlas.rgba[offset],
+          atlas.rgba[offset + 1],
+          atlas.rgba[offset + 2],
+        ];
+        const sampledLuminance =
+          sampled[0] * 0.299 + sampled[1] * 0.587 + sampled[2] * 0.114;
+        const luminanceShade = Math.max(
+          0.62,
+          Math.min(1.12, sampledLuminance / 145),
+        );
+        putColor(
+          base.back,
+          x,
+          y,
+          shadeRgb(
+            hairPixel(hairColor, base.back.x + x, base.back.y + y, jitter),
+            luminanceShade,
+          ),
+        );
+      }
+    }
+  } else if (!hasBackView) {
     if (roundedFringeCut && backRows > 1) {
       fill(base.back, 0, 0, 8, backRows - 1);
       fill(base.back, 2, backRows - 1, 4, 1);

@@ -211,6 +211,10 @@ describe("validatePhotoAnalysis", () => {
     );
     expect(ANALYSIS_PROMPT).toContain("overallHairLength");
     expect(ANALYSIS_PROMPT).toContain("chest-, waist- or hip-length hair");
+    expect(ANALYSIS_PROMPT).toContain("belt/natural waist");
+    expect(ANALYSIS_PROMPT).toContain(
+      "longest clearly visible, substantial continuous locks",
+    );
     expect(ANALYSIS_PROMPT).toContain("sideHairShape");
     expect(ANALYSIS_PROMPT).toContain("sideHairAsymmetry");
     expect(ANALYSIS_PROMPT).toContain(
@@ -223,6 +227,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("hairAccessoryScale");
     expect(ANALYSIS_PROMPT).toContain("multiple-flower cluster");
     expect(ANALYSIS_PROMPT).toContain("dominant petal color");
+    expect(ANALYSIS_PROMPT).toContain("paired loops or broad pointed tails");
+    expect(ANALYSIS_PROMPT).toContain("prominent white neck bow");
   });
 
   it("유효한 분석은 통과한다", () => {

@@ -654,6 +654,9 @@ export function normalizeAnalysisForRendering(
     /\b(?:flower|floral)[-\s]+(?:cluster|arrangement|bouquet|crown)\b/.test(
       hairText,
     ) ||
+    /\b(?:cluster|arrangement|bouquet|crown)\b.{0,40}\b(?:flowers?|blooms?|floral)\b/.test(
+      hairText,
+    ) ||
     /\b(?:multiple|several|two|three)\b.{0,24}\bflowers?\b/.test(hairText);
   const explicitlySmallHairAccessory =
     /\b(?:small|tiny|delicate|subtle|miniature)\b.{0,28}\b(?:flower|bow|ribbon|clip|barrette|hairpin|accessory)\b/.test(
@@ -671,6 +674,14 @@ export function normalizeAnalysisForRendering(
       faceText,
     ) ||
     /\beyes?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:small|compact|narrow)\b/.test(
+      faceText,
+    );
+  const explicitlyDownturnedEyes =
+    /\b(?:slightly[-\s]+)?downturned(?:[-\s]+[a-z]+){0,3}[-\s]+eyes?\b|\beyes?\b.{0,42}\b(?:downturn|downturned|downward[-\s]+tilt)\b|\b(?:downturn|lower|drop)\b.{0,24}\bouter[-\s]+corners?\b/.test(
+      faceText,
+    );
+  const explicitlyUpturnedEyes =
+    /\b(?:slightly[-\s]+)?upturned(?:[-\s]+[a-z]+){0,3}[-\s]+eyes?\b|\beyes?\b.{0,42}\b(?:upturn|upturned|upward[-\s]+tilt)\b|\b(?:upturn|raise|lift)\b.{0,24}\bouter[-\s]+corners?\b/.test(
       faceText,
     );
   const explicitlyFullLips =
@@ -767,6 +778,11 @@ export function normalizeAnalysisForRendering(
     renderHints.eyeSize = "large";
   } else if (explicitlySmallEyes) {
     renderHints.eyeSize = "small";
+  }
+  if (explicitlyDownturnedEyes) {
+    renderHints.eyeTilt = "downturned";
+  } else if (explicitlyUpturnedEyes) {
+    renderHints.eyeTilt = "upturned";
   }
   if (explicitlyFullLips) {
     renderHints.lipFullness = "full";

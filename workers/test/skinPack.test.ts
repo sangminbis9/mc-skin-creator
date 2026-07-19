@@ -1424,6 +1424,27 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("anchors a generated long-hair back view to the analysed hair hue", () => {
+    const atlas = packFrontViewToAtlas(
+      makeFourViewSheet(),
+      {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        hairColor: "#765b57",
+        hairBackShape: "long",
+        overallHairLength: "waist",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+      },
+      4,
+    )!.atlas;
+    const [red, green, blue] = avgOfRect(atlas, CLASSIC_LAYOUT.head.base.back);
+
+    expect(red - blue).toBeGreaterThan(15);
+    expect(Math.abs(green - blue)).toBeLessThan(18);
+    expect(red).toBeGreaterThan(green);
+  });
+
   it("long inferred back hair continues onto torso overlay even when side hair is jaw length", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

@@ -95,6 +95,32 @@ describe("generateSkin", () => {
     expect(compactFullLips.renderHints.lipFullness).toBe("full");
   });
 
+  it("recovers a slight eye-corner downturn and a described flower cluster from prose", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face: "Large brown eyes with level eye tilt and a slight downturn at the outer corners.",
+          hair: "Long wavy brown hair with a cluster of pale pink artificial flowers and green leaves on viewer-left.",
+          accessories:
+            "Viewer-left cluster of pale pink flowers with green leaves in the hair.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          eyeSize: "large",
+          eyeTilt: "level",
+          hairAccessory: "flower",
+          hairAccessoryScale: "medium",
+          hairAccessorySide: "left",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.eyeTilt).toBe("downturned");
+    expect(normalized.renderHints.hairAccessoryScale).toBe("large");
+  });
+
   it("preserves chest, waist and hip hair endpoints instead of collapsing all long hair to shoulder length", () => {
     const base = makeAnalysis();
     const normalizeLength = (
