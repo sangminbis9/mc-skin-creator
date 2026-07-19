@@ -1653,6 +1653,23 @@ describe("packFrontViewToAtlas", () => {
         expect(alphaAt(atlas, side, 1, y)).toBe(0);
       }
     }
+
+    const rightFront = CLASSIC_LAYOUT.rightArm.overlay.front;
+    const leftFront = CLASSIC_LAYOUT.leftArm.overlay.front;
+    const rightOuter = rightFront.w - 1;
+
+    for (const y of [0, 1, 2]) {
+      expect(alphaAt(atlas, rightFront, rightOuter, y)).toBe(255);
+    }
+    for (const y of [3, 4, 5]) {
+      expect(alphaAt(atlas, rightFront, rightOuter, y)).toBe(0);
+    }
+    for (const y of [0, 1, 3]) {
+      expect(alphaAt(atlas, leftFront, 0, y)).toBe(255);
+    }
+    for (const y of [2, 4, 5]) {
+      expect(alphaAt(atlas, leftFront, 0, y)).toBe(0);
+    }
   });
 
   it("sideHairAsymmetry keeps the named viewer-side lock longer across head and shoulder layers", () => {
@@ -1724,7 +1741,7 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(leftLonger, body.back, 0, 6)).toBe(255);
     expect(alphaAt(leftLonger, body.back, 1, 6)).toBe(0);
     expect(alphaAt(leftLonger, rightArm.front, 0, 5)).toBe(255);
-    expect(alphaAt(leftLonger, leftArm.front, 0, 5)).toBe(0);
+    expect(alphaAt(leftLonger, leftArm.front, leftArm.front.w - 1, 5)).toBe(0);
 
     expect(alphaAt(rightLonger, body.front, 0, 6)).toBe(255);
     expect(alphaAt(rightLonger, body.front, 7, 6)).toBe(255);
@@ -1735,7 +1752,9 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(rightLonger, body.back, 7, 6)).toBe(255);
     expect(alphaAt(rightLonger, body.back, 6, 6)).toBe(0);
     expect(alphaAt(rightLonger, rightArm.front, 0, 5)).toBe(0);
-    expect(alphaAt(rightLonger, leftArm.front, 0, 5)).toBe(255);
+    expect(alphaAt(rightLonger, leftArm.front, leftArm.front.w - 1, 5)).toBe(
+      255,
+    );
 
     applyUvMask(leftLonger);
     applyUvMask(rightLonger);

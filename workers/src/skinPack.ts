@@ -2519,7 +2519,11 @@ function composeHair(
         for (let y = 0; y <= lastY; y++) {
           const shade = y >= 4 ? 0.58 : y % 2 === mirrorPhase ? 0.82 : 0.7;
           putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
-          if (y <= 3 || y % 2 === mirrorPhase) {
+          // The inner rail visually joins the torso lock. Keep the far arm
+          // column only at the shoulder plus one staggered wave step; filling
+          // half of each arm front down to the elbow hid photographed sleeves
+          // and made long hair look like a pair of dark armour panels.
+          if (y <= 1 || y === 2 + mirrorPhase) {
             putColor(
               arm.front,
               outerX,
