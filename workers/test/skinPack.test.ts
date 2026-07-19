@@ -1596,6 +1596,36 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
+  it("wavy front drapes offset one lock instead of mirroring two rigid columns", () => {
+    const makeTexture = (hairTexture: "straight" | "wavy") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        hairColor: "#765b57",
+        bangs: "curtain",
+        hairTexture,
+        hairSilhouette: hairTexture === "wavy" ? "tousled" : "rounded",
+        hairBackShape: "long",
+        overallHairLength: "waist",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+        outerLayer: "none",
+        outerGarment: "none",
+        topType: "tshirt",
+      })!.atlas;
+    const straight = makeTexture("straight");
+    const wavy = makeTexture("wavy");
+    const front = CLASSIC_LAYOUT.body.overlay.front;
+
+    expect(alphaAt(straight, front, 1, 4)).toBe(255);
+    expect(alphaAt(straight, front, 6, 4)).toBe(255);
+
+    expect(alphaAt(wavy, front, 1, 4)).toBe(255);
+    expect(alphaAt(wavy, front, 6, 4)).toBe(0);
+    expect(alphaAt(wavy, front, 7, 4)).toBe(255);
+    expect(rgbaAt(wavy, front, 1, 4)).not.toEqual(rgbaAt(wavy, front, 7, 4));
+  });
+
   it("shoulder hair drapes down arm side faces without checkerboard gaps", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -3164,6 +3194,39 @@ describe("packFrontViewToAtlas", () => {
     expect(rgbaAt(downturned, face, 1, 4)).not.toEqual(
       rgbaAt(downturned, face, 1, 5),
     );
+  });
+
+  it("large downturned almond eyes taper diagonally instead of becoming identical 2x2 blocks", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      bangs: "straight",
+      bangsLength: "brow",
+      bangsDensity: "dense",
+      fringeEdge: "staggered",
+      fringeOpening: "center",
+      eyeShape: "almond",
+      eyeSize: "large",
+      eyeSpacing: "average",
+      eyeTilt: "downturned",
+      glasses: "none",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    for (const [outer, inner] of [
+      [1, 2],
+      [6, 5],
+    ] as const) {
+      expect(redAt(atlas, face, outer, 5)).toBeLessThan(
+        redAt(atlas, face, inner, 5) - 5,
+      );
+      expect(redAt(atlas, face, inner, 4)).toBeLessThan(
+        redAt(atlas, face, inner, 5) - 20,
+      );
+      expect(alphaAt(atlas, over, outer, 5)).toBe(0);
+      expect(alphaAt(atlas, over, inner, 5)).toBe(0);
+    }
   });
 
   it("upturned eye corners stay visible through a dense brow-length outer fringe", () => {

@@ -927,16 +927,28 @@ function composeFace(
       // A single dark iris plus a skin-mixed corner is the smallest readable
       // eye at 8x8. Avoid a second row, which would make every eye look large.
     } else if (eyeSize === "large") {
-      // Large photographed eyes need a true two-row cluster. Keep the inner
-      // lower iris dark and the outer lower corner lighter so this reads as an
-      // eye opening rather than four identical square pixels.
-      put(face, inner, 5, shadeRgb(eye, 0.76));
-      put(
-        face,
-        outer,
-        5,
-        mixRgb(skinColor, eye, eyeTilt === "downturned" ? 0.26 : 0.2),
-      );
+      // Large eyes need a true two-row footprint, but a uniformly dark 2x2
+      // block turns every photographed eye into the same round square. Keep
+      // round eyes deep at the lower iris, taper almond/narrow eyes toward
+      // skin, and move the darkest lower emphasis to the outer corner for a
+      // downturned eye. This preserves both aperture size and directional
+      // identity at 8x8.
+      const lowerInner =
+        style.eyeShape === "round"
+          ? shadeRgb(eye, 0.76)
+          : mixRgb(skinColor, eye, style.eyeShape === "almond" ? 0.62 : 0.46);
+      const lowerOuterMix =
+        eyeTilt === "downturned"
+          ? style.eyeShape === "almond"
+            ? 0.72
+            : 0.58
+          : style.eyeShape === "round"
+            ? 0.22
+            : style.eyeShape === "almond"
+              ? 0.2
+              : 0.18;
+      put(face, inner, 5, lowerInner);
+      put(face, outer, 5, mixRgb(skinColor, eye, lowerOuterMix));
     } else if (style.eyeShape === "round") {
       put(face, inner, 5, shadeRgb(eye, 0.78));
       if (eyeTilt !== "downturned") {
@@ -2298,7 +2310,16 @@ function composeHair(
       );
       const torsoStrandDark = shadeRgb(hairColor, 0.52);
       const leftFrontPath = [1, 1, 0, 1, 1, 0, 0, 1, 2, 1, 2, 3] as const;
-      const rightFrontPath = [6, 6, 7, 6, 6, 7, 7, 6, 5, 6, 5, 4] as const;
+      const organicFrontDrape =
+        style.hairTexture === "wavy" ||
+        style.hairTexture === "curly" ||
+        style.hairSilhouette === "tousled";
+      // Straight hair can keep a tidy mirrored fall. Wavy/curly locks need a
+      // one-row phase offset on one side; exact mirroring made the two front
+      // locks read as rigid parallel columns even when their colours varied.
+      const rightFrontPath = organicFrontDrape
+        ? ([6, 7, 7, 6, 7, 7, 7, 6, 5, 5, 4, 4] as const)
+        : ([6, 6, 7, 6, 6, 7, 7, 6, 5, 6, 5, 4] as const);
       for (let y = 0; y < Math.min(torsoHairRows, leftFrontPath.length); y++) {
         const taperShade = y >= 10 ? 0.5 : y >= 8 ? 0.58 : y >= 6 ? 0.68 : 0.9;
         const leftX = leftFrontPath[y];
