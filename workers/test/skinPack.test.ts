@@ -860,10 +860,12 @@ describe("packFrontViewToAtlas", () => {
       expect(alphaAt(atlas, overlay, 2, y)).toBe(0);
       expect(alphaAt(atlas, overlay, 5, y)).toBe(0);
     }
-    // Preserve the extreme outer locks so the hairstyle still frames the
-    // newly opened face instead of becoming a bare square head.
-    expect(alphaAt(atlas, overlay, 0, 6)).toBe(255);
-    expect(alphaAt(atlas, overlay, 7, 6)).toBe(255);
+    // Wavy outer locks frame the cheeks but step back before the jaw corners,
+    // avoiding a full-height rectangular outline around the face.
+    expect(alphaAt(atlas, overlay, 0, 5)).toBe(255);
+    expect(alphaAt(atlas, overlay, 7, 5)).toBe(255);
+    expect(alphaAt(atlas, overlay, 0, 6)).toBe(0);
+    expect(alphaAt(atlas, overlay, 7, 6)).toBe(0);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
@@ -1842,7 +1844,7 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
-  it("long face-framing side layers taper in continuous rails instead of alternating speckles", () => {
+  it("wavy face-framing side layers taper as connected staggered locks instead of a rectangular frame", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
@@ -1896,23 +1898,33 @@ describe("packFrontViewToAtlas", () => {
       return false;
     };
 
-    for (const rect of [head.right, head.left]) {
-      // One-pixel front and rear seam rails remain connected from crown to
-      // jaw. The inner rails stop once at the temple instead of boxing the
-      // entire side face inside a two-pixel frame.
-      for (const x of [0, 7]) {
-        for (let y = 0; y < rect.h; y++) {
-          expect(alphaAt(atlas, rect, x, y)).toBe(255);
-        }
+    for (const [rect, rearSeam, frontSeam] of [
+      [head.right, 0, 7],
+      [head.left, 7, 0],
+    ] as const) {
+      // Rear volume remains connected to the long back hair. The front
+      // face-framing lock ends two rows earlier, so the enlarged layer steps
+      // back toward the base cube instead of outlining the whole 8x8 profile.
+      for (let y = 0; y < rect.h; y++) {
+        expect(alphaAt(atlas, rect, rearSeam, y)).toBe(255);
       }
-      for (const x of [1, 6]) {
-        for (let y = 0; y <= 3; y++) {
-          expect(alphaAt(atlas, rect, x, y)).toBe(255);
-        }
-        for (let y = 4; y <= 6; y++) {
-          expect(alphaAt(atlas, rect, x, y)).toBe(0);
-        }
+      for (let y = 0; y <= 5; y++) {
+        expect(alphaAt(atlas, rect, frontSeam, y)).toBe(255);
       }
+      for (let y = 6; y < rect.h; y++) {
+        expect(alphaAt(atlas, rect, frontSeam, y)).toBe(0);
+      }
+      const rearInner = rearSeam === 0 ? 1 : 6;
+      const frontInner = frontSeam === 0 ? 1 : 6;
+      for (let y = 0; y <= 6; y++) {
+        expect(alphaAt(atlas, rect, rearInner, y)).toBe(255);
+      }
+      expect(alphaAt(atlas, rect, rearInner, 7)).toBe(0);
+      for (let y = 0; y <= 5; y++) {
+        expect(alphaAt(atlas, rect, frontInner, y)).toBe(255);
+      }
+      for (let y = 6; y < rect.h; y++)
+        expect(alphaAt(atlas, rect, frontInner, y)).toBe(0);
       // Inner contour pixels may taper and flare once, but must not jump
       // between alternating rows like disconnected checkerboard strands.
       for (const x of [2, 5]) {
@@ -1951,8 +1963,8 @@ describe("packFrontViewToAtlas", () => {
         if (alphaAt(atlas, head.bottom, x, y) !== 0) bottomOuterPixels++;
       }
     }
-    expect(bottomOuterPixels).toBeGreaterThanOrEqual(6);
-    expect(bottomOuterPixels).toBeLessThanOrEqual(12);
+    expect(bottomOuterPixels).toBeGreaterThanOrEqual(4);
+    expect(bottomOuterPixels).toBeLessThanOrEqual(10);
   });
 
   const representativeHairStyles = [

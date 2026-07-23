@@ -3360,16 +3360,29 @@ function composeHair(
     ]);
     const longSideRows =
       sideHairShape === "face_framing"
-        ? [
-            [0, 1, 2, 5, 6, 7],
-            [0, 1, 2, 5, 6, 7],
-            [0, 1, 2, 5, 6, 7],
-            [0, 1, 2, 6, 7],
-            [0, 7],
-            [0, 7],
-            [0, 7],
-            [0, 7],
-          ]
+        ? style.hairTexture === "wavy" ||
+          style.hairTexture === "curly" ||
+          style.hairSilhouette === "tousled"
+          ? [
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 6, 7],
+              [0, 1, 6, 7],
+              [0, 1, 6, 7],
+              [0, 1],
+              [0],
+            ]
+          : [
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 6, 7],
+              [0, 7],
+              [0, 7],
+              [0, 7],
+              [0, 7],
+            ]
         : Array.from({ length: 8 }, (_, y) =>
             y === 0
               ? [0, 1, 2, 5, 6, 7]
@@ -3393,6 +3406,21 @@ function composeHair(
       over.left,
       longSideRows.map((row) => row.map((x) => 7 - x)),
     );
+    if (
+      sideHairShape === "face_framing" &&
+      (style.hairTexture === "wavy" ||
+        style.hairTexture === "curly" ||
+        style.hairSilhouette === "tousled")
+    ) {
+      // These two front-edge cells are the physical neighbours of the side
+      // profile tips removed above. Clear both faces together so the final UV
+      // seam synchronizer preserves a deliberate taper instead of restoring
+      // a full-height rectangular rail from the still-opaque front face.
+      for (const y of [6, 7]) {
+        clearPixel(over.front, 0, y);
+        clearPixel(over.front, 7, y);
+      }
+    }
     retainRows(over.back, [
       [0, 1, 6, 7],
       [0, 2, 5, 7],
