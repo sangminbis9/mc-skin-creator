@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ANALYSIS_PROMPT,
   extractAnalysisPayload,
+  NECK_DETAIL_PROMPT,
   PHOTO_ANALYSIS_SCHEMA,
+  runNeckDetailAnalysis,
   runPhotoAnalysis,
   validatePhotoAnalysis,
 } from "../src/analysis";
@@ -127,6 +129,63 @@ describe("runPhotoAnalysis", () => {
   });
 });
 
+describe("runNeckDetailAnalysis", () => {
+  it("classifies throat fabric from the supplied upper-body crop", async () => {
+    const run = vi.fn(async () => ({
+      response: {
+        neckAccessory: "bow",
+        confidence: "high",
+        evidence: "A central knot has two broad pointed hanging tails.",
+      },
+    }));
+    const env = makeVisionEnv(run);
+
+    const result = await runNeckDetailAnalysis(
+      env,
+      "data:image/png;base64,upper-body-crop",
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      detail: {
+        neckAccessory: "bow",
+        confidence: "high",
+        evidence: "A central knot has two broad pointed hanging tails.",
+      },
+      attempts: 1,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[1]).toMatchObject({
+      messages: [
+        {
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: "data:image/png;base64,upper-body-crop",
+              },
+            },
+            { type: "text", text: NECK_DETAIL_PROMPT },
+          ],
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "minecraft_skin_neck_detail" },
+      },
+    });
+  });
+
+  it("distinguishes a dominant bow/scarf from short collar-only flaps", () => {
+    expect(NECK_DETAIL_PROMPT).toContain("central knot");
+    expect(NECK_DETAIL_PROMPT).toContain("paired loops");
+    expect(NECK_DETAIL_PROMPT).toContain("long hanging tails");
+    expect(NECK_DETAIL_PROMPT).toContain(
+      "short paired shirt/lapel flaps",
+    );
+  });
+});
+
 describe("validatePhotoAnalysis", () => {
   it("accepts structured JSON from Workers AI native and chat-completions responses", () => {
     const analysis = makeAnalysis();
@@ -229,6 +288,23 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("dominant petal color");
     expect(ANALYSIS_PROMPT).toContain("paired loops or broad pointed tails");
     expect(ANALYSIS_PROMPT).toContain("prominent white neck bow");
+    expect(ANALYSIS_PROMPT).toContain(
+      'Use "collar" only when the visible fabric consists of paired shirt/lapel flaps',
+    );
+    expect(ANALYSIS_PROMPT).toContain(
+      "central knot with two long pointed fabric tails",
+    );
+    expect(ANALYSIS_PROMPT).toContain(
+      '"waist" reaches the lower ribs, waistband or belt line',
+    );
+    expect(
+      PHOTO_ANALYSIS_SCHEMA.properties.renderHints.properties.neckAccessory
+        .description,
+    ).toContain("central knot");
+    expect(
+      PHOTO_ANALYSIS_SCHEMA.properties.renderHints.properties.overallHairLength
+        .description,
+    ).toContain("waist reaches");
   });
 
   it("유효한 분석은 통과한다", () => {

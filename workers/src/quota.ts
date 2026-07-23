@@ -27,9 +27,15 @@ export const NEURONS_IMAGE_OUTPUT_TILE = 27;
 export const NEURONS_IMAGE_GEN_CALL =
   2 * NEURONS_IMAGE_INPUT_TILE + 2 * NEURONS_IMAGE_OUTPUT_TILE;
 
-/** quota 남은 횟수 표시용 — 분석 1회 + 이미지 생성 1회 (재시도 없는 정상 경로) */
+/**
+ * Conservative capacity shown in the app: main photo analysis + the focused
+ * upper-body detail pass used by tall full/three-quarter portraits + one
+ * image-generation call. Square/close portraits may skip the detail pass,
+ * but promising that cheaper path would overstate the remaining capacity for
+ * the most common full-body inputs.
+ */
 export const NEURONS_PER_GENERATION_ESTIMATE =
-  NEURONS_VISION_ANALYSIS + NEURONS_IMAGE_GEN_CALL;
+  2 * NEURONS_VISION_ANALYSIS + NEURONS_IMAGE_GEN_CALL;
 
 const ALMOST_THRESHOLD = 0.85;
 

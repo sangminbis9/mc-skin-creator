@@ -164,6 +164,7 @@ STEP 2 — framing: how much of the person is visible: "face" (head only), "uppe
 
 STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logos.
 - For observed.hair, explicitly describe root/scalp part visibility, fringe density and gaps, left and right temple contours, whether either ear is exposed or framed, side-hair taper/flare, the visible transition toward the nape, and the lowest substantial hair endpoint relative to the shoulders, chest/bust, natural waist or belt, and hips. Do not summarize all short hair as a bowl cut or all side hair as merely "short".
+- For every visible white or contrasting fabric at the throat, describe its construction separately from the shirt: ordinary collar flaps, a central knot, paired loops, and any broad hanging tails. Do not call the whole shape a "collar" merely because a collared shirt is underneath. A central knot with two long pointed fabric tails is a neck bow or scarf even when its loops are folded flat or partly hidden.
 - If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans; describe skorts, pleated shorts or skirt-like culottes as skirt-like for low-resolution rendering), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs/knee-high or over-knee socks), legwear asymmetry from the viewer's perspective, and shoe type/color.
 - Preserve side-specific details using viewer-left/viewer-right wording for one-sided flowers, bows, leg warmers, thigh bows, side stripes, straps or shoe details.
 - When a one-sided accessory or legwear exists, repeat the exact side in observed/inferred text and in renderHints/structured fields. Do not summarize it as simply "asymmetric".
@@ -196,7 +197,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - Classify hairSilhouette from the crown and temple OUTER CONTOUR, not from separated bang tips or individual highlight strands. Do not choose spiky merely because a straight fringe has jagged ends; spiky requires multiple clearly outward-pointing crown or temple tufts. A smooth dome over staggered bangs is rounded.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
-- overallHairLength records the lowest point reached by the longest clearly visible, substantial continuous locks (ignore only isolated flyaway hairs), not just the front fringe: cropped/scalp, ear, jaw, shoulder, chest, waist, or hip. For full-body and three-quarter photos, compare the endpoint directly with the bust, belt/natural waist and hip line before choosing. Preserve clearly visible chest-, waist- or hip-length hair instead of collapsing every long hairstyle to shoulder length. If the endpoint is hidden by the crop, infer it conservatively from visible strands and inferred.hairBack and state that inference in identityPrompt.
+- overallHairLength records the lowest point reached by the longest clearly visible, substantial continuous locks (ignore only isolated flyaway hairs), not just the front fringe: cropped/scalp, ear, jaw, shoulder, chest, waist, or hip. "chest" ends around the bust/upper torso and clearly above the natural waist; "waist" reaches the lower ribs, waistband or belt line; "hip" reaches the shorts/skirt side seam or hip line. For full-body and three-quarter photos, compare the endpoint directly with the bust, belt/natural waist and hip line before choosing. Preserve clearly visible chest-, waist- or hip-length hair instead of collapsing every long hairstyle to shoulder length. If the endpoint is hidden by the crop, infer it conservatively from visible strands and inferred.hairBack and state that inference in identityPrompt.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder.
 - sideHairShape describes the side profile around the temple and ear: tapered narrows cleanly toward the ear, ear_hugging wraps around and partly frames the ear, face_framing forms longer front locks, flared pushes outward with visible volume, and undercut is close/shaved below the top. Infer it from both visible sides and keep left/right profiles coherent unless the photo clearly shows an asymmetric cut.
@@ -204,7 +205,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - earExposure records whether the ears are covered by hair, partially exposed, or clearly visible. Judge the visible ear opening independently from sideHairShape so ear_hugging short hair does not become a long solid side panel.
 - necklace means a clearly visible necklace/chain/pendant; otherwise "none".
 - hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessoryScale is small for a tiny pin/single subtle bloom, medium for a clearly visible ordinary accessory, and large for an oversized bloom, multiple-flower cluster, floral arrangement or prominent bow. Judge its occupied area relative to the head. hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center. hairAccessoryColor is the dominant visible accessory color; do not copy the hair or clothing color when the accessory itself has a different color. For multicolor flowers choose the dominant petal color.
-- neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue. Inspect the knot and hanging fabric: paired loops or broad pointed tails descending below the throat are a bow or scarf, not merely a collar. A shirt can have both an ordinary collar and a prominent white neck bow; choose "bow" when the bow is the stronger 64x64 identity cue.
+- neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue. Inspect the knot and hanging fabric: paired loops or broad pointed tails descending below the throat are a bow or scarf, not merely a collar. Use "collar" only when the visible fabric consists of paired shirt/lapel flaps ending close to the neckline with no central knot and no long hanging tails. A shirt can have both an ordinary collar and a prominent white neck bow; choose "bow" when the bow is the stronger 64x64 identity cue.
 - bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
 - bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
 - legwear captures visible socks, stockings, leg warmers or thigh-highs. Treat knee-high, over-knee and OTK socks as thigh_highs for low-resolution rendering. legwearAsymmetry is "left" or "right" when only one leg has the distinctive legwear, "both" when both legs do, and "none" when no legwear is visible.
@@ -491,6 +492,8 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
         overallHairLength: {
           type: "string",
+          description:
+            "Lowest substantial continuous hair endpoint: chest ends around the bust and above the natural waist; waist reaches the lower ribs, waistband or belt; hip reaches the hip or shorts/skirt side seam.",
           enum: ["cropped", "ear", "jaw", "shoulder", "chest", "waist", "hip"],
         },
         hairPart: {
@@ -559,6 +562,8 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
         neckAccessory: {
           type: "string",
+          description:
+            "Strongest neck fabric cue. A central knot with paired loops or long pointed hanging tails is bow/scarf even over a collared shirt. Use collar only for short paired collar/lapel flaps with no knot or long tails.",
           enum: ["none", "bow", "tie", "scarf", "collar"],
         },
         bottomPattern: {
@@ -1244,6 +1249,144 @@ export type AnalysisCallResult =
       detail: string;
       attempts: number;
     };
+
+export interface NeckDetailAnalysis {
+  neckAccessory: "none" | "bow" | "tie" | "scarf" | "collar";
+  confidence: "low" | "medium" | "high";
+  evidence: string;
+}
+
+export type NeckDetailCallResult =
+  | { ok: true; detail: NeckDetailAnalysis; attempts: number }
+  | {
+      ok: false;
+      reason: "ai_error" | "invalid_response" | "quota_exceeded";
+      detail: string;
+      attempts: number;
+    };
+
+export const NECK_DETAIL_PROMPT = `This is a zoomed upper-body crop of the same person from a full or three-quarter photo.
+Classify the strongest visible fabric construction at the throat/chest for a low-resolution Minecraft skin.
+
+Inspect geometry, not garment stereotypes:
+- bow: a central knot with paired loops, folded wings, or two broad pointed hanging tails
+- scarf: wrapped or draped neck fabric, especially a central fold with long loose tails but no clear bow loops
+- tie: a narrow central knot and one narrow vertical blade
+- collar: only short paired shirt/lapel flaps ending near the neckline, with no central knot and no long hanging tails
+- none: no distinct neck fabric cue
+
+A collared shirt may also have a prominent bow or scarf over it. In that case choose the bow/scarf because it is the stronger 64x64 identity cue.
+Return concise visual evidence. Use high confidence only when the knot/loops/tails or collar-only construction is clearly visible.`;
+
+const NECK_DETAIL_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    neckAccessory: {
+      type: "string",
+      enum: ["none", "bow", "tie", "scarf", "collar"],
+    },
+    confidence: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+    },
+    evidence: { type: "string" },
+  },
+  required: ["neckAccessory", "confidence", "evidence"],
+} as const;
+
+/**
+ * Focused second-pass classifier for tall full-body photos. The main pass
+ * still owns every other feature; this crop only disambiguates tiny neck
+ * fabric that is easy to collapse into a generic shirt collar.
+ */
+export async function runNeckDetailAnalysis(
+  env: Env,
+  detailImageDataUrl: string,
+): Promise<NeckDetailCallResult> {
+  const visionModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+  try {
+    const modelOptions = visionModel.includes("moonshotai/")
+      ? { chat_template_kwargs: { thinking: false } }
+      : {};
+    const result = await env.AI.run(
+      visionModel as never,
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: detailImageDataUrl },
+              },
+              { type: "text", text: NECK_DETAIL_PROMPT },
+            ],
+          },
+        ],
+        max_tokens: 260,
+        temperature: 0,
+        ...modelOptions,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "minecraft_skin_neck_detail",
+            description:
+              "Focused neck fabric classification from an upper-body crop",
+            schema: NECK_DETAIL_SCHEMA,
+          },
+        },
+      } as never,
+    );
+    const parsed = extractAnalysisPayload(result);
+    if (!parsed) {
+      return {
+        ok: false,
+        reason: "invalid_response",
+        detail: "neck detail response did not contain JSON",
+        attempts: 1,
+      };
+    }
+    const neckAccessory = parsed.neckAccessory;
+    const confidence = parsed.confidence;
+    const evidence = parsed.evidence;
+    if (
+      !["none", "bow", "tie", "scarf", "collar"].includes(
+        String(neckAccessory),
+      ) ||
+      !["low", "medium", "high"].includes(String(confidence)) ||
+      typeof evidence !== "string" ||
+      evidence.trim().length < 3
+    ) {
+      return {
+        ok: false,
+        reason: "invalid_response",
+        detail: "neck detail response failed schema validation",
+        attempts: 1,
+      };
+    }
+    return {
+      ok: true,
+      detail: {
+        neckAccessory:
+          neckAccessory as NeckDetailAnalysis["neckAccessory"],
+        confidence: confidence as NeckDetailAnalysis["confidence"],
+        evidence: evidence.trim(),
+      },
+      attempts: 1,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      reason: isWorkersAiQuotaError(detail)
+        ? "quota_exceeded"
+        : "ai_error",
+      detail,
+      attempts: 1,
+    };
+  }
+}
 
 /**
  * 사진 분석 실행. json_schema 유도 → 실패 시 json_object로 1회 재시도.

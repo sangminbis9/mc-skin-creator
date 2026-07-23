@@ -9,11 +9,19 @@
  */
 
 import {
+  runNeckDetailAnalysis,
   runPhotoAnalysis,
   type FallbackFeatures,
+  type NeckDetailAnalysis,
   type PhotoAnalysis,
 } from "./analysis";
-import { bytesToBase64, decodeImage, encodePng, type RawImage } from "./png";
+import {
+  base64ToBytes,
+  bytesToBase64,
+  decodeImage,
+  encodePng,
+  type RawImage,
+} from "./png";
 import {
   DEFAULT_FACE_STYLE,
   packFrontViewToAtlas,
@@ -128,7 +136,7 @@ export async function generateSkin(
       spent,
     );
   }
-  const analysis = analysisResult.analysis;
+  let analysis = analysisResult.analysis;
 
   if (analysis.quality === "fail") {
     return {
@@ -143,6 +151,41 @@ export async function generateSkin(
       neuronsSpent: spent,
       success: false,
     };
+  }
+
+  // Full-body photos shrink neck fabric to a handful of source pixels. Give
+  // only that ambiguous area a second, enlarged look instead of asking the
+  // main analysis to guess from garment stereotypes. This pass is
+  // deliberately conservative: it may correct collar/none, but it never
+  // overwrites a more specific main-pass bow, tie, or scarf classification.
+  if (
+    (analysis.framing === "full_body" ||
+      analysis.framing === "three_quarter") &&
+    (analysis.renderHints.neckAccessory === "none" ||
+      analysis.renderHints.neckAccessory === "collar")
+  ) {
+    const neckCrop = await createUpperBodyDetailCrop(analysisImageDataUrl);
+    if (neckCrop) {
+      const neckResult = await runNeckDetailAnalysis(env, neckCrop);
+      spent += neckResult.attempts * NEURONS_VISION_ANALYSIS;
+      if (!neckResult.ok) {
+        console.log(
+          "focused neck analysis failed:",
+          neckResult.reason,
+          neckResult.detail,
+        );
+        if (neckResult.reason === "quota_exceeded") {
+          return fail(
+            429,
+            "오늘의 AI 생성 할당량이 소진되었어요.",
+            "quota_exceeded",
+            spent,
+          );
+        }
+      } else {
+        analysis = applyFocusedNeckDetail(analysis, neckResult.detail);
+      }
+    }
   }
 
   const renderAnalysis = normalizeAnalysisForRendering(analysis);
@@ -214,6 +257,117 @@ export async function generateSkin(
     },
     neuronsSpent: spent,
     success: true,
+  };
+}
+
+/**
+ * Build a centered head-to-waist crop from a tall portrait. Keeping the crop
+ * as PNG avoids introducing another lossy JPEG generation before the focused
+ * vision pass. Landscape and nearly-square photos already dedicate enough
+ * pixels to the upper body, so they skip the extra paid call.
+ */
+export async function createUpperBodyDetailCrop(
+  imageDataUrl: string,
+): Promise<string | null> {
+  const match =
+    /^data:image\/(?:png|jpe?g);base64,([a-z0-9+/=\r\n]+)$/i.exec(
+      imageDataUrl,
+    );
+  if (!match) {
+    return null;
+  }
+  try {
+    const source = await decodeImage(base64ToBytes(match[1]));
+    if (
+      source.width < 32 ||
+      source.height < 48 ||
+      source.height <= source.width * 1.15
+    ) {
+      return null;
+    }
+
+    const cropWidth = Math.max(32, Math.round(source.width * 0.82));
+    const cropHeight = Math.max(48, Math.round(source.height * 0.56));
+    const startX = Math.max(0, Math.floor((source.width - cropWidth) / 2));
+    const startY = 0;
+    const rgba = new Uint8Array(cropWidth * cropHeight * 4);
+    for (let y = 0; y < cropHeight; y++) {
+      const sourceStart = ((startY + y) * source.width + startX) * 4;
+      const targetStart = y * cropWidth * 4;
+      rgba.set(
+        source.rgba.subarray(sourceStart, sourceStart + cropWidth * 4),
+        targetStart,
+      );
+    }
+    const encoded = await encodePng({
+      width: cropWidth,
+      height: cropHeight,
+      rgba,
+    });
+    const dataUrl = `data:image/png;base64,${bytesToBase64(encoded)}`;
+    return dataUrl.length <= MAX_IMAGE_CHARS ? dataUrl : null;
+  } catch (error) {
+    console.log(
+      "upper-body detail crop failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
+/**
+ * A focused result is allowed to resolve only the ambiguity it was designed
+ * for. Geometry words are required even at high confidence, preventing a
+ * generic "white shirt" crop from replacing the main analysis.
+ */
+export function applyFocusedNeckDetail(
+  analysis: PhotoAnalysis,
+  detail: NeckDetailAnalysis,
+): PhotoAnalysis {
+  if (
+    !["none", "collar"].includes(analysis.renderHints.neckAccessory) ||
+    detail.neckAccessory === "none" ||
+    detail.confidence === "low" ||
+    detail.neckAccessory === analysis.renderHints.neckAccessory
+  ) {
+    return analysis;
+  }
+  const evidence = detail.evidence.trim();
+  const geometryByType: Record<
+    Exclude<NeckDetailAnalysis["neckAccessory"], "none">,
+    RegExp
+  > = {
+    bow: /\b(?:knot|loop|loops|wing|wings|tail|tails|bow)\b/i,
+    scarf: /\b(?:wrap|wrapped|drape|draped|fold|folded|tail|tails|scarf)\b/i,
+    tie: /\b(?:knot|blade|narrow|vertical|tie)\b/i,
+    collar: /\b(?:collar|flap|flaps|lapel|lapels)\b/i,
+  };
+  if (!geometryByType[detail.neckAccessory].test(evidence)) {
+    return analysis;
+  }
+
+  const labels: Record<
+    Exclude<NeckDetailAnalysis["neckAccessory"], "none">,
+    string
+  > = {
+    bow: "prominent neck bow",
+    scarf: "draped neck scarf",
+    tie: "narrow neck tie",
+    collar: "short shirt collar",
+  };
+  const label = labels[detail.neckAccessory];
+  return {
+    ...analysis,
+    observed: {
+      ...analysis.observed,
+      accessories: `${analysis.observed.accessories} Focused upper-body crop confirms a ${label}: ${evidence}.`.trim(),
+    },
+    renderHints: {
+      ...analysis.renderHints,
+      neckAccessory: detail.neckAccessory,
+    },
+    outfitPrompt:
+      `${analysis.outfitPrompt} The dominant throat detail is a ${label}; preserve its visible construction (${evidence}) as a bold readable 64x64 identity cue.`.trim(),
   };
 }
 
@@ -732,7 +886,7 @@ export function normalizeAnalysisForRendering(
     )
       ? "hip"
       : hairClauseMatches(
-            /\bwaist[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?waist\b|\blower[-\s]+back\b/,
+            /\bwaist[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to|approach(?:es|ing)?|toward(?:s)?)\s+(?:the\s+)?(?:natural\s+)?waist(?:band|line)?\b|\b(?:near|just[-\s]+above)\s+(?:the\s+)?(?:natural\s+)?waist(?:band|line)?\b|\blower[-\s]+back\b/,
           )
         ? "waist"
         : hairClauseMatches(
@@ -881,6 +1035,30 @@ export function normalizeAnalysisForRendering(
     renderHints.thighAccessorySide = "none";
   } else if (renderHints.thighAccessorySide === "none") {
     renderHints.thighAccessorySide = "both";
+  }
+
+  if (analysis.visibleRegions.lowerBody) {
+    const visibleLowerText = joinedAnalysisText([
+      analysis.observed.clothing,
+      analysis.observed.accessories,
+      analysis.outfitPrompt,
+    ]);
+    // Construction is more identifying than height: "over-knee leg warmer"
+    // must remain a slouchy leg warmer rather than collapse into a smooth
+    // thigh-high sock merely because it extends above the knee.
+    if (/\b(?:leg[-\s]*warmer|leg[-\s]*warmers)\b/.test(visibleLowerText)) {
+      renderHints.legwear = "leg_warmers";
+    } else if (
+      /\b(?:thigh[-\s]*highs?|over[-\s]*(?:the[-\s]*)?knees?|otk)\b/.test(
+        visibleLowerText,
+      )
+    ) {
+      renderHints.legwear = "thigh_highs";
+    } else if (/\b(?:stockings?|tights)\b/.test(visibleLowerText)) {
+      renderHints.legwear = "stockings";
+    } else if (/\bsocks?\b/.test(visibleLowerText)) {
+      renderHints.legwear = "socks";
+    }
   }
 
   return { ...analysis, renderHints };

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { generateSkin, normalizeAnalysisForRendering } from "../src/generate";
+import {
+  applyFocusedNeckDetail,
+  createUpperBodyDetailCrop,
+  generateSkin,
+  normalizeAnalysisForRendering,
+} from "../src/generate";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
 import type {
   SkinGenerationProvider,
@@ -38,6 +43,17 @@ async function photoDataUrl(): Promise<string> {
   return `data:image/png;base64,${bytesToBase64(bytes)}`;
 }
 
+async function portraitPhotoDataUrl(): Promise<string> {
+  const width = 80;
+  const height = 120;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    rgba.set([224, 198, 186, 255], pixel * 4);
+  }
+  const bytes = await encodePng({ width, height, rgba });
+  return `data:image/png;base64,${bytesToBase64(bytes)}`;
+}
+
 function providerOf(
   results: SkinGenerationResult[],
 ): SkinGenerationProvider & { calls: number } {
@@ -56,6 +72,94 @@ async function goodFluxOutput(): Promise<SkinGenerationResult> {
 }
 
 describe("generateSkin", () => {
+  it("creates a centered upper-body crop only for tall portraits", async () => {
+    const crop = await createUpperBodyDetailCrop(
+      await portraitPhotoDataUrl(),
+    );
+    expect(crop).not.toBeNull();
+    const decoded = await decodePng(
+      Uint8Array.from(atob((crop as string).split(",")[1]), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    expect(decoded.width).toBe(66);
+    expect(decoded.height).toBe(67);
+    expect(
+      await createUpperBodyDetailCrop(await photoDataUrl()),
+    ).toBeNull();
+  });
+
+  it("uses decisive focused geometry to correct a full-body collar misread", async () => {
+    const base = makeAnalysis();
+    const main = makeAnalysis({
+      framing: "full_body",
+      visibleRegions: {
+        face: true,
+        hair: true,
+        upperBody: true,
+        lowerBody: true,
+        feet: true,
+      },
+      observed: {
+        ...base.observed,
+        accessories: "Pink flowers in the hair.",
+        clothing: "Pink cardigan over a white collared shirt.",
+      },
+      renderHints: {
+        ...base.renderHints,
+        neckAccessory: "collar",
+      },
+    });
+    const env = makeEnv(main, false);
+    env.AI.run = vi
+      .fn()
+      .mockResolvedValueOnce({ response: main })
+      .mockResolvedValueOnce({
+        response: {
+          neckAccessory: "bow",
+          confidence: "high",
+          evidence: "A central knot has two broad pointed hanging tails.",
+        },
+      }) as unknown as Env["AI"]["run"];
+
+    const result = await generateSkin(
+      env,
+      await portraitPhotoDataUrl(),
+    );
+
+    expect(env.AI.run).toHaveBeenCalledTimes(2);
+    expect(result.neuronsSpent).toBe(340);
+    expect(result.body.analysis?.renderHints.neckAccessory).toBe("bow");
+    expect(result.body.analysis?.observed.accessories).toContain(
+      "central knot",
+    );
+  });
+
+  it("does not let weak focused evidence replace a specific main result", () => {
+    const base = makeAnalysis();
+    const bow = makeAnalysis({
+      renderHints: { ...base.renderHints, neckAccessory: "bow" },
+    });
+    const unchangedSpecific = applyFocusedNeckDetail(bow, {
+      neckAccessory: "collar",
+      confidence: "high",
+      evidence: "Short paired collar flaps.",
+    });
+    const unchangedWeak = applyFocusedNeckDetail(
+      makeAnalysis({
+        renderHints: { ...base.renderHints, neckAccessory: "collar" },
+      }),
+      {
+        neckAccessory: "bow",
+        confidence: "high",
+        evidence: "A white garment detail is visible.",
+      },
+    );
+
+    expect(unchangedSpecific).toBe(bow);
+    expect(unchangedWeak.renderHints.neckAccessory).toBe("collar");
+  });
+
   it("stabilizes explicitly described eye apertures and lip fullness", () => {
     const base = makeAnalysis();
     const large = normalizeAnalysisForRendering(
@@ -160,6 +264,20 @@ describe("generateSkin", () => {
     ).toBe("waist");
     expect(
       normalizeLength(
+        "lowest substantial endpoints fall past the bust and approach the natural waist",
+        "Long wavy hair approaching the natural waist.",
+        "chest",
+      ),
+    ).toBe("waist");
+    expect(
+      normalizeLength(
+        "lowest substantial hair endpoint reaches past chest toward the natural waist/belt line",
+        "Long wavy hair flowing toward the waist.",
+        "chest",
+      ),
+    ).toBe("waist");
+    expect(
+      normalizeLength(
         "very long curls falling to the hips",
         "Hip-length curly hair.",
         "chest",
@@ -183,6 +301,35 @@ describe("generateSkin", () => {
     );
     expect(longFaceWithShortHair.renderHints.hairBackShape).toBe("tapered");
     expect(longFaceWithShortHair.renderHints.overallHairLength).toBe("ear");
+  });
+
+  it("preserves visible slouchy leg-warmer construction over sock height", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        framing: "full_body",
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: true,
+          feet: true,
+        },
+        observed: {
+          ...base.observed,
+          clothing:
+            "Viewer-left only: a loose slouchy knit over-knee leg warmer with gathered folds and lace trim.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          legwear: "thigh_highs",
+          legwearAsymmetry: "left",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.legwear).toBe("leg_warmers");
+    expect(normalized.renderHints.legwearAsymmetry).toBe("left");
   });
 
   it("preserves muted portrait colours instead of collapsing them to vivid fallback swatches", async () => {
