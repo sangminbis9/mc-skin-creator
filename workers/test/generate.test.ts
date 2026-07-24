@@ -1179,7 +1179,7 @@ describe("generateSkin", () => {
     expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
       "diagnostic:last-analysis-failure",
       expect.stringContaining('"attempts":4'),
-      { expirationTtl: 60 * 60 * 24 },
+      { expirationTtl: 60 * 60 * 48 },
     );
   });
 

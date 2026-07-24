@@ -60,6 +60,8 @@ export type GenerationMode = "image" | "procedural_fallback";
 /** Worker /api/generate 응답 */
 export interface GenerateResponse {
   ok: boolean;
+  /** 운영 오류를 사진 데이터 없이 추적하기 위한 요청 식별자. */
+  requestId?: string;
   quality?: PhotoQuality;
   failReason?: PhotoFailReason;
   features?: SkinFeatures;

@@ -47,7 +47,7 @@ export function FailurePage({ failure, onRetry, onReselect }: FailurePageProps) 
         )}
         {failure.kind !== "photo" && (
           <p className="px-caption" style={{ marginTop: 8 }}>
-            실패한 생성은 오늘의 생성 횟수에서 차감되지 않아요.
+            같은 사진으로 다시 시도하거나 다른 사진을 선택할 수 있어요.
           </p>
         )}
       </PixelPanel>

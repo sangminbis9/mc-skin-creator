@@ -22,7 +22,7 @@ function makeVisionEnv(
 }
 
 describe("runPhotoAnalysis", () => {
-  it("uses the fallback model after both primary response formats fail", async () => {
+  it("uses the fallback model after the primary structured response fails", async () => {
     const run = vi.fn(async (model: string) => {
       if (model === "primary-model") {
         throw new Error("primary unavailable");
@@ -36,10 +36,9 @@ describe("runPhotoAnalysis", () => {
     expect(result.ok).toBe(true);
     expect(run.mock.calls.map(([model]) => model)).toEqual([
       "primary-model",
-      "primary-model",
       "fallback-model",
     ]);
-    expect(result).toMatchObject({ attempts: 3 });
+    expect(result).toMatchObject({ attempts: 2 });
   });
 
   it("falls back when the primary model emits invalid structured output", async () => {
@@ -55,7 +54,7 @@ describe("runPhotoAnalysis", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(run).toHaveBeenCalledTimes(3);
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("does not call the fallback model when the primary response is valid", async () => {

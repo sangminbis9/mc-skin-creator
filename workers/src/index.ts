@@ -32,6 +32,7 @@ function json(body: unknown, status = 200): Response {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const requestId = crypto.randomUUID();
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -59,12 +60,22 @@ export default {
       }
 
       if (url.pathname === "/api/generate" && request.method === "POST") {
-        return handleGenerate(request, env);
+        return handleGenerate(request, env, requestId);
       }
-    } catch {
+    } catch (error) {
+      await persistFailureDiagnostic(env, {
+        requestId,
+        phase: "route",
+        detail: errorDetail(error),
+      });
       // 내부 에러 상세는 노출하지 않는다
       return json(
-        { ok: false, error: "서버 오류가 발생했어요", errorCode: "ai_failed" },
+        {
+          ok: false,
+          error: "서버 오류가 발생했어요",
+          errorCode: "ai_failed",
+          requestId,
+        },
         500,
       );
     }
@@ -73,7 +84,11 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function handleGenerate(request: Request, env: Env): Promise<Response> {
+async function handleGenerate(
+  request: Request,
+  env: Env,
+  requestId: string,
+): Promise<Response> {
   await bumpMetric(env, "attempts");
 
   // 1) quota 확인 — 소진이면 AI 호출 전에 차단
@@ -105,7 +120,26 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
   }
 
   // 3) 분석 + 스킨 생성 (사진은 이 요청 스코프 안에서만 사용, 저장하지 않음)
-  const result = await generateSkin(env, body.image, undefined, body.analysisImage);
+  let result;
+  try {
+    result = await generateSkin(env, body.image, undefined, body.analysisImage);
+  } catch (error) {
+    await bumpMetric(env, "failures").catch(() => undefined);
+    await persistFailureDiagnostic(env, {
+      requestId,
+      phase: "generation",
+      detail: errorDetail(error),
+    });
+    return json(
+      {
+        ok: false,
+        error: "AI가 스킨을 만드는 데 실패했어요",
+        errorCode: "ai_failed",
+        requestId,
+      },
+      500,
+    );
+  }
 
   // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
   await commitNeurons(env, result.neuronsSpent);
@@ -120,7 +154,27 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
     );
   }
 
-  return json({ ...result.body, quota: await getQuotaStatus(env) }, result.status);
+  return json(
+    { ...result.body, quota: await getQuotaStatus(env), requestId },
+    result.status,
+  );
+}
+
+function errorDetail(error: unknown): string {
+  return (
+    error instanceof Error ? error.stack || error.message : String(error)
+  ).slice(0, 1800);
+}
+
+async function persistFailureDiagnostic(
+  env: Env,
+  diagnostic: { requestId: string; phase: string; detail: string },
+): Promise<void> {
+  await env.MCSKIN_KV.put(
+    "diagnostic:last-generation-failure",
+    JSON.stringify({ at: new Date().toISOString(), ...diagnostic }),
+    { expirationTtl: 60 * 60 * 48 },
+  ).catch(() => undefined);
 }
 
 function trackableMetric(event: string | undefined): Metric | null {

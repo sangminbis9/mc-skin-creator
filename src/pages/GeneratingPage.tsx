@@ -59,6 +59,7 @@ export function GeneratingPage({
 }: GeneratingPageProps) {
   const [progress, setProgress] = useState(4);
   const [stageIndex, setStageIndex] = useState(0);
+  const [isWaitingLong, setIsWaitingLong] = useState(false);
 
   // 진행도/단계 연출: API 응답 전까지 90%까지 서서히 진행
   useEffect(() => {
@@ -68,9 +69,13 @@ export function GeneratingPage({
     const stageTimer = setInterval(() => {
       setStageIndex((i) => Math.min(STAGES.length - 1, i + 1));
     }, 2800);
+    const delayedTimer = window.setTimeout(() => {
+      setIsWaitingLong(true);
+    }, 35_000);
     return () => {
       clearInterval(progressTimer);
       clearInterval(stageTimer);
+      window.clearTimeout(delayedTimer);
     };
   }, []);
 
@@ -132,10 +137,19 @@ export function GeneratingPage({
           if (error.code === "network") {
             onFail({
               kind: "network",
-              message: "연결이 불안정해요. 잠시 후 다시 시도해주세요.",
+              message: error.message,
             });
             return;
           }
+          onFail({
+            kind: "ai",
+            message: `${error.message}${
+              error.response?.requestId
+                ? ` (오류 번호: ${error.response.requestId.slice(0, 8)})`
+                : ""
+            }`,
+          });
+          return;
         }
         onFail({ kind: "ai", message: "AI가 스킨을 만드는 데 실패했어요." });
       }
@@ -160,13 +174,15 @@ export function GeneratingPage({
           <span />
         </div>
         <p style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
-          {STAGES[stageIndex]}
+          {isWaitingLong
+            ? "AI 서버 응답을 기다리고 있어요. 화면을 닫지 마세요."
+            : STAGES[stageIndex]}
         </p>
       </div>
 
       <PixelProgress value={progress} />
       <p className="px-caption" style={{ textAlign: "center", margin: 0 }}>
-        {Math.round(progress)}%
+        {isWaitingLong ? "요청은 계속 처리 중이에요" : `${Math.round(progress)}%`}
       </p>
 
       <div className="px-spacer" />

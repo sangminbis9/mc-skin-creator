@@ -1410,18 +1410,15 @@ export async function runPhotoAnalysis(
   // `json_schema.name` is required; passing the schema object directly makes
   // the provider reject the request before inference and forces every request
   // onto the less reliable free-form JSON retry.
-  const responseFormats: Array<Record<string, unknown>> = [
-    {
-      type: "json_schema",
-      json_schema: {
-        name: "minecraft_skin_photo_analysis",
-        description:
-          "Structured portrait, hair, face and outfit analysis for a Minecraft skin",
-        schema: PHOTO_ANALYSIS_SCHEMA,
-      },
+  const structuredResponseFormat = {
+    type: "json_schema",
+    json_schema: {
+      name: "minecraft_skin_photo_analysis",
+      description:
+        "Structured portrait, hair, face and outfit analysis for a Minecraft skin",
+      schema: PHOTO_ANALYSIS_SCHEMA,
     },
-    { type: "json_object" },
-  ];
+  };
   const primaryModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
   const fallbackModel =
     env.VISION_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_VISION_MODEL;
@@ -1430,8 +1427,12 @@ export async function runPhotoAnalysis(
   let lastDetail = "";
   let sawInvalidResponse = false;
   let attempts = 0;
-  for (const visionModel of visionModels) {
-    for (const responseFormat of responseFormats) {
+  // A second structured pass is more reliable than switching to free-form
+  // json_object output. Free-form retries were the main source of truncated or
+  // schema-incomplete production responses. Alternate models across two rounds
+  // so a transient provider error does not immediately fail the whole request.
+  for (let round = 0; round < 2; round++) {
+    for (const visionModel of visionModels) {
       let parsed: unknown;
       try {
         attempts += 1;
@@ -1442,10 +1443,10 @@ export async function runPhotoAnalysis(
           visionModel as never,
           {
             messages,
-            max_tokens: 2600,
+            max_tokens: 3200,
             temperature: 0,
             ...modelOptions,
-            response_format: responseFormat,
+            response_format: structuredResponseFormat,
           } as never,
         );
         parsed = extractAnalysisPayload(result);

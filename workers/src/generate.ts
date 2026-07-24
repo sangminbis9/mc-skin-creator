@@ -117,7 +117,7 @@ export async function generateSkin(
         detail: analysisResult.detail.slice(0, 1500),
         attempts: analysisResult.attempts,
       }),
-      { expirationTtl: 60 * 60 * 24 },
+      { expirationTtl: 60 * 60 * 48 },
     ).catch(() => undefined);
     if (analysisResult.reason === "quota_exceeded") {
       return fail(
@@ -219,6 +219,16 @@ export async function generateSkin(
       });
       if (!generated.ok) {
         console.log(`image gen attempt ${attempt} failed:`, generated.error);
+        await env.MCSKIN_KV.put(
+          "diagnostic:last-image-failure",
+          JSON.stringify({
+            at: new Date().toISOString(),
+            attempt: attempt + 1,
+            detail: generated.error.slice(0, 1500),
+            retryable: generated.retryable,
+          }),
+          { expirationTtl: 60 * 60 * 48 },
+        ).catch(() => undefined);
         if (!generated.retryable) {
           // 사진 크기/형식 문제는 재시도해도 동일하므로 즉시 fallback
           break;

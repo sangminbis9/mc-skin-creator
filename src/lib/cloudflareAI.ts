@@ -5,7 +5,12 @@
 
 import type { GenerateResponse, QuotaStatus } from "./skinFeatures";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+export const DEFAULT_API_BASE_URL =
+  "https://mc-skin-creator-api.parkingnav.workers.dev";
+const API_BASE = (
+  import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
+).replace(/\/$/, "");
+const GENERATION_TIMEOUT_MS = 150_000;
 const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
 
 export class ApiError extends Error {
@@ -62,17 +67,30 @@ async function performSkinGeneration(
   analysisImageDataUrl?: string,
 ): Promise<GenerateResponse> {
   let res: Response;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    GENERATION_TIMEOUT_MS,
+  );
   try {
     res = await fetch(`${API_BASE}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         image: imageDataUrl,
         ...(analysisImageDataUrl ? { analysisImage: analysisImageDataUrl } : {}),
       }),
     });
-  } catch {
-    throw new ApiError("네트워크 연결이 불안정해요", "network");
+  } catch (error) {
+    throw new ApiError(
+      error instanceof DOMException && error.name === "AbortError"
+        ? "AI 응답이 너무 오래 걸렸어요"
+        : "네트워크 연결이 불안정해요",
+      "network",
+    );
+  } finally {
+    window.clearTimeout(timeout);
   }
 
   let body: GenerateResponse;
