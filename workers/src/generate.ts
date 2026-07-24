@@ -437,6 +437,11 @@ function buildFaceStyle(
     bottomPattern: analysis.renderHints.bottomPattern,
     bottomAccent: analysis.renderHints.bottomAccent,
     legwear: analysis.renderHints.legwear,
+    legwearColor: paletteHex(
+      analysis.renderHints.legwearColor,
+      CLOTHING_COLORS,
+      String(features.topAccentColor ?? CLOTHING_COLORS.white),
+    ),
     legwearAsymmetry: analysis.renderHints.legwearAsymmetry,
     thighAccessory: analysis.renderHints.thighAccessory,
     thighAccessorySide: analysis.renderHints.thighAccessorySide,

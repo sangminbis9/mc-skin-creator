@@ -915,6 +915,7 @@ describe("generateSkin", () => {
           bottomPattern: "plaid",
           bottomAccent: "belt",
           legwear: "thigh_highs",
+          legwearColor: "beige",
           legwearAsymmetry: "left",
         },
         fallbackFeatures: {
@@ -976,6 +977,12 @@ describe("generateSkin", () => {
     expect(decoded.rgba[plaidDark + 3]).toBe(255);
     expect(decoded.rgba[plaidDark]).toBeLessThan(decoded.rgba[plaidLight]);
     expect(decoded.rgba[leftThighHigh + 3]).toBe(255);
+    expect(decoded.rgba[leftThighHigh]).toBeGreaterThan(
+      decoded.rgba[leftThighHigh + 1],
+    );
+    expect(decoded.rgba[leftThighHigh + 1]).toBeGreaterThan(
+      decoded.rgba[leftThighHigh + 2],
+    );
     expect(decoded.rgba[rightBare + 3]).toBe(0);
   });
 

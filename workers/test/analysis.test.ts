@@ -235,6 +235,13 @@ describe("validatePhotoAnalysis", () => {
       'Do not summarize it as simply "asymmetric"',
     );
     expect(ANALYSIS_PROMPT).toContain('legwearAsymmetry "left" or "right"');
+    expect(ANALYSIS_PROMPT).toContain("legwearColor");
+    expect(ANALYSIS_PROMPT).toContain(
+      "use beige for cream/ivory/oatmeal",
+    );
+    expect(
+      PHOTO_ANALYSIS_SCHEMA.properties.renderHints.properties.legwearColor.enum,
+    ).toContain("beige");
     expect(ANALYSIS_PROMPT).toContain("thighAccessorySide independently");
     expect(ANALYSIS_PROMPT).toContain(
       "a thigh accessory can intentionally sit on the opposite leg",
@@ -385,6 +392,7 @@ describe("validatePhotoAnalysis", () => {
     broken.renderHints.sideHairShape = "random" as never;
     broken.renderHints.sideHairAsymmetry = "both" as never;
     broken.renderHints.hairAccessoryColor = "cyan" as never;
+    broken.renderHints.legwearColor = "cyan" as never;
     broken.renderHints.earExposure = "unknown" as never;
     const result = validatePhotoAnalysis(broken);
     expect(result.ok).toBe(false);
@@ -404,6 +412,7 @@ describe("validatePhotoAnalysis", () => {
       expect(result.errors.join()).toContain("renderHints.sideHairShape");
       expect(result.errors.join()).toContain("renderHints.sideHairAsymmetry");
       expect(result.errors.join()).toContain("renderHints.hairAccessoryColor");
+      expect(result.errors.join()).toContain("renderHints.legwearColor");
       expect(result.errors.join()).toContain("renderHints.earExposure");
     }
   });

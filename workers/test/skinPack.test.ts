@@ -2707,6 +2707,7 @@ describe("packFrontViewToAtlas", () => {
       ...DEFAULT_FACE_STYLE,
       bottomType: "skirt",
       legwear: "leg_warmers",
+      legwearColor: "#d9c4a3",
       legwearAsymmetry: "left",
       thighAccessory: "bow",
       thighAccessorySide: "right",
@@ -2777,6 +2778,13 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[bowOuterWing + 3]).toBe(255);
     expect(atlas.rgba[bowOuterWing]).toBeGreaterThan(atlas.rgba[bowTail]);
     expect(atlas.rgba[warmerRidge]).toBeLessThan(atlas.rgba[warmerLift]);
+    expect(atlas.rgba[warmerRidge]).toBeGreaterThan(
+      atlas.rgba[warmerRidge + 1],
+    );
+    expect(atlas.rgba[warmerRidge + 1]).toBeGreaterThan(
+      atlas.rgba[warmerRidge + 2],
+    );
+    expect(atlas.rgba[warmerLift] - atlas.rgba[warmerRidge]).toBeLessThan(85);
     expect(atlas.rgba[warmerSideRidge]).toBeLessThan(
       atlas.rgba[warmerSideLift],
     );

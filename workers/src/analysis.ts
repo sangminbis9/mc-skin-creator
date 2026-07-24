@@ -87,6 +87,19 @@ export interface PixelRenderHints {
   bottomPattern: "plain" | "plaid" | "striped" | "pleated" | "lace";
   bottomAccent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
   legwear: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
+  legwearColor:
+    | "black"
+    | "brown"
+    | "white"
+    | "gray"
+    | "red"
+    | "orange"
+    | "yellow"
+    | "green"
+    | "blue"
+    | "purple"
+    | "pink"
+    | "beige";
   legwearAsymmetry: "none" | "left" | "right" | "both";
   thighAccessory: "none" | "bow" | "ribbon" | "garter";
   thighAccessorySide: "none" | "left" | "right" | "both";
@@ -208,7 +221,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue. Inspect the knot and hanging fabric: paired loops or broad pointed tails descending below the throat are a bow or scarf, not merely a collar. Use "collar" only when the visible fabric consists of paired shirt/lapel flaps ending close to the neckline with no central knot and no long hanging tails. A shirt can have both an ordinary collar and a prominent white neck bow; choose "bow" when the bow is the stronger 64x64 identity cue.
 - bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
 - bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
-- legwear captures visible socks, stockings, leg warmers or thigh-highs. Treat knee-high, over-knee and OTK socks as thigh_highs for low-resolution rendering. legwearAsymmetry is "left" or "right" when only one leg has the distinctive legwear, "both" when both legs do, and "none" when no legwear is visible.
+- legwear captures visible socks, stockings, leg warmers or thigh-highs. Treat knee-high, over-knee and OTK socks as thigh_highs for low-resolution rendering. legwearColor is the closest dominant fabric color of that legwear (use beige for cream/ivory/oatmeal). Preserve the photographed color instead of borrowing the top or shoe color. If legwear is inferred, choose a coherent color from the visible outfit. legwearAsymmetry is "left" or "right" when only one leg has the distinctive legwear, "both" when both legs do, and "none" when no legwear is visible.
 - thighAccessory independently captures a bow, tied ribbon or garter visibly attached around the upper thigh. thighAccessorySide is its side from the VIEWER'S perspective. Use "none" for both fields when no thigh accessory exists. Never infer a thigh bow merely because the opposite leg has one-sided legwear.
 - For full_body photos, renderHints.bottomPattern, bottomAccent, legwear, legwearAsymmetry, thighAccessory and thighAccessorySide must be based on the visible lower body whenever visible; do not default to plain/none if plaid, pleats, lace, ribbons, socks, stockings, leg warmers or asymmetric details are visible.
 - outerLayer means whether clothing should visibly use Minecraft's second skin layer for volume (jacket/hoodie/heavy knit = heavy, shirt/light knit = light).
@@ -301,6 +314,7 @@ Respond with ONLY a JSON object matching this shape:
     "bottomPattern": "plain" | "plaid" | "striped" | "pleated" | "lace",
     "bottomAccent": "none" | "belt" | "cuffs" | "side_stripe" | "ribbon",
     "legwear": "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs",
+    "legwearColor": "black" | "brown" | "white" | "gray" | "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink" | "beige",
     "legwearAsymmetry": "none" | "left" | "right" | "both",
     "thighAccessory": "none" | "bow" | "ribbon" | "garter",
     "thighAccessorySide": "none" | "left" | "right" | "both"
@@ -578,6 +592,23 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["none", "socks", "stockings", "leg_warmers", "thigh_highs"],
         },
+        legwearColor: {
+          type: "string",
+          enum: [
+            "black",
+            "brown",
+            "white",
+            "gray",
+            "red",
+            "orange",
+            "yellow",
+            "green",
+            "blue",
+            "purple",
+            "pink",
+            "beige",
+          ],
+        },
         legwearAsymmetry: {
           type: "string",
           enum: ["none", "left", "right", "both"],
@@ -629,6 +660,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "bottomPattern",
         "bottomAccent",
         "legwear",
+        "legwearColor",
         "legwearAsymmetry",
         "thighAccessory",
         "thighAccessorySide",
@@ -785,6 +817,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           bottomPattern: "plain",
           bottomAccent: "none",
           legwear: "none",
+          legwearColor: "white",
           legwearAsymmetry: "none",
           thighAccessory: "none",
           thighAccessorySide: "none",
@@ -1180,6 +1213,25 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.legwear,
       ["none", "socks", "stockings", "leg_warmers", "thigh_highs"],
       "none",
+    ),
+    legwearColor: enumValue(
+      "renderHints.legwearColor",
+      hints.legwearColor,
+      [
+        "black",
+        "brown",
+        "white",
+        "gray",
+        "red",
+        "orange",
+        "yellow",
+        "green",
+        "blue",
+        "purple",
+        "pink",
+        "beige",
+      ],
+      "white",
     ),
     legwearAsymmetry: enumValue(
       "renderHints.legwearAsymmetry",

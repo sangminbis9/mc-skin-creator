@@ -93,6 +93,7 @@ export interface FaceStyle {
   bottomPattern?: "plain" | "plaid" | "striped" | "pleated" | "lace";
   bottomAccent?: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
   legwear?: "none" | "socks" | "stockings" | "leg_warmers" | "thigh_highs";
+  legwearColor?: string;
   legwearAsymmetry?: "none" | "left" | "right" | "both";
   thighAccessory?: "none" | "bow" | "ribbon" | "garter";
   thighAccessorySide?: "none" | "left" | "right" | "both";
@@ -155,6 +156,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   bottomPattern: "plain",
   bottomAccent: "none",
   legwear: "none",
+  legwearColor: undefined,
   legwearAsymmetry: "none",
   thighAccessory: "none",
   thighAccessorySide: "none",
@@ -5416,15 +5418,25 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         [238, 224, 218],
         0.45,
       );
-      const baseColor =
+      const inferredBaseColor =
         legwear === "stockings"
           ? mixRgb(skinish, [95, 72, 76], 0.52)
           : legwear === "leg_warmers"
             ? mixRgb(garment, [244, 232, 226], 0.38)
             : mixRgb(skinish, [246, 240, 232], 0.68);
+      const declaredLegwearColor = style.legwearColor
+        ? hexToRgb(style.legwearColor, inferredBaseColor)
+        : null;
+      const baseColor = declaredLegwearColor
+        ? mixRgb(
+            declaredLegwearColor,
+            legwear === "stockings" ? skinish : [250, 242, 234],
+            legwear === "stockings" ? 0.08 : 0.14,
+          )
+        : inferredBaseColor;
       const topLace = shadeRgb(mixRgb(baseColor, [255, 250, 244], 0.55), 1.08);
-      const ribLight = shadeRgb(mixRgb(baseColor, [255, 248, 240], 0.45), 1.08);
-      const ribShadow = shadeRgb(baseColor, 0.66);
+      const ribLight = shadeRgb(mixRgb(baseColor, [255, 248, 240], 0.45), 1.02);
+      const ribShadow = shadeRgb(baseColor, 0.86);
       for (const faceName of ["front", "back", "right", "left"] as const) {
         const baseRect = leg.base[faceName];
         const overRect = leg.overlay[faceName];
@@ -5432,7 +5444,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           for (let x = 0; x < baseRect.w; x++) {
             const wrinkle =
               legwear === "leg_warmers" && y % 2 === 0
-                ? 0.82
+                ? 0.94
                 : x === 0 || x === baseRect.w - 1
                   ? 0.9
                   : 1.02;
@@ -5477,7 +5489,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                   overRect,
                   x,
                   y,
-                  sideEdge ? shadeRgb(ribShadow, 0.9) : ribShadow,
+                  sideEdge ? shadeRgb(ribShadow, 0.95) : ribShadow,
                 );
               }
             } else if (faceName === "front" || faceName === "back") {
@@ -5503,13 +5515,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                 overRect,
                 foldX,
                 y,
-                ribbed ? shadeRgb(ribShadow, 0.82) : shadeRgb(ribLight, 0.96),
+                ribbed ? shadeRgb(ribShadow, 0.94) : shadeRgb(ribLight, 0.98),
               );
               put(
                 overRect,
                 liftX,
                 y,
-                ribbed ? shadeRgb(ribLight, 0.72) : shadeRgb(ribLight, 1.12),
+                ribbed ? shadeRgb(ribShadow, 1.08) : shadeRgb(ribLight, 1.04),
               );
             } else {
               const outerX = faceName === "right" ? 0 : overRect.w - 1;
@@ -5518,13 +5530,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                 overRect,
                 outerX,
                 y,
-                ribbed ? shadeRgb(ribShadow, 0.72) : ribLight,
+                ribbed ? shadeRgb(ribShadow, 0.94) : ribLight,
               );
               put(
                 overRect,
                 innerX,
                 y,
-                ribbed ? shadeRgb(ribShadow, 0.9) : shadeRgb(ribLight, 0.94),
+                ribbed ? shadeRgb(ribShadow, 1.02) : shadeRgb(ribLight, 0.96),
               );
             }
           }
@@ -5548,12 +5560,12 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           const ankleCuffY = Math.min(overRect.h - 1, legwearRows.end);
           const ankleFoldY = Math.max(legwearRows.start, ankleCuffY - 1);
           const scallopA = shadeRgb(topLace, 1.08);
-          const scallopB = shadeRgb(topLace, 0.76);
+          const scallopB = shadeRgb(topLace, 0.86);
           const cuffLight = shadeRgb(
             mixRgb(baseColor, [255, 250, 244], 0.42),
             1.04,
           );
-          const cuffDark = shadeRgb(baseColor, 0.48);
+          const cuffDark = shadeRgb(baseColor, 0.78);
           for (const x of rimXs) {
             const edge = x === 0 || x === overRect.w - 1;
             put(overRect, x, laceY, x % 2 === 0 ? scallopA : scallopB);
@@ -5570,14 +5582,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
               x,
               ankleCuffY,
               x % 2 === 0
-                ? shadeRgb(baseColor, 0.62)
-                : shadeRgb(baseColor, 0.76),
+                ? shadeRgb(baseColor, 0.78)
+                : shadeRgb(baseColor, 0.88),
             );
             put(
               overRect,
               x,
               ankleCuffY,
-              x % 2 === 0 ? cuffDark : shadeRgb(cuffDark, 0.82),
+              x % 2 === 0 ? cuffDark : shadeRgb(cuffDark, 0.92),
             );
             if (!edge) {
               put(
@@ -5603,13 +5615,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             put(overRect, innerX, ankleFoldY, shadeRgb(cuffLight, 0.9));
           } else {
             put(overRect, 1, ankleFoldY, cuffLight);
-            put(overRect, 2, ankleFoldY, shadeRgb(cuffLight, 0.84));
+            put(overRect, 2, ankleFoldY, shadeRgb(cuffLight, 0.92));
             put(overRect, 1, ankleCuffY, cuffDark);
-            put(overRect, 2, ankleCuffY, shadeRgb(cuffDark, 0.78));
+            put(overRect, 2, ankleCuffY, shadeRgb(cuffDark, 0.92));
           }
           for (let y = legwearRows.start + 1; y <= legwearRows.end; y += 2) {
-            put(overRect, 0, y, shadeRgb(ribShadow, 0.74));
-            put(overRect, overRect.w - 1, y, shadeRgb(ribShadow, 0.74));
+            put(overRect, 0, y, shadeRgb(ribShadow, 0.92));
+            put(overRect, overRect.w - 1, y, shadeRgb(ribShadow, 0.92));
           }
         }
       }

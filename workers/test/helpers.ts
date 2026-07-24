@@ -78,6 +78,7 @@ export function makeAnalysis(
       bottomPattern: "plain",
       bottomAccent: "none",
       legwear: "none",
+      legwearColor: "white",
       legwearAsymmetry: "none",
       thighAccessory: "none",
       thighAccessorySide: "none",
