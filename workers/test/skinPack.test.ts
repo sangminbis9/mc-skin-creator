@@ -1639,6 +1639,7 @@ describe("packFrontViewToAtlas", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
+      hairColor: "#765b57",
       bangs: "curtain",
       hairTexture: "wavy",
       hairVolume: "full",
@@ -1661,6 +1662,29 @@ describe("packFrontViewToAtlas", () => {
       for (let y = 4; y <= 5; y++) {
         expect(alphaAt(atlas, side, 1, y)).toBe(0);
       }
+    }
+    const bodySides = [
+      CLASSIC_LAYOUT.body.overlay.right,
+      CLASSIC_LAYOUT.body.overlay.left,
+    ];
+    const headSides = [
+      CLASSIC_LAYOUT.head.overlay.right,
+      CLASSIC_LAYOUT.head.overlay.left,
+    ];
+    for (let sideIndex = 0; sideIndex < sideFaces.length; sideIndex++) {
+      const bodyX = sideIndex === 0 ? 0 : bodySides[sideIndex].w - 1;
+      const headX = sideIndex === 0 ? 0 : headSides[sideIndex].w - 1;
+      const shoulderToArmDelta = Math.abs(
+        redAt(atlas, bodySides[sideIndex], bodyX, 5) -
+          redAt(atlas, sideFaces[sideIndex], 0, 5),
+      );
+      const headToShoulderDelta = Math.abs(
+        redAt(atlas, headSides[sideIndex], headX, 7) -
+          redAt(atlas, bodySides[sideIndex], bodyX, 0),
+      );
+      expect(shoulderToArmDelta).toBeLessThan(20);
+      expect(headToShoulderDelta).toBeLessThan(25);
+      expect(redAt(atlas, sideFaces[sideIndex], 0, 5)).toBeGreaterThan(65);
     }
 
     const rightFront = CLASSIC_LAYOUT.rightArm.overlay.front;

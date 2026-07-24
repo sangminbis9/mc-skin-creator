@@ -2523,7 +2523,11 @@ function composeHair(
         const topY = 0;
         const lastY = Math.min(torsoHairRows <= 4 ? 3 : 5, arm.front.h - 1);
         for (let y = 0; y <= lastY; y++) {
-          const shade = y >= 4 ? 0.58 : y % 2 === mirrorPhase ? 0.82 : 0.7;
+          // Keep the lower shoulder lock in the same value family as the
+          // torso-side wave. A 0.58 factor turned medium-brown hair almost
+          // black exactly where the body and arm cubes meet, so the side lock
+          // looked cut in two when the model rotated.
+          const shade = y >= 4 ? 0.72 : y % 2 === mirrorPhase ? 0.82 : 0.7;
           putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
           // The inner rail visually joins the torso lock. Keep the far arm
           // column only at the shoulder plus one staggered wave step; filling
