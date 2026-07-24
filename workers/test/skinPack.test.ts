@@ -3204,6 +3204,15 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(large, face, 1, 5)).toBeLessThan(
       redAt(average, face, 1, 5) - 15,
     );
+    // A large almond eye gains its size from the second row, not from a
+    // paper-white outer corner. Keep that corner darker than the average eye
+    // while preserving strong contrast with the iris.
+    expect(redAt(large, face, 1, 4)).toBeLessThan(
+      redAt(average, face, 1, 4) - 5,
+    );
+    expect(redAt(large, face, 1, 4)).toBeGreaterThan(
+      redAt(large, face, 2, 4) + 70,
+    );
   });
 
   it("eyeTilt keeps both eye anchors level and shades an adjacent corner", () => {

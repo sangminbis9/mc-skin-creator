@@ -892,6 +892,8 @@ function composeFace(
         : style.eyeShape === "narrow"
           ? 0.12
           : 0.28;
+    const largeEyeScleraBoost =
+      eyeSize === "large" ? (style.eyeShape === "round" ? 0.1 : 0.02) : 0;
     const sclera = mixRgb(
       skinColor,
       [238, 232, 222],
@@ -900,7 +902,8 @@ function composeFace(
         Math.min(
           0.56,
           baseScleraMix +
-            (eyeSize === "large" ? 0.14 : eyeSize === "small" ? -0.08 : 0),
+            largeEyeScleraBoost +
+            (eyeSize === "small" ? -0.08 : 0),
         ),
       ),
     );
@@ -912,6 +915,8 @@ function composeFace(
         ? mixRgb(skinColor, eye, 0.2)
         : style.eyeShape === "narrow"
           ? mixRgb(sclera, eye, 0.46)
+          : style.eyeShape === "almond" && eyeTilt === "level"
+            ? mixRgb(sclera, eye, eyeSize === "large" ? 0.14 : 0.08)
           : eyeTilt === "level"
             ? sclera
             : mixRgb(sclera, eye, 0.2);
