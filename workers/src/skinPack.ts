@@ -2308,7 +2308,11 @@ function composeHair(
         [242, 226, 214],
         style.hairTexture === "wavy" ? 0.24 : 0.16,
       );
-      const torsoStrandDark = shadeRgb(hairColor, 0.52);
+      // Long locks occupy only one or two pixels in width. Very deep shadow
+      // values made those sparse paths read as black rigid rods against a
+      // pastel cardigan, even when the analysed hair was medium brown. Keep
+      // enough value range for depth while preserving the declared hair hue.
+      const torsoStrandDark = shadeRgb(hairColor, 0.7);
       const leftFrontPath = [1, 1, 0, 1, 1, 0, 0, 1, 2, 1, 2, 3] as const;
       const organicFrontDrape =
         style.hairTexture === "wavy" ||
@@ -2321,7 +2325,8 @@ function composeHair(
         ? ([6, 7, 7, 6, 7, 7, 7, 6, 5, 5, 4, 4] as const)
         : ([6, 6, 7, 6, 6, 7, 7, 6, 5, 6, 5, 4] as const);
       for (let y = 0; y < Math.min(torsoHairRows, leftFrontPath.length); y++) {
-        const taperShade = y >= 10 ? 0.5 : y >= 8 ? 0.58 : y >= 6 ? 0.68 : 0.9;
+        const taperShade =
+          y >= 10 ? 0.72 : y >= 8 ? 0.76 : y >= 6 ? 0.82 : 0.96;
         const leftX = leftFrontPath[y];
         const rightX = rightFrontPath[y];
         putColor(
@@ -2389,7 +2394,8 @@ function composeHair(
         [2],
       ] as const;
       for (let y = 0; y < Math.min(torsoHairRows, leftSideRows.length); y++) {
-        const shade = y >= 10 ? 0.48 : y >= 8 ? 0.56 : y >= 6 ? 0.64 : 0.78;
+        const shade =
+          y >= 10 ? 0.7 : y >= 8 ? 0.74 : y >= 6 ? 0.78 : 0.86;
         for (const x of leftSideRows[y]) {
           putColor(
             bodyOver.right,
@@ -2454,17 +2460,17 @@ function composeHair(
           const shade =
             y >= 8
               ? highlight
-                ? 0.68
-                : 0.54
+                ? 0.82
+                : 0.72
               : y >= 6
                 ? highlight
-                  ? 0.8
-                  : 0.62
+                  ? 0.88
+                  : 0.76
                 : edge
-                  ? 0.7
+                  ? 0.8
                   : highlight
                     ? 0.94
-                    : 0.78;
+                    : 0.86;
           putColor(bodyOver.back, x, y, bodyHair(bodyOver.back, x, y, shade));
         }
       }
@@ -2579,7 +2585,7 @@ function composeHair(
       if (style.hairTexture === "wavy" || style.hairTexture === "curly") {
         const layerLight = mixRgb(hairColor, [246, 226, 214], 0.28);
         const layerMid = shadeRgb(hairColor, 0.72);
-        const layerDark = shadeRgb(hairColor, 0.48);
+        const layerDark = shadeRgb(hairColor, 0.68);
         const paintLayerPixel = (
           rect: Rect,
           x: number,
@@ -2674,7 +2680,7 @@ function composeHair(
       [242, 226, 214],
       style.hairTexture === "wavy" ? 0.22 : 0.14,
     );
-    const backDrapeDark = shadeRgb(hairColor, 0.52);
+    const backDrapeDark = shadeRgb(hairColor, 0.7);
     const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
       shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
 
@@ -2689,14 +2695,14 @@ function composeHair(
               : ([2, 3, 4, 5] as const);
       for (const x of row) {
         const shade =
-          y >= torsoHairRows - 2 ? 0.56 : x === 2 || x === 5 ? 0.82 : 0.72;
+          y >= torsoHairRows - 2 ? 0.72 : x === 2 || x === 5 ? 0.88 : 0.8;
         putColor(bodyOver.back, x, y, bodyHair(bodyOver.back, x, y, shade));
       }
       putColor(
         bodyOver.right,
         0,
         y,
-        bodyHair(bodyOver.right, 0, y, y >= torsoHairRows - 2 ? 0.58 : 0.78),
+        bodyHair(bodyOver.right, 0, y, y >= torsoHairRows - 2 ? 0.72 : 0.84),
       );
       putColor(
         bodyOver.left,
@@ -2706,7 +2712,7 @@ function composeHair(
           bodyOver.left,
           bodyOver.left.w - 1,
           y,
-          y >= torsoHairRows - 2 ? 0.58 : 0.78,
+          y >= torsoHairRows - 2 ? 0.72 : 0.84,
         ),
       );
       if (y <= 3 && sideHairLength === "jaw") {
@@ -2714,13 +2720,13 @@ function composeHair(
           bodyOver.front,
           0,
           y,
-          bodyHair(bodyOver.front, 0, y, y === 3 ? 0.64 : 0.82),
+          bodyHair(bodyOver.front, 0, y, y === 3 ? 0.7 : 0.84),
         );
         putColor(
           bodyOver.front,
           7,
           y,
-          bodyHair(bodyOver.front, 7, y, y === 3 ? 0.64 : 0.82),
+          bodyHair(bodyOver.front, 7, y, y === 3 ? 0.7 : 0.84),
         );
       }
     }
