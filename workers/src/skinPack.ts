@@ -3700,6 +3700,8 @@ function composeHair(
       drawMiniFlower(sideFace, sx(cx), cy);
     const drawTopFlower = (cx: number, cy: number) =>
       drawFlower(over.top, mx(cx), cy);
+    const drawTopMiniFlower = (cx: number, cy: number) =>
+      drawMiniFlower(over.top, mx(cx), cy);
     const drawFrontRibbon = (cx: number, cy: number) =>
       drawRibbon(over.front, mx(cx), cy);
     const drawSideRibbon = (cx: number, cy: number) =>
@@ -3732,7 +3734,14 @@ function composeHair(
           drawFrontFlower(1, 2);
           putFrontAccessory(2, 2, flowerLight);
           putFrontAccessory(2, 3, flowerShade);
-          putFrontAccessory(2, 1, leaf);
+          // Large flowers need a dark hair gap between blooms. Filling this
+          // coordinate with a leaf joined every pink/green pixel into a
+          // rectangular badge instead of a cluster of separate petals.
+          if (accessoryScale === "large") {
+            putFrontAccessory(2, 0, leaf);
+          } else {
+            putFrontAccessory(2, 1, leaf);
+          }
           putFrontAccessory(1, 4, leafDark);
           // Keep the profile readable. A previous three-flower side cluster
           // occupied most of the 8x8 face in exact side views and made the
@@ -3752,11 +3761,15 @@ function composeHair(
           putBackAccessory(1, 3, leaf);
           putBackAccessory(0, 4, leafDark);
           if (accessoryScale === "large") {
-            putFrontAccessory(2, 0, flowerPetal);
-            putFrontAccessory(3, 0, flowerLight);
-            putFrontAccessory(3, 1, flowerCenter);
-            putTopAccessory(3, 3, flowerPetal);
-            putTopAccessory(4, 3, leaf);
+            // A second, offset bloom produces the petal/centre silhouette of
+            // a large floral hairpiece while the gap at (2, 1) keeps both
+            // blooms individually legible at Minecraft resolution.
+            drawFrontMiniFlower(4, 1);
+            putFrontAccessory(3, 3, leaf);
+            // Continue the cluster over the crown rather than making the
+            // front face carry all of its apparent volume.
+            drawTopMiniFlower(5, 3);
+            putTopAccessory(5, 5, leafDark);
           }
         }
       }

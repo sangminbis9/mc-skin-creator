@@ -196,7 +196,7 @@ describe("hair accessory recovery", () => {
     );
     const front = CLASSIC_LAYOUT.head.overlay.front;
     const petal = ((front.y + 2) * ATLAS_SIZE + front.x) * 4;
-    const leaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
+    const leaf = (front.y * ATLAS_SIZE + front.x + 2) * 4;
 
     expect(result.status).toBe(200);
     expect(result.body.analysis?.renderHints).toMatchObject({

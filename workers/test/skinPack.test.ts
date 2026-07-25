@@ -2693,8 +2693,15 @@ describe("packFrontViewToAtlas", () => {
     const medium = makeFlower("medium");
     const large = makeFlower("large");
     const front = CLASSIC_LAYOUT.head.overlay.front;
+    const top = CLASSIC_LAYOUT.head.overlay.top;
     const mediumLeaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
-    const largeCrownPetal = (front.y * ATLAS_SIZE + front.x + 2) * 4;
+    const largeCrownLeaf = (front.y * ATLAS_SIZE + front.x + 2) * 4;
+    const largeSecondCenter =
+      ((front.y + 1) * ATLAS_SIZE + front.x + 4) * 4;
+    const largeSecondPetal =
+      ((front.y + 1) * ATLAS_SIZE + front.x + 3) * 4;
+    const largeCrownCenter =
+      ((top.y + 3) * ATLAS_SIZE + top.x + 5) * 4;
 
     expect(medium.rgba[mediumLeaf + 1]).toBeGreaterThan(
       small.rgba[mediumLeaf + 1] + 25,
@@ -2702,10 +2709,22 @@ describe("packFrontViewToAtlas", () => {
     expect(medium.rgba[mediumLeaf + 1]).toBeGreaterThan(
       medium.rgba[mediumLeaf],
     );
-    expect(large.rgba[largeCrownPetal + 1]).toBeGreaterThan(
-      medium.rgba[largeCrownPetal + 1] + 50,
+    expect(large.rgba[largeCrownLeaf + 1]).toBeGreaterThan(
+      medium.rgba[largeCrownLeaf + 1] + 50,
     );
-    expect(large.rgba[largeCrownPetal + 3]).toBe(255);
+    expect(large.rgba[largeCrownLeaf + 3]).toBe(255);
+    expect(large.rgba[largeSecondCenter]).toBeGreaterThan(200);
+    expect(large.rgba[largeSecondCenter + 1]).toBeGreaterThan(180);
+    expect(large.rgba[largeSecondPetal]).toBeGreaterThan(
+      large.rgba[largeSecondPetal + 2],
+    );
+    expect(large.rgba[largeCrownCenter]).toBeGreaterThan(200);
+    expect(large.rgba[largeCrownCenter + 1]).toBeGreaterThan(180);
+    // Leave one hair-coloured pixel between the two front blooms so the
+    // accessory does not collapse into a single rectangular colour block.
+    expect(rgbaAt(large, front, 2, 1)).toEqual(
+      rgbaAt(small, front, 2, 1),
+    );
   });
 
   it("hairAccessorySide=right이면 꽃 장식을 반대쪽 head overlay 면으로 옮긴다", () => {
