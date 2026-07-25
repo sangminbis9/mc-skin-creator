@@ -1572,6 +1572,19 @@ describe("packFrontViewToAtlas", () => {
     ).toBeLessThan(20);
     expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
     expect(alphaAt(atlas, body.left, 2, 3)).toBe(255);
+    expect(alphaAt(atlas, body.left, 2, 4)).toBe(255);
+    expect(rgbaAt(atlas, body.right, body.right.w - 1, 2)).toEqual(
+      rgbaAt(atlas, body.front, 0, 2),
+    );
+    expect(rgbaAt(atlas, body.left, 0, 4)).toEqual(
+      rgbaAt(atlas, body.front, body.front.w - 1, 4),
+    );
+    expect(rgbaAt(atlas, body.right, 0, 1)).toEqual(
+      rgbaAt(atlas, body.back, body.back.w - 1, 1),
+    );
+    expect(rgbaAt(atlas, body.left, body.left.w - 1, 1)).toEqual(
+      rgbaAt(atlas, body.back, 0, 1),
+    );
     expect(redAt(atlas, body.back, 2, 4)).toBeGreaterThan(
       redAt(atlas, body.back, 4, 7),
     );
@@ -1647,12 +1660,16 @@ describe("packFrontViewToAtlas", () => {
       sideHairLength: "shoulder",
       sideHairShape: "face_framing",
     })!.atlas;
-    const sideFaces = [
+    const innerSideFaces = [
       CLASSIC_LAYOUT.rightArm.overlay.right,
       CLASSIC_LAYOUT.leftArm.overlay.left,
     ];
+    const outerSideFaces = [
+      CLASSIC_LAYOUT.rightArm.overlay.left,
+      CLASSIC_LAYOUT.leftArm.overlay.right,
+    ];
 
-    for (const side of sideFaces) {
+    for (const side of innerSideFaces) {
       for (let y = 0; y <= 5; y++) {
         expect(alphaAt(atlas, side, 0, y)).toBe(255);
       }
@@ -1663,6 +1680,21 @@ describe("packFrontViewToAtlas", () => {
         expect(alphaAt(atlas, side, 1, y)).toBe(0);
       }
     }
+    for (let sideIndex = 0; sideIndex < outerSideFaces.length; sideIndex++) {
+      const side = outerSideFaces[sideIndex];
+      for (let y = 0; y <= 10; y++) {
+        const waveX = (y + sideIndex) % 2 === 0 ? 1 : 2;
+        expect(alphaAt(atlas, side, waveX, y)).toBe(255);
+      }
+      for (const y of [1, 3]) {
+        const waveX = (y + sideIndex) % 2 === 0 ? 1 : 2;
+        expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(255);
+      }
+      for (const y of [0, 2, 4, 5, 6, 7, 8, 9, 10]) {
+        const waveX = (y + sideIndex) % 2 === 0 ? 1 : 2;
+        expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(0);
+      }
+    }
     const bodySides = [
       CLASSIC_LAYOUT.body.overlay.right,
       CLASSIC_LAYOUT.body.overlay.left,
@@ -1671,12 +1703,12 @@ describe("packFrontViewToAtlas", () => {
       CLASSIC_LAYOUT.head.overlay.right,
       CLASSIC_LAYOUT.head.overlay.left,
     ];
-    for (let sideIndex = 0; sideIndex < sideFaces.length; sideIndex++) {
+    for (let sideIndex = 0; sideIndex < innerSideFaces.length; sideIndex++) {
       const bodyX = sideIndex === 0 ? 0 : bodySides[sideIndex].w - 1;
       const headX = sideIndex === 0 ? 0 : headSides[sideIndex].w - 1;
       const shoulderToArmDelta = Math.abs(
         redAt(atlas, bodySides[sideIndex], bodyX, 5) -
-          redAt(atlas, sideFaces[sideIndex], 0, 5),
+          redAt(atlas, innerSideFaces[sideIndex], 0, 5),
       );
       const headToShoulderDelta = Math.abs(
         redAt(atlas, headSides[sideIndex], headX, 7) -
@@ -1684,7 +1716,15 @@ describe("packFrontViewToAtlas", () => {
       );
       expect(shoulderToArmDelta).toBeLessThan(20);
       expect(headToShoulderDelta).toBeLessThan(25);
-      expect(redAt(atlas, sideFaces[sideIndex], 0, 5)).toBeGreaterThan(65);
+      expect(redAt(atlas, innerSideFaces[sideIndex], 0, 5)).toBeGreaterThan(65);
+      expect(
+        redAt(
+          atlas,
+          outerSideFaces[sideIndex],
+          (5 + sideIndex) % 2 === 0 ? 1 : 2,
+          5,
+        ),
+      ).toBeGreaterThan(65);
     }
 
     const rightFront = CLASSIC_LAYOUT.rightArm.overlay.front;
@@ -2714,6 +2754,7 @@ describe("packFrontViewToAtlas", () => {
     })!;
     const atlas = packed.atlas;
     const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const leftBase = CLASSIC_LAYOUT.leftLeg.base.front;
     const leftSide = CLASSIC_LAYOUT.leftLeg.overlay.left;
     const leftBack = CLASSIC_LAYOUT.leftLeg.overlay.back;
     const right = CLASSIC_LAYOUT.rightLeg.overlay.front;
@@ -2785,6 +2826,14 @@ describe("packFrontViewToAtlas", () => {
       atlas.rgba[warmerRidge + 2],
     );
     expect(atlas.rgba[warmerLift] - atlas.rgba[warmerRidge]).toBeLessThan(85);
+    const averageRowRed = (y: number) =>
+      Array.from({ length: left.w }, (_, x) =>
+        alphaAt(atlas, left, x, y) === 255
+          ? redAt(atlas, left, x, y)
+          : redAt(atlas, leftBase, x, y),
+      ).reduce((sum, red) => sum + red, 0) / left.w;
+    expect(Math.abs(averageRowRed(3) - averageRowRed(4))).toBeLessThan(55);
+    expect(Math.abs(averageRowRed(5) - averageRowRed(6))).toBeLessThan(55);
     expect(atlas.rgba[warmerSideRidge]).toBeLessThan(
       atlas.rgba[warmerSideLift],
     );

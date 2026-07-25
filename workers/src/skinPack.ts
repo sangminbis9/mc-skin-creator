@@ -1632,6 +1632,13 @@ function composeHair(
     atlas.rgba[d + 2] = color[2];
     atlas.rgba[d + 3] = 255;
   };
+  const readColor = (rect: Rect, x: number, y: number): Rgb | null => {
+    if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return null;
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    return atlas.rgba[d + 3] >= 128
+      ? [atlas.rgba[d], atlas.rgba[d + 1], atlas.rgba[d + 2]]
+      : null;
+  };
   const clearPixel = (rect: Rect, x: number, y: number) => {
     if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return;
     const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
@@ -2494,6 +2501,23 @@ function composeHair(
         putColor(bodyOver.back, x, y, color);
       }
 
+      // Keep the sparse torso-side waves above, but make every occupied
+      // front/back edge use the exact same colour on its adjacent side face.
+      // Adding an opaque side core here overfilled the second layer while the
+      // arm cube hides most of that surface in a true ninety-degree view.
+      for (let y = 0; y < torsoHairRows; y++) {
+        const rightFront = readColor(bodyOver.front, 0, y);
+        const leftFront = readColor(bodyOver.front, bodyOver.front.w - 1, y);
+        const rightBack = readColor(bodyOver.back, bodyOver.back.w - 1, y);
+        const leftBack = readColor(bodyOver.back, 0, y);
+        if (rightFront)
+          putColor(bodyOver.right, bodyOver.right.w - 1, y, rightFront);
+        if (leftFront) putColor(bodyOver.left, 0, y, leftFront);
+        if (rightBack) putColor(bodyOver.right, 0, y, rightBack);
+        if (leftBack)
+          putColor(bodyOver.left, bodyOver.left.w - 1, y, leftBack);
+      }
+
       const bodyTop = bodyOver.top;
       const topFrontY = Math.max(0, bodyTop.h - 1);
       const topBackY = 0;
@@ -2524,23 +2548,43 @@ function composeHair(
         arm: typeof rightArmOver,
         innerX: number,
         outerX: number,
-        sideFace: Rect,
+        innerSideFace: Rect,
+        outerSideFace: Rect,
         mirrorPhase: number,
       ) => {
         const topY = 0;
-        const lastY = Math.min(torsoHairRows <= 4 ? 3 : 5, arm.front.h - 1);
-        for (let y = 0; y <= lastY; y++) {
+        const shoulderLastY = Math.min(
+          torsoHairRows <= 4 ? 3 : 5,
+          arm.front.h - 1,
+        );
+        const outerLastY = Math.min(
+          Math.max(shoulderLastY, torsoHairRows - 2),
+          arm.front.h - 1,
+        );
+        for (let y = 0; y <= outerLastY; y++) {
           // Keep the lower shoulder lock in the same value family as the
           // torso-side wave. A 0.58 factor turned medium-brown hair almost
           // black exactly where the body and arm cubes meet, so the side lock
           // looked cut in two when the model rotated.
-          const shade = y >= 4 ? 0.72 : y % 2 === mirrorPhase ? 0.82 : 0.7;
-          putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
+          const shade =
+            y >= 8
+              ? 0.68
+              : y >= 4
+                ? 0.72
+                : y % 2 === mirrorPhase
+                  ? 0.82
+                  : 0.7;
+          if (y <= shoulderLastY) {
+            putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
+          }
           // The inner rail visually joins the torso lock. Keep the far arm
           // column only at the shoulder plus one staggered wave step; filling
           // half of each arm front down to the elbow hid photographed sleeves
           // and made long hair look like a pair of dark armour panels.
-          if (y <= 1 || y === 2 + mirrorPhase) {
+          if (
+            y <= shoulderLastY &&
+            (y <= 1 || y === 2 + mirrorPhase)
+          ) {
             putColor(
               arm.front,
               outerX,
@@ -2551,15 +2595,53 @@ function composeHair(
           // A side-view drape needs a continuous outer rail. Alternating
           // columns by row looked textured from the front but became isolated
           // checkerboard pixels when the model rotated ninety degrees.
-          putColor(sideFace, 0, y, armHair(sideFace, 0, y, shade * 0.9));
-          if (y <= 3) {
-            putColor(sideFace, 1, y, armHair(sideFace, 1, y, shade * 0.78));
+          if (y <= shoulderLastY) {
+            putColor(
+              innerSideFace,
+              0,
+              y,
+              armHair(innerSideFace, 0, y, shade * 0.9),
+            );
+          }
+          const outerWaveX = (y + mirrorPhase) % 2 === 0 ? 1 : 2;
+          const outerSecondX = outerWaveX === 1 ? 2 : 1;
+          putColor(
+            outerSideFace,
+            outerWaveX,
+            y,
+            armHair(
+              outerSideFace,
+              outerWaveX,
+              y,
+              shade * 1.02,
+            ),
+          );
+          if (y <= Math.min(3, shoulderLastY)) {
+            putColor(
+              innerSideFace,
+              1,
+              y,
+              armHair(innerSideFace, 1, y, shade * 0.78),
+            );
+          }
+          if (y === 1 || y === 3) {
+            putColor(
+              outerSideFace,
+              outerSecondX,
+              y,
+              armHair(
+                outerSideFace,
+                outerSecondX,
+                y,
+                shade * 0.82,
+              ),
+            );
           }
         }
         for (const [x, y, color] of [
           [innerX, topY, torsoStrandLight],
           [outerX, topY + 1, shadeRgb(torsoStrandLight, 0.86)],
-          [innerX, lastY, torsoStrandDark],
+          [innerX, shoulderLastY, torsoStrandDark],
         ] as const) {
           putColor(arm.front, x, y, color);
         }
@@ -2583,6 +2665,7 @@ function composeHair(
         0,
         rightArmOver.front.w - 1,
         rightArmOver.right,
+        rightArmOver.left,
         0,
       );
       paintShoulderDrape(
@@ -2590,6 +2673,7 @@ function composeHair(
         leftArmOver.front.w - 1,
         0,
         leftArmOver.left,
+        leftArmOver.right,
         1,
       );
 
@@ -5435,8 +5519,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           )
         : inferredBaseColor;
       const topLace = shadeRgb(mixRgb(baseColor, [255, 250, 244], 0.55), 1.08);
-      const ribLight = shadeRgb(mixRgb(baseColor, [255, 248, 240], 0.45), 1.02);
-      const ribShadow = shadeRgb(baseColor, 0.86);
+      const ribLight = mixRgb(baseColor, [255, 248, 240], 0.22);
+      const ribShadow = shadeRgb(baseColor, 0.96);
       for (const faceName of ["front", "back", "right", "left"] as const) {
         const baseRect = leg.base[faceName];
         const overRect = leg.overlay[faceName];
@@ -5479,7 +5563,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             if (ribbed) {
               const ribXs =
                 faceName === "front" || faceName === "back"
-                  ? [0, 1, 2, 3]
+                  ? []
                   : faceName === "right"
                     ? [0, 1]
                     : [2, 3];
@@ -5489,7 +5573,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                   overRect,
                   x,
                   y,
-                  sideEdge ? shadeRgb(ribShadow, 0.95) : ribShadow,
+                  sideEdge ? shadeRgb(ribShadow, 0.99) : ribShadow,
                 );
               }
             } else if (faceName === "front" || faceName === "back") {
@@ -5515,13 +5599,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                 overRect,
                 foldX,
                 y,
-                ribbed ? shadeRgb(ribShadow, 0.94) : shadeRgb(ribLight, 0.98),
+                ribbed ? shadeRgb(ribShadow, 0.98) : shadeRgb(ribLight, 0.99),
               );
               put(
                 overRect,
                 liftX,
                 y,
-                ribbed ? shadeRgb(ribShadow, 1.08) : shadeRgb(ribLight, 1.04),
+                ribbed ? shadeRgb(ribShadow, 1.02) : shadeRgb(ribLight, 1.02),
               );
             } else {
               const outerX = faceName === "right" ? 0 : overRect.w - 1;
@@ -5530,13 +5614,13 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                 overRect,
                 outerX,
                 y,
-                ribbed ? shadeRgb(ribShadow, 0.94) : ribLight,
+                ribbed ? shadeRgb(ribShadow, 0.98) : ribLight,
               );
               put(
                 overRect,
                 innerX,
                 y,
-                ribbed ? shadeRgb(ribShadow, 1.02) : shadeRgb(ribLight, 0.96),
+                ribbed ? shadeRgb(ribShadow, 1.01) : shadeRgb(ribLight, 0.98),
               );
             }
           }
@@ -5620,8 +5704,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             put(overRect, 2, ankleCuffY, shadeRgb(cuffDark, 0.92));
           }
           for (let y = legwearRows.start + 1; y <= legwearRows.end; y += 2) {
-            put(overRect, 0, y, shadeRgb(ribShadow, 0.92));
-            put(overRect, overRect.w - 1, y, shadeRgb(ribShadow, 0.92));
+            const edgeX =
+              Math.floor((y - legwearRows.start - 1) / 2) % 2 === 0
+                ? 0
+                : overRect.w - 1;
+            put(overRect, edgeX, y, shadeRgb(ribShadow, 0.98));
           }
         }
       }
