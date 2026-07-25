@@ -2585,12 +2585,18 @@ function composeHair(
           // looked cut in two when the model rotated.
           const shade =
             y >= 8
-              ? 0.68
+              ? 0.7
               : y >= 4
-                ? 0.72
-                : y % 2 === mirrorPhase
-                  ? 0.82
-                  : 0.7;
+                ? Math.floor(y / 3) % 2 === mirrorPhase
+                  ? 0.76
+                  : 0.72
+                : y === 0
+                  ? 0.86
+                  : y === 1
+                    ? 0.82
+                    : y === 2
+                      ? 0.78
+                      : 0.74;
           if (y <= shoulderLastY) {
             putColor(arm.front, innerX, y, armHair(arm.front, innerX, y, shade));
           }
@@ -2609,9 +2615,9 @@ function composeHair(
               armHair(arm.front, outerX, y, shade * 0.92),
             );
           }
-          // A side-view drape needs a continuous outer rail. Alternating
-          // columns by row looked textured from the front but became isolated
-          // checkerboard pixels when the model rotated ninety degrees.
+          // A side-view drape needs a continuous outer rail. Shift the strand
+          // only after a three-row vertical run; alternating columns every
+          // row made the narrow arm face read as horizontal brown stripes.
           if (y <= shoulderLastY) {
             putColor(
               innerSideFace,
@@ -2620,7 +2626,14 @@ function composeHair(
               armHair(innerSideFace, 0, y, shade * 0.9),
             );
           }
-          const outerWaveX = (y + mirrorPhase) % 2 === 0 ? 1 : 2;
+          const bendsInProfile =
+            style.hairTexture === "wavy" ||
+            style.hairTexture === "curly" ||
+            style.hairTexture === "coily" ||
+            s === "curly";
+          const waveSegment = bendsInProfile ? Math.floor(y / 3) : 0;
+          const outerWaveX =
+            (waveSegment + mirrorPhase) % 2 === 0 ? 1 : 2;
           const outerSecondX = outerWaveX === 1 ? 2 : 1;
           putColor(
             outerSideFace,
@@ -3759,7 +3772,10 @@ function composeHair(
           } else {
             putFrontAccessory(2, 1, leaf);
           }
-          putFrontAccessory(1, 4, leafDark);
+          // Keep the lower leaf on the temple seam. At (1, 4) it sat on the
+          // outer eye anchor, so eye-length curtain bangs caused the green
+          // accessory pixel to be preserved as if it were a fringe lock.
+          putFrontAccessory(0, 4, leafDark);
           // Keep the profile readable. A previous three-flower side cluster
           // occupied most of the 8x8 face in exact side views and made the
           // accessory look like a mask. One seam-connected bloom plus a few

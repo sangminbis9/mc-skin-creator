@@ -874,6 +874,39 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
+  it("a large flower keeps its lower leaf on the temple seam instead of covering a curtain-framed eye", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      hairColor: "#745249",
+      bangs: "curtain",
+      bangsLength: "eye",
+      hairPart: "left",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairBackShape: "long",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+      hairAccessory: "flower",
+      hairAccessoryScale: "large",
+      hairAccessorySide: "left",
+      hairAccessoryColor: "pink",
+      eyeSpacing: "average",
+      glasses: "none",
+    })!.atlas;
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    const templeLeaf = rgbaAt(atlas, overlay, 0, 4);
+    const curtainEyeCorner = rgbaAt(atlas, overlay, 1, 4);
+
+    expect(templeLeaf[1]).toBeGreaterThan(templeLeaf[0]);
+    expect(curtainEyeCorner[0]).toBeGreaterThan(curtainEyeCorner[1]);
+    expect(alphaAt(atlas, overlay, 1, 4)).toBe(255);
+    expect(alphaAt(atlas, overlay, 2, 4)).toBe(0);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("long face-framing hair keeps a continuous cheek and jaw window below both eyes", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -1724,18 +1757,32 @@ describe("packFrontViewToAtlas", () => {
     }
     for (let sideIndex = 0; sideIndex < outerSideFaces.length; sideIndex++) {
       const side = outerSideFaces[sideIndex];
+      const wavePath: number[] = [];
       for (let y = 0; y <= 10; y++) {
-        const waveX = (y + sideIndex) % 2 === 0 ? 1 : 2;
+        const waveX =
+          (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
+        wavePath.push(waveX);
         expect(alphaAt(atlas, side, waveX, y)).toBe(255);
       }
       for (const y of [1, 3]) {
-        const waveX = (y + sideIndex) % 2 === 0 ? 1 : 2;
+        const waveX =
+          (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
         expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(255);
       }
       for (const y of [0, 2, 4, 5, 6, 7, 8, 9, 10]) {
-        const waveX = (y + sideIndex) % 2 === 0 ? 1 : 2;
+        const waveX =
+          (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
         expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(0);
       }
+      const lateralTurns = wavePath.slice(1).filter(
+        (x, index) => x !== wavePath[index],
+      ).length;
+      expect(lateralTurns).toBeLessThanOrEqual(3);
+      expect(wavePath.slice(0, 3)).toEqual([
+        wavePath[0],
+        wavePath[0],
+        wavePath[0],
+      ]);
     }
     const bodySides = [
       CLASSIC_LAYOUT.body.overlay.right,
@@ -1763,7 +1810,7 @@ describe("packFrontViewToAtlas", () => {
         redAt(
           atlas,
           outerSideFaces[sideIndex],
-          (5 + sideIndex) % 2 === 0 ? 1 : 2,
+          (Math.floor(5 / 3) + sideIndex) % 2 === 0 ? 1 : 2,
           5,
         ),
       ).toBeGreaterThan(65);
