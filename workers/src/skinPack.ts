@@ -1430,10 +1430,27 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
       : style.eyeTilt === "downturned"
         ? 5
         : null;
-  for (const [outer, inner] of eyePairs) {
-    for (const x of [outer, inner]) {
-      clearOverlayPixel(x, 4);
+  const eyeLengthCurtainFringe =
+    style.bangs === "curtain" && style.bangsLength === "eye";
+  const curtainOuterCorners = new Set<number>();
+  if (eyeLengthCurtainFringe) {
+    // Keep the iris openings readable, but let the photographed curtain
+    // fringe overlap an outer eye corner. Clearing all four eye-row pixels
+    // made eye-length bangs indistinguishable from brow-length bangs in 3D.
+    // A side part keeps only its heavier side; a centred/unspecified curtain
+    // naturally frames both outer corners.
+    if (style.hairPart === "left") {
+      curtainOuterCorners.add(eyePairs[0][0]);
+    } else if (style.hairPart === "right") {
+      curtainOuterCorners.add(eyePairs[1][0]);
+    } else {
+      curtainOuterCorners.add(eyePairs[0][0]);
+      curtainOuterCorners.add(eyePairs[1][0]);
     }
+  }
+  for (const [outer, inner] of eyePairs) {
+    clearOverlayPixel(inner, 4);
+    if (!curtainOuterCorners.has(outer)) clearOverlayPixel(outer, 4);
     if (tiltAccentY !== null) {
       clearOverlayPixel(outer, tiltAccentY);
     }

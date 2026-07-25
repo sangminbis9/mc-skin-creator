@@ -832,6 +832,48 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, over.right, 6, 2)).toBe(255);
   });
 
+  it("eye-length curtain bangs overlap only the parted-side eye corner while preserving both irises", () => {
+    const makeCurtain = (hairPart: "left" | "right") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        bangs: "curtain",
+        bangsLength: "eye",
+        hairPart,
+        hairTexture: "wavy",
+        hairVolume: "full",
+        hairBackShape: "long",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+        eyeColor: "#245a8d",
+        eyeSpacing: "average",
+        glasses: "none",
+      })!.atlas;
+    const leftPart = makeCurtain("left");
+    const rightPart = makeCurtain("right");
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+
+    // The heavy curtain lock is directional and mirrors with the analysed
+    // part instead of creating the same symmetric face for every portrait.
+    expect(alphaAt(leftPart, overlay, 1, 4)).toBe(255);
+    expect(alphaAt(leftPart, overlay, 6, 4)).toBe(0);
+    expect(alphaAt(rightPart, overlay, 1, 4)).toBe(0);
+    expect(alphaAt(rightPart, overlay, 6, 4)).toBe(255);
+
+    // Only the outer sclera/corner may be overlapped. Both dark iris anchors
+    // remain visible on the inner head cube for identity and quality gates.
+    for (const atlas of [leftPart, rightPart]) {
+      for (const irisX of [2, 5]) {
+        expect(alphaAt(atlas, overlay, irisX, 4)).toBe(0);
+        expect(redAt(atlas, face, irisX, 4)).toBe(0x24);
+        expect(greenAt(atlas, face, irisX, 4)).toBe(0x5a);
+      }
+      applyUvMask(atlas);
+      expect(validateFinalAtlas(atlas).ok).toBe(true);
+    }
+  });
+
   it("long face-framing hair keeps a continuous cheek and jaw window below both eyes", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -2133,8 +2175,15 @@ describe("packFrontViewToAtlas", () => {
       })!.atlas;
       const over = CLASSIC_LAYOUT.head.overlay;
 
-      for (const x of [1, 2, 5, 6]) {
+      for (const x of [2, 5]) {
         expect(alphaAt(atlas, over.front, x, 4)).toBe(0);
+      }
+      const keepsCurtainCorners =
+        hairStyle.bangs === "curtain" && hairStyle.bangsLength === "eye";
+      for (const x of [1, 6]) {
+        expect(alphaAt(atlas, over.front, x, 4)).toBe(
+          keepsCurtainCorners ? 255 : 0,
+        );
       }
       if (hairStyle.hairSilhouette === "rounded") {
         expect(alphaAt(atlas, over.front, 0, 0)).toBe(0);

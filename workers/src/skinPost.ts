@@ -323,6 +323,7 @@ export interface AtlasCraftStyle {
   glasses?: string;
   mouthShape?: string;
   bangs?: string;
+  bangsLength?: string;
   fringeOpening?: string;
   hairstyle?: string;
   sideHairLength?: string;
@@ -750,9 +751,15 @@ export function validateAtlasCraft(
     for (const [outer, inner] of eyePairs) {
       const irisOffset = offsetAt(faceOverlay, inner, 4);
       const outerOffset = offsetAt(faceOverlay, outer, outerEyeY);
+      const intentionalCurtainOverlap =
+        style.bangs === "curtain" &&
+        style.bangsLength === "eye" &&
+        outerEyeY === 4;
       const irisVisible =
         style.glasses !== "none" ||
-        (atlas.rgba[irisOffset + 3] === 0 && atlas.rgba[outerOffset + 3] === 0);
+        (atlas.rgba[irisOffset + 3] === 0 &&
+          (atlas.rgba[outerOffset + 3] === 0 ||
+            intentionalCurtainOverlap));
       if (irisVisible && distanceFromSkin(inner, 4) >= 45) readableEyes++;
     }
     if (readableEyes < 2)

@@ -204,6 +204,46 @@ describe("handcrafted atlas quality metrics", () => {
     ).toContain("side hair is disconnected");
   });
 
+  it("accepts intentional eye-corner curtain overlap but still rejects a covered iris", () => {
+    const style = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long" as const,
+      bangs: "curtain" as const,
+      bangsLength: "eye" as const,
+      hairPart: "left" as const,
+      hairTexture: "wavy" as const,
+      hairVolume: "full" as const,
+      hairBackShape: "long" as const,
+      sideHairLength: "shoulder" as const,
+      sideHairShape: "face_framing" as const,
+      eyeSpacing: "average" as const,
+      glasses: "none",
+      outerLayer: "heavy" as const,
+      outerGarment: "cardigan" as const,
+    };
+    const source = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
+    const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
+    const outerCorner =
+      ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 1) * 4;
+    const iris =
+      ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 2) * 4;
+
+    expect(source.rgba[outerCorner + 3]).toBe(255);
+    expect(source.rgba[iris + 3]).toBe(0);
+    expect(validateAtlasCraft(source, style).ok).toBe(true);
+
+    const hiddenIris = { ...source, rgba: new Uint8Array(source.rgba) };
+    const hairSource = (faceOverlay.y * ATLAS_SIZE + faceOverlay.x) * 4;
+    hiddenIris.rgba.set(
+      hiddenIris.rgba.slice(hairSource, hairSource + 4),
+      iris,
+    );
+    hiddenIris.rgba[iris + 3] = 255;
+    expect(
+      validateAtlasCraft(hiddenIris, style).problems.join(" / "),
+    ).toContain("readable eye");
+  });
+
   it("rejects shoulder hair that stops at the head instead of crossing the torso and arms", () => {
     const style = {
       ...DEFAULT_FACE_STYLE,
