@@ -23,6 +23,12 @@ const DEFAULT_BUDGET_RATIO = 0.5;
 export const NEURONS_VISION_ANALYSIS = 170;
 export const NEURONS_IMAGE_INPUT_TILE = 6;
 export const NEURONS_IMAGE_OUTPUT_TILE = 27;
+/**
+ * FLUX.2 Klein 9B: first output MP 1,363.64 neurons + up to roughly 0.52 MP
+ * across the portrait and pose guide at 181.82 neurons/MP. Round upward so
+ * the app does not promise capacity it cannot safely provide.
+ */
+export const NEURONS_IMAGE_GEN_QUALITY_CALL = 1_460;
 /** 이미지 생성 1회 호출 — front_view 전략(사진 1장 입력 + 1024x512 정면·뒷면 출력 = 타일 2개) 기준 */
 export const NEURONS_IMAGE_GEN_CALL =
   2 * NEURONS_IMAGE_INPUT_TILE + 2 * NEURONS_IMAGE_OUTPUT_TILE;
@@ -36,6 +42,24 @@ export const NEURONS_IMAGE_GEN_CALL =
  */
 export const NEURONS_PER_GENERATION_ESTIMATE =
   2 * NEURONS_VISION_ANALYSIS + NEURONS_IMAGE_GEN_CALL;
+
+export function imageGenerationNeurons(
+  env: Env,
+  inputTiles = 2,
+  outputTiles = 2,
+): number {
+  if (env.IMAGE_MODEL_TIER === "quality") {
+    return NEURONS_IMAGE_GEN_QUALITY_CALL;
+  }
+  return (
+    inputTiles * NEURONS_IMAGE_INPUT_TILE +
+    outputTiles * NEURONS_IMAGE_OUTPUT_TILE
+  );
+}
+
+export function estimatedNeuronsPerGeneration(env: Env): number {
+  return 2 * NEURONS_VISION_ANALYSIS + imageGenerationNeurons(env);
+}
 
 const ALMOST_THRESHOLD = 0.85;
 
@@ -84,16 +108,18 @@ export async function getQuotaStatus(
       remainingGenerations: 0,
       resetAtIso: nextResetIso(now),
       usedRatio: 1,
+      capacityBasis: "provider_reported_closed",
     };
   }
   const remaining = Math.max(0, limit - used);
   const usedRatio = Math.min(1, used / limit);
+  const estimatedGenerationCost = estimatedNeuronsPerGeneration(env);
   const remainingGenerations = Math.floor(
-    remaining / NEURONS_PER_GENERATION_ESTIMATE,
+    remaining / estimatedGenerationCost,
   );
   return {
     level:
-      remaining < NEURONS_PER_GENERATION_ESTIMATE
+      remaining < estimatedGenerationCost
         ? "closed"
         : usedRatio >= ALMOST_THRESHOLD
           ? "almost"
@@ -101,6 +127,7 @@ export async function getQuotaStatus(
     remainingGenerations,
     resetAtIso: nextResetIso(now),
     usedRatio,
+    capacityBasis: "local_estimate",
   };
 }
 

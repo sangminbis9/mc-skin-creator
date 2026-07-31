@@ -9,7 +9,7 @@
 
 import type { Env } from "./types";
 
-const DEFAULT_VISION_MODEL = "@cf/moonshotai/kimi-k2.6";
+const DEFAULT_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const DEFAULT_FALLBACK_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 
 export type Framing = "face" | "upper_body" | "three_quarter" | "full_body";
@@ -1477,6 +1477,7 @@ export async function runPhotoAnalysis(
   const visionModels = [...new Set([primaryModel, fallbackModel])];
 
   let lastDetail = "";
+  const failureDetails: string[] = [];
   let sawInvalidResponse = false;
   let attempts = 0;
   // A second structured pass is more reliable than switching to free-form
@@ -1504,12 +1505,13 @@ export async function runPhotoAnalysis(
         parsed = extractAnalysisPayload(result);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        lastDetail = `${visionModel}: ${detail}`;
+        lastDetail = `round ${round + 1} ${visionModel}: ${detail}`;
+        failureDetails.push(lastDetail);
         if (isWorkersAiQuotaError(detail)) {
           return {
             ok: false,
             reason: "quota_exceeded",
-            detail: lastDetail,
+            detail: failureDetails.join("\n"),
             attempts,
           };
         }
@@ -1517,7 +1519,8 @@ export async function runPhotoAnalysis(
       }
       if (parsed === null || parsed === undefined) {
         sawInvalidResponse = true;
-        lastDetail = `${visionModel}: response did not contain JSON`;
+        lastDetail = `round ${round + 1} ${visionModel}: response did not contain JSON`;
+        failureDetails.push(lastDetail);
         continue;
       }
       const validated = validatePhotoAnalysis(parsed);
@@ -1525,18 +1528,19 @@ export async function runPhotoAnalysis(
         return { ok: true, analysis: validated.analysis, attempts };
       }
       sawInvalidResponse = true;
-      lastDetail = `${visionModel}: schema validation failed: ${validated.errors.join("; ")}`;
+      lastDetail = `round ${round + 1} ${visionModel}: schema validation failed: ${validated.errors.join("; ")}`;
+      failureDetails.push(lastDetail);
     }
   }
   return {
     ok: false,
     reason: sawInvalidResponse ? "invalid_response" : "ai_error",
-    detail: lastDetail,
+    detail: failureDetails.join("\n") || lastDetail,
     attempts,
   };
 }
 
-function isWorkersAiQuotaError(detail: string): boolean {
+export function isWorkersAiQuotaError(detail: string): boolean {
   const normalized = detail.toLowerCase();
   return (
     normalized.includes("4006") ||

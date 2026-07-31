@@ -878,6 +878,45 @@ describe("generateSkin", () => {
     );
   });
 
+  it("quality tier makes one accurately-accounted image attempt", async () => {
+    const flat = await encodePng({
+      width: 512,
+      height: 512,
+      rgba: new Uint8Array(512 * 512 * 4).fill(100),
+    });
+    const env = makeEnv(makeAnalysis());
+    env.IMAGE_MODEL_TIER = "quality";
+    const provider = providerOf([
+      { ok: true, imageBytes: flat, inputTiles: 2, outputTiles: 2 },
+      await goodFluxOutput(),
+    ]);
+
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+
+    expect(provider.calls).toBe(1);
+    expect(result.body.generationMode).toBe("procedural_fallback");
+    expect(result.neuronsSpent).toBe(170 + 1_460);
+  });
+
+  it("stops image retries and reports shared quota exhaustion", async () => {
+    const env = makeEnv(makeAnalysis());
+    const provider = providerOf([
+      {
+        ok: false,
+        error: "4006: daily free allocation of 10,000 neurons used up",
+        retryable: false,
+        quotaExceeded: true,
+      },
+    ]);
+
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+
+    expect(provider.calls).toBe(1);
+    expect(result.status).toBe(200);
+    expect(result.body.generationMode).toBe("procedural_fallback");
+    expect(result.providerQuotaExhausted).toBe(true);
+  });
+
   it("procedural fallback preserves rich hair, cardigan, plaid and asymmetric legwear hints", async () => {
     const base = makeAnalysis();
     const env = makeEnv(
@@ -1182,10 +1221,10 @@ describe("generateSkin", () => {
     const result = await generateSkin(env, await photoDataUrl());
     expect(result.status).toBe(502);
     expect(result.body.errorCode).toBe("ai_failed");
-    expect(result.neuronsSpent).toBe(4 * 170);
+    expect(result.neuronsSpent).toBe(2 * 170);
     expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
       "diagnostic:last-analysis-failure",
-      expect.stringContaining('"attempts":4'),
+      expect.stringContaining('"attempts":2'),
       { expirationTtl: 60 * 60 * 48 },
     );
   });

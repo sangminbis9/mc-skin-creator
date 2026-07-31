@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  NEURONS_IMAGE_GEN_QUALITY_CALL,
   NEURONS_PER_GENERATION_ESTIMATE,
   commitNeurons,
+  estimatedNeuronsPerGeneration,
   getQuotaStatus,
   markProviderQuotaExhausted,
 } from "../src/quota";
@@ -31,6 +33,19 @@ describe("provider quota circuit breaker", () => {
     expect(status.remainingGenerations).toBe(
       Math.floor(5_000 / NEURONS_PER_GENERATION_ESTIMATE),
     );
+    expect(status.capacityBasis).toBe("local_estimate");
+  });
+
+  it("uses the deployed Klein 9B cost instead of the 4B tile estimate", async () => {
+    const { env } = quotaEnv();
+    env.IMAGE_MODEL_TIER = "quality";
+
+    const status = await getQuotaStatus(env, today);
+
+    expect(estimatedNeuronsPerGeneration(env)).toBe(
+      2 * 170 + NEURONS_IMAGE_GEN_QUALITY_CALL,
+    );
+    expect(status.remainingGenerations).toBe(2);
   });
 
   it("closes immediately after provider exhaustion and reopens next UTC day", async () => {
@@ -43,6 +58,7 @@ describe("provider quota circuit breaker", () => {
       remainingGenerations: 0,
       resetAtIso: "2026-07-16T00:00:00.000Z",
       usedRatio: 1,
+      capacityBasis: "provider_reported_closed",
     });
     expect(
       await getQuotaStatus(env, new Date("2026-07-16T00:00:01.000Z")),

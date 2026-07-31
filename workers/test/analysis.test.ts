@@ -94,6 +94,26 @@ describe("runPhotoAnalysis", () => {
     expect(result).toMatchObject({ attempts: 4 });
   });
 
+  it("de-duplicates identical primary and fallback models", async () => {
+    const run = vi.fn(async () => {
+      throw new Error("temporary provider failure");
+    });
+    const env = makeVisionEnv(run);
+    env.VISION_FALLBACK_MODEL = env.VISION_MODEL;
+
+    const result = await runPhotoAnalysis(
+      env,
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result).toMatchObject({ ok: false, reason: "ai_error", attempts: 2 });
+    expect(run).toHaveBeenCalledTimes(2);
+    if (!result.ok) {
+      expect(result.detail).toContain("round 1 primary-model");
+      expect(result.detail).toContain("round 2 primary-model");
+    }
+  });
+
   it("stops immediately when Workers AI reports the shared daily neuron limit", async () => {
     const run = vi.fn(async () => {
       throw new Error(

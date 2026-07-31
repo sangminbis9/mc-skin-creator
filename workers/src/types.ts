@@ -22,4 +22,6 @@ export interface QuotaStatus {
   remainingGenerations: number;
   resetAtIso: string;
   usedRatio: number;
+  /** Local accounting is only an estimate until Workers AI reports exhaustion. */
+  capacityBasis: "local_estimate" | "provider_reported_closed";
 }

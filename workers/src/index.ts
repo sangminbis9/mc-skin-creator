@@ -143,7 +143,10 @@ async function handleGenerate(
 
   // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
   await commitNeurons(env, result.neuronsSpent);
-  if (result.body.errorCode === "quota_exceeded") {
+  if (
+    result.body.errorCode === "quota_exceeded" ||
+    result.providerQuotaExhausted
+  ) {
     await markProviderQuotaExhausted(env);
   }
   await bumpMetric(env, result.success ? "successes" : "failures");

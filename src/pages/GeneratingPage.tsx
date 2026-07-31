@@ -61,17 +61,18 @@ export function GeneratingPage({
   const [stageIndex, setStageIndex] = useState(0);
   const [isWaitingLong, setIsWaitingLong] = useState(false);
 
-  // 진행도/단계 연출: API 응답 전까지 90%까지 서서히 진행
+  // 진행도/단계 연출: 실제 서버 진행률이 아니므로 88%에서 대기 상태로
+  // 전환한다. 90%에 멈춘 것처럼 보이며 실패로 오해하는 문제를 피한다.
   useEffect(() => {
     const progressTimer = setInterval(() => {
-      setProgress((p) => Math.min(90, p + Math.max(0.5, (90 - p) * 0.04)));
+      setProgress((p) => Math.min(88, p + Math.max(0.5, (88 - p) * 0.04)));
     }, 350);
     const stageTimer = setInterval(() => {
       setStageIndex((i) => Math.min(STAGES.length - 1, i + 1));
     }, 2800);
     const delayedTimer = window.setTimeout(() => {
       setIsWaitingLong(true);
-    }, 35_000);
+    }, 20_000);
     return () => {
       clearInterval(progressTimer);
       clearInterval(stageTimer);
@@ -175,14 +176,16 @@ export function GeneratingPage({
         </div>
         <p style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
           {isWaitingLong
-            ? "AI 서버 응답을 기다리고 있어요. 화면을 닫지 마세요."
+            ? "AI 서버가 사진을 분석하고 있어요. 화면을 닫지 마세요."
             : STAGES[stageIndex]}
         </p>
       </div>
 
       <PixelProgress value={progress} />
       <p className="px-caption" style={{ textAlign: "center", margin: 0 }}>
-        {isWaitingLong ? "요청은 계속 처리 중이에요" : `${Math.round(progress)}%`}
+        {isWaitingLong
+          ? "응답 확인 중 · 요청은 계속 처리되고 있어요"
+          : `${Math.round(progress)}%`}
       </p>
 
       <div className="px-spacer" />

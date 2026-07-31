@@ -89,6 +89,8 @@ export interface QuotaStatus {
   resetAtIso: string;
   /** 사용률 0~1 */
   usedRatio: number;
+  /** 계정 전체 AI 사용량은 제공자 오류 전까지 로컬 추정치다. */
+  capacityBasis: "local_estimate" | "provider_reported_closed";
 }
 
 /** 값 검증 + 기본값 채움: AI 출력이 불완전해도 안전하게 만든다 */

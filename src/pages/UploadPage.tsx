@@ -103,10 +103,15 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
           <PixelBadge tone="red">오늘 생성 마감</PixelBadge>
         ) : quota.level === "almost" ? (
           <PixelBadge tone="gold">
-            거의 마감 · 약 {quota.remainingGenerations}회 남음
+            생성 가능 예상 · 약 {quota.remainingGenerations}회
           </PixelBadge>
         ) : (
-          <PixelBadge tone="green">지금 생성 가능</PixelBadge>
+          <PixelBadge tone="green">생성 가능 예상</PixelBadge>
+        )}
+        {quota?.capacityBasis === "local_estimate" && (
+          <p className="px-caption" style={{ margin: "6px 0 0" }}>
+            실제 AI 한도는 생성 요청 때 최종 확인돼요.
+          </p>
         )}
       </div>
 

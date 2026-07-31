@@ -4,7 +4,7 @@
  * 모델 교체/외부 API 전환 시 이 인터페이스 뒤에서만 바꾼다.
  */
 
-import type { PhotoAnalysis } from "./analysis";
+import { isWorkersAiQuotaError, type PhotoAnalysis } from "./analysis";
 import { buildFrontBackGuidePng } from "./assets/frontBackGuide";
 import { buildFourViewGuidePng } from "./assets/fourViewGuide";
 import { base64ToBytes, sniffImageSize } from "./png";
@@ -29,7 +29,12 @@ export type SkinGenerationResult =
       outputTiles: number;
     }
   /** retryable: seed를 바꿔 재시도할 가치가 있는 실패 (moderation flag, 일시 오류 등) */
-  | { ok: false; error: string; retryable: boolean };
+  | {
+      ok: false;
+      error: string;
+      retryable: boolean;
+      quotaExceeded?: boolean;
+    };
 
 export interface SkinGenerationProvider {
   generate(request: SkinGenerationRequest): Promise<SkinGenerationResult>;
@@ -144,11 +149,14 @@ export class FluxKleinProvider implements SkinGenerationProvider {
       )) as { image?: unknown };
       image = result?.image;
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const quotaExceeded = isWorkersAiQuotaError(detail);
       return {
         ok: false,
-        error: `FLUX 호출 실패: ${error instanceof Error ? error.message : String(error)}`,
+        error: `FLUX 호출 실패: ${detail}`,
         // moderation flag 등은 seed/프롬프트가 달라지면 통과할 수 있다
-        retryable: true,
+        retryable: !quotaExceeded,
+        ...(quotaExceeded ? { quotaExceeded: true } : {}),
       };
     }
     if (typeof image !== "string" || image.length === 0) {

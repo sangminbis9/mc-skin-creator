@@ -39,9 +39,8 @@ import {
   type SkinGenerationProvider,
 } from "./skinProvider";
 import {
-  NEURONS_IMAGE_INPUT_TILE,
-  NEURONS_IMAGE_OUTPUT_TILE,
   NEURONS_VISION_ANALYSIS,
+  imageGenerationNeurons,
 } from "./quota";
 import type { Env } from "./types";
 
@@ -75,6 +74,8 @@ export interface GenerateResult {
   /** 이 요청이 실제로 소비한 Neurons (실패 포함, KV에 커밋된다) */
   neuronsSpent: number;
   success: boolean;
+  /** Workers AI rejected an image-model call because the shared account quota is closed. */
+  providerQuotaExhausted?: boolean;
 }
 
 export async function generateSkin(
@@ -205,12 +206,21 @@ export async function generateSkin(
   // ---------- 2) 이미지 생성 (feature flag) ----------
   let skinPngBase64: string | null = null;
   let generationMode: GenerationMode = "procedural_fallback";
+  let providerQuotaExhausted = false;
   if (env.IMAGE_GENERATION_ENABLED === "true") {
     const mode: GenerationStrategy =
       env.IMAGE_GEN_STRATEGY === "four_view" ? "four_view" : "front_view";
     // 얼굴 구조적 합성용 특징 (색은 hex로 매핑된 값, 나머지는 분류값 그대로)
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
-    for (let attempt = 0; attempt < 2 && skinPngBase64 === null; attempt++) {
+    // Klein 9B costs roughly 22x more than 4B. One quality attempt preserves
+    // the high-detail path without burning most of the daily allocation on a
+    // second sheet that may fail the same structural post-processing gate.
+    const maxImageAttempts = env.IMAGE_MODEL_TIER === "quality" ? 1 : 2;
+    for (
+      let attempt = 0;
+      attempt < maxImageAttempts && skinPngBase64 === null;
+      attempt++
+    ) {
       const generated = await provider.generate({
         analysis: renderAnalysis,
         photoDataUrl: imageDataUrl,
@@ -218,6 +228,9 @@ export async function generateSkin(
         mode,
       });
       if (!generated.ok) {
+        if (generated.quotaExceeded) {
+          providerQuotaExhausted = true;
+        }
         console.log(`image gen attempt ${attempt} failed:`, generated.error);
         await env.MCSKIN_KV.put(
           "diagnostic:last-image-failure",
@@ -235,9 +248,11 @@ export async function generateSkin(
         }
         continue;
       }
-      spent +=
-        generated.inputTiles * NEURONS_IMAGE_INPUT_TILE +
-        generated.outputTiles * NEURONS_IMAGE_OUTPUT_TILE;
+      spent += imageGenerationNeurons(
+        env,
+        generated.inputTiles,
+        generated.outputTiles,
+      );
       const atlas = await postprocess(
         generated.imageBytes,
         attempt,
@@ -267,6 +282,7 @@ export async function generateSkin(
     },
     neuronsSpent: spent,
     success: true,
+    ...(providerQuotaExhausted ? { providerQuotaExhausted: true } : {}),
   };
 }
 
