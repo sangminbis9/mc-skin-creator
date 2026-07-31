@@ -1,10 +1,10 @@
 /**
- * 프로젝트 자체 quota (Neurons/day).
- * Cloudflare 무료 한도(10,000 Neurons/day) 중 DAILY_BUDGET_RATIO(기본 0.5)만 사용한다.
+ * Cloudflare 무료 quota 관측치 (Neurons/day).
+ * DAILY_BUDGET_RATIO는 사용률 표시용 분모이며 생성 요청을 미리 차단하지 않는다.
  * 리셋은 Cloudflare와 동일한 00:00 UTC = 한국시간 오전 9시.
  *
- * KV 카운터는 완전한 원자성이 없지만(동시 요청 시 소량 오차 가능),
- * 한도에 여유분을 둔 소프트 리밋 용도로는 충분하다.
+ * KV 카운터는 모델별 추정치라 실제 Cloudflare 계정 사용량과 다를 수 있다.
+ * 따라서 Workers AI가 실제 3036 한도 오류를 반환한 뒤에만 당일 회로를 닫는다.
  */
 
 import type { Env, QuotaStatus } from "./types";
@@ -181,14 +181,16 @@ export async function getQuotaStatus(
   const remaining = Math.max(0, limit - used);
   const usedRatio = Math.min(1, used / limit);
   const estimatedGenerationCost = estimatedNeuronsPerGeneration(env);
-  const remainingGenerations = Math.floor(remaining / estimatedGenerationCost);
+  // Local accounting is deliberately advisory. On a dedicated free account,
+  // rejecting a request merely because the pessimistic worst-case retry cost
+  // does not fit wastes usable provider capacity. Keep offering one attempt
+  // until Workers AI itself reports the account-level 3036 limit.
+  const remainingGenerations = Math.max(
+    1,
+    Math.floor(remaining / estimatedGenerationCost),
+  );
   return {
-    level:
-      remaining < estimatedGenerationCost
-        ? "closed"
-        : usedRatio >= ALMOST_THRESHOLD
-          ? "almost"
-          : "available",
+    level: usedRatio >= ALMOST_THRESHOLD ? "almost" : "available",
     remainingGenerations,
     resetAtIso: nextResetIso(now),
     usedRatio,

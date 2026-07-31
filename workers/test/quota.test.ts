@@ -55,6 +55,36 @@ describe("provider quota circuit breaker", () => {
     expect(status.remainingGenerations).toBe(1);
   });
 
+  it("does not close early when only the pessimistic local retry estimate is exhausted", async () => {
+    const { env, values } = quotaEnv();
+    env.DAILY_BUDGET_RATIO = "1.0";
+    env.IMAGE_MODEL_TIER = "quality";
+    values.set("quota:2026-07-15", "6972");
+
+    const status = await getQuotaStatus(env, today);
+
+    expect(status).toMatchObject({
+      level: "available",
+      remainingGenerations: 1,
+      usedRatio: 0.6972,
+      capacityBasis: "local_estimate",
+    });
+  });
+
+  it("keeps offering one provider-verified attempt at the end of the local estimate", async () => {
+    const { env, values } = quotaEnv();
+    values.set("quota:2026-07-15", "5000");
+
+    const status = await getQuotaStatus(env, today);
+
+    expect(status).toMatchObject({
+      level: "almost",
+      remainingGenerations: 1,
+      usedRatio: 1,
+      capacityBasis: "local_estimate",
+    });
+  });
+
   it("converts authoritative Llama token usage to Neurons", () => {
     expect(
       visionNeuronsFromUsage(

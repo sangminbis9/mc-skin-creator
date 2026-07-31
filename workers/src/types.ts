@@ -11,7 +11,7 @@ export interface Env {
   IMAGE_GEN_STRATEGY?: string;
   /** "balanced"(기본, Klein 4B) | "quality"(Klein 9B, 유료 품질 우선) */
   IMAGE_MODEL_TIER?: string;
-  /** Cloudflare 무료 10,000 Neurons/day 중 사용할 비율 (0~1, 기본 0.5) */
+  /** Cloudflare 무료 10,000 Neurons/day 사용률 표시 분모 비율 (0~1, 기본 0.5) */
   DAILY_BUDGET_RATIO?: string;
 }
 
