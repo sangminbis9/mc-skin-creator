@@ -3724,4 +3724,30 @@ describe("packFrontViewToAtlas", () => {
     expect(left[1]).toBeGreaterThan(left[2]);
     expect(right[2]).toBeGreaterThan(right[1]);
   });
+
+  it("four-view slots survive thin foreground bridges between adjacent views", () => {
+    const sheet = makeFourViewSheet();
+    const bridgeColor = [82, 76, 72, 255] as const;
+    // Twenty foreground rows exceed the global column-histogram threshold and
+    // deliberately merge all four runs. This mimics long hair, loose sleeves
+    // or faint model artifacts touching the narrow guide gaps.
+    for (const boundary of [256, 512, 768]) {
+      for (let y = 210; y < 230; y++) {
+        for (let x = boundary - 9; x < boundary + 9; x++) {
+          sheet.rgba.set(bridgeColor, (y * sheet.width + x) * 4);
+        }
+      }
+    }
+
+    const packed = packFrontViewToAtlas(sheet, DEFAULT_FACE_STYLE, 4);
+    expect(packed).not.toBeNull();
+    expect(packed!.hasBackView).toBe(true);
+    expect(packed!.hasSideViews).toBe(true);
+    expect(packed!.viewCount).toBe(4);
+
+    const left = avgOfRect(packed!.atlas, CLASSIC_LAYOUT.body.base.left);
+    const right = avgOfRect(packed!.atlas, CLASSIC_LAYOUT.body.base.right);
+    expect(left[1]).toBeGreaterThan(left[2]);
+    expect(right[2]).toBeGreaterThan(right[1]);
+  });
 });

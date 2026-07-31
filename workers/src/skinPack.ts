@@ -6055,6 +6055,69 @@ function findFigureRanges(
   return big.slice(0, 1);
 }
 
+/**
+ * The four-view composition guide reserves one quarter of the output for each
+ * orthographic view. Prefer those stable slots over a global gap histogram:
+ * a loose sleeve, long hair tip, antialiasing or a faint generation artifact
+ * can narrow the inter-view gap enough to merge otherwise usable figures.
+ *
+ * Each slot still has to contain a tall, substantial foreground subject. This
+ * prevents four empty/noisy quarters from being accepted merely because the
+ * expected layout was requested.
+ */
+function findFourViewSlotRanges(
+  src: RawImage,
+  bg: [number, number, number],
+): Array<{ x0: number; x1: number }> {
+  const ranges: Array<{ x0: number; x1: number }> = [];
+  for (let slot = 0; slot < 4; slot++) {
+    const slotX0 = Math.floor((src.width * slot) / 4);
+    const slotX1 = Math.floor((src.width * (slot + 1)) / 4);
+    const columnCounts = new Array<number>(slotX1 - slotX0).fill(0);
+    let foregroundCount = 0;
+    let minY = src.height;
+    let maxY = -1;
+    for (let y = 0; y < src.height; y++) {
+      for (let x = slotX0; x < slotX1; x++) {
+        if (!isCharacterPixel(src, x, y, bg)) continue;
+        foregroundCount++;
+        columnCounts[x - slotX0]++;
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+
+    const slotArea = (slotX1 - slotX0) * src.height;
+    const subjectHeight = maxY - minY + 1;
+    if (
+      foregroundCount < slotArea * 0.025 ||
+      subjectHeight < Math.max(64, src.height * 0.45)
+    ) {
+      return [];
+    }
+
+    // Ignore isolated one-pixel noise at slot edges while retaining narrow
+    // profile views. Eight vertical pixels at 512px output is enough evidence
+    // for a real garment/hair edge but rejects stray speckles.
+    const columnThreshold = Math.max(3, src.height * 0.015);
+    let x0 = -1;
+    let x1 = -1;
+    for (let localX = 0; localX < columnCounts.length; localX++) {
+      if (columnCounts[localX] < columnThreshold) continue;
+      if (x0 === -1) x0 = slotX0 + localX;
+      x1 = slotX0 + localX + 1;
+    }
+    if (
+      x0 < 0 ||
+      x1 - x0 < Math.max(16, Math.floor(src.width * 0.018))
+    ) {
+      return [];
+    }
+    ranges.push({ x0, x1 });
+  }
+  return ranges;
+}
+
 /** 한 figure를 머리/몸통/팔/다리 소스 영역으로 슬라이스 */
 interface FigureSlices {
   head: Region;
@@ -6224,8 +6287,13 @@ export function packFrontViewToAtlas(
     return null;
   }
 
-  // figure 탐지: 1개면 정면만, 2개면 [정면, 뒷면]
-  const ranges = findFigureRanges(src, bg, expectedViews);
+  // Two-view sheets use the free-form histogram. Four-view sheets first use
+  // the guide's fixed slots, then fall back to histogram ranges if a slot is
+  // genuinely missing.
+  const histogramRanges = findFigureRanges(src, bg, expectedViews);
+  const slotRanges =
+    expectedViews === 4 ? findFourViewSlotRanges(src, bg) : [];
+  const ranges = slotRanges.length === 4 ? slotRanges : histogramRanges;
   if (ranges.length === 0) {
     return null;
   }
