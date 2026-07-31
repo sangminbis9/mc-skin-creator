@@ -3461,6 +3461,12 @@ describe("packFrontViewToAtlas", () => {
       [1, 2],
       [6, 5],
     ] as const) {
+      // The lower row carries the downward taper. Keep the main-row outer
+      // corner close to the face highlight so a large dark eye still has a
+      // readable sclera at normal 3D preview scale.
+      expect(redAt(atlas, face, outer, 4)).toBeGreaterThan(
+        redAt(atlas, face, 3, 4) - 25,
+      );
       expect(redAt(atlas, face, outer, 5)).toBeLessThan(
         redAt(atlas, face, inner, 5) - 5,
       );

@@ -921,7 +921,7 @@ function composeFace(
             ? mixRgb(sclera, eye, eyeSize === "large" ? 0.14 : 0.08)
           : eyeTilt === "level"
             ? sclera
-            : mixRgb(sclera, eye, 0.2);
+            : mixRgb(sclera, eye, eyeSize === "large" ? 0.1 : 0.2);
     const iris = style.eyeShape === "narrow" ? shadeRgb(eye, 0.86) : eye;
     put(face, outer, 4, outerEye);
     put(face, inner, 4, iris);
