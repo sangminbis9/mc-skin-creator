@@ -279,10 +279,9 @@ export async function generateSkin(
 export async function createUpperBodyDetailCrop(
   imageDataUrl: string,
 ): Promise<string | null> {
-  const match =
-    /^data:image\/(?:png|jpe?g);base64,([a-z0-9+/=\r\n]+)$/i.exec(
-      imageDataUrl,
-    );
+  const match = /^data:image\/(?:png|jpe?g);base64,([a-z0-9+/=\r\n]+)$/i.exec(
+    imageDataUrl,
+  );
   if (!match) {
     return null;
   }
@@ -370,7 +369,8 @@ export function applyFocusedNeckDetail(
     ...analysis,
     observed: {
       ...analysis.observed,
-      accessories: `${analysis.observed.accessories} Focused upper-body crop confirms a ${label}: ${evidence}.`.trim(),
+      accessories:
+        `${analysis.observed.accessories} Focused upper-body crop confirms a ${label}: ${evidence}.`.trim(),
     },
     renderHints: {
       ...analysis.renderHints,
@@ -768,6 +768,48 @@ function mentionsColorNearItem(
   ).test(text);
 }
 
+function viewerSidesNearRelevantPhrase(
+  text: string,
+  relevant: RegExp,
+  maxDistance = 40,
+): Set<"left" | "right"> {
+  const phraseMatches = Array.from(
+    text.matchAll(
+      new RegExp(relevant.source, `${relevant.flags.replace("g", "")}g`),
+    ),
+  );
+  const sideMatches = Array.from(
+    text.matchAll(/\bviewer(?:'s)?[- ](left|right)\b/gi),
+  );
+  const sides = new Set<"left" | "right">();
+
+  for (const phrase of phraseMatches) {
+    const phraseStart = phrase.index;
+    const phraseEnd = phraseStart + phrase[0].length;
+    const distances = sideMatches.map((side) => {
+      const sideStart = side.index;
+      const sideEnd = sideStart + side[0].length;
+      const distance =
+        sideEnd < phraseStart
+          ? phraseStart - sideEnd
+          : sideStart > phraseEnd
+            ? sideStart - phraseEnd
+            : 0;
+      return {
+        distance,
+        side: side[1].toLowerCase() as "left" | "right",
+      };
+    });
+    const nearest = Math.min(...distances.map(({ distance }) => distance));
+    if (!Number.isFinite(nearest) || nearest > maxDistance) continue;
+    for (const match of distances) {
+      if (match.distance === nearest) sides.add(match.side);
+    }
+  }
+
+  return sides;
+}
+
 /**
  * Resolve contradictions between the free-form visual description and the
  * compact render enums. The prose carries details such as "curtain bangs"
@@ -1035,8 +1077,12 @@ export function normalizeAnalysisForRendering(
       : /\bgarter\b/.test(thighAccessoryText)
         ? "garter"
         : "ribbon";
-    const leftMention = /\bviewer(?:'s)?[- ]left\b/.test(thighAccessoryText);
-    const rightMention = /\bviewer(?:'s)?[- ]right\b/.test(thighAccessoryText);
+    const nearbySides = viewerSidesNearRelevantPhrase(
+      thighAccessoryText,
+      /\b(?:thigh|upper[- ]leg|garter)\b[\s\S]{0,24}\b(?:bow|ribbon|garter)\b|\b(?:bow|ribbon|garter)\b[\s\S]{0,24}\b(?:thigh|upper[- ]leg|garter)\b/i,
+    );
+    const leftMention = nearbySides.has("left");
+    const rightMention = nearbySides.has("right");
     if (leftMention && !rightMention) {
       renderHints.thighAccessorySide = "left";
     } else if (rightMention && !leftMention) {
