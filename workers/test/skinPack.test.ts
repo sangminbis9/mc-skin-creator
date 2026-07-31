@@ -2793,9 +2793,9 @@ describe("packFrontViewToAtlas", () => {
     const mediumLeaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
     const largeCrownLeaf = (front.y * ATLAS_SIZE + front.x + 2) * 4;
     const largeSecondCenter =
-      ((front.y + 1) * ATLAS_SIZE + front.x + 4) * 4;
+      (front.y * ATLAS_SIZE + front.x + 4) * 4;
     const largeSecondPetal =
-      ((front.y + 1) * ATLAS_SIZE + front.x + 3) * 4;
+      (front.y * ATLAS_SIZE + front.x + 3) * 4;
     const largeCrownCenter =
       ((top.y + 3) * ATLAS_SIZE + top.x + 5) * 4;
 
@@ -2821,6 +2821,13 @@ describe("packFrontViewToAtlas", () => {
     expect(rgbaAt(large, front, 2, 1)).toEqual(
       rgbaAt(small, front, 2, 1),
     );
+    for (let y = 1; y <= 4; y++) {
+      for (let x = 3; x <= 5; x++) {
+        expect(rgbaAt(large, front, x, y)).toEqual(
+          rgbaAt(medium, front, x, y),
+        );
+      }
+    }
   });
 
   it("hairAccessorySide=right이면 꽃 장식을 반대쪽 head overlay 면으로 옮긴다", () => {
@@ -3552,6 +3559,8 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(compactFull, face, 3, 6)).toBeGreaterThan(
       redAt(small, face, 3, 6) + 20,
     );
+    expect(redAt(full, face, 2, 6)).toBe(redAt(small, face, 2, 6));
+    expect(redAt(full, face, 5, 6)).toBe(redAt(small, face, 5, 6));
   });
 
   it("clean faces keep low-res landmark shadows for under-eye, philtrum, mouth corners and chin", () => {

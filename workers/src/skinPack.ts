@@ -1095,10 +1095,6 @@ function composeFace(
   } else if (mouthShape === "full" || lipFullness === "full") {
     put(face, 3, 6, lipFull);
     put(face, 4, 6, shadeRgb(lipLight, 0.94));
-    if (mouthShape === "full") {
-      put(face, 2, 6, mixRgb(lipFull, skinColor, 0.42));
-      put(face, 5, 6, mixRgb(lipFull, skinColor, 0.48));
-    }
   } else if (
     mouthShape === "thin" ||
     lipFullness === "thin" ||
@@ -3795,10 +3791,10 @@ function composeHair(
           putBackAccessory(0, 4, leafDark);
           if (accessoryScale === "large") {
             // A second, offset bloom produces the petal/centre silhouette of
-            // a large floral hairpiece while the gap at (2, 1) keeps both
-            // blooms individually legible at Minecraft resolution.
-            drawFrontMiniFlower(4, 1);
-            putFrontAccessory(3, 3, leaf);
+            // a large floral hairpiece. Keep it on the crown row so the
+            // cluster does not spread across the forehead and overpower the
+            // eye/bang silhouette in the enlarged 3D head layer.
+            drawFrontMiniFlower(4, 0);
             // Continue the cluster over the crown rather than making the
             // front face carry all of its apparent volume.
             drawTopMiniFlower(5, 3);
