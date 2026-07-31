@@ -411,6 +411,89 @@ describe("generateSkin", () => {
     expect(normalized.renderHints.legwearAsymmetry).toBe("left");
   });
 
+  it("adds a top-grounded construction cue when unseen lower-body analysis is completely generic", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        framing: "upper_body",
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "dark gray cable-knit crewneck sweater",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "none",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
+            shoeStyle: "sneakers",
+            rationale: "plain pants and sneakers match the sweater",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          garmentTexture: "knit",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          topType: "sweater",
+          bottomType: "pants",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.bottomAccent).toBe("cuffs");
+    expect(normalized.inferred.lowerBodyDesign?.bottomAccent).toBe("cuffs");
+    expect(normalized.inferred.lowerBodyDesign?.rationale).toContain(
+      "readable low-resolution construction cue",
+    );
+    expect(normalized.inferred.lowerBody?.value).toContain("cuffed hems");
+    expect(normalized.outfitPrompt).toContain("cuffed hems");
+  });
+
+  it("does not overwrite a concrete inferred lower-body design", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        inferred: {
+          ...base.inferred,
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "belt",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
+            shoeStyle: "dress_shoes",
+            rationale: "tailored trousers use a visible belt",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          bottomAccent: "belt",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.bottomAccent).toBe("belt");
+    expect(normalized.inferred.lowerBodyDesign?.bottomAccent).toBe("belt");
+  });
+
   it("preserves muted portrait colours instead of collapsing them to vivid fallback swatches", async () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({

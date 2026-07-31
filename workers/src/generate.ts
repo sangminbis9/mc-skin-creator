@@ -892,6 +892,8 @@ export function normalizeAnalysisForRendering(
   analysis: PhotoAnalysis,
 ): PhotoAnalysis {
   const renderHints = { ...analysis.renderHints };
+  let inferred = analysis.inferred;
+  let outfitPrompt = analysis.outfitPrompt;
   const faceText = joinedAnalysisText([
     analysis.observed.face,
     analysis.identityPrompt,
@@ -1251,9 +1253,66 @@ export function normalizeAnalysisForRendering(
     } else if (/\bsocks?\b/.test(visibleLowerText)) {
       renderHints.legwear = "socks";
     }
+  } else {
+    const lowerDesign = analysis.inferred.lowerBodyDesign;
+    const completelyGenericLower =
+      lowerDesign !== null &&
+      lowerDesign !== undefined &&
+      lowerDesign.bottomType === "pants" &&
+      lowerDesign.bottomPattern === "plain" &&
+      lowerDesign.bottomAccent === "none" &&
+      lowerDesign.legwear === "none" &&
+      lowerDesign.thighAccessory === "none" &&
+      lowerDesign.shoeStyle === "sneakers" &&
+      renderHints.bottomPattern === "plain" &&
+      renderHints.bottomAccent === "none" &&
+      renderHints.legwear === "none" &&
+      renderHints.thighAccessory === "none";
+
+    if (completelyGenericLower) {
+      const topType = analysis.fallbackFeatures.topType.toLowerCase();
+      const smartCasualTop =
+        ["shirt", "jacket", "dress"].includes(topType) ||
+        renderHints.outerGarment !== "none" ||
+        renderHints.neckAccessory !== "none";
+      const groundedAccent =
+        topType === "sweater" ||
+        topType === "hoodie" ||
+        renderHints.garmentTexture === "knit" ||
+        renderHints.garmentTexture === "denim"
+          ? "cuffs"
+          : smartCasualTop
+            ? "belt"
+            : "side_stripe";
+      const accentLabel =
+        groundedAccent === "cuffs"
+          ? "cuffed hems"
+          : groundedAccent === "belt"
+            ? "a belt"
+            : "a side stripe";
+      const completionSentence = `Complete the unseen lower garment with ${accentLabel} as a readable low-resolution construction cue grounded in the visible top.`;
+
+      renderHints.bottomAccent = groundedAccent;
+      inferred = {
+        ...analysis.inferred,
+        lowerBody: analysis.inferred.lowerBody
+          ? {
+              ...analysis.inferred.lowerBody,
+              value: `${analysis.inferred.lowerBody.value} with ${accentLabel}`,
+              rationale: `${analysis.inferred.lowerBody.rationale} ${completionSentence}`,
+            }
+          : null,
+        lowerBodyDesign: {
+          ...lowerDesign,
+          bottomAccent: groundedAccent,
+          rationale: `${lowerDesign.rationale} ${completionSentence}`,
+        },
+      };
+      outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
+    }
   }
 
-  return { ...analysis, renderHints };
+  return { ...analysis, inferred, renderHints, outfitPrompt };
 }
 
 /**
