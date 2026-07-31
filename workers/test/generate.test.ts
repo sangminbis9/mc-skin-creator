@@ -63,6 +63,8 @@ function focusedPortraitDetail() {
     hairConfidence: "high" as const,
     skinTone: "light" as const,
     skinUndertone: "neutral" as const,
+    eyeColor: "dark-brown" as const,
+    hairColor: "black" as const,
     faceShape: "oval" as const,
     eyeShape: "almond" as const,
     eyeSize: "small" as const,
@@ -73,12 +75,18 @@ function focusedPortraitDetail() {
     mouthShape: "thin" as const,
     lipFullness: "thin" as const,
     jawShape: "soft" as const,
+    bangs: "straight" as const,
+    bangsLength: "brow" as const,
     hairSilhouette: "rounded" as const,
     bangsDensity: "dense" as const,
     fringeEdge: "staggered" as const,
     fringeOpening: "none" as const,
+    hairTexture: "straight" as const,
+    hairVolume: "normal" as const,
     hairPart: "none" as const,
+    sideHairLength: "short" as const,
     sideHairShape: "ear_hugging" as const,
+    sideHairAsymmetry: "none" as const,
     earExposure: "partial" as const,
     faceEvidence: "Light neutral skin, small almond eyes and a soft oval jaw.",
     hairEvidence: "A domed crown connects through the temples around the ears.",
@@ -176,12 +184,23 @@ describe("generateSkin", () => {
         ...base.renderHints,
         faceShape: "round",
         eyeSize: "large",
+        bangs: "side",
+        bangsLength: "eye",
+        hairTexture: "curly",
+        hairVolume: "flat",
         hairSilhouette: "flat",
+        sideHairLength: "none",
         sideHairShape: "tapered",
+        sideHairAsymmetry: "right",
         hairBackShape: "tapered",
         overallHairLength: "ear",
       },
-      fallbackFeatures: { ...base.fallbackFeatures, skinTone: "medium" },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        skinTone: "medium",
+        eyeColor: "blue",
+        hairColor: "brown",
+      },
     });
 
     const merged = applyFocusedPortraitDetail(main, focusedPortraitDetail());
@@ -190,12 +209,21 @@ describe("generateSkin", () => {
       faceShape: "oval",
       eyeSize: "small",
       hairSilhouette: "rounded",
+      bangs: "straight",
+      bangsLength: "brow",
+      hairTexture: "straight",
+      hairVolume: "normal",
+      sideHairLength: "short",
       sideHairShape: "ear_hugging",
+      sideHairAsymmetry: "none",
       hairBackShape: "tapered",
       overallHairLength: "ear",
     });
     expect(merged.fallbackFeatures.skinTone).toBe("light");
+    expect(merged.fallbackFeatures.eyeColor).toBe("dark-brown");
+    expect(merged.fallbackFeatures.hairColor).toBe("black");
     expect(merged.observed.face).toContain("neutral light skin");
+    expect(merged.observed.face).toContain("dark brown eyes");
     expect(merged.observed.hair).toContain("domed crown");
     expect(merged.observed.clothing).toBe(main.observed.clothing);
     expect(merged.outfitPrompt).toBe(main.outfitPrompt);

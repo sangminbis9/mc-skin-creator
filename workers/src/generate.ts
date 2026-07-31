@@ -444,11 +444,13 @@ export function applyFocusedPortraitDetail(
     fallbackFeatures = {
       ...fallbackFeatures,
       skinTone: detail.skinTone,
+      eyeColor: detail.eyeColor,
     };
     const skinDescription = `${detail.skinUndertone} ${detail.skinTone} skin`;
+    const eyeDescription = `${detail.eyeColor.replace("-", " ")} eyes`;
     observed = {
       ...observed,
-      face: `${observed.face} Focused portrait crop confirms ${skinDescription}; ${detail.faceEvidence}.`.trim(),
+      face: `${observed.face} Focused portrait crop confirms ${skinDescription}, ${eyeDescription}; ${detail.faceEvidence}.`.trim(),
       colorPalette: observed.colorPalette.some(
         (value) => value.toLowerCase() === skinDescription,
       )
@@ -456,25 +458,41 @@ export function applyFocusedPortraitDetail(
         : [...observed.colorPalette, skinDescription],
     };
     identityPrompt =
-      `${identityPrompt} Preserve the focused facial proportions and ${skinDescription}: ${detail.faceEvidence}.`.trim();
+      `${identityPrompt} Preserve the focused facial proportions, ${skinDescription}, and ${eyeDescription}: ${detail.faceEvidence}.`.trim();
   }
 
   if (hairReliable) {
     Object.assign(renderHints, {
+      bangs: detail.bangs,
+      bangsLength: detail.bangsLength,
       hairSilhouette: detail.hairSilhouette,
       bangsDensity: detail.bangsDensity,
       fringeEdge: detail.fringeEdge,
       fringeOpening: detail.fringeOpening,
+      hairTexture: detail.hairTexture,
+      hairVolume: detail.hairVolume,
       hairPart: detail.hairPart,
+      sideHairLength: detail.sideHairLength,
       sideHairShape: detail.sideHairShape,
+      sideHairAsymmetry: detail.sideHairAsymmetry,
       earExposure: detail.earExposure,
     });
+    fallbackFeatures = {
+      ...fallbackFeatures,
+      hairColor: detail.hairColor,
+    };
+    const hairDescription = `${detail.hairColor.replace("-", " ")} hair`;
     observed = {
       ...observed,
-      hair: `${observed.hair} Focused portrait crop confirms ${detail.hairEvidence}.`.trim(),
+      hair: `${observed.hair} Focused portrait crop confirms ${hairDescription}; ${detail.hairEvidence}.`.trim(),
+      colorPalette: observed.colorPalette.some(
+        (value) => value.toLowerCase() === hairDescription,
+      )
+        ? observed.colorPalette
+        : [...observed.colorPalette, hairDescription],
     };
     identityPrompt =
-      `${identityPrompt} Preserve the focused crown-to-temple and fringe geometry: ${detail.hairEvidence}.`.trim();
+      `${identityPrompt} Preserve the focused ${hairDescription}, crown-to-temple, side-length and fringe geometry: ${detail.hairEvidence}.`.trim();
   }
 
   return {

@@ -1341,6 +1341,23 @@ export interface PortraitDetailAnalysis {
   hairConfidence: "low" | "medium" | "high";
   skinTone: "pale" | "light" | "medium" | "tan" | "brown" | "dark";
   skinUndertone: "warm" | "cool" | "neutral";
+  eyeColor:
+    "black" | "dark-brown" | "brown" | "hazel" | "green" | "blue" | "gray";
+  hairColor:
+    | "black"
+    | "dark-brown"
+    | "brown"
+    | "light-brown"
+    | "blonde"
+    | "platinum"
+    | "red"
+    | "auburn"
+    | "gray"
+    | "white"
+    | "dyed-blue"
+    | "dyed-pink"
+    | "dyed-purple"
+    | "dyed-green";
   faceShape: PixelRenderHints["faceShape"];
   eyeShape: PixelRenderHints["eyeShape"];
   eyeSize: PixelRenderHints["eyeSize"];
@@ -1351,12 +1368,18 @@ export interface PortraitDetailAnalysis {
   mouthShape: PixelRenderHints["mouthShape"];
   lipFullness: PixelRenderHints["lipFullness"];
   jawShape: PixelRenderHints["jawShape"];
+  bangs: PixelRenderHints["bangs"];
+  bangsLength: PixelRenderHints["bangsLength"];
   hairSilhouette: PixelRenderHints["hairSilhouette"];
   bangsDensity: PixelRenderHints["bangsDensity"];
   fringeEdge: PixelRenderHints["fringeEdge"];
   fringeOpening: PixelRenderHints["fringeOpening"];
+  hairTexture: PixelRenderHints["hairTexture"];
+  hairVolume: PixelRenderHints["hairVolume"];
   hairPart: PixelRenderHints["hairPart"];
+  sideHairLength: PixelRenderHints["sideHairLength"];
   sideHairShape: PixelRenderHints["sideHairShape"];
+  sideHairAsymmetry: PixelRenderHints["sideHairAsymmetry"];
   earExposure: PixelRenderHints["earExposure"];
   faceEvidence: string;
   hairEvidence: string;
@@ -1381,11 +1404,12 @@ export const PORTRAIT_DETAIL_PROMPT = `This is an enlarged head-and-upper-body c
 Re-check only the face and visible hair geometry. Do not infer clothing or the unseen back/lower endpoint of the hair.
 
 Face:
-- Classify the person's actual skin lightness and undertone, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth and lip fullness.
+- Classify the person's actual skin lightness/undertone and iris color, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth and lip fullness.
 - Judge eye size from the open eye aperture, not eyeliner, eyelashes, catchlights, expression, or the apparent size of the dark iris.
 - Use low confidence when resolution, occlusion, pose, or lighting cannot support a correction.
 
 Hair:
+- Classify the dominant root hair color separately from highlights, reflections and background spill.
 - hairSilhouette is the OUTER crown and temple contour. It is not the lower edge of the fringe. Straight or blunt bangs can still sit under a rounded crown.
 - A short two-block, bowl-like or ear-length cut with a domed top and tapered/ear-hugging sides is rounded unless the crown itself is visibly flat, boxy or close-cropped.
 - Trace continuity from crown to temple to sideburn/ear on both sides. sideHairShape describes that contour; earExposure describes the visible ear opening rather than hair length.
@@ -1407,6 +1431,29 @@ const PORTRAIT_DETAIL_SCHEMA = {
     skinUndertone: {
       type: "string",
       enum: ["warm", "cool", "neutral"],
+    },
+    eyeColor: {
+      type: "string",
+      enum: ["black", "dark-brown", "brown", "hazel", "green", "blue", "gray"],
+    },
+    hairColor: {
+      type: "string",
+      enum: [
+        "black",
+        "dark-brown",
+        "brown",
+        "light-brown",
+        "blonde",
+        "platinum",
+        "red",
+        "auburn",
+        "gray",
+        "white",
+        "dyed-blue",
+        "dyed-pink",
+        "dyed-purple",
+        "dyed-green",
+      ],
     },
     faceShape: {
       type: "string",
@@ -1436,6 +1483,14 @@ const PORTRAIT_DETAIL_SCHEMA = {
       type: "string",
       enum: ["rounded", "pointed", "square", "soft"],
     },
+    bangs: {
+      type: "string",
+      enum: ["none", "straight", "side", "curtain", "wispy"],
+    },
+    bangsLength: {
+      type: "string",
+      enum: ["none", "short", "brow", "eye"],
+    },
     hairSilhouette: {
       type: "string",
       enum: ["rounded", "flat", "swept", "tousled", "spiky"],
@@ -1452,13 +1507,29 @@ const PORTRAIT_DETAIL_SCHEMA = {
       type: "string",
       enum: ["none", "left", "center", "right"],
     },
+    hairTexture: {
+      type: "string",
+      enum: ["straight", "wavy", "curly", "coily"],
+    },
+    hairVolume: {
+      type: "string",
+      enum: ["flat", "normal", "full"],
+    },
     hairPart: {
       type: "string",
       enum: ["none", "center", "left", "right"],
     },
+    sideHairLength: {
+      type: "string",
+      enum: ["none", "short", "cheek", "jaw", "shoulder"],
+    },
     sideHairShape: {
       type: "string",
       enum: ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
+    },
+    sideHairAsymmetry: {
+      type: "string",
+      enum: ["none", "left", "right"],
     },
     earExposure: {
       type: "string",
@@ -1472,6 +1543,8 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "hairConfidence",
     "skinTone",
     "skinUndertone",
+    "eyeColor",
+    "hairColor",
     "faceShape",
     "eyeShape",
     "eyeSize",
@@ -1482,12 +1555,18 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "mouthShape",
     "lipFullness",
     "jawShape",
+    "bangs",
+    "bangsLength",
     "hairSilhouette",
     "bangsDensity",
     "fringeEdge",
     "fringeOpening",
+    "hairTexture",
+    "hairVolume",
     "hairPart",
+    "sideHairLength",
     "sideHairShape",
+    "sideHairAsymmetry",
     "earExposure",
     "faceEvidence",
     "hairEvidence",
@@ -1692,6 +1771,31 @@ export async function runPortraitDetailAnalysis(
       hairConfidence: ["low", "medium", "high"],
       skinTone: ["pale", "light", "medium", "tan", "brown", "dark"],
       skinUndertone: ["warm", "cool", "neutral"],
+      eyeColor: [
+        "black",
+        "dark-brown",
+        "brown",
+        "hazel",
+        "green",
+        "blue",
+        "gray",
+      ],
+      hairColor: [
+        "black",
+        "dark-brown",
+        "brown",
+        "light-brown",
+        "blonde",
+        "platinum",
+        "red",
+        "auburn",
+        "gray",
+        "white",
+        "dyed-blue",
+        "dyed-pink",
+        "dyed-purple",
+        "dyed-green",
+      ],
       faceShape: ["round", "oval", "long", "angular", "square"],
       eyeShape: ["narrow", "almond", "round"],
       eyeSize: ["small", "average", "large"],
@@ -1702,11 +1806,16 @@ export async function runPortraitDetailAnalysis(
       mouthShape: ["small", "wide", "full", "thin"],
       lipFullness: ["thin", "average", "full"],
       jawShape: ["rounded", "pointed", "square", "soft"],
+      bangs: ["none", "straight", "side", "curtain", "wispy"],
+      bangsLength: ["none", "short", "brow", "eye"],
       hairSilhouette: ["rounded", "flat", "swept", "tousled", "spiky"],
       bangsDensity: ["sparse", "balanced", "dense"],
       fringeEdge: ["blunt", "staggered", "wispy"],
       fringeOpening: ["none", "left", "center", "right"],
+      hairTexture: ["straight", "wavy", "curly", "coily"],
+      hairVolume: ["flat", "normal", "full"],
       hairPart: ["none", "center", "left", "right"],
+      sideHairLength: ["none", "short", "cheek", "jaw", "shoulder"],
       sideHairShape: [
         "tapered",
         "ear_hugging",
@@ -1714,6 +1823,7 @@ export async function runPortraitDetailAnalysis(
         "flared",
         "undercut",
       ],
+      sideHairAsymmetry: ["none", "left", "right"],
       earExposure: ["covered", "partial", "visible"],
     };
     const validEnums = Object.entries(enumFields).every(([field, values]) =>
