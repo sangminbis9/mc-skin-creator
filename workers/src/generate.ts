@@ -255,6 +255,7 @@ export async function generateSkin(
       configuredTier === "quality"
         ? ["quality", "balanced"]
         : ["balanced", "balanced"];
+    let generationReferenceDataUrl = imageDataUrl;
     for (
       let attempt = 0;
       attempt < attemptPlan.length && skinPngBase64 === null;
@@ -263,7 +264,7 @@ export async function generateSkin(
       const modelTier = attemptPlan[attempt];
       const generated = await provider.generate({
         analysis: renderAnalysis,
-        photoDataUrl: imageDataUrl,
+        photoDataUrl: generationReferenceDataUrl,
         seed: (baseSeed + attempt * 7919) >>> 0,
         mode,
         modelTier,
@@ -283,9 +284,28 @@ export async function generateSkin(
             attempt: attempt + 1,
             detail: generated.error.slice(0, 1500),
             retryable: generated.retryable,
+            referenceMode:
+              generationReferenceDataUrl === imageDataUrl
+                ? "source_photo"
+                : "procedural_identity",
           }),
           { expirationTtl: 60 * 60 * 48 },
         ).catch(() => undefined);
+        if (
+          generated.retryable &&
+          generationReferenceDataUrl === imageDataUrl &&
+          /(?:3030|flagged|moderation)/i.test(generated.error)
+        ) {
+          // A benign portrait can still trip output moderation after the
+          // model begins rendering. Repeating the same private photograph
+          // often reproduces the rejection. Recover with an anonymized
+          // pixel-character reference built from the already validated
+          // analysis, retaining identity colours and geometry without
+          // sending the original portrait again.
+          generationReferenceDataUrl =
+            (await buildProceduralGenerationReference(features, faceStyle)) ??
+            generationReferenceDataUrl;
+        }
         if (!generated.retryable) {
           // 사진 크기/형식 문제는 재시도해도 동일하므로 즉시 fallback
           break;
@@ -715,6 +735,58 @@ function buildProceduralFrontView(
   }
   fill(196, 456, 316, 480, shoes);
   return { width, height: width, rgba };
+}
+
+/**
+ * Build a privacy-preserving retry reference after FLUX output moderation.
+ * It carries the analysed palette and body/hair proportions, but contains no
+ * source-photo pixels. The 448px edge stays below the provider's 512px input
+ * limit and the opaque neutral background makes the silhouette unambiguous.
+ */
+export async function buildProceduralGenerationReference(
+  features: Record<string, unknown>,
+  style: FaceStyle,
+): Promise<string | null> {
+  try {
+    const source = buildProceduralFrontView(features, style);
+    const width = 448;
+    const height = 448;
+    const rgba = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      const sourceY = Math.min(
+        source.height - 1,
+        Math.floor((y * source.height) / height),
+      );
+      for (let x = 0; x < width; x++) {
+        const sourceX = Math.min(
+          source.width - 1,
+          Math.floor((x * source.width) / width),
+        );
+        const sourceOffset = (sourceY * source.width + sourceX) * 4;
+        const targetOffset = (y * width + x) * 4;
+        if (source.rgba[sourceOffset + 3] === 0) {
+          rgba[targetOffset] = 238;
+          rgba[targetOffset + 1] = 240;
+          rgba[targetOffset + 2] = 244;
+          rgba[targetOffset + 3] = 255;
+        } else {
+          rgba[targetOffset] = source.rgba[sourceOffset];
+          rgba[targetOffset + 1] = source.rgba[sourceOffset + 1];
+          rgba[targetOffset + 2] = source.rgba[sourceOffset + 2];
+          rgba[targetOffset + 3] = 255;
+        }
+      }
+    }
+    return `data:image/png;base64,${bytesToBase64(
+      await encodePng({ width, height, rgba }),
+    )}`;
+  } catch (error) {
+    console.log(
+      "procedural generation reference failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }
 
 async function buildProceduralFallbackPng(

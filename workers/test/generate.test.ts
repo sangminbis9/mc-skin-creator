@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyFocusedNeckDetail,
   applyFocusedPortraitDetail,
+  buildProceduralGenerationReference,
   createUpperBodyDetailCrop,
   generateSkin,
   normalizeAnalysisForRendering,
 } from "../src/generate";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
+import { DEFAULT_FACE_STYLE } from "../src/skinPack";
 import type {
   ImageModelTier,
   SkinGenerationRequest,
@@ -93,16 +95,20 @@ function focusedPortraitDetail() {
   };
 }
 
-function providerOf(
-  results: SkinGenerationResult[],
-): SkinGenerationProvider & { calls: number; modelTiers: ImageModelTier[] } {
+function providerOf(results: SkinGenerationResult[]): SkinGenerationProvider & {
+  calls: number;
+  modelTiers: ImageModelTier[];
+  photoDataUrls: string[];
+} {
   const provider = {
     calls: 0,
     modelTiers: [] as ImageModelTier[],
+    photoDataUrls: [] as string[],
     async generate(
       request: SkinGenerationRequest,
     ): Promise<SkinGenerationResult> {
       provider.modelTiers.push(request.modelTier ?? "balanced");
+      provider.photoDataUrls.push(request.photoDataUrl);
       return results[Math.min(provider.calls++, results.length - 1)];
     },
   };
@@ -126,6 +132,33 @@ describe("generateSkin", () => {
     expect(decoded.width).toBe(66);
     expect(decoded.height).toBe(67);
     expect(await createUpperBodyDetailCrop(await photoDataUrl())).toBeNull();
+  });
+
+  it("builds an opaque sub-512px anonymized reference for moderated retries", async () => {
+    const reference = await buildProceduralGenerationReference(
+      {
+        skinTone: "#edc8b4",
+        hairColor: "#171719",
+        eyeColor: "#3f3029",
+        topColor: "#343438",
+        topAccentColor: "#d8d8dc",
+        bottomColor: "#333339",
+        shoesColor: "#111113",
+      },
+      { ...DEFAULT_FACE_STYLE, hairstyle: "short" },
+    );
+
+    expect(reference).toMatch(/^data:image\/png;base64,/);
+    const decoded = await decodePng(
+      Uint8Array.from(atob((reference as string).split(",")[1]), (value) =>
+        value.charCodeAt(0),
+      ),
+    );
+    expect([decoded.width, decoded.height]).toEqual([448, 448]);
+    expect(decoded.rgba[3]).toBe(255);
+    expect(
+      decoded.rgba.some((value, index) => index % 4 === 3 && value < 255),
+    ).toBe(false);
   });
 
   it("uses decisive focused geometry to correct a full-body collar misread", async () => {
@@ -1280,10 +1313,15 @@ describe("generateSkin", () => {
       await goodFluxOutput(),
     ]);
 
-    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const sourcePhoto = await photoDataUrl();
+    const result = await generateSkin(env, sourcePhoto, provider);
 
     expect(provider.calls).toBe(3);
     expect(provider.modelTiers).toEqual(["quality", "quality", "balanced"]);
+    expect(provider.photoDataUrls[0]).toBe(sourcePhoto);
+    expect(provider.photoDataUrls[1]).not.toBe(sourcePhoto);
+    expect(provider.photoDataUrls[1]).toMatch(/^data:image\/png;base64,/);
+    expect(provider.photoDataUrls[2]).toBe(provider.photoDataUrls[1]);
     expect(result.body.generationMode).toBe("image");
     expect(result.neuronsSpent).toBe(170 + 1_460 + 1_460 + 66);
   });
@@ -1563,8 +1601,11 @@ describe("generateSkin", () => {
       { ok: false, error: "FLUX 호출 실패: 3030: flagged", retryable: true },
       await goodFluxOutput(),
     ]);
-    const result = await generateSkin(env, await photoDataUrl(), provider);
+    const sourcePhoto = await photoDataUrl();
+    const result = await generateSkin(env, sourcePhoto, provider);
     expect(provider.calls).toBe(2);
+    expect(provider.photoDataUrls[0]).toBe(sourcePhoto);
+    expect(provider.photoDataUrls[1]).not.toBe(sourcePhoto);
     expect(result.body.generationMode).toBe("image");
     // 실패한 1회차는 과금 집계에서 제외(성공 응답을 받지 못함), 성공 1회차만 45
     expect(result.neuronsSpent).toBe(236);
