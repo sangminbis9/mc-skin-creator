@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyFocusedNeckDetail,
+  applyFocusedPortraitDetail,
   createUpperBodyDetailCrop,
   generateSkin,
   normalizeAnalysisForRendering,
@@ -56,6 +57,34 @@ async function portraitPhotoDataUrl(): Promise<string> {
   return `data:image/png;base64,${bytesToBase64(bytes)}`;
 }
 
+function focusedPortraitDetail() {
+  return {
+    faceConfidence: "high" as const,
+    hairConfidence: "high" as const,
+    skinTone: "light" as const,
+    skinUndertone: "neutral" as const,
+    faceShape: "oval" as const,
+    eyeShape: "almond" as const,
+    eyeSize: "small" as const,
+    eyeSpacing: "average" as const,
+    eyeTilt: "level" as const,
+    eyebrowShape: "straight" as const,
+    noseShape: "straight" as const,
+    mouthShape: "thin" as const,
+    lipFullness: "thin" as const,
+    jawShape: "soft" as const,
+    hairSilhouette: "rounded" as const,
+    bangsDensity: "dense" as const,
+    fringeEdge: "staggered" as const,
+    fringeOpening: "none" as const,
+    hairPart: "none" as const,
+    sideHairShape: "ear_hugging" as const,
+    earExposure: "partial" as const,
+    faceEvidence: "Light neutral skin, small almond eyes and a soft oval jaw.",
+    hairEvidence: "A domed crown connects through the temples around the ears.",
+  };
+}
+
 function providerOf(
   results: SkinGenerationResult[],
 ): SkinGenerationProvider & { calls: number; modelTiers: ImageModelTier[] } {
@@ -79,9 +108,7 @@ async function goodFluxOutput(): Promise<SkinGenerationResult> {
 
 describe("generateSkin", () => {
   it("creates a centered upper-body crop only for tall portraits", async () => {
-    const crop = await createUpperBodyDetailCrop(
-      await portraitPhotoDataUrl(),
-    );
+    const crop = await createUpperBodyDetailCrop(await portraitPhotoDataUrl());
     expect(crop).not.toBeNull();
     const decoded = await decodePng(
       Uint8Array.from(atob((crop as string).split(",")[1]), (character) =>
@@ -90,9 +117,7 @@ describe("generateSkin", () => {
     );
     expect(decoded.width).toBe(66);
     expect(decoded.height).toBe(67);
-    expect(
-      await createUpperBodyDetailCrop(await photoDataUrl()),
-    ).toBeNull();
+    expect(await createUpperBodyDetailCrop(await photoDataUrl())).toBeNull();
   });
 
   it("uses decisive focused geometry to correct a full-body collar misread", async () => {
@@ -120,6 +145,7 @@ describe("generateSkin", () => {
     env.AI.run = vi
       .fn()
       .mockResolvedValueOnce({ response: main })
+      .mockResolvedValueOnce({ response: focusedPortraitDetail() })
       .mockResolvedValueOnce({
         response: {
           neckAccessory: "bow",
@@ -128,17 +154,66 @@ describe("generateSkin", () => {
         },
       }) as unknown as Env["AI"]["run"];
 
-    const result = await generateSkin(
-      env,
-      await portraitPhotoDataUrl(),
-    );
+    const result = await generateSkin(env, await portraitPhotoDataUrl());
 
-    expect(env.AI.run).toHaveBeenCalledTimes(2);
-    expect(result.neuronsSpent).toBe(270);
+    expect(env.AI.run).toHaveBeenCalledTimes(3);
+    expect(result.neuronsSpent).toBe(370);
     expect(result.body.analysis?.renderHints.neckAccessory).toBe("bow");
     expect(result.body.analysis?.observed.accessories).toContain(
       "central knot",
     );
+  });
+
+  it("merges reliable portrait details without rewriting outfit or unseen hair", () => {
+    const base = makeAnalysis();
+    const main = makeAnalysis({
+      observed: {
+        ...base.observed,
+        face: "medium skin and an average face",
+        hair: "short black hair",
+      },
+      renderHints: {
+        ...base.renderHints,
+        faceShape: "round",
+        eyeSize: "large",
+        hairSilhouette: "flat",
+        sideHairShape: "tapered",
+        hairBackShape: "tapered",
+        overallHairLength: "ear",
+      },
+      fallbackFeatures: { ...base.fallbackFeatures, skinTone: "medium" },
+    });
+
+    const merged = applyFocusedPortraitDetail(main, focusedPortraitDetail());
+
+    expect(merged.renderHints).toMatchObject({
+      faceShape: "oval",
+      eyeSize: "small",
+      hairSilhouette: "rounded",
+      sideHairShape: "ear_hugging",
+      hairBackShape: "tapered",
+      overallHairLength: "ear",
+    });
+    expect(merged.fallbackFeatures.skinTone).toBe("light");
+    expect(merged.observed.face).toContain("neutral light skin");
+    expect(merged.observed.hair).toContain("domed crown");
+    expect(merged.observed.clothing).toBe(main.observed.clothing);
+    expect(merged.outfitPrompt).toBe(main.outfitPrompt);
+    expect(merged.inferred).toBe(main.inferred);
+  });
+
+  it("keeps each low-confidence portrait group unchanged", () => {
+    const main = makeAnalysis();
+    const detail = focusedPortraitDetail();
+    const merged = applyFocusedPortraitDetail(main, {
+      ...detail,
+      faceConfidence: "low",
+      hairConfidence: "low",
+      faceShape: "square",
+      hairSilhouette: "spiky",
+    });
+
+    expect(merged).toBe(main);
   });
 
   it("does not let weak focused evidence replace a specific main result", () => {
@@ -339,8 +414,7 @@ describe("generateSkin", () => {
       makeAnalysis({
         observed: {
           ...base.observed,
-          hair:
-            "short straight black hair with a dense blunt brow fringe and neat tapered sides",
+          hair: "short straight black hair with a dense blunt brow fringe and neat tapered sides",
         },
         identityPrompt:
           "Short ear-length black hair, dense eyebrow-level fringe and tapered side hair.",
@@ -369,8 +443,7 @@ describe("generateSkin", () => {
       makeAnalysis({
         observed: {
           ...base.observed,
-          hair:
-            "short straight black hair with an explicitly flat boxy crown and tapered sides",
+          hair: "short straight black hair with an explicitly flat boxy crown and tapered sides",
         },
         renderHints: {
           ...base.renderHints,
@@ -394,8 +467,7 @@ describe("generateSkin", () => {
       makeAnalysis({
         observed: {
           ...base.observed,
-          hair:
-            "short black hair with a straight brow fringe, tapered temple contours, and the lowest substantial hair endpoint relative to the shoulders, chest, natural waist, and hips is at the jaw level",
+          hair: "short black hair with a straight brow fringe, tapered temple contours, and the lowest substantial hair endpoint relative to the shoulders, chest, natural waist, and hips is at the jaw level",
         },
         identityPrompt:
           "Short straight black hair with a brow fringe and neat tapered sides.",
@@ -608,8 +680,7 @@ describe("generateSkin", () => {
     const analysis = makeAnalysis({
       observed: {
         ...base.observed,
-        face:
-          "oval face with light warm skin, almond dark-brown eyes and a small nose",
+        face: "oval face with light warm skin, almond dark-brown eyes and a small nose",
         colorPalette: ["light warm skin", "black", "charcoal"],
       },
       identityPrompt:

@@ -3,8 +3,10 @@ import {
   ANALYSIS_PROMPT,
   extractAnalysisPayload,
   NECK_DETAIL_PROMPT,
+  PORTRAIT_DETAIL_PROMPT,
   PHOTO_ANALYSIS_SCHEMA,
   runNeckDetailAnalysis,
+  runPortraitDetailAnalysis,
   runPhotoAnalysis,
   validatePhotoAnalysis,
 } from "../src/analysis";
@@ -123,12 +125,13 @@ describe("runPhotoAnalysis", () => {
     const env = makeVisionEnv(run);
     env.VISION_FALLBACK_MODEL = env.VISION_MODEL;
 
-    const result = await runPhotoAnalysis(
-      env,
-      "data:image/jpeg;base64,photo",
-    );
+    const result = await runPhotoAnalysis(env, "data:image/jpeg;base64,photo");
 
-    expect(result).toMatchObject({ ok: false, reason: "ai_error", attempts: 2 });
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "ai_error",
+      attempts: 2,
+    });
     expect(run).toHaveBeenCalledTimes(2);
     if (!result.ok) {
       expect(result.detail).toContain("round 1 primary-model");
@@ -222,9 +225,75 @@ describe("runNeckDetailAnalysis", () => {
     expect(NECK_DETAIL_PROMPT).toContain("central knot");
     expect(NECK_DETAIL_PROMPT).toContain("paired loops");
     expect(NECK_DETAIL_PROMPT).toContain("long hanging tails");
-    expect(NECK_DETAIL_PROMPT).toContain(
-      "short paired shirt/lapel flaps",
+    expect(NECK_DETAIL_PROMPT).toContain("short paired shirt/lapel flaps");
+  });
+});
+
+describe("runPortraitDetailAnalysis", () => {
+  it("re-checks face and crown-to-side hair from the supplied crop", async () => {
+    const detail = {
+      faceConfidence: "high",
+      hairConfidence: "high",
+      skinTone: "light",
+      skinUndertone: "neutral",
+      faceShape: "oval",
+      eyeShape: "almond",
+      eyeSize: "small",
+      eyeSpacing: "average",
+      eyeTilt: "level",
+      eyebrowShape: "straight",
+      noseShape: "straight",
+      mouthShape: "thin",
+      lipFullness: "thin",
+      jawShape: "soft",
+      hairSilhouette: "rounded",
+      bangsDensity: "dense",
+      fringeEdge: "staggered",
+      fringeOpening: "none",
+      hairPart: "none",
+      sideHairShape: "ear_hugging",
+      earExposure: "partial",
+      faceEvidence: "Light neutral skin and a soft oval jaw are visible.",
+      hairEvidence: "A domed crown flows into ear-hugging temple hair.",
+    };
+    const run = vi.fn(async () => ({ response: detail }));
+
+    const result = await runPortraitDetailAnalysis(
+      makeVisionEnv(run),
+      "data:image/png;base64,portrait-crop",
     );
+
+    expect(result).toEqual({
+      ok: true,
+      detail,
+      attempts: 1,
+      neuronsSpent: 100,
+    });
+    expect(run.mock.calls[0]?.[1]).toMatchObject({
+      messages: [
+        {
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: "data:image/png;base64,portrait-crop" },
+            },
+            { type: "text", text: PORTRAIT_DETAIL_PROMPT },
+          ],
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "minecraft_skin_portrait_detail" },
+      },
+    });
+  });
+
+  it("distinguishes the outer crown from the fringe edge", () => {
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("OUTER crown and temple contour");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain(
+      "It is not the lower edge of the fringe",
+    );
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("crown to temple to sideburn/ear");
   });
 });
 
@@ -279,9 +348,7 @@ describe("validatePhotoAnalysis", () => {
     );
     expect(ANALYSIS_PROMPT).toContain('legwearAsymmetry "left" or "right"');
     expect(ANALYSIS_PROMPT).toContain("legwearColor");
-    expect(ANALYSIS_PROMPT).toContain(
-      "use beige for cream/ivory/oatmeal",
-    );
+    expect(ANALYSIS_PROMPT).toContain("use beige for cream/ivory/oatmeal");
     expect(
       PHOTO_ANALYSIS_SCHEMA.properties.renderHints.properties.legwearColor.enum,
     ).toContain("beige");

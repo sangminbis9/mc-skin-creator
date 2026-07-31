@@ -46,7 +46,7 @@ export const NEURONS_IMAGE_GEN_CALL =
 
 /**
  * Conservative capacity shown in the app: main photo analysis + the focused
- * upper-body detail pass used by tall full/three-quarter portraits + the
+ * portrait and neck detail passes used by tall photos + the
  * primary image call + one balanced recovery call. Quality mode also reserves
  * one same-tier retry for a moderation/provider failure that may already have
  * consumed inference capacity. Square/close portraits or first-pass success
@@ -54,7 +54,7 @@ export const NEURONS_IMAGE_GEN_CALL =
  */
 export const NEURONS_PER_GENERATION_ESTIMATE =
   NEURONS_VISION_ANALYSIS_ESTIMATE +
-  NEURONS_VISION_DETAIL_ESTIMATE +
+  2 * NEURONS_VISION_DETAIL_ESTIMATE +
   2 * NEURONS_IMAGE_GEN_CALL;
 
 /**
@@ -103,8 +103,9 @@ export function imageGenerationNeurons(
   env: Env,
   inputTiles = 2,
   outputTiles = 2,
-  modelTier: ImageModelTier =
-    env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced",
+  modelTier: ImageModelTier = env.IMAGE_MODEL_TIER === "quality"
+    ? "quality"
+    : "balanced",
 ): number {
   if (modelTier === "quality") {
     return NEURONS_IMAGE_GEN_QUALITY_CALL;
@@ -120,7 +121,7 @@ export function estimatedNeuronsPerGeneration(env: Env): number {
     env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced";
   return (
     NEURONS_VISION_ANALYSIS_ESTIMATE +
-    NEURONS_VISION_DETAIL_ESTIMATE +
+    2 * NEURONS_VISION_DETAIL_ESTIMATE +
     imageGenerationNeurons(env, 2, 2, configuredTier) +
     (configuredTier === "quality" ? NEURONS_IMAGE_GEN_QUALITY_CALL : 0) +
     NEURONS_IMAGE_GEN_CALL
@@ -180,9 +181,7 @@ export async function getQuotaStatus(
   const remaining = Math.max(0, limit - used);
   const usedRatio = Math.min(1, used / limit);
   const estimatedGenerationCost = estimatedNeuronsPerGeneration(env);
-  const remainingGenerations = Math.floor(
-    remaining / estimatedGenerationCost,
-  );
+  const remainingGenerations = Math.floor(remaining / estimatedGenerationCost);
   return {
     level:
       remaining < estimatedGenerationCost

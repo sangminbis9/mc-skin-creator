@@ -1336,6 +1336,164 @@ export type NeckDetailCallResult =
       neuronsSpent: number;
     };
 
+export interface PortraitDetailAnalysis {
+  faceConfidence: "low" | "medium" | "high";
+  hairConfidence: "low" | "medium" | "high";
+  skinTone: "pale" | "light" | "medium" | "tan" | "brown" | "dark";
+  skinUndertone: "warm" | "cool" | "neutral";
+  faceShape: PixelRenderHints["faceShape"];
+  eyeShape: PixelRenderHints["eyeShape"];
+  eyeSize: PixelRenderHints["eyeSize"];
+  eyeSpacing: PixelRenderHints["eyeSpacing"];
+  eyeTilt: PixelRenderHints["eyeTilt"];
+  eyebrowShape: PixelRenderHints["eyebrowShape"];
+  noseShape: PixelRenderHints["noseShape"];
+  mouthShape: PixelRenderHints["mouthShape"];
+  lipFullness: PixelRenderHints["lipFullness"];
+  jawShape: PixelRenderHints["jawShape"];
+  hairSilhouette: PixelRenderHints["hairSilhouette"];
+  bangsDensity: PixelRenderHints["bangsDensity"];
+  fringeEdge: PixelRenderHints["fringeEdge"];
+  fringeOpening: PixelRenderHints["fringeOpening"];
+  hairPart: PixelRenderHints["hairPart"];
+  sideHairShape: PixelRenderHints["sideHairShape"];
+  earExposure: PixelRenderHints["earExposure"];
+  faceEvidence: string;
+  hairEvidence: string;
+}
+
+export type PortraitDetailCallResult =
+  | {
+      ok: true;
+      detail: PortraitDetailAnalysis;
+      attempts: number;
+      neuronsSpent: number;
+    }
+  | {
+      ok: false;
+      reason: "ai_error" | "invalid_response" | "quota_exceeded";
+      detail: string;
+      attempts: number;
+      neuronsSpent: number;
+    };
+
+export const PORTRAIT_DETAIL_PROMPT = `This is an enlarged head-and-upper-body crop of the same real person already analyzed for a Minecraft skin.
+Re-check only the face and visible hair geometry. Do not infer clothing or the unseen back/lower endpoint of the hair.
+
+Face:
+- Classify the person's actual skin lightness and undertone, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth and lip fullness.
+- Judge eye size from the open eye aperture, not eyeliner, eyelashes, catchlights, expression, or the apparent size of the dark iris.
+- Use low confidence when resolution, occlusion, pose, or lighting cannot support a correction.
+
+Hair:
+- hairSilhouette is the OUTER crown and temple contour. It is not the lower edge of the fringe. Straight or blunt bangs can still sit under a rounded crown.
+- A short two-block, bowl-like or ear-length cut with a domed top and tapered/ear-hugging sides is rounded unless the crown itself is visibly flat, boxy or close-cropped.
+- Trace continuity from crown to temple to sideburn/ear on both sides. sideHairShape describes that contour; earExposure describes the visible ear opening rather than hair length.
+- Classify fringe density, edge, opening and part from the visible construction, not isolated highlight strands.
+- Use low confidence when the crop does not clearly show a feature.
+
+Return concise faceEvidence and hairEvidence describing visible geometry and colors.`;
+
+const PORTRAIT_DETAIL_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    faceConfidence: { type: "string", enum: ["low", "medium", "high"] },
+    hairConfidence: { type: "string", enum: ["low", "medium", "high"] },
+    skinTone: {
+      type: "string",
+      enum: ["pale", "light", "medium", "tan", "brown", "dark"],
+    },
+    skinUndertone: {
+      type: "string",
+      enum: ["warm", "cool", "neutral"],
+    },
+    faceShape: {
+      type: "string",
+      enum: ["round", "oval", "long", "angular", "square"],
+    },
+    eyeShape: { type: "string", enum: ["narrow", "almond", "round"] },
+    eyeSize: { type: "string", enum: ["small", "average", "large"] },
+    eyeSpacing: { type: "string", enum: ["close", "average", "wide"] },
+    eyeTilt: {
+      type: "string",
+      enum: ["upturned", "level", "downturned"],
+    },
+    eyebrowShape: {
+      type: "string",
+      enum: ["straight", "arched", "slanted", "soft"],
+    },
+    noseShape: {
+      type: "string",
+      enum: ["small", "straight", "rounded", "prominent"],
+    },
+    mouthShape: {
+      type: "string",
+      enum: ["small", "wide", "full", "thin"],
+    },
+    lipFullness: { type: "string", enum: ["thin", "average", "full"] },
+    jawShape: {
+      type: "string",
+      enum: ["rounded", "pointed", "square", "soft"],
+    },
+    hairSilhouette: {
+      type: "string",
+      enum: ["rounded", "flat", "swept", "tousled", "spiky"],
+    },
+    bangsDensity: {
+      type: "string",
+      enum: ["sparse", "balanced", "dense"],
+    },
+    fringeEdge: {
+      type: "string",
+      enum: ["blunt", "staggered", "wispy"],
+    },
+    fringeOpening: {
+      type: "string",
+      enum: ["none", "left", "center", "right"],
+    },
+    hairPart: {
+      type: "string",
+      enum: ["none", "center", "left", "right"],
+    },
+    sideHairShape: {
+      type: "string",
+      enum: ["tapered", "ear_hugging", "face_framing", "flared", "undercut"],
+    },
+    earExposure: {
+      type: "string",
+      enum: ["covered", "partial", "visible"],
+    },
+    faceEvidence: { type: "string" },
+    hairEvidence: { type: "string" },
+  },
+  required: [
+    "faceConfidence",
+    "hairConfidence",
+    "skinTone",
+    "skinUndertone",
+    "faceShape",
+    "eyeShape",
+    "eyeSize",
+    "eyeSpacing",
+    "eyeTilt",
+    "eyebrowShape",
+    "noseShape",
+    "mouthShape",
+    "lipFullness",
+    "jawShape",
+    "hairSilhouette",
+    "bangsDensity",
+    "fringeEdge",
+    "fringeOpening",
+    "hairPart",
+    "sideHairShape",
+    "earExposure",
+    "faceEvidence",
+    "hairEvidence",
+  ],
+} as const;
+
 export const NECK_DETAIL_PROMPT = `This is a zoomed upper-body crop of the same person from a full or three-quarter photo.
 Classify the strongest visible fabric construction at the throat/chest for a low-resolution Minecraft skin.
 
@@ -1445,8 +1603,7 @@ export async function runNeckDetailAnalysis(
     return {
       ok: true,
       detail: {
-        neckAccessory:
-          neckAccessory as NeckDetailAnalysis["neckAccessory"],
+        neckAccessory: neckAccessory as NeckDetailAnalysis["neckAccessory"],
         confidence: confidence as NeckDetailAnalysis["confidence"],
         evidence: evidence.trim(),
       },
@@ -1457,9 +1614,7 @@ export async function runNeckDetailAnalysis(
     const detail = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      reason: isWorkersAiQuotaError(detail)
-        ? "quota_exceeded"
-        : "ai_error",
+      reason: isWorkersAiQuotaError(detail) ? "quota_exceeded" : "ai_error",
       detail,
       attempts: 1,
       neuronsSpent: NEURONS_VISION_DETAIL_ESTIMATE,
@@ -1471,6 +1626,137 @@ export async function runNeckDetailAnalysis(
  * 사진 분석 실행. json_schema 유도 → 실패 시 json_object로 1회 재시도.
  * 두 경우 모두 validatePhotoAnalysis로 런타임 검증한다.
  */
+/**
+ * Focused second-pass classifier for portrait identity. It is intentionally
+ * limited to features visible in the crop, leaving outfit and inferred rear
+ * or lower-body construction under the main analysis.
+ */
+export async function runPortraitDetailAnalysis(
+  env: Env,
+  detailImageDataUrl: string,
+): Promise<PortraitDetailCallResult> {
+  const visionModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+  try {
+    const modelOptions = visionModel.includes("moonshotai/")
+      ? { chat_template_kwargs: { thinking: false } }
+      : {};
+    const result = await env.AI.run(
+      visionModel as never,
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: detailImageDataUrl },
+              },
+              { type: "text", text: PORTRAIT_DETAIL_PROMPT },
+            ],
+          },
+        ],
+        max_tokens: 520,
+        temperature: 0,
+        ...modelOptions,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "minecraft_skin_portrait_detail",
+            description:
+              "Focused face and visible hair classification from an enlarged portrait crop",
+            schema: PORTRAIT_DETAIL_SCHEMA,
+          },
+        },
+      } as never,
+    );
+    const neuronsSpent = visionNeuronsFromUsage(
+      result,
+      NEURONS_VISION_DETAIL_ESTIMATE,
+    );
+    const parsed = extractAnalysisPayload(result);
+    if (!parsed) {
+      return {
+        ok: false,
+        reason: "invalid_response",
+        detail: "portrait detail response did not contain JSON",
+        attempts: 1,
+        neuronsSpent,
+      };
+    }
+
+    const enumFields: Record<
+      keyof Omit<PortraitDetailAnalysis, "faceEvidence" | "hairEvidence">,
+      readonly string[]
+    > = {
+      faceConfidence: ["low", "medium", "high"],
+      hairConfidence: ["low", "medium", "high"],
+      skinTone: ["pale", "light", "medium", "tan", "brown", "dark"],
+      skinUndertone: ["warm", "cool", "neutral"],
+      faceShape: ["round", "oval", "long", "angular", "square"],
+      eyeShape: ["narrow", "almond", "round"],
+      eyeSize: ["small", "average", "large"],
+      eyeSpacing: ["close", "average", "wide"],
+      eyeTilt: ["upturned", "level", "downturned"],
+      eyebrowShape: ["straight", "arched", "slanted", "soft"],
+      noseShape: ["small", "straight", "rounded", "prominent"],
+      mouthShape: ["small", "wide", "full", "thin"],
+      lipFullness: ["thin", "average", "full"],
+      jawShape: ["rounded", "pointed", "square", "soft"],
+      hairSilhouette: ["rounded", "flat", "swept", "tousled", "spiky"],
+      bangsDensity: ["sparse", "balanced", "dense"],
+      fringeEdge: ["blunt", "staggered", "wispy"],
+      fringeOpening: ["none", "left", "center", "right"],
+      hairPart: ["none", "center", "left", "right"],
+      sideHairShape: [
+        "tapered",
+        "ear_hugging",
+        "face_framing",
+        "flared",
+        "undercut",
+      ],
+      earExposure: ["covered", "partial", "visible"],
+    };
+    const validEnums = Object.entries(enumFields).every(([field, values]) =>
+      values.includes(String(parsed[field])),
+    );
+    if (
+      !validEnums ||
+      typeof parsed.faceEvidence !== "string" ||
+      parsed.faceEvidence.trim().length < 3 ||
+      typeof parsed.hairEvidence !== "string" ||
+      parsed.hairEvidence.trim().length < 3
+    ) {
+      return {
+        ok: false,
+        reason: "invalid_response",
+        detail: "portrait detail response failed schema validation",
+        attempts: 1,
+        neuronsSpent,
+      };
+    }
+    return {
+      ok: true,
+      detail: {
+        ...(parsed as unknown as PortraitDetailAnalysis),
+        faceEvidence: parsed.faceEvidence.trim(),
+        hairEvidence: parsed.hairEvidence.trim(),
+      },
+      attempts: 1,
+      neuronsSpent,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      reason: isWorkersAiQuotaError(detail) ? "quota_exceeded" : "ai_error",
+      detail,
+      attempts: 1,
+      neuronsSpent: NEURONS_VISION_DETAIL_ESTIMATE,
+    };
+  }
+}
+
+/** Analyze and validate the complete source photo before focused passes. */
 export async function runPhotoAnalysis(
   env: Env,
   imageDataUrl: string,
@@ -1530,10 +1816,7 @@ export async function runPhotoAnalysis(
             response_format: structuredResponseFormat,
           } as never,
         );
-        neuronsSpent += visionNeuronsFromUsage(
-          result,
-          NEURONS_VISION_ANALYSIS,
-        );
+        neuronsSpent += visionNeuronsFromUsage(result, NEURONS_VISION_ANALYSIS);
         parsed = extractAnalysisPayload(result);
       } catch (error) {
         neuronsSpent += NEURONS_VISION_ANALYSIS;

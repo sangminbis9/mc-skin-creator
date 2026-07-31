@@ -10,10 +10,12 @@
 
 import {
   runNeckDetailAnalysis,
+  runPortraitDetailAnalysis,
   runPhotoAnalysis,
   type FallbackFeatures,
   type NeckDetailAnalysis,
   type PhotoAnalysis,
+  type PortraitDetailAnalysis,
 } from "./analysis";
 import {
   base64ToBytes,
@@ -152,6 +154,40 @@ export async function generateSkin(
     };
   }
 
+  // The full-frame pass has to divide its attention between the face, hair,
+  // outfit and missing-body inference. On tall photos, enlarge the visible
+  // portrait once and let a cheap structured pass re-check only the identity
+  // features that become a handful of pixels in the original frame.
+  const upperBodyDetailCrop =
+    await createUpperBodyDetailCrop(analysisImageDataUrl);
+  if (
+    upperBodyDetailCrop &&
+    (analysis.visibleRegions.face || analysis.visibleRegions.hair)
+  ) {
+    const portraitResult = await runPortraitDetailAnalysis(
+      env,
+      upperBodyDetailCrop,
+    );
+    spent += portraitResult.neuronsSpent;
+    if (!portraitResult.ok) {
+      console.log(
+        "focused portrait analysis failed:",
+        portraitResult.reason,
+        portraitResult.detail,
+      );
+      if (portraitResult.reason === "quota_exceeded") {
+        return fail(
+          429,
+          "오늘의 AI 생성 할당량이 소진되었어요.",
+          "quota_exceeded",
+          spent,
+        );
+      }
+    } else {
+      analysis = applyFocusedPortraitDetail(analysis, portraitResult.detail);
+    }
+  }
+
   // Full-body photos shrink neck fabric to a handful of source pixels. Give
   // only that ambiguous area a second, enlarged look instead of asking the
   // main analysis to guess from garment stereotypes. This pass is
@@ -163,9 +199,8 @@ export async function generateSkin(
     (analysis.renderHints.neckAccessory === "none" ||
       analysis.renderHints.neckAccessory === "collar")
   ) {
-    const neckCrop = await createUpperBodyDetailCrop(analysisImageDataUrl);
-    if (neckCrop) {
-      const neckResult = await runNeckDetailAnalysis(env, neckCrop);
+    if (upperBodyDetailCrop) {
+      const neckResult = await runNeckDetailAnalysis(env, upperBodyDetailCrop);
       spent += neckResult.neuronsSpent;
       if (!neckResult.ok) {
         console.log(
@@ -371,6 +406,84 @@ export async function createUpperBodyDetailCrop(
     );
     return null;
   }
+}
+
+/**
+ * Merge only the portrait properties supported by the enlarged crop. The
+ * crop cannot reliably establish long-hair endpoints, back construction, or
+ * clothing, so those main-pass decisions remain untouched.
+ */
+export function applyFocusedPortraitDetail(
+  analysis: PhotoAnalysis,
+  detail: PortraitDetailAnalysis,
+): PhotoAnalysis {
+  const faceReliable = detail.faceConfidence !== "low";
+  const hairReliable = detail.hairConfidence !== "low";
+  if (!faceReliable && !hairReliable) {
+    return analysis;
+  }
+
+  const renderHints = { ...analysis.renderHints };
+  let fallbackFeatures = analysis.fallbackFeatures;
+  let observed = analysis.observed;
+  let identityPrompt = analysis.identityPrompt;
+
+  if (faceReliable) {
+    Object.assign(renderHints, {
+      faceShape: detail.faceShape,
+      eyeShape: detail.eyeShape,
+      eyeSize: detail.eyeSize,
+      eyeSpacing: detail.eyeSpacing,
+      eyeTilt: detail.eyeTilt,
+      eyebrowShape: detail.eyebrowShape,
+      noseShape: detail.noseShape,
+      mouthShape: detail.mouthShape,
+      lipFullness: detail.lipFullness,
+      jawShape: detail.jawShape,
+    });
+    fallbackFeatures = {
+      ...fallbackFeatures,
+      skinTone: detail.skinTone,
+    };
+    const skinDescription = `${detail.skinUndertone} ${detail.skinTone} skin`;
+    observed = {
+      ...observed,
+      face: `${observed.face} Focused portrait crop confirms ${skinDescription}; ${detail.faceEvidence}.`.trim(),
+      colorPalette: observed.colorPalette.some(
+        (value) => value.toLowerCase() === skinDescription,
+      )
+        ? observed.colorPalette
+        : [...observed.colorPalette, skinDescription],
+    };
+    identityPrompt =
+      `${identityPrompt} Preserve the focused facial proportions and ${skinDescription}: ${detail.faceEvidence}.`.trim();
+  }
+
+  if (hairReliable) {
+    Object.assign(renderHints, {
+      hairSilhouette: detail.hairSilhouette,
+      bangsDensity: detail.bangsDensity,
+      fringeEdge: detail.fringeEdge,
+      fringeOpening: detail.fringeOpening,
+      hairPart: detail.hairPart,
+      sideHairShape: detail.sideHairShape,
+      earExposure: detail.earExposure,
+    });
+    observed = {
+      ...observed,
+      hair: `${observed.hair} Focused portrait crop confirms ${detail.hairEvidence}.`.trim(),
+    };
+    identityPrompt =
+      `${identityPrompt} Preserve the focused crown-to-temple and fringe geometry: ${detail.hairEvidence}.`.trim();
+  }
+
+  return {
+    ...analysis,
+    observed,
+    renderHints,
+    fallbackFeatures,
+    identityPrompt,
+  };
 }
 
 /**
@@ -670,8 +783,7 @@ async function postprocess(
       );
       return {
         atlasBase64: null,
-        failure:
-          "four-view sheet is missing a usable left or right profile",
+        failure: "four-view sheet is missing a usable left or right profile",
       };
     }
     const atlas = packed.atlas;
@@ -1162,12 +1274,7 @@ export function normalizeAnalysisForRendering(
     (renderHints.sideHairShape === "tapered" ||
       renderHints.sideHairShape === "ear_hugging" ||
       renderHints.sideHairShape === "undercut");
-  if (
-    explicitlyCompactHair &&
-    !longHair &&
-    !faceFraming &&
-    compactEnums
-  ) {
+  if (explicitlyCompactHair && !longHair && !faceFraming && compactEnums) {
     // Landmark-comparison prose and the compact enum occasionally disagree.
     // A clearly short tapered/undercut cut is an ear-level construction;
     // retaining a longer enum creates shoulder drapes absent from the photo.
