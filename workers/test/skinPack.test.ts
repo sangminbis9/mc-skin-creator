@@ -635,6 +635,37 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("uses coherent directional face shading instead of a mirrored template mask", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "straight",
+      bangsLength: "brow",
+      eyeShape: "almond",
+      eyeSize: "average",
+      eyeSpacing: "average",
+      mouthShape: "thin",
+      lipFullness: "thin",
+      expression: "neutral",
+      glasses: "none",
+      facialHair: "none",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+
+    expect(redAt(atlas, face, 2, 4)).toBeGreaterThan(
+      redAt(atlas, face, 5, 4),
+    );
+    expect(redAt(atlas, face, 3, 6)).toBeGreaterThan(
+      redAt(atlas, face, 4, 6),
+    );
+    expect(redAt(atlas, face, 1, 5)).toBeGreaterThan(
+      redAt(atlas, face, 6, 5),
+    );
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("hair overlay side edges connect to adjacent head faces without transparent seams", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -824,10 +855,18 @@ describe("packFrontViewToAtlas", () => {
 
     expect(alphaAt(atlas, over.front, 2, 4)).toBe(0);
     expect(alphaAt(atlas, over.front, 5, 4)).toBe(0);
-    expect(redAt(atlas, face, 2, 4)).toBe(0x24);
-    expect(greenAt(atlas, face, 2, 4)).toBe(0x5a);
-    expect(redAt(atlas, face, 5, 4)).toBe(0x24);
-    expect(greenAt(atlas, face, 5, 4)).toBe(0x5a);
+    expect(redAt(atlas, face, 2, 4)).toBeGreaterThan(
+      redAt(atlas, face, 5, 4),
+    );
+    expect(greenAt(atlas, face, 2, 4)).toBeGreaterThan(
+      greenAt(atlas, face, 5, 4),
+    );
+    for (const irisX of [2, 5]) {
+      const iris = rgbaAt(atlas, face, irisX, 4);
+      expect(iris[2]).toBeGreaterThan(iris[1]);
+      expect(iris[1]).toBeGreaterThan(iris[0]);
+      expect(iris[0]).toBeLessThan(60);
+    }
     expect(alphaAt(atlas, over.front, 1, 2)).toBe(255);
     expect(alphaAt(atlas, over.right, 6, 2)).toBe(255);
   });
@@ -866,9 +905,13 @@ describe("packFrontViewToAtlas", () => {
     for (const atlas of [leftPart, rightPart]) {
       for (const irisX of [2, 5]) {
         expect(alphaAt(atlas, overlay, irisX, 4)).toBe(0);
-        expect(redAt(atlas, face, irisX, 4)).toBe(0x24);
-        expect(greenAt(atlas, face, irisX, 4)).toBe(0x5a);
       }
+      expect(redAt(atlas, face, 2, 4)).toBeGreaterThan(
+        redAt(atlas, face, 5, 4),
+      );
+      expect(greenAt(atlas, face, 2, 4)).toBeGreaterThan(
+        greenAt(atlas, face, 5, 4),
+      );
       applyUvMask(atlas);
       expect(validateFinalAtlas(atlas).ok).toBe(true);
     }

@@ -333,6 +333,61 @@ describe("generateSkin", () => {
     expect(normalized.renderHints.sideHairShape).toBe("tapered");
   });
 
+  it("recovers a rounded compact crown when straight bangs are misclassified as a flat silhouette", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair:
+            "short straight black hair with a dense blunt brow fringe and neat tapered sides",
+        },
+        identityPrompt:
+          "Short ear-length black hair, dense eyebrow-level fringe and tapered side hair.",
+        renderHints: {
+          ...base.renderHints,
+          bangs: "straight",
+          bangsLength: "brow",
+          bangsDensity: "dense",
+          hairTexture: "straight",
+          hairVolume: "normal",
+          hairSilhouette: "flat",
+          hairBackShape: "tapered",
+          overallHairLength: "ear",
+          sideHairLength: "short",
+          sideHairShape: "tapered",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.hairSilhouette).toBe("rounded");
+  });
+
+  it("preserves an explicitly photographed flat-top crown", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair:
+            "short straight black hair with an explicitly flat boxy crown and tapered sides",
+        },
+        renderHints: {
+          ...base.renderHints,
+          bangs: "straight",
+          hairVolume: "normal",
+          hairSilhouette: "flat",
+          hairBackShape: "tapered",
+          overallHairLength: "ear",
+          sideHairLength: "short",
+          sideHairShape: "tapered",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.hairSilhouette).toBe("flat");
+  });
+
   it("does not mistake landmark comparison prose for shoulder-length hair", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(
@@ -545,6 +600,33 @@ describe("generateSkin", () => {
       topColor: "#b7929d",
       bottomColor: "#cbb8a3",
       shoesColor: "#e8dfd1",
+    });
+  });
+
+  it("uses explicit light-skin evidence over a conflicting medium palette enum", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        face:
+          "oval face with light warm skin, almond dark-brown eyes and a small nose",
+        colorPalette: ["light warm skin", "black", "charcoal"],
+      },
+      identityPrompt:
+        "An oval-faced person with light warm skin and short black hair.",
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        skinTone: "medium",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.features).toMatchObject({
+      skinTone: "#edc8b4",
     });
   });
 

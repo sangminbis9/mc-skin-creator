@@ -1026,6 +1026,9 @@ export function normalizeAnalysisForRendering(
   const explicitlyCompactHair = hairClauseMatches(
     /\b(?:short|cropped|buzz(?:ed)?|close[-\s]+cut)\b.{0,28}\b(?:hair|cut|style)\b|\b(?:hair|cut|style)\b.{0,24}\b(?:short|cropped|buzzed|close[-\s]+cut)\b/,
   );
+  const explicitlyFlatCrown = hairClauseMatches(
+    /\b(?:flat|boxy|square|sleek|close[-\s]+cropped)[-\s]+(?:top|crown|silhouette|hair|haircut|cut)\b|\b(?:top|crown|silhouette|hair)\b.{0,24}\b(?:flat|boxy|squared|sleek|close[-\s]+cropped)\b/,
+  );
   const explicitOverallHairLength:
     "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip" | null =
     hairEndpointClauseMatches(
@@ -1203,6 +1206,25 @@ export function normalizeAnalysisForRendering(
     // unsupported enum hint.
     renderHints.sideHairAsymmetry = "none";
   }
+  const roundedCompactFringe =
+    renderHints.hairSilhouette === "flat" &&
+    !explicitlyFlatCrown &&
+    !longHair &&
+    renderHints.overallHairLength === "ear" &&
+    renderHints.hairVolume !== "flat" &&
+    renderHints.bangs !== "none" &&
+    (renderHints.hairBackShape === "tapered" ||
+      renderHints.hairBackShape === "rounded") &&
+    (renderHints.sideHairShape === "tapered" ||
+      renderHints.sideHairShape === "ear_hugging");
+  if (roundedCompactFringe) {
+    // Vision models sometimes copy the word "straight" from the fringe into
+    // the crown silhouette. A compact two-block/bowl construction is still a
+    // rounded outer volume unless the prose explicitly describes a flat top.
+    // Activating the rounded mask reveals the inner cube through irregular
+    // crown cut-outs and tapers both side layers around the ears.
+    renderHints.hairSilhouette = "rounded";
+  }
 
   if (thighAccessoryText) {
     renderHints.thighAccessory = /\bbow\b/.test(thighAccessoryText)
@@ -1358,6 +1380,16 @@ export function refineFeatureColorsFromAnalysis(
     )
   ) {
     refined.skinTone = "#f2d6c0";
+  } else if (
+    /\blight(?:[-\s]+(?:warm|cool|neutral|pink|peach|golden|beige|olive))*[-\s]+skin(?:[-\s]*tone)?\b/.test(
+      faceText,
+    ) &&
+    !/\blight[-\s]+(?:to[-\s]+)?medium[-\s]+skin\b/.test(faceText)
+  ) {
+    // The coarse fallback palette can occasionally classify a softly lit
+    // fair portrait as medium. Explicit visual prose is the stronger signal;
+    // use a neutral peach light tone instead of the more orange enum swatch.
+    refined.skinTone = "#edc8b4";
   }
 
   if (

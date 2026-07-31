@@ -765,7 +765,13 @@ function composeFace(
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       const edge = Math.abs(x - 3.5) / 3.5;
-      let factor = 1.035 - edge * 0.075 - (y / 7) * 0.035;
+      // Hand-authored skins rarely shade a portrait as a perfectly mirrored
+      // mask. A restrained viewer-left key light gives the cheeks, eyes and
+      // mouth a coherent three-to-five shade ramp without changing the
+      // analysed facial geometry or skin tone.
+      const lateralLight = 1.018 - (x / 7) * 0.036;
+      let factor =
+        (1.035 - edge * 0.075 - (y / 7) * 0.035) * lateralLight;
       if (
         y >= 6 &&
         (style.faceShape === "angular" || style.faceShape === "square")
@@ -932,8 +938,10 @@ function composeFace(
             ? sclera
             : mixRgb(sclera, eye, eyeSize === "large" ? 0.1 : 0.2);
     const iris = style.eyeShape === "narrow" ? shadeRgb(eye, 0.86) : eye;
-    put(face, outer, 4, outerEye);
-    put(face, inner, 4, iris);
+    const litIris = shadeRgb(iris, inner < 4 ? 1.06 : 0.88);
+    const litOuterEye = shadeRgb(outerEye, inner < 4 ? 1.02 : 0.99);
+    put(face, outer, 4, litOuterEye);
+    put(face, inner, 4, litIris);
     if (eyeTilt === "upturned") {
       put(face, outer, 3, mixRgb(eye, skinColor, 0.36));
     } else if (eyeTilt === "downturned") {
@@ -1109,7 +1117,8 @@ function composeFace(
     lipFullness === "thin" ||
     style.expression === "serious"
   ) {
-    for (const x of [3, 4]) put(face, x, 6, mouthDark);
+    put(face, 3, 6, shadeRgb(mouthDark, 1.04));
+    put(face, 4, 6, shadeRgb(mouthDark, 0.86));
     if (mouthShape === "thin" && style.expression === "smile") {
       put(overlay, 2, 6, mixRgb(mouthDark, skinColor, 0.35));
       put(overlay, 5, 6, mixRgb(mouthDark, skinColor, 0.35));
