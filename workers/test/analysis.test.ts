@@ -79,6 +79,28 @@ describe("runPhotoAnalysis", () => {
     expect(result).toMatchObject({ attempts: 1 });
   });
 
+  it("accounts from Workers AI token usage instead of a fixed estimate", async () => {
+    const run = vi.fn(async () => ({
+      response: makeAnalysis(),
+      usage: {
+        prompt_tokens: 10_000,
+        completion_tokens: 2_000,
+        total_tokens: 12_000,
+      },
+    }));
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      attempts: 1,
+      neuronsSpent: 400,
+    });
+  });
+
   it("returns ai_error when both models throw", async () => {
     const run = vi.fn(async () => {
       throw new Error("provider unavailable");
@@ -172,6 +194,7 @@ describe("runNeckDetailAnalysis", () => {
         evidence: "A central knot has two broad pointed hanging tails.",
       },
       attempts: 1,
+      neuronsSpent: 100,
     });
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0]?.[1]).toMatchObject({

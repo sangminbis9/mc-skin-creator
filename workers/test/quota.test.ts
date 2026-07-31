@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   NEURONS_IMAGE_GEN_QUALITY_CALL,
   NEURONS_PER_GENERATION_ESTIMATE,
+  NEURONS_VISION_ANALYSIS_ESTIMATE,
+  NEURONS_VISION_DETAIL_ESTIMATE,
   commitNeurons,
   estimatedNeuronsPerGeneration,
   getQuotaStatus,
   markProviderQuotaExhausted,
+  visionNeuronsFromUsage,
 } from "../src/quota";
 import type { Env } from "../src/types";
 
@@ -43,9 +46,27 @@ describe("provider quota circuit breaker", () => {
     const status = await getQuotaStatus(env, today);
 
     expect(estimatedNeuronsPerGeneration(env)).toBe(
-      2 * 170 + NEURONS_IMAGE_GEN_QUALITY_CALL + 66,
+      NEURONS_VISION_ANALYSIS_ESTIMATE +
+        NEURONS_VISION_DETAIL_ESTIMATE +
+        NEURONS_IMAGE_GEN_QUALITY_CALL +
+        66,
     );
     expect(status.remainingGenerations).toBe(2);
+  });
+
+  it("converts authoritative Llama token usage to Neurons", () => {
+    expect(
+      visionNeuronsFromUsage(
+        {
+          usage: {
+            prompt_tokens: 10_000,
+            completion_tokens: 2_000,
+          },
+        },
+        170,
+      ),
+    ).toBe(400);
+    expect(visionNeuronsFromUsage({ response: {} }, 170)).toBe(170);
   });
 
   it("closes immediately after provider exhaustion and reopens next UTC day", async () => {

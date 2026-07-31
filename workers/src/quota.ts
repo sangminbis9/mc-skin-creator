@@ -16,12 +16,22 @@ const DEFAULT_BUDGET_RATIO = 0.5;
 /**
  * 단계별 예상 Neurons (달러 단가 ÷ $0.011/1,000 Neurons 환산, 올림).
  *
- * 사진 분석 — llama-4-scout ($0.27/M in, $0.85/M out):
- *   입력(이미지 토큰 + 프롬프트) ~4k tok ≈ 98 + 출력(분석 JSON) ~900 tok ≈ 70
+ * 사진 분석 — llama-4-scout (24,545/M input, 77,273/M output Neurons):
+ *   운영 응답의 실제 prompt/completion token usage를 아래에서 환산한다.
  * 이미지 생성 — flux-2-klein-4b ($0.000059/입력 타일, $0.000287/출력 타일, 512x512 기준):
  *   입력 타일 ≈ 5.4 → 6, 출력 타일(512x512 1장) ≈ 26.1 → 27
  */
+/** Fallback accounting only when Workers AI omits token usage metadata. */
 export const NEURONS_VISION_ANALYSIS = 170;
+/**
+ * Capacity planning uses the full 20k-character prompt, JSON schema, image
+ * tokens and a potentially large structured response rather than the old
+ * 4k-input/900-output assumption.
+ */
+export const NEURONS_VISION_ANALYSIS_ESTIMATE = 470;
+export const NEURONS_VISION_DETAIL_ESTIMATE = 100;
+export const NEURONS_LLAMA4_INPUT_PER_MILLION = 24_545;
+export const NEURONS_LLAMA4_OUTPUT_PER_MILLION = 77_273;
 export const NEURONS_IMAGE_INPUT_TILE = 6;
 export const NEURONS_IMAGE_OUTPUT_TILE = 27;
 /**
@@ -42,7 +52,51 @@ export const NEURONS_IMAGE_GEN_CALL =
  * would overstate capacity for the requests that need recovery.
  */
 export const NEURONS_PER_GENERATION_ESTIMATE =
-  2 * NEURONS_VISION_ANALYSIS + 2 * NEURONS_IMAGE_GEN_CALL;
+  NEURONS_VISION_ANALYSIS_ESTIMATE +
+  NEURONS_VISION_DETAIL_ESTIMATE +
+  2 * NEURONS_IMAGE_GEN_CALL;
+
+/**
+ * Workers AI text responses include token usage. Convert that authoritative
+ * usage to Neurons using Cloudflare's Llama 4 Scout rates. A caller-specific
+ * fallback keeps mocks and provider errors accountable when metadata is
+ * unavailable.
+ */
+export function visionNeuronsFromUsage(
+  result: unknown,
+  fallback: number,
+): number {
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    return fallback;
+  }
+  const usage = (result as { usage?: unknown }).usage;
+  if (typeof usage !== "object" || usage === null || Array.isArray(usage)) {
+    return fallback;
+  }
+  const promptTokens = Number(
+    (usage as { prompt_tokens?: unknown }).prompt_tokens,
+  );
+  const completionTokens = Number(
+    (usage as { completion_tokens?: unknown }).completion_tokens,
+  );
+  if (
+    !Number.isFinite(promptTokens) ||
+    !Number.isFinite(completionTokens) ||
+    promptTokens < 0 ||
+    completionTokens < 0 ||
+    promptTokens + completionTokens <= 0
+  ) {
+    return fallback;
+  }
+  return Math.max(
+    1,
+    Math.ceil(
+      (promptTokens * NEURONS_LLAMA4_INPUT_PER_MILLION +
+        completionTokens * NEURONS_LLAMA4_OUTPUT_PER_MILLION) /
+        1_000_000,
+    ),
+  );
+}
 
 export function imageGenerationNeurons(
   env: Env,
@@ -62,7 +116,8 @@ export function imageGenerationNeurons(
 
 export function estimatedNeuronsPerGeneration(env: Env): number {
   return (
-    2 * NEURONS_VISION_ANALYSIS +
+    NEURONS_VISION_ANALYSIS_ESTIMATE +
+    NEURONS_VISION_DETAIL_ESTIMATE +
     imageGenerationNeurons(env) +
     NEURONS_IMAGE_GEN_CALL
   );

@@ -39,10 +39,7 @@ import {
   type ImageModelTier,
   type SkinGenerationProvider,
 } from "./skinProvider";
-import {
-  NEURONS_VISION_ANALYSIS,
-  imageGenerationNeurons,
-} from "./quota";
+import { imageGenerationNeurons } from "./quota";
 import type { Env } from "./types";
 
 /** 업로드 허용 최대 크기 (base64 data URL 문자 수, 약 1.1MB 이미지) */
@@ -101,7 +98,7 @@ export async function generateSkin(
   // Every provider invocation consumes Workers AI capacity, including schema
   // retries and fallback-model attempts. Count all of them so the app quota
   // cannot claim capacity remains after the Cloudflare allocation is spent.
-  let spent = analysisResult.attempts * NEURONS_VISION_ANALYSIS;
+  let spent = analysisResult.neuronsSpent;
   if (!analysisResult.ok) {
     console.log(
       "analysis failed:",
@@ -169,7 +166,7 @@ export async function generateSkin(
     const neckCrop = await createUpperBodyDetailCrop(analysisImageDataUrl);
     if (neckCrop) {
       const neckResult = await runNeckDetailAnalysis(env, neckCrop);
-      spent += neckResult.attempts * NEURONS_VISION_ANALYSIS;
+      spent += neckResult.neuronsSpent;
       if (!neckResult.ok) {
         console.log(
           "focused neck analysis failed:",

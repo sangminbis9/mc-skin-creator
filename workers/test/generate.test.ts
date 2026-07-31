@@ -134,7 +134,7 @@ describe("generateSkin", () => {
     );
 
     expect(env.AI.run).toHaveBeenCalledTimes(2);
-    expect(result.neuronsSpent).toBe(340);
+    expect(result.neuronsSpent).toBe(270);
     expect(result.body.analysis?.renderHints.neckAccessory).toBe("bow");
     expect(result.body.analysis?.observed.accessories).toContain(
       "central knot",

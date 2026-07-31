@@ -7,6 +7,11 @@
  * 이 구분을 스키마 수준에서 강제해 환각을 관찰 결과로 취급하지 않게 한다.
  */
 
+import {
+  NEURONS_VISION_ANALYSIS,
+  NEURONS_VISION_DETAIL_ESTIMATE,
+  visionNeuronsFromUsage,
+} from "./quota";
 import type { Env } from "./types";
 
 const DEFAULT_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
@@ -1294,12 +1299,18 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
 // ---------- Scout 호출 ----------
 
 export type AnalysisCallResult =
-  | { ok: true; analysis: PhotoAnalysis; attempts: number }
+  | {
+      ok: true;
+      analysis: PhotoAnalysis;
+      attempts: number;
+      neuronsSpent: number;
+    }
   | {
       ok: false;
       reason: "ai_error" | "invalid_response" | "quota_exceeded";
       detail: string;
       attempts: number;
+      neuronsSpent: number;
     };
 
 export interface NeckDetailAnalysis {
@@ -1309,12 +1320,18 @@ export interface NeckDetailAnalysis {
 }
 
 export type NeckDetailCallResult =
-  | { ok: true; detail: NeckDetailAnalysis; attempts: number }
+  | {
+      ok: true;
+      detail: NeckDetailAnalysis;
+      attempts: number;
+      neuronsSpent: number;
+    }
   | {
       ok: false;
       reason: "ai_error" | "invalid_response" | "quota_exceeded";
       detail: string;
       attempts: number;
+      neuronsSpent: number;
     };
 
 export const NECK_DETAIL_PROMPT = `This is a zoomed upper-body crop of the same person from a full or three-quarter photo.
@@ -1390,6 +1407,10 @@ export async function runNeckDetailAnalysis(
         },
       } as never,
     );
+    const neuronsSpent = visionNeuronsFromUsage(
+      result,
+      NEURONS_VISION_DETAIL_ESTIMATE,
+    );
     const parsed = extractAnalysisPayload(result);
     if (!parsed) {
       return {
@@ -1397,6 +1418,7 @@ export async function runNeckDetailAnalysis(
         reason: "invalid_response",
         detail: "neck detail response did not contain JSON",
         attempts: 1,
+        neuronsSpent,
       };
     }
     const neckAccessory = parsed.neckAccessory;
@@ -1415,6 +1437,7 @@ export async function runNeckDetailAnalysis(
         reason: "invalid_response",
         detail: "neck detail response failed schema validation",
         attempts: 1,
+        neuronsSpent,
       };
     }
     return {
@@ -1426,6 +1449,7 @@ export async function runNeckDetailAnalysis(
         evidence: evidence.trim(),
       },
       attempts: 1,
+      neuronsSpent,
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -1436,6 +1460,7 @@ export async function runNeckDetailAnalysis(
         : "ai_error",
       detail,
       attempts: 1,
+      neuronsSpent: NEURONS_VISION_DETAIL_ESTIMATE,
     };
   }
 }
@@ -1480,6 +1505,7 @@ export async function runPhotoAnalysis(
   const failureDetails: string[] = [];
   let sawInvalidResponse = false;
   let attempts = 0;
+  let neuronsSpent = 0;
   // A second structured pass is more reliable than switching to free-form
   // json_object output. Free-form retries were the main source of truncated or
   // schema-incomplete production responses. Alternate models across two rounds
@@ -1502,8 +1528,13 @@ export async function runPhotoAnalysis(
             response_format: structuredResponseFormat,
           } as never,
         );
+        neuronsSpent += visionNeuronsFromUsage(
+          result,
+          NEURONS_VISION_ANALYSIS,
+        );
         parsed = extractAnalysisPayload(result);
       } catch (error) {
+        neuronsSpent += NEURONS_VISION_ANALYSIS;
         const detail = error instanceof Error ? error.message : String(error);
         lastDetail = `round ${round + 1} ${visionModel}: ${detail}`;
         failureDetails.push(lastDetail);
@@ -1513,6 +1544,7 @@ export async function runPhotoAnalysis(
             reason: "quota_exceeded",
             detail: failureDetails.join("\n"),
             attempts,
+            neuronsSpent,
           };
         }
         continue;
@@ -1525,7 +1557,12 @@ export async function runPhotoAnalysis(
       }
       const validated = validatePhotoAnalysis(parsed);
       if (validated.ok) {
-        return { ok: true, analysis: validated.analysis, attempts };
+        return {
+          ok: true,
+          analysis: validated.analysis,
+          attempts,
+          neuronsSpent,
+        };
       }
       sawInvalidResponse = true;
       lastDetail = `round ${round + 1} ${visionModel}: schema validation failed: ${validated.errors.join("; ")}`;
@@ -1537,6 +1574,7 @@ export async function runPhotoAnalysis(
     reason: sawInvalidResponse ? "invalid_response" : "ai_error",
     detail: failureDetails.join("\n") || lastDetail,
     attempts,
+    neuronsSpent,
   };
 }
 
