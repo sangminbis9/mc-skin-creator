@@ -303,6 +303,54 @@ describe("generateSkin", () => {
     expect(longFaceWithShortHair.renderHints.overallHairLength).toBe("ear");
   });
 
+  it("clamps contradictory cheek-length side panels on a compact tapered cut", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "short black hair with a straight fringe and neatly tapered side hair",
+        },
+        identityPrompt:
+          "Short straight black hair with a brow fringe and clean tapered sides.",
+        renderHints: {
+          ...base.renderHints,
+          hairBackShape: "tapered",
+          overallHairLength: "ear",
+          sideHairLength: "cheek",
+          sideHairShape: "tapered",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.sideHairLength).toBe("short");
+    expect(normalized.renderHints.sideHairShape).toBe("tapered");
+  });
+
+  it("preserves cheek-length face-framing hair on a rounded bob", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "rounded jaw-length bob with cheek-length face-framing locks",
+        },
+        identityPrompt:
+          "A rounded jaw-length bob with visible cheek-length front locks.",
+        renderHints: {
+          ...base.renderHints,
+          hairBackShape: "rounded",
+          overallHairLength: "jaw",
+          sideHairLength: "cheek",
+          sideHairShape: "face_framing",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.sideHairLength).toBe("cheek");
+    expect(normalized.renderHints.sideHairShape).toBe("face_framing");
+  });
+
   it("preserves visible slouchy leg-warmer construction over sock height", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(

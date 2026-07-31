@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "mc-skin-creator-api",
+  "account_id": "8e83629048e42855e4d5a5777c769ba4",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
@@ -24,8 +25,8 @@
   "kv_namespaces": [
     {
       "binding": "MCSKIN_KV",
-      // TODO: `wrangler kv namespace create MCSKIN_KV` 실행 후 발급된 id로 교체해주세요.
-      "id": "b049071105af41b7a4e7a757f5abf7fe",
+      // Dedicated quota/cache namespace in the mc-skin-new Cloudflare account.
+      "id": "c1372b5ed9b14ab5b3cfdb51171772c3",
       "remote": true,
     },
   ],

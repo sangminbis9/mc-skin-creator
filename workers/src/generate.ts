@@ -1079,6 +1079,32 @@ export function normalizeAnalysisForRendering(
   if (explicitOverallHairLength) {
     renderHints.overallHairLength = explicitOverallHairLength;
   }
+  const compactSideConstruction =
+    !longHair &&
+    (renderHints.overallHairLength === "cropped" ||
+      renderHints.overallHairLength === "ear") &&
+    (renderHints.hairBackShape === "tapered" ||
+      renderHints.hairBackShape === "undercut") &&
+    (renderHints.sideHairShape === "tapered" ||
+      renderHints.sideHairShape === "ear_hugging" ||
+      renderHints.sideHairShape === "undercut");
+  if (
+    compactSideConstruction &&
+    (renderHints.sideHairLength === "cheek" ||
+      renderHints.sideHairLength === "jaw" ||
+      renderHints.sideHairLength === "shoulder")
+  ) {
+    // A compact cut cannot also form a long rectangular side panel. This
+    // contradiction is especially damaging on the Minecraft head overlay,
+    // where one bad enum becomes a solid cheek-to-neck slab on both sides.
+    // Preserve genuine bobs and face-framing locks: their overall/back/side
+    // construction does not satisfy this compact combination.
+    renderHints.sideHairLength =
+      renderHints.hairBackShape === "undercut" ||
+      renderHints.sideHairShape === "undercut"
+        ? "none"
+        : "short";
+  }
   if (renderHints.sideHairAsymmetry !== "none" && !explicitSideAsymmetry) {
     // A head turn, occlusion, or an accessory on one side must not be
     // converted into a structurally one-sided haircut. The analysis contract

@@ -6,7 +6,7 @@
 import type { GenerateResponse, QuotaStatus } from "./skinFeatures";
 
 export const DEFAULT_API_BASE_URL =
-  "https://mc-skin-creator-api.parkingnav.workers.dev";
+  "https://mc-skin-creator-api.mc-skin-creator-server.workers.dev";
 const API_BASE = (
   import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
 ).replace(/\/$/, "");
