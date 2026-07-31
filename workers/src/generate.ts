@@ -253,15 +253,26 @@ export async function generateSkin(
         generated.inputTiles,
         generated.outputTiles,
       );
-      const atlas = await postprocess(
+      const processed = await postprocess(
         generated.imageBytes,
         attempt,
         mode,
         faceStyle,
       );
-      if (atlas) {
-        skinPngBase64 = atlas;
+      if (processed.atlasBase64) {
+        skinPngBase64 = processed.atlasBase64;
         generationMode = "image";
+      } else if (processed.failure) {
+        await env.MCSKIN_KV.put(
+          "diagnostic:last-image-postprocess-failure",
+          JSON.stringify({
+            at: new Date().toISOString(),
+            attempt: attempt + 1,
+            mode,
+            detail: processed.failure.slice(0, 1500),
+          }),
+          { expirationTtl: 60 * 60 * 48 },
+        ).catch(() => undefined);
       }
     }
   }
@@ -605,7 +616,7 @@ async function postprocess(
   attempt: number,
   mode: GenerationStrategy,
   faceStyle: FaceStyle,
-): Promise<string | null> {
+): Promise<{ atlasBase64: string | null; failure?: string }> {
   try {
     const decoded = await decodeImage(imageBytes);
     const packed = packFrontViewToAtlas(
@@ -617,19 +628,29 @@ async function postprocess(
       console.log(
         `attempt ${attempt}: could not isolate generated character views`,
       );
-      return null;
+      return {
+        atlasBase64: null,
+        failure: "could not isolate generated character views",
+      };
     }
     if (!packed.hasBackView) {
       console.log(
         `attempt ${attempt}: generated sheet has no usable back view`,
       );
-      return null;
+      return {
+        atlasBase64: null,
+        failure: "generated sheet has no usable back view",
+      };
     }
     if (mode === "four_view" && !packed.hasSideViews) {
       console.log(
         `attempt ${attempt}: four-view sheet is missing a usable left or right profile`,
       );
-      return null;
+      return {
+        atlasBase64: null,
+        failure:
+          "four-view sheet is missing a usable left or right profile",
+      };
     }
     const atlas = packed.atlas;
     const verdict = validateAtlas(atlas);
@@ -638,7 +659,10 @@ async function postprocess(
         `attempt ${attempt}: atlas 검증 실패 —`,
         verdict.problems.join(" / "),
       );
-      return null;
+      return {
+        atlasBase64: null,
+        failure: `atlas validation failed: ${verdict.problems.join(" / ")}`,
+      };
     }
     applyUvMask(atlas);
     const finalVerdict = validateFinalAtlas(atlas);
@@ -647,7 +671,10 @@ async function postprocess(
         `attempt ${attempt}: 최종 검증 실패 —`,
         finalVerdict.problems.join(" / "),
       );
-      return null;
+      return {
+        atlasBase64: null,
+        failure: `final atlas validation failed: ${finalVerdict.problems.join(" / ")}`,
+      };
     }
     const craftVerdict = validateAtlasCraft(atlas, faceStyle);
     if (!craftVerdict.ok) {
@@ -655,15 +682,23 @@ async function postprocess(
         `attempt ${attempt}: craft quality validation failed`,
         craftVerdict.problems.join(" / "),
       );
-      return null;
+      return {
+        atlasBase64: null,
+        failure: `craft quality validation failed: ${craftVerdict.problems.join(" / ")}`,
+      };
     }
-    return bytesToBase64(await encodePng(atlas));
+    return { atlasBase64: bytesToBase64(await encodePng(atlas)) };
   } catch (error) {
     console.log(
       `attempt ${attempt}: 후처리 오류 —`,
       error instanceof Error ? error.message : String(error),
     );
-    return null;
+    return {
+      atlasBase64: null,
+      failure: `postprocess error: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
   }
 }
 
@@ -858,6 +893,18 @@ export function normalizeAnalysisForRendering(
     .filter(Boolean);
   const hairClauseMatches = (pattern: RegExp) =>
     hairDescriptionClauses.some((clause) => pattern.test(clause));
+  const hairEndpointDescriptionClauses = hairDescriptionClauses.map((clause) =>
+    clause.replace(
+      /\b(?:relative|compared)\s+to\b|\bin\s+relation\s+to\b/g,
+      "compared against",
+    ),
+  );
+  const hairEndpointClauseMatches = (pattern: RegExp) =>
+    hairEndpointDescriptionClauses.some((clause) => pattern.test(clause));
+  const hairEndpointText = hairText.replace(
+    /\b(?:relative|compared)\s+to\b|\bin\s+relation\s+to\b/g,
+    "compared against",
+  );
   const thighAccessoryClauses = relevantClauseList(
     [
       analysis.observed.clothing,
@@ -952,40 +999,43 @@ export function normalizeAnalysisForRendering(
     hairClauseMatches(
       /\blong\b(?:(?!\b(?:face|jaw|nose|neck)\b)[\s\S]){0,48}\b(?:hair|locks?|strands?|tresses)\b|\b(?:hair|locks?|strands?|tresses)\b.{0,32}\b(?:long|past[-\s]+the[-\s]+shoulders?)\b|\b(?:chest|waist|hip)[-\s]+length\b|\bmid[-\s]+back\b/,
     ) || renderHints.hairBackShape === "long";
+  const explicitlyCompactHair = hairClauseMatches(
+    /\b(?:short|cropped|buzz(?:ed)?|close[-\s]+cut)\b.{0,28}\b(?:hair|cut|style)\b|\b(?:hair|cut|style)\b.{0,24}\b(?:short|cropped|buzzed|close[-\s]+cut)\b/,
+  );
   const explicitOverallHairLength:
     "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip" | null =
-    hairClauseMatches(
+    hairEndpointClauseMatches(
       /\b(?:hip|hips|upper[-\s]+thigh|seat)[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?(?:hips?|upper[-\s]+thighs?|seat)\b/,
     )
       ? "hip"
-      : hairClauseMatches(
+      : hairEndpointClauseMatches(
             /\bwaist[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to|approach(?:es|ing)?|toward(?:s)?)\s+(?:the\s+)?(?:natural\s+)?waist(?:band|line)?\b|\b(?:near|just[-\s]+above)\s+(?:the\s+)?(?:natural\s+)?waist(?:band|line)?\b|\blower[-\s]+back\b/,
           )
         ? "waist"
-        : hairClauseMatches(
+        : hairEndpointClauseMatches(
               /\b(?:chest|bust|mid[-\s]+back)[-\s]+(?:length|level)\b|\b(?:to|at|past|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?(?:chest|bust|mid[-\s]+back)\b|\bpast[-\s]+the[-\s]+shoulders?\b/,
             )
           ? "chest"
-          : hairClauseMatches(
+          : hairEndpointClauseMatches(
                 /\bshoulder[-\s]+(?:length|level)\b|\b(?:to|at|reaches?|falls?|down[-\s]+to)\s+(?:the\s+)?shoulders?\b/,
               )
             ? "shoulder"
-            : hairClauseMatches(
+            : hairEndpointClauseMatches(
                   /\b(?:jaw|chin)[-\s]+(?:length|level)\b|\b(?:to|at|around)\s+(?:the\s+)?(?:jaw|chin)\b/,
                 )
               ? "jaw"
-              : hairClauseMatches(
+              : hairEndpointClauseMatches(
                     /\bear[-\s]+(?:length|level)\b|\b(?:to|at|around)\s+(?:the\s+)?ears?\b/,
                   )
                 ? "ear"
-                : hairClauseMatches(
+                : hairEndpointClauseMatches(
                       /\b(?:cropped|buzz(?:ed)?|shaved|close[-\s]+cut)\b/,
                     )
                   ? "cropped"
                   : null;
   const shoulderSideHair =
     /\b(?:shoulder[-\s]+length|to[-\s]+the[-\s]+shoulders?|over[-\s]+the[-\s]+shoulders?|past[-\s]+the[-\s]+shoulders?)\b/.test(
-      hairText,
+      hairEndpointText,
     );
   const explicitlyShortSideHair =
     /\b(?:cheek|chin|jaw)[-\s]+(?:length|level)\b/.test(hairText) ||
@@ -1079,15 +1129,32 @@ export function normalizeAnalysisForRendering(
   if (explicitOverallHairLength) {
     renderHints.overallHairLength = explicitOverallHairLength;
   }
-  const compactSideConstruction =
-    !longHair &&
-    (renderHints.overallHairLength === "cropped" ||
-      renderHints.overallHairLength === "ear") &&
+  const compactEnums =
     (renderHints.hairBackShape === "tapered" ||
       renderHints.hairBackShape === "undercut") &&
     (renderHints.sideHairShape === "tapered" ||
       renderHints.sideHairShape === "ear_hugging" ||
       renderHints.sideHairShape === "undercut");
+  if (
+    explicitlyCompactHair &&
+    !longHair &&
+    !faceFraming &&
+    compactEnums
+  ) {
+    // Landmark-comparison prose and the compact enum occasionally disagree.
+    // A clearly short tapered/undercut cut is an ear-level construction;
+    // retaining a longer enum creates shoulder drapes absent from the photo.
+    renderHints.overallHairLength =
+      renderHints.hairBackShape === "undercut" ||
+      renderHints.sideHairShape === "undercut"
+        ? "cropped"
+        : "ear";
+  }
+  const compactSideConstruction =
+    !longHair &&
+    (renderHints.overallHairLength === "cropped" ||
+      renderHints.overallHairLength === "ear") &&
+    compactEnums;
   if (
     compactSideConstruction &&
     (renderHints.sideHairLength === "cheek" ||

@@ -327,6 +327,31 @@ describe("generateSkin", () => {
     expect(normalized.renderHints.sideHairShape).toBe("tapered");
   });
 
+  it("does not mistake landmark comparison prose for shoulder-length hair", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair:
+            "short black hair with a straight brow fringe, tapered temple contours, and the lowest substantial hair endpoint relative to the shoulders, chest, natural waist, and hips is at the jaw level",
+        },
+        identityPrompt:
+          "Short straight black hair with a brow fringe and neat tapered sides.",
+        renderHints: {
+          ...base.renderHints,
+          hairBackShape: "tapered",
+          overallHairLength: "shoulder",
+          sideHairLength: "cheek",
+          sideHairShape: "tapered",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.overallHairLength).toBe("ear");
+    expect(normalized.renderHints.sideHairLength).toBe("short");
+  });
+
   it("preserves cheek-length face-framing hair on a rounded bob", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(
@@ -944,6 +969,11 @@ describe("generateSkin", () => {
     expect(provider.calls).toBe(1);
     expect(result.body.generationMode).toBe("procedural_fallback");
     expect(result.neuronsSpent).toBe(170 + 1_460);
+    expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
+      "diagnostic:last-image-postprocess-failure",
+      expect.stringContaining("could not isolate generated character views"),
+      { expirationTtl: 60 * 60 * 48 },
+    );
   });
 
   it("stops image retries and reports shared quota exhaustion", async () => {
