@@ -4,7 +4,12 @@ import { measureAtlasCraft, validateAtlasCraft } from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
 import { REFERENCE_SKIN_BASE64 } from "./fixtures/referenceSkin";
 import { makeFrontView } from "./helpers";
-import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
+import {
+  ALL_PARTS,
+  ATLAS_SIZE,
+  CLASSIC_LAYOUT,
+  getBoxUvSeams,
+} from "../src/uvLayout";
 
 describe("handcrafted atlas quality metrics", () => {
   it("keeps the rich procedural reference style in the handcrafted skin quality range", async () => {
@@ -202,6 +207,120 @@ describe("handcrafted atlas quality metrics", () => {
     expect(
       validateAtlasCraft(missingSide, style).problems.join(" / "),
     ).toContain("side hair is disconnected");
+  });
+
+  it("rejects a single broken side-hair edge and disconnected top/bottom UV faces", () => {
+    const style = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short" as const,
+      bangs: "straight" as const,
+      bangsLength: "brow" as const,
+      fringeOpening: "center" as const,
+      sideHairLength: "short" as const,
+      sideHairShape: "ear_hugging" as const,
+      outerLayer: "heavy" as const,
+      garmentTexture: "knit" as const,
+    };
+    const source = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
+    expect(validateAtlasCraft(source, style).ok).toBe(true);
+
+    const brokenHairEdge = {
+      ...source,
+      rgba: new Uint8Array(source.rgba),
+    };
+    const headSeam = getBoxUvSeams(CLASSIC_LAYOUT.head.overlay).vertical[0];
+    const opaqueIndex = headSeam.primary.findIndex(({ x, y }) => {
+      const offset = (y * ATLAS_SIZE + x) * 4;
+      return brokenHairEdge.rgba[offset + 3] === 255;
+    });
+    expect(opaqueIndex).toBeGreaterThanOrEqual(0);
+    const adjacent = headSeam.adjacent[opaqueIndex];
+    brokenHairEdge.rgba[(adjacent.y * ATLAS_SIZE + adjacent.x) * 4 + 3] = 0;
+    expect(
+      validateAtlasCraft(brokenHairEdge, style).problems.join(" / "),
+    ).toContain("head side-hair seams are not continuous");
+
+    const missingHorizontalFaces = {
+      ...source,
+      rgba: new Uint8Array(source.rgba),
+    };
+    for (const part of ALL_PARTS) {
+      for (const rect of [
+        CLASSIC_LAYOUT[part].overlay.top,
+        CLASSIC_LAYOUT[part].overlay.bottom,
+      ]) {
+        for (let y = 0; y < rect.h; y++) {
+          for (let x = 0; x < rect.w; x++) {
+            const offset =
+              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            missingHorizontalFaces.rgba[offset + 3] = 0;
+          }
+        }
+      }
+      for (const rect of [
+        CLASSIC_LAYOUT[part].overlay.front,
+        CLASSIC_LAYOUT[part].overlay.back,
+        CLASSIC_LAYOUT[part].overlay.right,
+        CLASSIC_LAYOUT[part].overlay.left,
+      ]) {
+        for (const y of [0, rect.h - 1]) {
+          for (let x = 0; x < rect.w; x++) {
+            const offset =
+              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            missingHorizontalFaces.rgba.set([32, 32, 32, 255], offset);
+          }
+        }
+      }
+    }
+    expect(
+      validateAtlasCraft(missingHorizontalFaces, style).problems.join(" / "),
+    ).toContain("outer-layer horizontal seams disconnected");
+
+    const clashingBaseFaces = {
+      ...source,
+      rgba: new Uint8Array(source.rgba),
+    };
+    for (const part of ALL_PARTS) {
+      for (const rect of [
+        CLASSIC_LAYOUT[part].base.top,
+        CLASSIC_LAYOUT[part].base.bottom,
+      ]) {
+        for (let y = 0; y < rect.h; y++) {
+          for (let x = 0; x < rect.w; x++) {
+            const offset =
+              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            clashingBaseFaces.rgba.set([0, 255, 0, 255], offset);
+          }
+        }
+      }
+    }
+    expect(
+      validateAtlasCraft(clashingBaseFaces, style).problems.join(" / "),
+    ).toContain("base-layer horizontal seam colours diverge");
+
+    const clashingBaseSides = {
+      ...source,
+      rgba: new Uint8Array(source.rgba),
+    };
+    for (const part of ALL_PARTS) {
+      for (const [rect, color] of [
+        [CLASSIC_LAYOUT[part].base.front, [0, 255, 0, 255]],
+        [CLASSIC_LAYOUT[part].base.back, [0, 255, 0, 255]],
+        [CLASSIC_LAYOUT[part].base.right, [255, 0, 255, 255]],
+        [CLASSIC_LAYOUT[part].base.left, [255, 0, 255, 255]],
+      ] as const) {
+        for (let y = 0; y < rect.h; y++) {
+          for (let x = 0; x < rect.w; x++) {
+            const offset =
+              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            clashingBaseSides.rgba.set(color, offset);
+          }
+        }
+      }
+    }
+    expect(
+      validateAtlasCraft(clashingBaseSides, style).problems.join(" / "),
+    ).toContain("base-layer vertical seam colours diverge");
   });
 
   it("accepts intentional eye-corner curtain overlap but still rejects a covered iris", () => {
@@ -409,6 +528,7 @@ describe("handcrafted atlas quality metrics", () => {
       expect(metrics.overlayHorizontalSeamColorDistance).toBeLessThanOrEqual(
         80,
       );
+      expect(metrics.baseVerticalSeamColorDistance).toBeLessThanOrEqual(200);
       expect(metrics.baseHorizontalSeamColorDistance).toBeLessThanOrEqual(200);
     },
   );

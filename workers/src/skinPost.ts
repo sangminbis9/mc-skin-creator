@@ -310,6 +310,8 @@ export interface AtlasCraftMetrics {
   overlayHorizontalSeamColorDistance: number;
   overlayHorizontalSeamMismatchesByPart: Record<BodyPart, number>;
   overlayHorizontalSeamColorDistanceByPart: Record<BodyPart, number>;
+  baseVerticalSeamColorDistance: number;
+  baseVerticalSeamColorDistanceByPart: Record<BodyPart, number>;
   baseHorizontalSeamColorDistance: number;
   baseHorizontalSeamColorDistanceByPart: Record<BodyPart, number>;
   detailedBaseFaces: number;
@@ -367,6 +369,9 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
   const baseHorizontalSeamColorDistanceByPart = Object.fromEntries(
     ALL_PARTS.map((part) => [part, 0]),
   ) as Record<BodyPart, number>;
+  const baseVerticalSeamColorDistanceByPart = Object.fromEntries(
+    ALL_PARTS.map((part) => [part, 0]),
+  ) as Record<BodyPart, number>;
   let opaqueOverlayPixels = 0;
   let populatedOverlayFaces = 0;
   let shadedOverlayFaces = 0;
@@ -379,6 +384,8 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
   let overlayHorizontalSeamSamples = 0;
   let overlayHorizontalSeamColorDistanceSum = 0;
   let overlayHorizontalSeamOpaquePairs = 0;
+  let baseVerticalSeamColorDistanceSum = 0;
+  let baseVerticalSeamOpaquePairs = 0;
   let baseHorizontalSeamColorDistanceSum = 0;
   let baseHorizontalSeamOpaquePairs = 0;
   let detailedBaseFaces = 0;
@@ -423,10 +430,14 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
     overlayHorizontalSeamColorDistanceByPart[part] =
       averageSeamColorDistance(horizontalStats);
 
-    const baseHorizontalStats = measureSeams(
-      atlas,
-      getBoxUvSeams(CLASSIC_LAYOUT[part].base).horizontal,
-    );
+    const baseSeams = getBoxUvSeams(CLASSIC_LAYOUT[part].base);
+    const baseVerticalStats = measureSeams(atlas, baseSeams.vertical);
+    baseVerticalSeamColorDistanceSum += baseVerticalStats.colorDistanceSum;
+    baseVerticalSeamOpaquePairs += baseVerticalStats.opaquePairs;
+    baseVerticalSeamColorDistanceByPart[part] =
+      averageSeamColorDistance(baseVerticalStats);
+
+    const baseHorizontalStats = measureSeams(atlas, baseSeams.horizontal);
     baseHorizontalSeamColorDistanceSum += baseHorizontalStats.colorDistanceSum;
     baseHorizontalSeamOpaquePairs += baseHorizontalStats.opaquePairs;
     baseHorizontalSeamColorDistanceByPart[part] =
@@ -457,6 +468,11 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
           overlayHorizontalSeamOpaquePairs,
     overlayHorizontalSeamMismatchesByPart,
     overlayHorizontalSeamColorDistanceByPart,
+    baseVerticalSeamColorDistance:
+      baseVerticalSeamOpaquePairs === 0
+        ? 0
+        : baseVerticalSeamColorDistanceSum / baseVerticalSeamOpaquePairs,
+    baseVerticalSeamColorDistanceByPart,
     baseHorizontalSeamColorDistance:
       baseHorizontalSeamOpaquePairs === 0
         ? 0
@@ -533,6 +549,26 @@ export function validateAtlasCraft(
   if (metrics.overlayVerticalSeamColorDistance > 8)
     problems.push(
       `outer-layer seam colours diverge (${metrics.overlayVerticalSeamColorDistance.toFixed(1)})`,
+    );
+  // Procedural skins intentionally leave a few open cuff/sole corners. The
+  // representative default reaches 84 mismatches, while clearing the actual
+  // top/bottom faces crosses 96. Keep that construction tolerance separate
+  // from the exact head side-hair seam rule below.
+  if (metrics.overlayHorizontalSeamMismatches > 96)
+    problems.push(
+      `outer-layer horizontal seams disconnected (${metrics.overlayHorizontalSeamMismatches})`,
+    );
+  if (metrics.overlayHorizontalSeamColorDistance > 80)
+    problems.push(
+      `outer-layer horizontal seam colours diverge (${metrics.overlayHorizontalSeamColorDistance.toFixed(1)})`,
+    );
+  if (metrics.baseVerticalSeamColorDistance > 200)
+    problems.push(
+      `base-layer vertical seam colours diverge (${metrics.baseVerticalSeamColorDistance.toFixed(1)})`,
+    );
+  if (metrics.baseHorizontalSeamColorDistance > 200)
+    problems.push(
+      `base-layer horizontal seam colours diverge (${metrics.baseHorizontalSeamColorDistance.toFixed(1)})`,
     );
 
   if (richStyle) {
@@ -784,6 +820,20 @@ export function validateAtlasCraft(
       if (rightSide < 4 || leftSide < 4) {
         problems.push(
           `side hair is disconnected (right ${rightSide}, left ${leftSide})`,
+        );
+      }
+      const headVerticalBreaks =
+        metrics.overlayVerticalSeamMismatchesByPart.head;
+      const headVerticalColorDistance =
+        metrics.overlayVerticalSeamColorDistanceByPart.head;
+      if (headVerticalBreaks > 0 || headVerticalColorDistance > 8) {
+        problems.push(
+          `head side-hair seams are not continuous (breaks ${headVerticalBreaks}, colour distance ${headVerticalColorDistance.toFixed(1)})`,
+        );
+      }
+      if (metrics.overlayHorizontalSeamMismatchesByPart.head > 20) {
+        problems.push(
+          `head crown and side hair are disconnected (${metrics.overlayHorizontalSeamMismatchesByPart.head})`,
         );
       }
     }
