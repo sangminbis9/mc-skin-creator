@@ -36,6 +36,7 @@ import {
 import {
   FluxKleinProvider,
   type GenerationStrategy,
+  type ImageModelTier,
   type SkinGenerationProvider,
 } from "./skinProvider";
 import {
@@ -212,20 +213,26 @@ export async function generateSkin(
       env.IMAGE_GEN_STRATEGY === "four_view" ? "four_view" : "front_view";
     // 얼굴 구조적 합성용 특징 (색은 hex로 매핑된 값, 나머지는 분류값 그대로)
     const baseSeed = (Math.random() * 0xffffffff) >>> 0;
-    // Klein 9B costs roughly 22x more than 4B. One quality attempt preserves
-    // the high-detail path without burning most of the daily allocation on a
-    // second sheet that may fail the same structural post-processing gate.
-    const maxImageAttempts = env.IMAGE_MODEL_TIER === "quality" ? 1 : 2;
+    // Start with Klein 9B for detail. If that sheet fails structural
+    // post-processing, spend only a cheap 4B call on the recovery attempt.
+    // Repeating the same expensive model tended to reproduce the same layout
+    // defect while exhausting the daily account allocation.
+    const configuredTier: ImageModelTier =
+      env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced";
+    const maxImageAttempts = 2;
     for (
       let attempt = 0;
       attempt < maxImageAttempts && skinPngBase64 === null;
       attempt++
     ) {
+      const modelTier: ImageModelTier =
+        configuredTier === "quality" && attempt === 0 ? "quality" : "balanced";
       const generated = await provider.generate({
         analysis: renderAnalysis,
         photoDataUrl: imageDataUrl,
         seed: (baseSeed + attempt * 7919) >>> 0,
         mode,
+        modelTier,
       });
       if (!generated.ok) {
         if (generated.quotaExceeded) {
@@ -252,6 +259,7 @@ export async function generateSkin(
         env,
         generated.inputTiles,
         generated.outputTiles,
+        modelTier,
       );
       const processed = await postprocess(
         generated.imageBytes,

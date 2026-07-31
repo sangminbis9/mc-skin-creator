@@ -43,7 +43,7 @@ describe("provider quota circuit breaker", () => {
     const status = await getQuotaStatus(env, today);
 
     expect(estimatedNeuronsPerGeneration(env)).toBe(
-      2 * 170 + NEURONS_IMAGE_GEN_QUALITY_CALL,
+      2 * 170 + NEURONS_IMAGE_GEN_QUALITY_CALL + 66,
     );
     expect(status.remainingGenerations).toBe(2);
   });

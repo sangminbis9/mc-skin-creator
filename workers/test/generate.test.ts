@@ -7,6 +7,8 @@ import {
 } from "../src/generate";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
 import type {
+  ImageModelTier,
+  SkinGenerationRequest,
   SkinGenerationProvider,
   SkinGenerationResult,
 } from "../src/skinProvider";
@@ -56,10 +58,14 @@ async function portraitPhotoDataUrl(): Promise<string> {
 
 function providerOf(
   results: SkinGenerationResult[],
-): SkinGenerationProvider & { calls: number } {
+): SkinGenerationProvider & { calls: number; modelTiers: ImageModelTier[] } {
   const provider = {
     calls: 0,
-    async generate(): Promise<SkinGenerationResult> {
+    modelTiers: [] as ImageModelTier[],
+    async generate(
+      request: SkinGenerationRequest,
+    ): Promise<SkinGenerationResult> {
+      provider.modelTiers.push(request.modelTier ?? "balanced");
       return results[Math.min(provider.calls++, results.length - 1)];
     },
   };
@@ -951,7 +957,7 @@ describe("generateSkin", () => {
     );
   });
 
-  it("quality tier makes one accurately-accounted image attempt", async () => {
+  it("quality tier retries a rejected 9B sheet once with the balanced model", async () => {
     const flat = await encodePng({
       width: 512,
       height: 512,
@@ -966,9 +972,10 @@ describe("generateSkin", () => {
 
     const result = await generateSkin(env, await photoDataUrl(), provider);
 
-    expect(provider.calls).toBe(1);
-    expect(result.body.generationMode).toBe("procedural_fallback");
-    expect(result.neuronsSpent).toBe(170 + 1_460);
+    expect(provider.calls).toBe(2);
+    expect(provider.modelTiers).toEqual(["quality", "balanced"]);
+    expect(result.body.generationMode).toBe("image");
+    expect(result.neuronsSpent).toBe(170 + 1_460 + 66);
     expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
       "diagnostic:last-image-postprocess-failure",
       expect.stringContaining("could not isolate generated character views"),

@@ -8,6 +8,7 @@
  */
 
 import type { Env, QuotaStatus } from "./types";
+import type { ImageModelTier } from "./skinProvider";
 
 export const CLOUDFLARE_FREE_NEURONS_PER_DAY = 10_000;
 const DEFAULT_BUDGET_RATIO = 0.5;
@@ -35,20 +36,22 @@ export const NEURONS_IMAGE_GEN_CALL =
 
 /**
  * Conservative capacity shown in the app: main photo analysis + the focused
- * upper-body detail pass used by tall full/three-quarter portraits + one
- * image-generation call. Square/close portraits may skip the detail pass,
- * but promising that cheaper path would overstate the remaining capacity for
- * the most common full-body inputs.
+ * upper-body detail pass used by tall full/three-quarter portraits + the
+ * primary image call + one balanced recovery call. Square/close portraits or
+ * first-pass image success may cost less, but promising that cheaper path
+ * would overstate capacity for the requests that need recovery.
  */
 export const NEURONS_PER_GENERATION_ESTIMATE =
-  2 * NEURONS_VISION_ANALYSIS + NEURONS_IMAGE_GEN_CALL;
+  2 * NEURONS_VISION_ANALYSIS + 2 * NEURONS_IMAGE_GEN_CALL;
 
 export function imageGenerationNeurons(
   env: Env,
   inputTiles = 2,
   outputTiles = 2,
+  modelTier: ImageModelTier =
+    env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced",
 ): number {
-  if (env.IMAGE_MODEL_TIER === "quality") {
+  if (modelTier === "quality") {
     return NEURONS_IMAGE_GEN_QUALITY_CALL;
   }
   return (
@@ -58,7 +61,11 @@ export function imageGenerationNeurons(
 }
 
 export function estimatedNeuronsPerGeneration(env: Env): number {
-  return 2 * NEURONS_VISION_ANALYSIS + imageGenerationNeurons(env);
+  return (
+    2 * NEURONS_VISION_ANALYSIS +
+    imageGenerationNeurons(env) +
+    NEURONS_IMAGE_GEN_CALL
+  );
 }
 
 const ALMOST_THRESHOLD = 0.85;

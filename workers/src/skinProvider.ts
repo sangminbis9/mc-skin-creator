@@ -13,12 +13,18 @@ import type { Env } from "./types";
 
 /** Image models produce character views; skinPack alone owns UV placement. */
 export type GenerationStrategy = "front_view" | "four_view";
+export type ImageModelTier = "balanced" | "quality";
 
 export interface SkinGenerationRequest {
   analysis: PhotoAnalysis;
   photoDataUrl: string;
   seed: number;
   mode: GenerationStrategy;
+  /**
+   * A request-level override lets the pipeline fall back from the expensive
+   * quality model to the balanced model without rebuilding the Worker env.
+   */
+  modelTier?: ImageModelTier;
 }
 
 export type SkinGenerationResult =
@@ -134,10 +140,11 @@ export class FluxKleinProvider implements SkinGenerationProvider {
 
     let image: unknown;
     try {
+      const modelTier =
+        request.modelTier ??
+        (this.env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced");
       const model =
-        this.env.IMAGE_MODEL_TIER === "quality"
-          ? FLUX_MODEL_QUALITY
-          : FLUX_MODEL_BALANCED;
+        modelTier === "quality" ? FLUX_MODEL_QUALITY : FLUX_MODEL_BALANCED;
       const result = (await this.env.AI.run(
         model as never,
         {
