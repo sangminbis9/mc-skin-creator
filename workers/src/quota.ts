@@ -47,9 +47,10 @@ export const NEURONS_IMAGE_GEN_CALL =
 /**
  * Conservative capacity shown in the app: main photo analysis + the focused
  * upper-body detail pass used by tall full/three-quarter portraits + the
- * primary image call + one balanced recovery call. Square/close portraits or
- * first-pass image success may cost less, but promising that cheaper path
- * would overstate capacity for the requests that need recovery.
+ * primary image call + one balanced recovery call. Quality mode also reserves
+ * one same-tier retry for a moderation/provider failure that may already have
+ * consumed inference capacity. Square/close portraits or first-pass success
+ * may cost less, but promising that cheaper path would overstate capacity.
  */
 export const NEURONS_PER_GENERATION_ESTIMATE =
   NEURONS_VISION_ANALYSIS_ESTIMATE +
@@ -115,10 +116,13 @@ export function imageGenerationNeurons(
 }
 
 export function estimatedNeuronsPerGeneration(env: Env): number {
+  const configuredTier: ImageModelTier =
+    env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced";
   return (
     NEURONS_VISION_ANALYSIS_ESTIMATE +
     NEURONS_VISION_DETAIL_ESTIMATE +
-    imageGenerationNeurons(env) +
+    imageGenerationNeurons(env, 2, 2, configuredTier) +
+    (configuredTier === "quality" ? NEURONS_IMAGE_GEN_QUALITY_CALL : 0) +
     NEURONS_IMAGE_GEN_CALL
   );
 }

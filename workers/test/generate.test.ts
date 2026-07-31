@@ -983,6 +983,33 @@ describe("generateSkin", () => {
     );
   });
 
+  it("quality tier retries one consumed provider failure with 9B, then falls back to 4B", async () => {
+    const env = makeEnv(makeAnalysis());
+    env.IMAGE_MODEL_TIER = "quality";
+    const provider = providerOf([
+      {
+        ok: false,
+        error: "FLUX 호출 실패: 3030: output flagged",
+        retryable: true,
+        capacityConsumed: true,
+      },
+      {
+        ok: false,
+        error: "FLUX 호출 실패: 3030: output flagged again",
+        retryable: true,
+        capacityConsumed: true,
+      },
+      await goodFluxOutput(),
+    ]);
+
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+
+    expect(provider.calls).toBe(3);
+    expect(provider.modelTiers).toEqual(["quality", "quality", "balanced"]);
+    expect(result.body.generationMode).toBe("image");
+    expect(result.neuronsSpent).toBe(170 + 1_460 + 1_460 + 66);
+  });
+
   it("stops image retries and reports shared quota exhaustion", async () => {
     const env = makeEnv(makeAnalysis());
     const provider = providerOf([

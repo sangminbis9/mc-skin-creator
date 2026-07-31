@@ -40,6 +40,8 @@ export type SkinGenerationResult =
       error: string;
       retryable: boolean;
       quotaExceeded?: boolean;
+      /** True when inference ran far enough that account capacity may be used. */
+      capacityConsumed?: boolean;
     };
 
 export interface SkinGenerationProvider {
@@ -164,10 +166,16 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         // moderation flag 등은 seed/프롬프트가 달라지면 통과할 수 있다
         retryable: !quotaExceeded,
         ...(quotaExceeded ? { quotaExceeded: true } : {}),
+        ...(!quotaExceeded ? { capacityConsumed: true } : {}),
       };
     }
     if (typeof image !== "string" || image.length === 0) {
-      return { ok: false, error: "FLUX 응답에 image가 없음", retryable: true };
+      return {
+        ok: false,
+        error: "FLUX 응답에 image가 없음",
+        retryable: true,
+        capacityConsumed: true,
+      };
     }
     try {
       return {
@@ -181,6 +189,7 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         ok: false,
         error: "FLUX image base64 디코드 실패",
         retryable: true,
+        capacityConsumed: true,
       };
     }
   }

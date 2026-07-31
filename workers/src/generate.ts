@@ -216,14 +216,16 @@ export async function generateSkin(
     // defect while exhausting the daily account allocation.
     const configuredTier: ImageModelTier =
       env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced";
-    const maxImageAttempts = 2;
+    const attemptPlan: ImageModelTier[] =
+      configuredTier === "quality"
+        ? ["quality", "balanced"]
+        : ["balanced", "balanced"];
     for (
       let attempt = 0;
-      attempt < maxImageAttempts && skinPngBase64 === null;
+      attempt < attemptPlan.length && skinPngBase64 === null;
       attempt++
     ) {
-      const modelTier: ImageModelTier =
-        configuredTier === "quality" && attempt === 0 ? "quality" : "balanced";
+      const modelTier = attemptPlan[attempt];
       const generated = await provider.generate({
         analysis: renderAnalysis,
         photoDataUrl: imageDataUrl,
@@ -232,6 +234,9 @@ export async function generateSkin(
         modelTier,
       });
       if (!generated.ok) {
+        if (generated.capacityConsumed) {
+          spent += imageGenerationNeurons(env, 2, 2, modelTier);
+        }
         if (generated.quotaExceeded) {
           providerQuotaExhausted = true;
         }
@@ -249,6 +254,18 @@ export async function generateSkin(
         if (!generated.retryable) {
           // 사진 크기/형식 문제는 재시도해도 동일하므로 즉시 fallback
           break;
+        }
+        if (
+          configuredTier === "quality" &&
+          modelTier === "quality" &&
+          generated.capacityConsumed &&
+          attempt === 0
+        ) {
+          // Moderation/transient provider failures returned no image to
+          // inspect. Give 9B one new seed before the existing balanced
+          // recovery. Structural post-process failures still go directly to
+          // 4B because repeating 9B tends to reproduce the same layout.
+          attemptPlan.splice(attempt + 1, 0, "quality");
         }
         continue;
       }

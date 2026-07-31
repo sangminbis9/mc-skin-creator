@@ -49,9 +49,10 @@ describe("provider quota circuit breaker", () => {
       NEURONS_VISION_ANALYSIS_ESTIMATE +
         NEURONS_VISION_DETAIL_ESTIMATE +
         NEURONS_IMAGE_GEN_QUALITY_CALL +
+        NEURONS_IMAGE_GEN_QUALITY_CALL +
         66,
     );
-    expect(status.remainingGenerations).toBe(2);
+    expect(status.remainingGenerations).toBe(1);
   });
 
   it("converts authoritative Llama token usage to Neurons", () => {
