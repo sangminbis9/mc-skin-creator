@@ -1349,7 +1349,13 @@ describe("packFrontViewToAtlas", () => {
       );
     }
     expect(alphaAt(atlas, head.overlay.front, 3, 2)).toBe(0);
-    expect(alphaAt(atlas, head.overlay.front, 3, 3)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.front, 3, 3)).toBe(255);
+    expect(redAt(atlas, head.base.front, 3, 2)).toBeGreaterThan(
+      redAt(atlas, head.base.front, 4, 2) + 50,
+    );
+    expect(redAt(atlas, head.base.front, 3, 3)).toBeLessThan(
+      redAt(atlas, head.base.front, 3, 5) - 80,
+    );
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);

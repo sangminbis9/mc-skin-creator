@@ -840,9 +840,18 @@ function composeFace(
       fringeOpening === "center" && bangs === "curtain"
         ? [3, 4]
         : [fringeOpening === "left" ? 2 : fringeOpening === "right" ? 5 : 3];
+    const shallowDenseCenterGap =
+      bangs === "straight" &&
+      bangsDensity === "dense" &&
+      fringeOpening === "center";
     for (const x of gapXs) {
       put(face, x, 2, shadeRgb(skinColor, 1.01));
-      put(face, x, 3, shadeRgb(skinColor, 0.98));
+      // A dense straight fringe can have a small central break without being
+      // centre-parted. Carving through both low-res fringe rows exaggerated
+      // that break into a deep scalp channel in the 3D preview.
+      if (!shallowDenseCenterGap) {
+        put(face, x, 3, shadeRgb(skinColor, 0.98));
+      }
     }
   }
 
@@ -3414,9 +3423,16 @@ function composeHair(
                 ? 5
                 : 3,
           ];
+    const shallowDenseCenterGap =
+      style.bangs === "straight" &&
+      bangsDensity === "dense" &&
+      visibleFringeOpening === "center";
     for (const x of gapXs) {
       clearPixel(over.front, x, 2);
-      if (bangsLength === "brow" || bangsLength === "eye") {
+      if (
+        !shallowDenseCenterGap &&
+        (bangsLength === "brow" || bangsLength === "eye")
+      ) {
         clearPixel(over.front, x, 3);
       }
     }
