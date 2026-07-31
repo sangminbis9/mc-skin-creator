@@ -146,6 +146,11 @@ describe("generateSkin", () => {
       },
       renderHints: {
         ...base.renderHints,
+        faceShape: "round",
+        eyeSize: "large",
+        bangs: "side",
+        hairSilhouette: "flat",
+        sideHairShape: "tapered",
         neckAccessory: "collar",
       },
     });
@@ -167,6 +172,15 @@ describe("generateSkin", () => {
     expect(env.AI.run).toHaveBeenCalledTimes(3);
     expect(result.neuronsSpent).toBe(370);
     expect(result.body.analysis?.renderHints.neckAccessory).toBe("bow");
+    expect(result.body.analysis?.renderHints).toMatchObject({
+      faceShape: "oval",
+      eyeSize: "small",
+      bangs: "straight",
+      hairSilhouette: "rounded",
+      sideHairShape: "ear_hugging",
+    });
+    expect(result.body.analysis?.observed.face).toContain("dark brown eyes");
+    expect(result.body.analysis?.observed.hair).toContain("domed crown");
     expect(result.body.analysis?.observed.accessories).toContain(
       "central knot",
     );

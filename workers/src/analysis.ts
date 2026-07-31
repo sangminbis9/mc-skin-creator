@@ -1702,10 +1702,6 @@ export async function runNeckDetailAnalysis(
 }
 
 /**
- * 사진 분석 실행. json_schema 유도 → 실패 시 json_object로 1회 재시도.
- * 두 경우 모두 validatePhotoAnalysis로 런타임 검증한다.
- */
-/**
  * Focused second-pass classifier for portrait identity. It is intentionally
  * limited to features visible in the crop, leaving outfit and inferred rear
  * or lower-body construction under the main analysis.
@@ -1866,7 +1862,10 @@ export async function runPortraitDetailAnalysis(
   }
 }
 
-/** Analyze and validate the complete source photo before focused passes. */
+/**
+ * 사진 분석 실행. json_schema 유도 → 실패 시 json_object로 1회 재시도.
+ * 두 경우 모두 validatePhotoAnalysis로 런타임 검증한다.
+ */
 export async function runPhotoAnalysis(
   env: Env,
   imageDataUrl: string,
