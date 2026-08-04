@@ -1163,10 +1163,21 @@ describe("packFrontViewToAtlas", () => {
     const head = CLASSIC_LAYOUT.head;
 
     expect(alphaAt(atlas, head.overlay.top, 0, 0)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.top, 1, 0)).toBe(0);
     expect(alphaAt(atlas, head.overlay.front, 0, 0)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.front, 1, 0)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.right, 6, 0)).toBe(0);
     expect(redAt(atlas, head.overlay.top, 2, 1)).toBeGreaterThan(
       redAt(atlas, head.overlay.top, 5, 3),
     );
+    // Near-black source hair must retain enough value separation for the
+    // rounded second layer to read as strands and crown volume in 3D, rather
+    // than collapsing into one square black cap.
+    const darkCrown = redAt(atlas, head.overlay.top, 5, 3);
+    const crownHighlight = redAt(atlas, head.overlay.top, 2, 1);
+    expect(crownHighlight).toBeGreaterThanOrEqual(36);
+    expect(crownHighlight - darkCrown).toBeGreaterThanOrEqual(25);
+    expect(crownHighlight).toBeLessThan(96);
     expect(redAt(atlas, head.overlay.right, 6, 2)).not.toBe(
       redAt(atlas, head.overlay.right, 7, 2),
     );

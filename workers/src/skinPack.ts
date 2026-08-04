@@ -2957,10 +2957,19 @@ function composeHair(
     for (let y = 2; y < edgeRows; y++) connectBackEdge(y);
   }
 
+  const hairLuminance =
+    hairColor[0] * 0.299 + hairColor[1] * 0.587 + hairColor[2] * 0.114;
+  // Multiplicative shading barely changes near-black hair. Lift only its
+  // authored highlights/midtones so overlay cut-outs and connected strand
+  // clusters remain visible in 3D while the overall colour still reads black.
+  const darkHairBoost = Math.max(0, Math.min(1, (72 - hairLuminance) / 56));
   const strandLight = mixRgb(
     hairColor,
-    [242, 232, 220],
-    style.hairTexture === "wavy" || style.hairTexture === "curly" ? 0.2 : 0.13,
+    [210, 204, 198],
+    (style.hairTexture === "wavy" || style.hairTexture === "curly"
+      ? 0.2
+      : 0.13) +
+      darkHairBoost * 0.1,
   );
   const strandDark = shadeRgb(hairColor, 0.58);
   const strandMid = shadeRgb(hairColor, 0.82);
@@ -2969,13 +2978,21 @@ function composeHair(
   };
   const hairSilhouette =
     style.hairSilhouette ?? (style.hairVolume === "flat" ? "flat" : "rounded");
-  const outlineLight = mixRgb(hairColor, strandLight, 0.28);
+  const outlineLight = mixRgb(
+    hairColor,
+    strandLight,
+    0.28 + darkHairBoost * 0.34,
+  );
   const outlineDark = shadeRgb(hairColor, 0.54);
-  const outlineMid = shadeRgb(hairColor, 0.76);
+  const outlineMid = mixRgb(
+    shadeRgb(hairColor, 0.76),
+    mixRgb(hairColor, [140, 136, 132], 0.17),
+    darkHairBoost,
+  );
   if (hairSilhouette === "rounded") {
     // The larger second-layer cube becomes a square helmet when its corner
     // pixels are opaque. Remove matching corners on every adjacent face so
-    // the smaller base cube peeks through as a two-step rounded silhouette,
+    // the smaller base cube peeks through as a stepped rounded silhouette,
     // without leaving a one-face-only UV crack.
     for (const rect of [over.front, over.back, over.right, over.left]) {
       for (const [x, y] of [
@@ -2986,6 +3003,10 @@ function composeHair(
       ] as const) {
         clearPixel(rect, x, y);
       }
+      if (s === "short") {
+        clearPixel(rect, 1, 0);
+        clearPixel(rect, rect.w - 2, 0);
+      }
     }
     for (const [x, y] of [
       [0, 0],
@@ -2995,16 +3016,30 @@ function composeHair(
     ] as const) {
       clearPixel(over.top, x, y);
     }
+    if (s === "short") {
+      for (const [x, y] of [
+        [1, 0],
+        [over.top.w - 2, 0],
+        [0, 1],
+        [over.top.w - 1, 1],
+        [0, over.top.h - 2],
+        [over.top.w - 1, over.top.h - 2],
+        [1, over.top.h - 1],
+        [over.top.w - 2, over.top.h - 1],
+      ] as const) {
+        clearPixel(over.top, x, y);
+      }
+    }
     for (const [rect, points] of [
       [
         over.top,
         [
-          [1, 0],
           [2, 0],
           [3, 0],
           [4, 0],
           [5, 0],
-          [6, 0],
+          [1, 1],
+          [6, 1],
           [0, 2],
           [7, 2],
         ],
@@ -3012,19 +3047,19 @@ function composeHair(
       [
         over.front,
         [
-          [1, 0],
           [2, 0],
           [5, 0],
-          [6, 0],
           [1, 1],
+          [2, 1],
+          [5, 1],
           [6, 1],
         ],
       ],
       [
         over.right,
         [
-          [1, 0],
           [2, 0],
+          [5, 0],
           [1, 1],
           [2, 1],
         ],
@@ -3032,14 +3067,36 @@ function composeHair(
       [
         over.left,
         [
+          [2, 0],
           [5, 0],
-          [6, 0],
           [5, 1],
           [6, 1],
         ],
       ],
     ] as const) {
       for (const [x, y] of points) putColor(rect, x, y, outlineLight);
+    }
+    if (s !== "short") {
+      for (const [rect, points] of [
+        [
+          over.top,
+          [
+            [1, 0],
+            [6, 0],
+          ],
+        ],
+        [
+          over.front,
+          [
+            [1, 0],
+            [6, 0],
+          ],
+        ],
+        [over.right, [[1, 0]]],
+        [over.left, [[6, 0]]],
+      ] as const) {
+        for (const [x, y] of points) putColor(rect, x, y, outlineLight);
+      }
     }
   } else if (hairSilhouette === "flat") {
     for (let x = 1; x < 7; x++) {
