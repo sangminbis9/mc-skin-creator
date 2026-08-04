@@ -2887,9 +2887,9 @@ describe("packFrontViewToAtlas", () => {
     const mediumLeaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
     const largeCrownLeaf = (front.y * ATLAS_SIZE + front.x + 2) * 4;
     const largeSecondCenter =
-      (front.y * ATLAS_SIZE + front.x + 4) * 4;
+      ((front.y + 1) * ATLAS_SIZE + front.x + 4) * 4;
     const largeSecondPetal =
-      (front.y * ATLAS_SIZE + front.x + 3) * 4;
+      ((front.y + 1) * ATLAS_SIZE + front.x + 3) * 4;
     const largeCrownCenter =
       ((top.y + 3) * ATLAS_SIZE + top.x + 5) * 4;
 
@@ -2915,7 +2915,12 @@ describe("packFrontViewToAtlas", () => {
     expect(rgbaAt(large, front, 2, 1)).toEqual(
       rgbaAt(small, front, 2, 1),
     );
-    for (let y = 1; y <= 4; y++) {
+    // Crown leaf and second bloom are separated by a dark hair pixel, so the
+    // large accessory reads as clustered flowers instead of a coloured band.
+    expect(rgbaAt(large, front, 3, 0)).toEqual(
+      rgbaAt(small, front, 3, 0),
+    );
+    for (let y = 2; y <= 4; y++) {
       for (let x = 3; x <= 5; x++) {
         expect(rgbaAt(large, front, x, y)).toEqual(
           rgbaAt(medium, front, x, y),
@@ -2968,6 +2973,15 @@ describe("packFrontViewToAtlas", () => {
       thighAccessory: "bow",
       thighAccessorySide: "right",
     })!;
+    const noThighAccessory = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      bottomType: "skirt",
+      legwear: "leg_warmers",
+      legwearColor: "#d9c4a3",
+      legwearAsymmetry: "left",
+      thighAccessory: "none",
+      thighAccessorySide: "none",
+    })!.atlas;
     const atlas = packed.atlas;
     const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const leftBase = CLASSIC_LAYOUT.leftLeg.base.front;
@@ -2998,14 +3012,19 @@ describe("packFrontViewToAtlas", () => {
     const warmerBackAnkleFold =
       ((leftBack.y + 8) * ATLAS_SIZE + leftBack.x + 1) * 4;
     const bow = ((right.y + 2) * ATLAS_SIZE + right.x) * 4;
+    const bowKnot = ((right.y + 2) * ATLAS_SIZE + right.x + 1) * 4;
     const bowTopBand = ((right.y + 1) * ATLAS_SIZE + right.x + 2) * 4;
-    const bowOuterWing = ((right.y + 2) * ATLAS_SIZE + right.x + 3) * 4;
-    const bowTail = ((right.y + 4) * ATLAS_SIZE + right.x + 1) * 4;
+    const bowCrownGap = ((right.y + 1) * ATLAS_SIZE + right.x + 1) * 4;
+    const bowUpperGap = ((right.y + 1) * ATLAS_SIZE + right.x + 3) * 4;
+    const bowLowerCornerGap =
+      ((right.y + 3) * ATLAS_SIZE + right.x + 3) * 4;
+    const bowTailGap = ((right.y + 4) * ATLAS_SIZE + right.x + 1) * 4;
     const bareLowerLeg = ((right.y + 5) * ATLAS_SIZE + right.x + 3) * 4;
     const sideTopBand = ((rightSide.y + 1) * ATLAS_SIZE + rightSide.x) * 4;
     const sideBand = ((rightSide.y + 2) * ATLAS_SIZE + rightSide.x + 1) * 4;
     const sideTail = ((rightSide.y + 3) * ATLAS_SIZE + rightSide.x) * 4;
-    const sideLongTail = ((rightSide.y + 4) * ATLAS_SIZE + rightSide.x) * 4;
+    const sideLongTail =
+      ((rightSide.y + 4) * ATLAS_SIZE + rightSide.x + 1) * 4;
     const backTopBand = ((rightBack.y + 1) * ATLAS_SIZE + rightBack.x + 2) * 4;
     const backBand = ((rightBack.y + 2) * ATLAS_SIZE + rightBack.x + 2) * 4;
     const topAttachment =
@@ -3021,19 +3040,32 @@ describe("packFrontViewToAtlas", () => {
     expect(atlas.rgba[warmerSideLace + 3]).toBe(255);
     expect(atlas.rgba[bow + 3]).toBe(255);
     expect(atlas.rgba[bow]).toBeGreaterThan(220);
-    expect(atlas.rgba[bowTail + 3]).toBe(255);
+    expect(Array.from(atlas.rgba.slice(bowTailGap, bowTailGap + 4))).toEqual(
+      Array.from(
+        noThighAccessory.rgba.slice(bowTailGap, bowTailGap + 4),
+      ),
+    );
     expect(atlas.rgba[bareLowerLeg + 3]).toBe(0);
     expect(atlas.rgba[sideBand + 3]).toBe(255);
     expect(atlas.rgba[sideTail + 3]).toBe(255);
     expect(atlas.rgba[sideLongTail + 3]).toBe(255);
     expect(atlas.rgba[sideTopBand + 3]).toBe(255);
-    expect(atlas.rgba[backTopBand + 3]).toBe(255);
+    expect(Array.from(atlas.rgba.slice(backTopBand, backTopBand + 4))).toEqual(
+      Array.from(
+        noThighAccessory.rgba.slice(backTopBand, backTopBand + 4),
+      ),
+    );
     expect(atlas.rgba[backBand + 3]).toBe(255);
     expect(atlas.rgba[topAttachment + 3]).toBe(255);
     expect(atlas.rgba[sideBand]).toBeGreaterThan(atlas.rgba[sideBand + 1]);
     expect(atlas.rgba[bowTopBand + 3]).toBe(255);
-    expect(atlas.rgba[bowOuterWing + 3]).toBe(255);
-    expect(atlas.rgba[bowOuterWing]).toBeGreaterThan(atlas.rgba[bowTail]);
+    for (const gap of [bowCrownGap, bowUpperGap, bowLowerCornerGap]) {
+      expect(Array.from(atlas.rgba.slice(gap, gap + 4))).toEqual(
+        Array.from(noThighAccessory.rgba.slice(gap, gap + 4)),
+      );
+    }
+    expect(atlas.rgba[bow]).toBeGreaterThan(atlas.rgba[bowKnot]);
+    expect(atlas.rgba[bowKnot]).toBeGreaterThan(140);
     expect(atlas.rgba[warmerRidge]).toBeLessThan(atlas.rgba[warmerLift]);
     expect(atlas.rgba[warmerRidge]).toBeGreaterThan(
       atlas.rgba[warmerRidge + 1],

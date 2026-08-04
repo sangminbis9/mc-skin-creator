@@ -3878,10 +3878,10 @@ function composeHair(
           putBackAccessory(0, 4, leafDark);
           if (accessoryScale === "large") {
             // A second, offset bloom produces the petal/centre silhouette of
-            // a large floral hairpiece. Keep it on the crown row so the
-            // cluster does not spread across the forehead and overpower the
-            // eye/bang silhouette in the enlarged 3D head layer.
-            drawFrontMiniFlower(4, 0);
+            // a large floral hairpiece. Stagger it below the crown edge and
+            // preserve a hair-coloured gap from the first bloom; placing all
+            // four colours on y=0 reads as a straight headband in 3D.
+            drawFrontMiniFlower(4, 1);
             // Continue the cluster over the crown rather than making the
             // front face carry all of its apparent volume.
             drawTopMiniFlower(5, 3);
@@ -5860,47 +5860,47 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     const mid = shadeRgb(accent, 0.88);
     const shade = shadeRgb(accent, 0.68);
     const deep = shadeRgb(accent, 0.48);
+    const bowKnot = shadeRgb(accent, 0.72);
 
     const drawThighAccessory = (part: "rightLeg" | "leftLeg") => {
       const leg = CLASSIC_LAYOUT[part].overlay;
       const outerSide = part === "rightLeg" ? leg.right : leg.left;
-      const innerSide = part === "rightLeg" ? leg.left : leg.right;
 
       if (thighAccessory === "bow") {
-        for (const [x, y, color] of [
-          [0, 1, mid],
-          [0, 2, light],
-          [1, 1, accent],
-          [1, 2, deep],
-          [2, 1, light],
-          [2, 2, accent],
-          [3, 2, light],
-          [0, 3, mid],
-          [1, 3, accent],
-          [2, 3, mid],
-          [3, 3, shade],
-          [1, 4, deep],
-          [2, 4, shade],
-        ] as const) {
-          put(leg.front, x, y, color);
-        }
-        for (const rect of [leg.right, leg.left, leg.back]) {
+        // Keep only a single continuous strap around the thigh. Filling two
+        // complete rows made a small bow read as a rigid dark cuff in 3D.
+        for (const rect of [leg.front, leg.right, leg.left, leg.back]) {
           for (let x = 0; x < rect.w; x++) {
-            put(rect, x, 1, x % 2 === 0 ? light : mid);
             put(rect, x, 2, x % 2 === 0 ? accent : shade);
           }
         }
+
+        // A compact front-facing silhouette: two raised loops, a shaded knot,
+        // and separated tails. Transparent corners preserve the leg contour.
         for (const [x, y, color] of [
           [0, 1, light],
-          [1, 1, accent],
-          [1, 2, deep],
+          [2, 1, light],
+          [0, 2, light],
+          [1, 2, bowKnot],
+          [2, 2, accent],
           [0, 3, mid],
-          [1, 3, accent],
-          [0, 4, deep],
+          [2, 3, shade],
+        ] as const) {
+          put(leg.front, x, y, color);
+        }
+
+        // Let the outer loop turn the corner without duplicating the bow on
+        // every face. This makes the chosen side legible from a three-quarter
+        // view while the back and inner side remain a clean one-pixel strap.
+        for (const [x, y, color] of [
+          [0, 1, light],
+          [1, 1, mid],
+          [0, 2, bowKnot],
+          [0, 3, mid],
+          [1, 4, shade],
         ] as const) {
           put(outerSide, x, y, color);
         }
-        put(innerSide, innerSide.w - 1, 3, shade);
       } else if (thighAccessory === "ribbon") {
         for (const rect of [leg.front, leg.back, leg.right, leg.left]) {
           for (let x = 0; x < rect.w; x++) {
