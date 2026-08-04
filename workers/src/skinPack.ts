@@ -1572,7 +1572,6 @@ function composeHair(
   hairColor: Rgb,
   skinColor: Rgb,
   style: FaceStyle,
-  hasBackView: boolean,
 ): void {
   if (style.hairstyle === "bald" || style.hat !== "none") {
     return;
@@ -1855,46 +1854,52 @@ function composeHair(
     s === "twintails" ||
     s === "afro" ||
     style.hairBackShape === "long";
-  if (hasBackView && fullRearHair) {
+  const anchoredBackHair = (x: number, y: number): Rgb => {
+    const offset = ((base.back.y + y) * ATLAS_SIZE + base.back.x + x) * 4;
+    const sampledLuminance =
+      atlas.rgba[offset] * 0.299 +
+      atlas.rgba[offset + 1] * 0.587 +
+      atlas.rgba[offset + 2] * 0.114;
+    const luminanceShade = Math.max(
+      0.62,
+      Math.min(1.12, sampledLuminance / 145),
+    );
+    return shadeRgb(
+      hairPixel(hairColor, base.back.x + x, base.back.y + y, jitter),
+      luminanceShade,
+    );
+  };
+  if (fullRearHair) {
     for (let y = 0; y < backRows; y++) {
       for (let x = 0; x < base.back.w; x++) {
-        const offset = ((base.back.y + y) * ATLAS_SIZE + base.back.x + x) * 4;
-        const sampled: Rgb = [
-          atlas.rgba[offset],
-          atlas.rgba[offset + 1],
-          atlas.rgba[offset + 2],
-        ];
-        const sampledLuminance =
-          sampled[0] * 0.299 + sampled[1] * 0.587 + sampled[2] * 0.114;
-        const luminanceShade = Math.max(
-          0.62,
-          Math.min(1.12, sampledLuminance / 145),
-        );
+        putColor(base.back, x, y, anchoredBackHair(x, y));
+      }
+    }
+  } else {
+    // A generated rear guide may leave its blue/white studio background in
+    // the uncovered nape rows. Reconstruct compact rear hair from its analysed
+    // colour and explicitly paint the exposed skin instead of trusting those
+    // unseen/background pixels.
+    for (let y = 0; y < backRows; y++) {
+      for (let x = 0; x < base.back.w; x++) {
+        const taperedSkinEdge =
+          roundedFringeCut && y === backRows - 1 && (x < 2 || x > 5);
         putColor(
           base.back,
           x,
           y,
-          shadeRgb(
-            hairPixel(hairColor, base.back.x + x, base.back.y + y, jitter),
-            luminanceShade,
-          ),
+          taperedSkinEdge
+            ? shadeRgb(skinColor, x < 4 ? 0.84 : 0.82)
+            : anchoredBackHair(x, y),
         );
       }
     }
-  } else if (!hasBackView) {
-    if (roundedFringeCut && backRows > 1) {
-      fill(base.back, 0, 0, 8, backRows - 1);
-      fill(base.back, 2, backRows - 1, 4, 1);
-      for (const x of [0, 1, 6, 7]) {
-        putColor(
-          base.back,
-          x,
-          backRows - 1,
-          shadeRgb(skinColor, x < 4 ? 0.84 : 0.82),
-        );
+    for (let y = backRows; y < base.back.h; y++) {
+      const rowShade = 0.88 - (y - backRows) * 0.025;
+      for (let x = 0; x < base.back.w; x++) {
+        const sideShade = x === 0 || x === base.back.w - 1 ? 0.96 : 1;
+        putColor(base.back, x, y, shadeRgb(skinColor, rowShade * sideShade));
       }
-    } else {
-      fill(base.back, 0, 0, 8, backRows);
     }
   }
   // 정수리는 base가 이미 hairColor — overlay 볼륨만 추가
@@ -6734,7 +6739,7 @@ export function packFrontViewToAtlas(
   // ---------- 마감: 의상/액세서리 레이어 + 헤어/모자 구조 + 셰이딩 ----------
   composeGarmentLayers(atlas, faceStyle);
   resetPortraitFaceOverlay(atlas, faceStyle);
-  composeHair(atlas, hairColor, skinColor, faceStyle, back !== null);
+  composeHair(atlas, hairColor, skinColor, faceStyle);
   preserveFaceReadability(atlas, faceStyle);
   composeHat(atlas, hatColor, faceStyle);
   reconcileOverlaySeams(atlas, faceStyle, hairColor);

@@ -427,8 +427,42 @@ describe("packFrontViewToAtlas", () => {
   it("front/back views use the actual back view", () => {
     const packed = packFrontViewToAtlas(makeFrontBackView())!;
     expect(packed.hasBackView).toBe(true);
-    const back = avgOfRect(packed.atlas, CLASSIC_LAYOUT.head.base.back);
+    const back = avgOfRect(packed.atlas, {
+      ...CLASSIC_LAYOUT.head.base.back,
+      h: 4,
+    });
     expect(back[0]).toBeLessThan(80);
+  });
+
+  it("reconstructs compact rear hair and nape instead of retaining blue guide background", () => {
+    const source = makeFrontBackView();
+    // Simulate the common four-view failure where the generated rear head
+    // ends early and its blue studio background occupies the lower head box.
+    for (let y = 145; y < 180; y++) {
+      for (let x = 512 + 196; x < 512 + 316; x++) {
+        source.rgba.set([82, 132, 190, 255], (y * source.width + x) * 4);
+      }
+    }
+    const atlas = packFrontViewToAtlas(source, {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      hairColor: "#101010",
+      skinTone: "#d0a078",
+      bangs: "straight",
+      bangsLength: "brow",
+      hairSilhouette: "rounded",
+      hairBackShape: "tapered",
+      sideHairLength: "short",
+    })!.atlas;
+    const back = CLASSIC_LAYOUT.head.base.back;
+
+    for (let y = 5; y < back.h; y++) {
+      for (let x = 0; x < back.w; x++) {
+        const pixel = rgbaAt(atlas, back, x, y);
+        expect(pixel[0]).toBeGreaterThan(pixel[2] + 20);
+      }
+    }
+    expect(redAt(atlas, back, 3, 1)).toBeLessThan(40);
   });
 
   it("harmonizes generated back-view garment hue with the observed front", () => {
