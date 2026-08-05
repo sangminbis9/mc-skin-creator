@@ -1589,8 +1589,14 @@ function hairPixel(color: Rgb, gx: number, gy: number, jitter: number): Rgb {
  * 검은 머리는 단순 곱셈으로 명암을 줘도 모두 검게 뭉치므로, 따뜻한 중성색을
  * 소량 혼합해 base와 overlay의 높이 차가 3D 뷰에서 읽히게 한다.
  */
-function hairVolumePixel(color: Rgb, gx: number, gy: number): Rgb {
-  const hash = ((gx * 83492791) ^ (gy * 2971215073)) >>> 0;
+export function hairVolumePixel(color: Rgb, gx: number, gy: number): Rgb {
+  // Shade in small connected clusters instead of hashing every pixel
+  // independently. The surrounding silhouette/strand passes already add
+  // single-pixel accents; a stable 2x2 ramp underneath reads like deliberate
+  // Minecraft pixel art rather than salt-and-pepper image-model noise.
+  const clusterX = Math.floor(gx / 2);
+  const clusterY = Math.floor(gy / 2);
+  const hash = ((clusterX * 83492791) ^ (clusterY * 2971215073)) >>> 0;
   switch (hash % 7) {
     case 0:
       return mixRgb(shadeRgb(color, 0.84), [0, 0, 0], 0.06);

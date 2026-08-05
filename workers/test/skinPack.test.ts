@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RawImage } from "../src/png";
 import {
   DEFAULT_FACE_STYLE,
+  hairVolumePixel,
   packFrontViewToAtlas,
   type FaceStyle,
 } from "../src/skinPack";
@@ -1235,6 +1236,37 @@ describe("packFrontViewToAtlas", () => {
       applyUvMask(atlas);
       expect(validateFinalAtlas(atlas).ok).toBe(true);
     }
+  });
+
+  it("raised hair volume groups adjacent pixels into authored shade clusters", () => {
+    const hair: [number, number, number] = [92, 62, 48];
+    expect(hairVolumePixel(hair, 40, 4)).toEqual(
+      hairVolumePixel(hair, 41, 4),
+    );
+    expect(hairVolumePixel(hair, 46, 4)).toEqual(
+      hairVolumePixel(hair, 47, 4),
+    );
+    expect(hairVolumePixel(hair, 40, 4)).not.toEqual(
+      hairVolumePixel(hair, 46, 4),
+    );
+
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "medium",
+      bangs: "none",
+      hairTexture: "straight",
+      hairVolume: "full",
+      hairSilhouette: "rounded",
+      hairBackShape: "rounded",
+      sideHairLength: "jaw",
+    })!.atlas;
+    const crown = CLASSIC_LAYOUT.head.overlay.top;
+
+    // The full-volume mask still reaches both crown shoulders after physical
+    // UV seam blending; the shade function above owns their clustered ramp.
+    for (const x of [0, 1, 6, 7])
+      expect(alphaAt(atlas, crown, x, 4)).toBe(255);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
   it("centre-parted rounded short hair keeps a split fringe, readable eyes and deeper side volume", () => {
