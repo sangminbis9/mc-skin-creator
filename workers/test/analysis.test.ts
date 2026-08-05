@@ -396,6 +396,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("solid rectangular bar");
     expect(ANALYSIS_PROMPT).toContain("visible scalp/root direction");
     expect(ANALYSIS_PROMPT).toContain("crown and temple OUTER CONTOUR");
+    expect(ANALYSIS_PROMPT).toContain("Long hair is not automatically full");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("Do not call all long hair full");
     expect(ANALYSIS_PROMPT).toContain(
       "A smooth dome over staggered bangs is rounded",
     );

@@ -541,6 +541,43 @@ describe("generateSkin", () => {
     expect(normalized.renderHints.hairSilhouette).toBe("flat");
   });
 
+  it("stabilizes explicit low and full hair volume independently from length", () => {
+    const base = makeAnalysis();
+    const sleek = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "Long sleek ash-brown hair lies flat and close to the head with low volume.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairVolume: "full",
+          hairBackShape: "long",
+          overallHairLength: "waist",
+        },
+      }),
+    );
+    const voluminous = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "Long voluminous wavy brown hair has an expanded full crown.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairVolume: "flat",
+          hairBackShape: "long",
+          overallHairLength: "waist",
+        },
+      }),
+    );
+
+    expect(sleek.renderHints.hairVolume).toBe("flat");
+    expect(sleek.renderHints.overallHairLength).toBe("waist");
+    expect(voluminous.renderHints.hairVolume).toBe("full");
+    expect(voluminous.renderHints.overallHairLength).toBe("waist");
+  });
+
   it("does not mistake landmark comparison prose for shoulder-length hair", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(

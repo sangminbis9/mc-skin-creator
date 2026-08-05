@@ -1278,6 +1278,12 @@ export function normalizeAnalysisForRendering(
   const explicitlyFlatCrown = hairClauseMatches(
     /\b(?:flat|boxy|square|sleek|close[-\s]+cropped)[-\s]+(?:top|crown|silhouette|hair|haircut|cut)\b|\b(?:top|crown|silhouette|hair)\b.{0,24}\b(?:flat|boxy|squared|sleek|close[-\s]+cropped)\b/,
   );
+  const explicitlyLowHairVolume = hairClauseMatches(
+    /\b(?:sleek|low[-\s]+volume|flat[-\s]+volume|flat[-\s]+lying)\b.{0,32}\b(?:hair|crown|roots?|volume|silhouette)\b|\b(?:hair|crown|roots?)\b.{0,36}\b(?:lies?[-\s]+flat|close[-\s]+to[-\s]+(?:the[-\s]+)?(?:head|scalp)|low[-\s]+volume|sleek)\b/,
+  );
+  const explicitlyFullHairVolume = hairClauseMatches(
+    /\b(?:voluminous|high[-\s]+volume|full[-\s]+volume|very[-\s]+full|thick[-\s]+bodied|puffy|bouffant)\b.{0,32}\b(?:hair|crown|roots?|volume|silhouette)\b|\b(?:hair|crown|roots?)\b.{0,36}\b(?:voluminous|high[-\s]+volume|full[-\s]+volume|very[-\s]+full|puffy|expanded)\b|\bfull[-\s]+crown\b/,
+  );
   const explicitOverallHairLength:
     "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip" | null =
     hairEndpointClauseMatches(
@@ -1449,6 +1455,11 @@ export function normalizeAnalysisForRendering(
     // requires a real asymmetry to be repeated in the prose, so discard an
     // unsupported enum hint.
     renderHints.sideHairAsymmetry = "none";
+  }
+  if (explicitlyLowHairVolume && !explicitlyFullHairVolume) {
+    renderHints.hairVolume = "flat";
+  } else if (explicitlyFullHairVolume && !explicitlyLowHairVolume) {
+    renderHints.hairVolume = "full";
   }
   const roundedCompactFringe =
     renderHints.hairSilhouette === "flat" &&
