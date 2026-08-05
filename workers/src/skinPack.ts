@@ -3703,11 +3703,11 @@ function composeHair(
       style.hairVolume === "full"
         ? [
             [2, 3, 4, 5],
-            [0, 1, 5, 6, 7],
-            [0, 3, 4, 7],
-            [0, 3, 7],
-            [0, 6, 7],
-            [0, 5, 7],
+            [1, 6],
+            [3, 4],
+            [2, 5],
+            [],
+            [],
             [1, 6],
             [3, 4],
           ]
@@ -3742,10 +3742,10 @@ function composeHair(
           style.hairTexture === "curly" ||
           style.hairSilhouette === "tousled"
           ? [
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 2, 6, 7],
+              [1, 6],
+              [0, 1, 6, 7],
+              [0, 1, 6, 7],
+              [0, 1, 6, 7],
               [0, 1, 6, 7],
               [0, 1, 6, 7],
               [0, 1],
@@ -3800,12 +3800,12 @@ function composeHair(
       }
     }
     retainRows(over.back, [
-      [0, 1, 6, 7],
-      [0, 2, 5, 7],
-      [0, 1, 6, 7],
-      [0, 2, 5, 7],
+      [1, 6],
+      [0, 2, 7],
+      [0, 1, 7],
+      [0, 5, 7],
       [0, 3, 7],
-      [0, 2, 5, 7],
+      [0, 2, 7],
       [0, 4, 7],
       [0, 3, 4, 7],
     ]);
@@ -3975,10 +3975,6 @@ function composeHair(
       drawMiniFlower(over.front, mx(cx), cy);
     const drawSideMiniFlower = (cx: number, cy: number) =>
       drawMiniFlower(sideFace, sx(cx), cy);
-    const drawTopFlower = (cx: number, cy: number) =>
-      drawFlower(over.top, mx(cx), cy);
-    const drawTopMiniFlower = (cx: number, cy: number) =>
-      drawMiniFlower(over.top, mx(cx), cy);
     const drawFrontRibbon = (cx: number, cy: number) =>
       drawRibbon(over.front, mx(cx), cy);
     const drawSideRibbon = (cx: number, cy: number) =>
@@ -4031,12 +4027,13 @@ function composeHair(
           putSideAccessory(5, 1, leaf);
           putSideAccessory(4, 1, leafDark);
           putSideAccessory(5, 4, leaf);
-          drawTopFlower(2, 5);
-          putTopAccessory(1, 4, leaf);
-          putTopAccessory(2, 6, leaf);
+          // The base crown already supplies the continuous hair mass. Three
+          // staggered pixels continue the flower and leaf over the crown;
+          // drawing complete flowers here made the top read as a flat floral
+          // headband and hid the authored hair silhouette.
+          putTopAccessory(2, 5, flowerCenter);
+          putTopAccessory(2, 4, flowerLight);
           putTopAccessory(3, 6, leaf);
-          putTopAccessory(2, 7, flowerShade);
-          putTopAccessory(3, 4, flowerLight);
           putBackAccessory(0, 3, flowerPetal);
           putBackAccessory(1, 3, leaf);
           putBackAccessory(0, 4, leafDark);
@@ -4046,10 +4043,9 @@ function composeHair(
             // preserve a hair-coloured gap from the first bloom; placing all
             // four colours on y=0 reads as a straight headband in 3D.
             drawFrontMiniFlower(4, 1);
-            // Continue the cluster over the crown rather than making the
-            // front face carry all of its apparent volume.
-            drawTopMiniFlower(5, 3);
-            putTopAccessory(5, 5, leafDark);
+            // One isolated crown centre distinguishes the large cluster in
+            // top/three-quarter views without restoring the full mini bloom.
+            putTopAccessory(5, 3, flowerCenter);
           }
         }
       }

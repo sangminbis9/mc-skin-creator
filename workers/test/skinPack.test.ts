@@ -1230,7 +1230,9 @@ describe("packFrontViewToAtlas", () => {
       Array.from({ length: top.w * top.h }, (_, index) =>
         alphaAt(atlas, top, index % top.w, Math.floor(index / top.w)),
       ).filter((alpha) => alpha === 255).length;
-    expect(opaqueTopPixels(flat)).toBeLessThan(opaqueTopPixels(full));
+    // Full hair is defined by a wider crown silhouette rather than a denser
+    // second helmet. It may use the same number of raised pixels as flat hair.
+    expect(opaqueTopPixels(flat)).toBeLessThanOrEqual(opaqueTopPixels(full));
     expect(opaqueTopPixels(full)).toBeLessThanOrEqual(opaqueTopPixels(normal));
     for (const atlas of [flat, normal, full]) {
       applyUvMask(atlas);

@@ -11,6 +11,19 @@ import {
   getBoxUvSeams,
 } from "../src/uvLayout";
 
+function opaquePixelsIn(
+  atlas: { rgba: Uint8Array },
+  rect: { x: number; y: number; w: number; h: number },
+): number {
+  let count = 0;
+  for (let y = rect.y; y < rect.y + rect.h; y++) {
+    for (let x = rect.x; x < rect.x + rect.w; x++) {
+      if (atlas.rgba[(y * ATLAS_SIZE + x) * 4 + 3] !== 0) count++;
+    }
+  }
+  return count;
+}
+
 describe("handcrafted atlas quality metrics", () => {
   it("keeps the rich procedural reference style in the handcrafted skin quality range", async () => {
     const reference = await decodePng(
@@ -64,7 +77,29 @@ describe("handcrafted atlas quality metrics", () => {
     expect(proceduralMetrics.shadedOverlayFaces).toBeGreaterThanOrEqual(
       referenceMetrics.shadedOverlayFaces,
     );
-    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(170);
+    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(145);
+    const referenceHead = CLASSIC_LAYOUT.head.overlay;
+    const proceduralHead = CLASSIC_LAYOUT.head.overlay;
+    expect(opaquePixelsIn(reference, referenceHead.top)).toBe(9);
+    expect(opaquePixelsIn(reference, referenceHead.front)).toBe(29);
+    expect(opaquePixelsIn(reference, referenceHead.right)).toBe(20);
+    expect(opaquePixelsIn(reference, referenceHead.left)).toBe(18);
+    expect(opaquePixelsIn(reference, referenceHead.back)).toBe(24);
+    expect(opaquePixelsIn(procedural, proceduralHead.top)).toBeLessThanOrEqual(
+      30,
+    );
+    expect(
+      opaquePixelsIn(procedural, proceduralHead.front),
+    ).toBeLessThanOrEqual(36);
+    expect(
+      opaquePixelsIn(procedural, proceduralHead.right),
+    ).toBeLessThanOrEqual(30);
+    expect(
+      opaquePixelsIn(procedural, proceduralHead.left),
+    ).toBeLessThanOrEqual(30);
+    expect(opaquePixelsIn(procedural, proceduralHead.back)).toBeLessThanOrEqual(
+      28,
+    );
     expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(265);
     expect(proceduralMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(
       80,
