@@ -2412,7 +2412,7 @@ function composeHair(
       // pastel cardigan, even when the analysed hair was medium brown. Keep
       // enough value range for depth while preserving the declared hair hue.
       const torsoStrandDark = shadeRgb(hairColor, 0.7);
-      const leftFrontPath = [1, 1, 0, 1, 1, 0, 0, 1, 2, 1, 2, 3] as const;
+      const leftFrontPath = [1, 1, 0, 1, 1, 0, 0, 1, 2, 1, 2, 2] as const;
       const organicFrontDrape =
         style.hairTexture === "wavy" ||
         style.hairTexture === "curly" ||
@@ -2420,9 +2420,11 @@ function composeHair(
       // Straight hair can keep a tidy mirrored fall. Wavy/curly locks need a
       // one-row phase offset on one side; exact mirroring made the two front
       // locks read as rigid parallel columns even when their colours varied.
+      // Both paths still finish at x=2/x=5: converging at x=3/x=4 fused the
+      // waist-length tips into one central outer-layer plate.
       const rightFrontPath = organicFrontDrape
-        ? ([6, 7, 7, 6, 7, 7, 7, 6, 5, 5, 4, 4] as const)
-        : ([6, 6, 7, 6, 6, 7, 7, 6, 5, 6, 5, 4] as const);
+        ? ([6, 7, 7, 6, 7, 7, 7, 6, 5, 5, 5, 5] as const)
+        : ([6, 6, 7, 6, 6, 7, 7, 6, 5, 6, 5, 5] as const);
       for (let y = 0; y < Math.min(torsoHairRows, leftFrontPath.length); y++) {
         const taperShade =
           y >= 10 ? 0.72 : y >= 8 ? 0.76 : y >= 6 ? 0.82 : 0.96;
@@ -2472,7 +2474,7 @@ function composeHair(
           [6, 6, torsoStrandDark],
           [5, 9, shadeRgb(torsoStrandDark, 0.78)],
           [2, 10, shadeRgb(torsoStrandLight, 0.66)],
-          [4, 11, shadeRgb(torsoStrandDark, 0.68)],
+          [5, 11, shadeRgb(torsoStrandDark, 0.68)],
         ] as const
       ).filter(([, y]) => y < torsoHairRows)) {
         putColor(bodyOver.front, x, y, color);

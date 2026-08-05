@@ -1862,7 +1862,10 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(shoulder, body.front, 0, 6)).toBe(0);
     expect(alphaAt(chest, body.front, 1, 7)).toBe(255);
     expect(alphaAt(chest, body.front, 1, 9)).toBe(0);
-    expect(alphaAt(waist, body.front, 3, 11)).toBe(255);
+    expect(alphaAt(waist, body.front, 2, 11)).toBe(255);
+    expect(alphaAt(waist, body.front, 5, 11)).toBe(255);
+    expect(alphaAt(waist, body.front, 3, 11)).toBe(0);
+    expect(alphaAt(waist, body.front, 4, 11)).toBe(0);
     expect(alphaAt(waist, body.back, 4, 11)).toBe(255);
     expect(alphaAt(waist, rightLeg.back, 2, 3)).toBe(0);
     expect(alphaAt(waist, leftLeg.back, 1, 3)).toBe(0);
@@ -2000,8 +2003,10 @@ describe("packFrontViewToAtlas", () => {
     expect(rgbaAt(wavy, front, 1, 4)).not.toEqual(rgbaAt(wavy, front, 7, 4));
     // Tapered waist-length locks should retain their brown hue instead of
     // collapsing into near-black vertical rods against pale garments.
-    expect(redAt(wavy, front, 3, 11)).toBeGreaterThan(50);
-    expect(redAt(wavy, front, 4, 11)).toBeGreaterThan(50);
+    expect(redAt(wavy, front, 2, 11)).toBeGreaterThan(50);
+    expect(redAt(wavy, front, 5, 11)).toBeGreaterThan(50);
+    expect(alphaAt(wavy, front, 3, 11)).toBe(0);
+    expect(alphaAt(wavy, front, 4, 11)).toBe(0);
   });
 
   it("shoulder hair drapes down arm side faces without checkerboard gaps", () => {
