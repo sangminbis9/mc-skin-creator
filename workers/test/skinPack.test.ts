@@ -4145,6 +4145,27 @@ describe("packFrontViewToAtlas", () => {
     expect(contour(shapes.angular)).not.toBe(contour(shapes.square));
   });
 
+  it("facial hair stays on the base face without raised skin tiles around the mouth and chin", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      hairColor: "#2a201c",
+      skinTone: "#d6a982",
+      bangs: "none",
+      facialHair: "beard",
+      glasses: "none",
+      mouthShape: "small",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const raisedFace = CLASSIC_LAYOUT.head.overlay.front;
+
+    expect(redAt(atlas, face, 3, 7)).toBeLessThan(redAt(atlas, face, 3, 5));
+    expect(redAt(atlas, face, 0, 6)).toBeLessThan(redAt(atlas, face, 3, 6));
+    expect(alphaAt(atlas, raisedFace, 3, 6)).toBe(0);
+    expect(alphaAt(atlas, raisedFace, 3, 7)).toBe(0);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("four-view sheets preserve distinct left and right profile colors", () => {
     const packed = packFrontViewToAtlas(
       makeFourViewSheet(),

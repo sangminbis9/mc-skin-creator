@@ -1559,7 +1559,11 @@ function preserveFaceReadability(
  * pass rebuilds the outer layer with genuine fringe and temple pixels.
  */
 function resetPortraitFaceOverlay(atlas: RawImage, style: FaceStyle): void {
-  if (style.glasses !== "none" || style.facialHair !== "none") return;
+  // Glass frames genuinely live on the second layer and must survive until
+  // the hair pass can occlude them. Facial hair is authored on the base face,
+  // so it does not need the temporary raised skin, mouth and chin pixels that
+  // otherwise make a bearded face look like a protruding mosaic.
+  if (style.glasses !== "none") return;
   for (const rect of [
     CLASSIC_LAYOUT.head.overlay.front,
     CLASSIC_LAYOUT.head.overlay.right,
