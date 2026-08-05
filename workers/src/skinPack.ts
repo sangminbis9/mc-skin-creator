@@ -45,6 +45,7 @@ export interface FaceStyle {
   faceShape?: "round" | "oval" | "long" | "angular" | "square";
   eyeShape?: "narrow" | "almond" | "round";
   eyeSize?: "small" | "average" | "large";
+  irisLightness?: "dark" | "medium" | "light";
   eyeSpacing?: "close" | "average" | "wide";
   eyeTilt?: "upturned" | "level" | "downturned";
   eyebrowShape?: "straight" | "arched" | "slanted" | "soft";
@@ -123,6 +124,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   faceShape: "oval",
   eyeShape: "almond",
   eyeSize: "average",
+  irisLightness: "medium",
   eyeSpacing: "average",
   eyeTilt: "level",
   eyebrowShape: "straight",
@@ -865,7 +867,14 @@ function composeFace(
 
   // 3) 눈썹·눈·코·입: 1픽셀 검은 사각형으로 끝나지 않도록 작은 색 군집을 만든다.
   const browColor = shadeRgb(hairColor, 0.8);
-  const eye = hexToRgb(style.eyeColor, [74, 55, 40]);
+  const eyeBase = hexToRgb(style.eyeColor, [74, 55, 40]);
+  const irisLightness = style.irisLightness ?? "medium";
+  const eye =
+    irisLightness === "dark"
+      ? shadeRgb(eyeBase, 0.72)
+      : irisLightness === "light"
+        ? mixRgb(shadeRgb(eyeBase, 1.18), [232, 220, 194], 0.12)
+        : eyeBase;
   const eyePairs =
     style.eyeSpacing === "wide"
       ? ([

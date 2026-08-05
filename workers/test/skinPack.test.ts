@@ -3639,6 +3639,40 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("irisLightness preserves dark, medium and light values within one eye color", () => {
+    const shared: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      eyeColor: "#4a7fae",
+      eyeShape: "almond",
+      eyeSize: "average",
+      eyeSpacing: "average",
+      eyeTilt: "level",
+      glasses: "none",
+    };
+    const makeIris = (irisLightness: NonNullable<FaceStyle["irisLightness"]>) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...shared,
+        irisLightness,
+      })!.atlas;
+    const dark = makeIris("dark");
+    const medium = makeIris("medium");
+    const light = makeIris("light");
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const iris = (atlas: RawImage) => rgbaAt(atlas, face, 2, 4).slice(0, 3);
+    const value = (atlas: RawImage) => iris(atlas).reduce((sum, v) => sum + v, 0);
+
+    expect(value(dark)).toBeLessThan(value(medium));
+    expect(value(medium)).toBeLessThan(value(light));
+    expect(new Set([dark, medium, light].map((atlas) => iris(atlas).join(","))).size).toBe(3);
+    for (const atlas of [dark, medium, light]) {
+      const [r, g, b] = iris(atlas);
+      expect(b).toBeGreaterThan(g);
+      expect(g).toBeGreaterThan(r);
+    }
+  });
+
   it("eyeTilt keeps both eye anchors level and shades an adjacent corner", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,

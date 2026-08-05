@@ -45,6 +45,7 @@ export function makeAnalysis(
       faceShape: "round",
       eyeShape: "round",
       eyeSize: "average",
+      irisLightness: "medium",
       eyeSpacing: "average",
       eyeTilt: "level",
       eyebrowShape: "arched",

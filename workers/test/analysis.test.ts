@@ -241,6 +241,7 @@ describe("runPortraitDetailAnalysis", () => {
       faceShape: "oval",
       eyeShape: "almond",
       eyeSize: "small",
+      irisLightness: "dark",
       eyeSpacing: "average",
       eyeTilt: "level",
       eyebrowShape: "straight",
@@ -385,6 +386,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("eyeSize");
     expect(ANALYSIS_PROMPT).toContain("skinUndertone");
     expect(ANALYSIS_PROMPT).toContain("actual eye opening");
+    expect(ANALYSIS_PROMPT).toContain("irisLightness");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("iris itself");
     expect(ANALYSIS_PROMPT).toContain("lipFullness");
     expect(ANALYSIS_PROMPT).toContain("lipColor");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("dominant lip pigmentation");
@@ -501,6 +504,7 @@ describe("validatePhotoAnalysis", () => {
     const broken = makeAnalysis();
     broken.renderHints.eyebrowShape = "zigzag" as never;
     broken.renderHints.skinUndertone = "green" as never;
+    broken.renderHints.irisLightness = "glowing" as never;
     broken.renderHints.noseShape = "triangle" as never;
     broken.renderHints.mouthShape = "square" as never;
     broken.renderHints.lipColor = "neon" as never;
@@ -523,6 +527,7 @@ describe("validatePhotoAnalysis", () => {
     if (!result.ok) {
       expect(result.errors.join()).toContain("renderHints.eyebrowShape");
       expect(result.errors.join()).toContain("renderHints.skinUndertone");
+      expect(result.errors.join()).toContain("renderHints.irisLightness");
       expect(result.errors.join()).toContain("renderHints.noseShape");
       expect(result.errors.join()).toContain("renderHints.mouthShape");
       expect(result.errors.join()).toContain("renderHints.lipColor");

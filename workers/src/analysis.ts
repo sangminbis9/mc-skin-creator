@@ -45,6 +45,7 @@ export interface PixelRenderHints {
   faceShape: "round" | "oval" | "long" | "angular" | "square";
   eyeShape: "narrow" | "almond" | "round";
   eyeSize: "small" | "average" | "large";
+  irisLightness: "dark" | "medium" | "light";
   eyeSpacing: "close" | "average" | "wide";
   eyeTilt: "upturned" | "level" | "downturned";
   eyebrowShape: "straight" | "arched" | "slanted" | "soft";
@@ -203,9 +204,10 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible skin undertone, face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- Classify the visible skin undertone, face geometry, eye geometry/size/iris lightness/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
 - skinUndertone records the skin itself after discounting studio color casts, background spill, blush and makeup: warm for golden/peach/yellow, cool for rosy/pink/blue-red, and neutral when neither direction clearly dominates. Keep it independent from skin lightness.
 - eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
+- irisLightness describes the value of the iris itself within its color family: dark for near-black/deep irises, medium for a subdued but readable color, and light for distinctly pale/bright irises. Ignore white catchlights, sclera, eyelid shadow, exposure and red-eye; do not call a dark iris light because it contains a small reflection.
 - eyeTilt describes the line between each eye's inner and outer corner: upturned when the outer corners sit visibly higher, level when nearly horizontal, or downturned when the outer corners sit visibly lower. Judge geometry, not expression.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
@@ -292,6 +294,7 @@ Respond with ONLY a JSON object matching this shape:
     "faceShape": "round" | "oval" | "long" | "angular" | "square",
     "eyeShape": "narrow" | "almond" | "round",
     "eyeSize": "small" | "average" | "large",
+    "irisLightness": "dark" | "medium" | "light",
     "eyeSpacing": "close" | "average" | "wide",
     "eyeTilt": "upturned" | "level" | "downturned",
     "eyebrowShape": "straight" | "arched" | "slanted" | "soft",
@@ -466,6 +469,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
         eyeShape: { type: "string", enum: ["narrow", "almond", "round"] },
         eyeSize: { type: "string", enum: ["small", "average", "large"] },
+        irisLightness: {
+          type: "string",
+          enum: ["dark", "medium", "light"],
+        },
         eyeSpacing: { type: "string", enum: ["close", "average", "wide"] },
         eyeTilt: { type: "string", enum: ["upturned", "level", "downturned"] },
         eyebrowShape: {
@@ -648,6 +655,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "faceShape",
         "eyeShape",
         "eyeSize",
+        "irisLightness",
         "eyeSpacing",
         "eyeTilt",
         "eyebrowShape",
@@ -807,6 +815,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           faceShape: "oval",
           eyeShape: "almond",
           eyeSize: "average",
+          irisLightness: "medium",
           eyeSpacing: "average",
           eyeTilt: "level",
           eyebrowShape: "straight",
@@ -1028,6 +1037,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.eyeSize,
       ["small", "average", "large"],
       "average",
+    ),
+    irisLightness: enumValue(
+      "renderHints.irisLightness",
+      hints.irisLightness,
+      ["dark", "medium", "light"],
+      "medium",
     ),
     eyeSpacing: enumValue(
       "renderHints.eyeSpacing",
@@ -1391,6 +1406,7 @@ export interface PortraitDetailAnalysis {
   faceShape: PixelRenderHints["faceShape"];
   eyeShape: PixelRenderHints["eyeShape"];
   eyeSize: PixelRenderHints["eyeSize"];
+  irisLightness: PixelRenderHints["irisLightness"];
   eyeSpacing: PixelRenderHints["eyeSpacing"];
   eyeTilt: PixelRenderHints["eyeTilt"];
   eyebrowShape: PixelRenderHints["eyebrowShape"];
@@ -1435,7 +1451,8 @@ export const PORTRAIT_DETAIL_PROMPT = `This is an enlarged head-and-upper-body c
 Re-check only the face and visible hair geometry. Do not infer clothing or the unseen back/lower endpoint of the hair.
 
 Face:
-- Classify the person's actual skin lightness/undertone and iris color, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth, lip fullness and dominant lip pigmentation.
+- Classify the person's actual skin lightness/undertone, iris color and irisLightness, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth, lip fullness and dominant lip pigmentation.
+- irisLightness is the iris itself: dark near-black/deep, medium subdued but colored, light distinctly pale/bright. Ignore catchlights, sclera, eyelid shadow and exposure.
 - For lipColor discount shine and mouth-corner shadow: natural means skin-adjacent/subtle, rose muted pink, red clear red, berry cool magenta/wine, brown warm nude/brown, and coral orange-pink.
 - Judge eye size from the open eye aperture, not eyeliner, eyelashes, catchlights, expression, or the apparent size of the dark iris.
 - Use low confidence when resolution, occlusion, pose, or lighting cannot support a correction.
@@ -1493,6 +1510,10 @@ const PORTRAIT_DETAIL_SCHEMA = {
     },
     eyeShape: { type: "string", enum: ["narrow", "almond", "round"] },
     eyeSize: { type: "string", enum: ["small", "average", "large"] },
+    irisLightness: {
+      type: "string",
+      enum: ["dark", "medium", "light"],
+    },
     eyeSpacing: { type: "string", enum: ["close", "average", "wide"] },
     eyeTilt: {
       type: "string",
@@ -1584,6 +1605,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "faceShape",
     "eyeShape",
     "eyeSize",
+    "irisLightness",
     "eyeSpacing",
     "eyeTilt",
     "eyebrowShape",
@@ -1832,6 +1854,7 @@ export async function runPortraitDetailAnalysis(
       faceShape: ["round", "oval", "long", "angular", "square"],
       eyeShape: ["narrow", "almond", "round"],
       eyeSize: ["small", "average", "large"],
+      irisLightness: ["dark", "medium", "light"],
       eyeSpacing: ["close", "average", "wide"],
       eyeTilt: ["upturned", "level", "downturned"],
       eyebrowShape: ["straight", "arched", "slanted", "soft"],

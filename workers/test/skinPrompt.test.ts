@@ -59,6 +59,7 @@ describe("buildSkinPrompt framing 정책", () => {
     expect(prompt).toContain("knit garment texture");
     expect(prompt).toContain("side hair");
     expect(prompt).toContain("cool skin undertone");
+    expect(prompt).toContain("medium iris lightness");
     expect(prompt).toContain("lower-body accent");
     expect(prompt).toContain("evidence-based completions");
     expect(prompt).toContain("Minecraft second skin layer logic");
