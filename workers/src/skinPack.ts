@@ -3685,16 +3685,30 @@ function composeHair(
             [1, 6],
             [3, 4],
           ]
-        : [
-            [1, 2, 5, 6],
-            [0, 1, 2, 5, 6, 7],
-            [0, 1, 3, 6, 7],
-            [0, 4, 7],
-            [0, 2, 5, 7],
-            [0, 1, 6, 7],
-            [1, 2, 5, 6],
-            [2, 5],
-          ];
+        : style.hairVolume === "flat"
+          // Long hair used to overwrite the earlier flat-volume mask with
+          // the normal crown. Keep only a restrained central highlight
+          // cluster; the base cube still supplies the continuous hair mass.
+          ? [
+              [],
+              [],
+              [3, 4],
+              [2, 3, 4, 5],
+              [2, 3, 4, 5],
+              [3, 4],
+              [],
+              [],
+            ]
+          : [
+              [1, 2, 5, 6],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 3, 6, 7],
+              [0, 4, 7],
+              [0, 2, 5, 7],
+              [0, 1, 6, 7],
+              [1, 2, 5, 6],
+              [2, 5],
+            ];
     retainRows(over.top, longTopRows);
     const longSideRows =
       sideHairShape === "face_framing"

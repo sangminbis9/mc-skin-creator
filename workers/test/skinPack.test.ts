@@ -1200,8 +1200,8 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
-  it("full long hair keeps a more crown-centred raised layer without extra density", () => {
-    const makeVolume = (hairVolume: "normal" | "full") =>
+  it("flat, normal and full long hair keep distinct raised crown masks", () => {
+    const makeVolume = (hairVolume: "flat" | "normal" | "full") =>
       packFrontViewToAtlas(makeFrontView(), {
         ...DEFAULT_FACE_STYLE,
         hairstyle: "long",
@@ -1214,6 +1214,7 @@ describe("packFrontViewToAtlas", () => {
         sideHairShape: "face_framing",
       })!.atlas;
     const top = CLASSIC_LAYOUT.head.overlay.top;
+    const flat = makeVolume("flat");
     const normal = makeVolume("normal");
     const full = makeVolume("full");
 
@@ -1221,11 +1222,19 @@ describe("packFrontViewToAtlas", () => {
       expect(alphaAt(normal, top, x, 0)).toBe(0);
       expect(alphaAt(full, top, x, 0)).toBe(255);
     }
+    expect(alphaAt(flat, top, 1, 2)).toBe(0);
+    expect(alphaAt(normal, top, 1, 2)).toBe(255);
+    expect(alphaAt(flat, top, 3, 2)).toBe(255);
     const opaqueTopPixels = (atlas: RawImage) =>
       Array.from({ length: top.w * top.h }, (_, index) =>
         alphaAt(atlas, top, index % top.w, Math.floor(index / top.w)),
       ).filter((alpha) => alpha === 255).length;
+    expect(opaqueTopPixels(flat)).toBeLessThan(opaqueTopPixels(full));
     expect(opaqueTopPixels(full)).toBeLessThanOrEqual(opaqueTopPixels(normal));
+    for (const atlas of [flat, normal, full]) {
+      applyUvMask(atlas);
+      expect(validateFinalAtlas(atlas).ok).toBe(true);
+    }
   });
 
   it("centre-parted rounded short hair keeps a split fringe, readable eyes and deeper side volume", () => {
