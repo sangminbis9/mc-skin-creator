@@ -448,6 +448,7 @@ export function applyFocusedPortraitDetail(
       ...fallbackFeatures,
       skinTone: detail.skinTone,
       eyeColor: detail.eyeColor,
+      eyebrowThickness: detail.eyebrowThickness,
     };
     const skinDescription = `${detail.skinUndertone} ${detail.skinTone} skin`;
     const eyeDescription = `${detail.eyeColor.replace("-", " ")} eyes`;

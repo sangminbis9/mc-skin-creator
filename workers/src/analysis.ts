@@ -1411,6 +1411,7 @@ export interface PortraitDetailAnalysis {
   eyeSpacing: PixelRenderHints["eyeSpacing"];
   eyeTilt: PixelRenderHints["eyeTilt"];
   eyebrowShape: PixelRenderHints["eyebrowShape"];
+  eyebrowThickness: "thin" | "normal" | "thick";
   noseShape: PixelRenderHints["noseShape"];
   mouthShape: PixelRenderHints["mouthShape"];
   lipFullness: PixelRenderHints["lipFullness"];
@@ -1459,6 +1460,7 @@ Face:
 - irisLightness is the iris itself: dark near-black/deep, medium subdued but colored, light distinctly pale/bright. Ignore catchlights, sclera, eyelid shadow and exposure.
 - For lipColor discount shine and mouth-corner shadow: natural means skin-adjacent/subtle, rose muted pink, red clear red, berry cool magenta/wine, brown warm nude/brown, and coral orange-pink.
 - Judge eye size from the open eye aperture, not eyeliner, eyelashes, catchlights, expression, or the apparent size of the dark iris.
+- eyebrowThickness is the visible hair-bearing brow stroke: thin for a fine one-pixel-like line, normal for an ordinary brow, and thick only for a clearly broad/dense brow. Ignore fringe shadows, eyeliner and glasses frames.
 - Use low confidence when resolution, occlusion, pose, or lighting cannot support a correction.
 
 Hair:
@@ -1532,6 +1534,10 @@ const PORTRAIT_DETAIL_SCHEMA = {
     eyebrowShape: {
       type: "string",
       enum: ["straight", "arched", "slanted", "soft"],
+    },
+    eyebrowThickness: {
+      type: "string",
+      enum: ["thin", "normal", "thick"],
     },
     noseShape: {
       type: "string",
@@ -1628,6 +1634,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "eyeSpacing",
     "eyeTilt",
     "eyebrowShape",
+    "eyebrowThickness",
     "noseShape",
     "mouthShape",
     "lipFullness",
@@ -1883,6 +1890,7 @@ export async function runPortraitDetailAnalysis(
       eyeSpacing: ["close", "average", "wide"],
       eyeTilt: ["upturned", "level", "downturned"],
       eyebrowShape: ["straight", "arched", "slanted", "soft"],
+      eyebrowThickness: ["thin", "normal", "thick"],
       noseShape: ["small", "straight", "rounded", "prominent"],
       mouthShape: ["small", "wide", "full", "thin"],
       lipFullness: ["thin", "average", "full"],

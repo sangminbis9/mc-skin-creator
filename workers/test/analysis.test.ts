@@ -245,6 +245,7 @@ describe("runPortraitDetailAnalysis", () => {
       eyeSpacing: "average",
       eyeTilt: "level",
       eyebrowShape: "straight",
+      eyebrowThickness: "thin",
       noseShape: "straight",
       mouthShape: "thin",
       lipFullness: "thin",
@@ -393,6 +394,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("actual eye opening");
     expect(ANALYSIS_PROMPT).toContain("irisLightness");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("iris itself");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("eyebrowThickness");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("visible hair-bearing brow stroke");
     expect(ANALYSIS_PROMPT).toContain("lipFullness");
     expect(ANALYSIS_PROMPT).toContain("lipColor");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("dominant lip pigmentation");

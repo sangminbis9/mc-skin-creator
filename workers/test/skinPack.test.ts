@@ -3787,6 +3787,121 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
+  it("close-set eyes keep both irises when a prominent nose bridge is rendered", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      glasses: "none",
+      eyeShape: "almond",
+      eyeSize: "average",
+      eyeSpacing: "close",
+      eyeTilt: "level",
+      noseShape: "prominent",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+
+    // Close-set eyes occupy x=1..2 and x=4..5, leaving x=3 as the only
+    // central bridge column. The nose must not repaint the right iris at x=4.
+    expect(redAt(atlas, face, 2, 4)).toBeLessThan(
+      redAt(atlas, face, 3, 4) - 50,
+    );
+    expect(redAt(atlas, face, 4, 4)).toBeLessThan(
+      redAt(atlas, face, 3, 4) - 50,
+    );
+    expect(alphaAt(atlas, CLASSIC_LAYOUT.head.overlay.front, 2, 4)).toBe(0);
+    expect(alphaAt(atlas, CLASSIC_LAYOUT.head.overlay.front, 4, 4)).toBe(0);
+
+    for (const noseShape of ["rounded", "prominent"] as const) {
+      const largeRound = packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "short",
+        bangs: "none",
+        glasses: "none",
+        eyeShape: "round",
+        eyeSize: "large",
+        eyeSpacing: "close",
+        eyeTilt: "level",
+        noseShape,
+      })!.atlas;
+      // A large round eye owns both y=4 and y=5 at each inner anchor. Keep
+      // the rounded/prominent nose cluster in the central x=3 column.
+      for (const x of [2, 4]) {
+        expect(redAt(largeRound, face, x, 4)).toBeLessThan(
+          redAt(largeRound, face, 3, 4) - 50,
+        );
+        expect(redAt(largeRound, face, x, 5)).toBeLessThan(
+          redAt(largeRound, face, 3, 5) - 40,
+        );
+      }
+    }
+  });
+
+  it("eyeSpacing keeps close, average and wide iris anchors distinct and readable", () => {
+    const makeSpacing = (eyeSpacing: NonNullable<FaceStyle["eyeSpacing"]>) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "short",
+        bangs: "none",
+        glasses: "none",
+        eyeShape: "almond",
+        eyeSize: "average",
+        eyeSpacing,
+        eyeTilt: "level",
+        noseShape: "straight",
+      })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const variants = {
+      close: makeSpacing("close"),
+      average: makeSpacing("average"),
+      wide: makeSpacing("wide"),
+    };
+    const eyeRow = (atlas: RawImage) =>
+      Array.from({ length: 8 }, (_, x) => rgbaAt(atlas, face, x, 4).join(","))
+        .join("|");
+
+    expect(new Set(Object.values(variants).map(eyeRow)).size).toBe(3);
+    for (const [spacing, anchors] of [
+      ["close", [2, 4]],
+      ["average", [2, 5]],
+      ["wide", [1, 6]],
+    ] as const) {
+      for (const x of anchors) {
+        expect(redAt(variants[spacing], face, x, 4)).toBeLessThan(
+          redAt(variants[spacing], face, 3, 6) - 50,
+        );
+      }
+    }
+  });
+
+  it("eyebrowThickness changes both brow contrast and the thick-brow footprint", () => {
+    const makeBrow = (
+      eyebrowThickness: NonNullable<FaceStyle["eyebrowThickness"]>,
+    ) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "short",
+        bangs: "none",
+        glasses: "none",
+        eyebrowShape: "straight",
+        eyebrowThickness,
+      })!.atlas;
+    const thin = makeBrow("thin");
+    const normal = makeBrow("normal");
+    const thick = makeBrow("thick");
+    const face = CLASSIC_LAYOUT.head.base.front;
+
+    expect(redAt(thin, face, 1, 3)).toBeGreaterThan(
+      redAt(normal, face, 1, 3),
+    );
+    expect(redAt(thick, face, 1, 2)).toBeLessThan(
+      redAt(normal, face, 1, 2) - 40,
+    );
+    expect(redAt(thick, face, 5, 2)).toBeLessThan(
+      redAt(normal, face, 5, 2) - 40,
+    );
+  });
+
   it("eyeTilt keeps both eye anchors level and shades an adjacent corner", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,

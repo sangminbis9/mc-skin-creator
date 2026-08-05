@@ -74,6 +74,7 @@ function focusedPortraitDetail() {
     eyeSpacing: "average" as const,
     eyeTilt: "level" as const,
     eyebrowShape: "straight" as const,
+    eyebrowThickness: "thin" as const,
     noseShape: "straight" as const,
     mouthShape: "thin" as const,
     lipFullness: "thin" as const,
@@ -272,6 +273,7 @@ describe("generateSkin", () => {
     expect(merged.fallbackFeatures.skinTone).toBe("light");
     expect(merged.fallbackFeatures.eyeColor).toBe("dark-brown");
     expect(merged.fallbackFeatures.hairColor).toBe("black");
+    expect(merged.fallbackFeatures.eyebrowThickness).toBe("thin");
     expect(merged.observed.face).toContain("cool light skin");
     expect(merged.observed.face).toContain("dark brown eyes");
     expect(merged.observed.hair).toContain("domed crown");

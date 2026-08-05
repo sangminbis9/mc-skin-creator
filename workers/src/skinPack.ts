@@ -1040,7 +1040,16 @@ function composeFace(
     style.eyeShape === "round" ? 0.12 : 0.2,
   );
   const noseShape = style.noseShape ?? "small";
-  const noseX = style.faceShape === "long" || noseShape === "prominent" ? 4 : 3;
+  // Close-set eyes use x=2 and x=4 as their two iris anchors, leaving only
+  // x=3 for the bridge. The former generic x=4 prominent/long nose placement
+  // repainted the right iris with a bright skin pixel and made the final face
+  // visibly one-eyed despite a correct analysis result.
+  const noseX =
+    style.eyeSpacing === "close"
+      ? 3
+      : style.faceShape === "long" || noseShape === "prominent"
+        ? 4
+        : 3;
   const noseBridge = mixRgb(skinColor, [255, 238, 224], 0.24);
   const noseSide = shadeRgb(skinColor, 0.9);
 
@@ -1071,12 +1080,16 @@ function composeFace(
     put(face, noseX, 5, skinShadow);
   } else if (noseShape === "rounded") {
     put(face, noseX, 5, skinShadow);
-    put(face, noseX === 3 ? 4 : 3, 5, mixRgb(noseSide, skinColor, 0.24));
+    if (style.eyeSpacing !== "close") {
+      put(face, noseX === 3 ? 4 : 3, 5, mixRgb(noseSide, skinColor, 0.24));
+    }
     put(face, noseX, 4, mixRgb(noseBridge, skinColor, 0.38));
   } else {
     put(face, noseX, 4, shadeRgb(noseBridge, 1.04));
     put(face, noseX, 5, shadeRgb(skinShadow, 0.92));
-    put(face, noseX === 3 ? 4 : 3, 5, shadeRgb(noseSide, 0.86));
+    if (style.eyeSpacing !== "close") {
+      put(face, noseX === 3 ? 4 : 3, 5, shadeRgb(noseSide, 0.86));
+    }
     put(face, noseX, 3, mixRgb(noseBridge, skinColor, 0.28));
   }
 
