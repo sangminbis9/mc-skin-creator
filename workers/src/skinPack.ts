@@ -1405,7 +1405,11 @@ function composeFace(
  * cannot recover it. Glasses are excluded because their visible frame
  * intentionally occupies the eye row; bangs keep their surrounding pixels.
  */
-function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
+function preserveFaceReadability(
+  atlas: RawImage,
+  style: FaceStyle,
+  hairColor: Rgb,
+): void {
   if (style.glasses !== "none") return;
 
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
@@ -1483,20 +1487,42 @@ function preserveFaceReadability(atlas: RawImage, style: FaceStyle): void {
     // collapses into a narrow vertical strip even though both irises pass the
     // quality gate. Open a continuous cheek-to-jaw window while keeping x=0
     // and x=7 as the two dimensional face-framing locks.
-    for (const y of [5, 6, 7]) {
+    for (const y of [5, 6]) {
       clearOverlayPixel(1, y);
       clearOverlayPixel(6, y);
     }
-    // Rounded and soft faces need a wider lower cheek than a square/angular
-    // jaw. The centre four pixels remain untouched for every shape.
-    if (
-      style.faceShape === "round" ||
-      style.faceShape === "oval" ||
-      style.jawShape === "soft" ||
-      style.jawShape === "rounded"
-    ) {
-      clearOverlayPixel(2, 6);
-      clearOverlayPixel(5, 6);
+    clearOverlayPixel(2, 6);
+    clearOverlayPixel(5, 6);
+
+    // Use the last row of the raised face-framing layer as a real jaw mask.
+    // Previously every oval/soft face cleared the same six-pixel opening, so
+    // a pointed chin and a broad square jaw became identical once long side
+    // hair covered the base cube. Keep each opening contiguous: broad jaws
+    // expose six pixels, soft/oval jaws taper to four, and pointed jaws leave
+    // the two centre pixels visible without isolated skin cells behind hair.
+    const jawShape =
+      style.jawShape ??
+      (style.faceShape === "square" || style.faceShape === "angular"
+        ? "square"
+        : style.faceShape === "round"
+          ? "rounded"
+          : "soft");
+    const broadJaw = jawShape === "square" || jawShape === "rounded";
+    if (broadJaw) {
+      for (const x of [1, 2, 5, 6]) clearOverlayPixel(x, 7);
+    } else if (jawShape === "pointed") {
+      for (const x of [2, 5]) {
+        const d = ((overlay.y + 7) * ATLAS_SIZE + overlay.x + x) * 4;
+        const color = shadeRgb(
+          hairVolumePixel(hairColor, overlay.x + x, overlay.y + 7),
+          x < 4 ? 0.82 : 0.76,
+        );
+        atlas.rgba[d] = color[0];
+        atlas.rgba[d + 1] = color[1];
+        atlas.rgba[d + 2] = color[2];
+        atlas.rgba[d + 3] = 255;
+      }
+    } else {
       clearOverlayPixel(2, 7);
       clearOverlayPixel(5, 7);
     }
@@ -3478,6 +3504,68 @@ function composeHair(
     }
   }
 
+  if (sideHairLength === "short" && s !== "buzz" && s !== "afro") {
+    if (sideHairShape === "face_framing") {
+      // Short face-framing cuts have a distinct pair of forward locks below
+      // the temple. Carry their outer pixels around the physical front/side
+      // seams and keep the inner pixels off the seam so they read as tapered
+      // strands rather than another full side band.
+      for (const [x, mirrorX] of [
+        [0, 7],
+        [1, 6],
+      ] as const) {
+        putColor(
+          over.front,
+          x,
+          5,
+          shadeRgb(bangTone(x, 5), x === 0 ? 0.62 : 0.54),
+        );
+        putColor(
+          over.front,
+          mirrorX,
+          5,
+          shadeRgb(bangTone(mirrorX, 5), mirrorX === 7 ? 0.58 : 0.5),
+        );
+      }
+      putColor(over.right, 7, 5, readColor(over.front, 0, 5) ?? hairColor);
+      putColor(over.left, 0, 5, readColor(over.front, 7, 5) ?? hairColor);
+      putColor(over.right, 6, 5, shadeRgb(bangTone(1, 5), 0.5));
+      putColor(over.left, 1, 5, shadeRgb(bangTone(6, 5), 0.48));
+    } else if (sideHairShape === "flared") {
+      // A flared profile spreads through the middle of the raised side face
+      // before tapering at the lower edge. Mirrored clusters make both sides
+      // read consistently when the model rotates.
+      for (const [rect, mirror] of [
+        [over.right, false],
+        [over.left, true],
+      ] as const) {
+        const px = (x: number) => (mirror ? 7 - x : x);
+        for (const [x, y, shade] of [
+          [2, 3, 0.84],
+          [3, 4, 0.68],
+          [4, 4, 0.76],
+          [4, 5, 0.58],
+        ] as const) {
+          putColor(rect, px(x), y, shadeRgb(bangTone(px(x), y), shade));
+        }
+      }
+    } else if (sideHairShape === "undercut") {
+      // Close-cut sides should not inherit the same lower outer-layer rails
+      // as face-framing or flared hair. Clear all adjacent faces together so
+      // the transparent taper remains a valid UV seam instead of a crack.
+      for (let y = 3; y < over.front.h; y++) {
+        clearPixel(over.front, 0, y);
+        clearPixel(over.front, 7, y);
+        clearPixel(over.back, 0, y);
+        clearPixel(over.back, 7, y);
+        for (let x = 0; x < over.right.w; x++) {
+          clearPixel(over.right, x, y);
+          clearPixel(over.left, x, y);
+        }
+      }
+    }
+  }
+
   // Preserve the photographed break between fringe clusters on the second
   // layer as well. The base face already carries matching forehead pixels;
   // these transparent cells therefore read as a real opening with depth,
@@ -3562,16 +3650,29 @@ function composeHair(
         }
       }
     };
-    retainRows(over.top, [
-      [1, 2, 5, 6],
-      [0, 1, 2, 5, 6, 7],
-      [0, 1, 3, 6, 7],
-      [0, 4, 7],
-      [0, 2, 5, 7],
-      [0, 1, 6, 7],
-      [1, 2, 5, 6],
-      [2, 5],
-    ]);
+    const longTopRows =
+      style.hairVolume === "full"
+        ? [
+            [2, 3, 4, 5],
+            [0, 1, 5, 6, 7],
+            [0, 3, 4, 7],
+            [0, 3, 7],
+            [0, 6, 7],
+            [0, 5, 7],
+            [1, 6],
+            [3, 4],
+          ]
+        : [
+            [1, 2, 5, 6],
+            [0, 1, 2, 5, 6, 7],
+            [0, 1, 3, 6, 7],
+            [0, 4, 7],
+            [0, 2, 5, 7],
+            [0, 1, 6, 7],
+            [1, 2, 5, 6],
+            [2, 5],
+          ];
+    retainRows(over.top, longTopRows);
     const longSideRows =
       sideHairShape === "face_framing"
         ? style.hairTexture === "wavy" ||
@@ -3948,7 +4049,11 @@ function composeHair(
     }
   }
 
-  if (roundedFringeCut && style.hairAccessory === "none") {
+  if (
+    roundedFringeCut &&
+    style.hairAccessory === "none" &&
+    sideHairShape !== "undercut"
+  ) {
     // A short black cut otherwise collapses into one dark cuboid at preview
     // scale. Use connected, low-contrast clusters that follow the crown and
     // both temple seams; isolated bright pixels would read as noise or holes.
@@ -6740,7 +6845,7 @@ export function packFrontViewToAtlas(
   composeGarmentLayers(atlas, faceStyle);
   resetPortraitFaceOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);
-  preserveFaceReadability(atlas, faceStyle);
+  preserveFaceReadability(atlas, faceStyle, hairColor);
   composeHat(atlas, hatColor, faceStyle);
   reconcileOverlaySeams(atlas, faceStyle, hairColor);
   applyShading(atlas);

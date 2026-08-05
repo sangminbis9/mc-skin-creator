@@ -984,7 +984,7 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
-  it("long face-framing hair keeps a continuous cheek and jaw window below both eyes", () => {
+  it("long face-framing hair keeps a continuous cheek window and tapers a soft jaw", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
@@ -1004,14 +1004,16 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const overlay = CLASSIC_LAYOUT.head.overlay.front;
 
-    for (const y of [5, 6, 7]) {
+    for (const y of [5, 6]) {
       expect(alphaAt(atlas, overlay, 1, y)).toBe(0);
       expect(alphaAt(atlas, overlay, 6, y)).toBe(0);
     }
-    for (const y of [6, 7]) {
-      expect(alphaAt(atlas, overlay, 2, y)).toBe(0);
-      expect(alphaAt(atlas, overlay, 5, y)).toBe(0);
-    }
+    expect(alphaAt(atlas, overlay, 2, 6)).toBe(0);
+    expect(alphaAt(atlas, overlay, 5, 6)).toBe(0);
+    expect(alphaAt(atlas, overlay, 1, 7)).toBe(255);
+    expect(alphaAt(atlas, overlay, 2, 7)).toBe(0);
+    expect(alphaAt(atlas, overlay, 5, 7)).toBe(0);
+    expect(alphaAt(atlas, overlay, 6, 7)).toBe(255);
     // Wavy outer locks frame the cheeks but step back before the jaw corners,
     // avoiding a full-height rectangular outline around the face.
     expect(alphaAt(atlas, overlay, 0, 5)).toBe(255);
@@ -1021,6 +1023,48 @@ describe("packFrontViewToAtlas", () => {
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("face-framing hair preserves broad, soft and pointed jaw widths on the outer layer", () => {
+    const makeJaw = (
+      jawShape: "square" | "soft" | "pointed",
+      faceShape: "oval" | "round" = "oval",
+    ) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        faceShape,
+        jawShape,
+        bangs: "curtain",
+        bangsLength: "brow",
+        hairTexture: "wavy",
+        hairBackShape: "long",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+        glasses: "none",
+      })!.atlas;
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    const square = makeJaw("square");
+    const soft = makeJaw("soft");
+    const pointed = makeJaw("pointed");
+    const roundPointed = makeJaw("pointed", "round");
+
+    // The bottom-row skin opening stays contiguous as it narrows: six pixels
+    // for a broad jaw, four for a soft jaw, and two for a pointed chin.
+    for (const x of [1, 2, 5, 6]) {
+      expect(alphaAt(square, overlay, x, 7)).toBe(0);
+    }
+    expect(alphaAt(soft, overlay, 1, 7)).toBe(255);
+    expect(alphaAt(soft, overlay, 2, 7)).toBe(0);
+    expect(alphaAt(soft, overlay, 5, 7)).toBe(0);
+    expect(alphaAt(soft, overlay, 6, 7)).toBe(255);
+    for (const x of [1, 2, 5, 6]) {
+      expect(alphaAt(pointed, overlay, x, 7)).toBe(255);
+      expect(alphaAt(roundPointed, overlay, x, 7)).toBe(255);
+    }
+    expect(rgbaAt(pointed, overlay, 2, 7)).not.toEqual(
+      rgbaAt(pointed, overlay, 5, 7),
+    );
   });
 
   it("straight bangs create layered front hair that wraps into temple side layers", () => {
@@ -1107,6 +1151,81 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, over.left, 3, 4)).toBeLessThan(
       redAt(atlas, over.left, 1, 4),
     );
+  });
+
+  it("short face-framing, flared and undercut profiles keep distinct connected side layers", () => {
+    const makeShape = (
+      sideHairShape: "face_framing" | "flared" | "undercut",
+    ) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "short",
+        bangs: "curtain",
+        bangsLength: "brow",
+        hairSilhouette: "rounded",
+        hairBackShape: "rounded",
+        sideHairLength: "short",
+        sideHairShape,
+        earExposure: "partial",
+        glasses: "none",
+      })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const faceFraming = makeShape("face_framing");
+    const flared = makeShape("flared");
+    const undercut = makeShape("undercut");
+
+    expect(alphaAt(faceFraming, over.front, 1, 5)).toBe(255);
+    expect(alphaAt(faceFraming, over.front, 6, 5)).toBe(255);
+    expect(rgbaAt(faceFraming, over.front, 0, 5)).toEqual(
+      rgbaAt(faceFraming, over.right, 7, 5),
+    );
+    expect(rgbaAt(faceFraming, over.front, 7, 5)).toEqual(
+      rgbaAt(faceFraming, over.left, 0, 5),
+    );
+
+    expect(alphaAt(flared, over.right, 3, 4)).toBe(255);
+    expect(alphaAt(flared, over.right, 4, 5)).toBe(255);
+    expect(alphaAt(flared, over.left, 4, 4)).toBe(255);
+    expect(alphaAt(flared, over.left, 3, 5)).toBe(255);
+
+    for (let y = 3; y < 8; y++) {
+      expect(alphaAt(undercut, over.front, 0, y)).toBe(0);
+      expect(alphaAt(undercut, over.front, 7, y)).toBe(0);
+      expect(alphaAt(undercut, over.back, 0, y)).toBe(0);
+      expect(alphaAt(undercut, over.back, 7, y)).toBe(0);
+      for (let x = 0; x < 8; x++) {
+        expect(alphaAt(undercut, over.right, x, y)).toBe(0);
+        expect(alphaAt(undercut, over.left, x, y)).toBe(0);
+      }
+    }
+  });
+
+  it("full long hair keeps a more crown-centred raised layer without extra density", () => {
+    const makeVolume = (hairVolume: "normal" | "full") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        bangs: "curtain",
+        bangsLength: "brow",
+        hairTexture: "wavy",
+        hairVolume,
+        hairBackShape: "long",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+      })!.atlas;
+    const top = CLASSIC_LAYOUT.head.overlay.top;
+    const normal = makeVolume("normal");
+    const full = makeVolume("full");
+
+    for (const x of [3, 4]) {
+      expect(alphaAt(normal, top, x, 0)).toBe(0);
+      expect(alphaAt(full, top, x, 0)).toBe(255);
+    }
+    const opaqueTopPixels = (atlas: RawImage) =>
+      Array.from({ length: top.w * top.h }, (_, index) =>
+        alphaAt(atlas, top, index % top.w, Math.floor(index / top.w)),
+      ).filter((alpha) => alpha === 255).length;
+    expect(opaqueTopPixels(full)).toBeLessThanOrEqual(opaqueTopPixels(normal));
   });
 
   it("centre-parted rounded short hair keeps a split fringe, readable eyes and deeper side volume", () => {
