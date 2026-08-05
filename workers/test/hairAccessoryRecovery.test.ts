@@ -424,7 +424,7 @@ describe("hair accessory recovery", () => {
     expect(decoded.rgba[maryJaneBow + 3]).toBe(255);
 
     for (const [sideIndex, side] of [rightArmOuter, leftArmOuter].entries()) {
-      const path = Array.from({ length: 11 }, (_, y) =>
+      const path = Array.from({ length: 7 }, (_, y) =>
         (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2,
       );
       for (let y = 0; y < path.length; y++) {
@@ -434,6 +434,10 @@ describe("hair accessory recovery", () => {
         .slice(1)
         .filter((x, index) => x !== path[index]).length;
       expect(turns).toBeLessThanOrEqual(3);
+      for (let y = 7; y <= 10; y++) {
+        expect(decoded.rgba[offset(side, 1, y) + 3]).toBe(0);
+        expect(decoded.rgba[offset(side, 2, y) + 3]).toBe(0);
+      }
     }
   });
 });

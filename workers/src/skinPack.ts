@@ -2666,10 +2666,12 @@ function composeHair(
           torsoHairRows <= 4 ? 3 : 5,
           arm.front.h - 1,
         );
-        const outerLastY = Math.min(
-          Math.max(shoulderLastY, torsoHairRows - 2),
-          arm.front.h - 1,
-        );
+        // Hair can bridge onto the enlarged arm cube at the shoulder, but its
+        // long endpoint belongs on the torso/back layers. Extending a solid
+        // profile rail to the wrist made waist-length hair merge with the
+        // sleeve into a dark rectangular side panel. Keep one staggered step
+        // below the shoulder cluster, then continue the lock on the torso.
+        const outerLastY = Math.min(shoulderLastY + 1, arm.front.h - 1);
         for (let y = 0; y <= outerLastY; y++) {
           // Keep the lower shoulder lock in the same value family as the
           // torso-side wave. A 0.58 factor turned medium-brown hair almost
@@ -4737,15 +4739,15 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
               put(dst, x, 0, shadeRgb(panelColor, 1.06));
           }
           for (let x = 0; x < dst.w; x++) {
-            if (broadFace || x === 0 || x === dst.w - 1) {
-              put(dst, x, dst.h - 1, shadeRgb(panelColor, 0.72));
-            }
+            const cuffEdge = x === seamX;
+            if (cuffEdge) put(dst, x, dst.h - 1, shadeRgb(panelColor, 0.72));
           }
-          for (let y = 1; y < dst.h - 1; y += 2) {
+          for (const y of [1, 5, 9] as const) {
+            if (y >= dst.h - 1) continue;
             if (y < armHairRows) continue;
             put(dst, seamX, y, shadeRgb(panelColor, 0.84));
           }
-          for (const foldY of [3, 6, 9] as const) {
+          for (const foldY of [3, 6] as const) {
             if (foldY >= dst.h - 2) continue;
             if (foldY < armHairRows) continue;
             if (!broadFace) continue;
@@ -4757,7 +4759,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             const cuffLight = mixRgb(panelColor, [255, 238, 232], 0.18);
             const cuffShadow = shadeRgb(panelColor, 0.58);
             const sleeveYarn = mixRgb(panelColor, [255, 238, 232], 0.14);
-            for (let x = 0; x < dst.w; x++)
+            const cuffXs =
+              part === "rightArm"
+                ? [0, 1]
+                : [dst.w - 2, dst.w - 1];
+            for (const x of cuffXs)
               put(
                 dst,
                 x,
@@ -4796,7 +4802,11 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
                   : shoulderLight,
               );
           }
-          for (let x = 0; x < arm.overlay.bottom.w; x++)
+          const bottomCuffXs =
+            part === "rightArm"
+              ? [0, 1]
+              : [arm.overlay.bottom.w - 2, arm.overlay.bottom.w - 1];
+          for (const x of bottomCuffXs)
             put(
               arm.overlay.bottom,
               x,

@@ -2076,7 +2076,7 @@ describe("packFrontViewToAtlas", () => {
     for (let sideIndex = 0; sideIndex < outerSideFaces.length; sideIndex++) {
       const side = outerSideFaces[sideIndex];
       const wavePath: number[] = [];
-      for (let y = 0; y <= 10; y++) {
+      for (let y = 0; y <= 6; y++) {
         const waveX =
           (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
         wavePath.push(waveX);
@@ -2087,10 +2087,14 @@ describe("packFrontViewToAtlas", () => {
           (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
         expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(255);
       }
-      for (const y of [0, 2, 4, 5, 6, 7, 8, 9, 10]) {
+      for (const y of [0, 2, 4, 5, 6]) {
         const waveX =
           (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
         expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(0);
+      }
+      for (let y = 7; y <= 10; y++) {
+        expect(alphaAt(atlas, side, 1, y)).toBe(0);
+        expect(alphaAt(atlas, side, 2, y)).toBe(0);
       }
       const lateralTurns = wavePath.slice(1).filter(
         (x, index) => x !== wavePath[index],
