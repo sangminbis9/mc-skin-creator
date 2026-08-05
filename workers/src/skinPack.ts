@@ -5259,6 +5259,7 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const leg = CLASSIC_LAYOUT[part];
       const coverRows = style.bottomType === "skirt" ? 3 : 2;
       for (const faceName of ["front", "back", "right", "left"] as const) {
+        const baseRect = leg.base[faceName];
         const dst = leg.overlay[faceName];
         for (let y = 0; y < coverRows; y++) {
           for (let x = 0; x < dst.w; x++) {
@@ -5295,15 +5296,31 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             ) {
               color = mixRgb(color, plaidThread, 0.24);
             }
-            put(dst, x, y, color);
+            // The leg base carries the continuous skirt/short fabric. The
+            // outer layer keeps only the pleat ridges, crossing threads and
+            // stepped hem, so gaps read as depth instead of missing clothing.
+            put(baseRect, x, y, shadeRgb(color, 0.98));
+            const raised =
+              bottomPattern === "plaid"
+                ? (y === 0 &&
+                    (faceName === "front" || faceName === "back"
+                      ? x === 1 || x === 2
+                      : x === 0 || x === 1)) ||
+                  (y === 1 && x <= 2) ||
+                  (y === coverRows - 1 && x % 2 === 0)
+                : bottomPattern === "pleated"
+                  ? x === 1 || (y === coverRows - 1 && x % 2 === 0)
+                  : bottomPattern === "lace"
+                    ? y === coverRows - 1 && x % 2 === 0
+                    : (y === 0 && x === 1) ||
+                      (y === coverRows - 1 && x % 2 === 0);
+            if (raised) put(dst, x, y, color);
           }
         }
       }
       const frontLeg = leg.overlay.front;
-      for (let y = 0; y < coverRows; y++) {
-        const seamX = part === "rightLeg" ? frontLeg.w - 1 : 0;
-        put(frontLeg, seamX, y, shadeRgb(bottomColor, 0.66));
-      }
+      const seamX = part === "rightLeg" ? frontLeg.w - 1 : 0;
+      put(frontLeg, seamX, coverRows - 1, shadeRgb(bottomColor, 0.66));
     }
 
     if (bottomPattern === "plaid") {
@@ -5367,40 +5384,6 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const topMidY = Math.max(0, topFrontY - 1);
       for (let x = 0; x < bodyTop.w; x += 3) {
         put(bodyTop, x, topMidY, shadeRgb(plaidThread, 0.9));
-      }
-
-      for (const part of ["rightLeg", "leftLeg"] as const) {
-        const leg = CLASSIC_LAYOUT[part];
-        for (const faceName of ["front", "back", "right", "left"] as const) {
-          const dst = leg.overlay[faceName];
-          const coverRows = style.bottomType === "skirt" ? 3 : 2;
-          const verticalX = Math.min(
-            dst.w - 1,
-            faceName === "front" || faceName === "back" ? 2 : 1,
-          );
-          const shadowX = Math.min(dst.w - 1, 1);
-          for (let y = 0; y < coverRows; y++) {
-            put(
-              dst,
-              verticalX,
-              y,
-              y === 1 ? plaidCross : mixRgb(plaidThread, litColor, 0.18),
-            );
-            put(dst, shadowX, y, y === 1 ? plaidCross : plaidShadow);
-          }
-          if (coverRows > 1) {
-            for (let x = 0; x < dst.w; x++) {
-              put(
-                dst,
-                x,
-                1,
-                x === verticalX || x === shadowX
-                  ? plaidCross
-                  : shadeRgb(plaidThread, x % 2 === 0 ? 0.94 : 0.78),
-              );
-            }
-          }
-        }
       }
     }
   }
@@ -5530,48 +5513,50 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     for (let y = 0; y < tailRows; y++) {
       const lower = y === tailRows - 1;
       const shade = lower ? 0.68 : y === 0 ? 1.02 : 0.88;
-      put(rightLeg.front, 0, y, shadeRgb(tailColor, shade));
-      put(
-        rightLeg.front,
-        1,
-        y,
-        y % 2 === 0 ? trimColor : shadeRgb(trimColor, 1.08),
-      );
-      put(
-        leftLeg.front,
-        2,
-        y,
-        y % 2 === 0 ? shadeRgb(trimColor, 0.88) : trimColor,
-      );
-      put(leftLeg.front, 3, y, shadeRgb(tailColor, shade - 0.02));
-
-      for (const rect of [
-        rightLeg.right,
-        rightLeg.left,
-        leftLeg.right,
-        leftLeg.left,
-      ]) {
-        for (let x = 0; x < rect.w; x++) {
-          const edge = x === 0 || x === rect.w - 1;
-          put(
-            rect,
-            x,
-            y,
-            shadeRgb(tailColor, lower ? 0.68 : edge ? 0.78 : 0.9),
-          );
-        }
+      if (y === 0) {
+        put(rightLeg.front, 0, y, shadeRgb(tailColor, shade));
+        put(rightLeg.front, 1, y, trimColor);
+        put(leftLeg.front, 2, y, shadeRgb(trimColor, 0.88));
+        put(leftLeg.front, 3, y, shadeRgb(tailColor, shade - 0.02));
+      } else if (y === 1) {
+        put(rightLeg.front, 0, y, shadeRgb(tailColor, 1.02));
+        put(leftLeg.front, 3, y, shadeRgb(tailColor, 1));
+      } else {
+        put(rightLeg.front, 1, y, trimColor);
+        put(leftLeg.front, 2, y, shadeRgb(trimColor, 0.88));
       }
-      for (const rect of [rightLeg.back, leftLeg.back]) {
-        for (let x = 0; x < rect.w; x++) {
-          const edge = x === 0 || x === rect.w - 1;
-          put(
-            rect,
-            x,
-            y,
-            shadeRgb(tailColor, lower ? 0.66 : edge ? 0.76 : 0.88),
-          );
-        }
-        put(rect, rect.w - 1, y, shadeRgb(trimColor, lower ? 0.62 : 0.78));
+
+      // Side and rear tails are narrow turning clusters, not four complete
+      // panels on every leg face. Their staggered inner pixel communicates a
+      // fold while the transparent neighbours keep the hem from becoming a
+      // rigid skirt-shaped box.
+      for (const [rect, edgeX, foldX] of [
+        [rightLeg.right, 0, 1],
+        [leftLeg.left, leftLeg.left.w - 1, leftLeg.left.w - 2],
+      ] as const) {
+        if (y === 0) continue;
+        const x = y === 1 ? foldX : edgeX;
+        put(
+          rect,
+          x,
+          y,
+          shadeRgb(tailColor, lower ? 0.68 : y === 1 ? 0.9 : 0.78),
+        );
+      }
+      for (const [rect, edgeX, foldX] of [
+        [rightLeg.back, 0, 1],
+        [leftLeg.back, leftLeg.back.w - 1, leftLeg.back.w - 2],
+      ] as const) {
+        if (y === 0) continue;
+        const x = y === 1 ? foldX : edgeX;
+        put(
+          rect,
+          x,
+          y,
+          y === 1
+            ? shadeRgb(foldLight, 0.9)
+            : shadeRgb(trimColor, lower ? 0.62 : 0.78),
+        );
       }
     }
     if (tailRows >= 3) {
@@ -5610,45 +5595,15 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     }
   }
 
-  // 신발: 발목 둘레와 밑창을 overlay로 올려 발끝 두께를 만든다 (하의 종류 무관).
+  // Keep the always-present shoe lift deliberately tiny. The base layer
+  // already carries the complete shoe; lifting two full rows on all four
+  // faces plus the whole sole made every footwear style a rectangular shell
+  // before its actual straps/laces were even authored below.
   for (const part of ["rightLeg", "leftLeg"] as const) {
     const leg = CLASSIC_LAYOUT[part];
-    for (const faceName of ["front", "back", "right", "left"] as const) {
-      const src = leg.base[faceName];
-      const dst = leg.overlay[faceName];
-      const raisedXs =
-        faceName === "front"
-          ? [0, 1, 2, 3]
-          : faceName === "back"
-            ? [1, 2]
-            : faceName === "right"
-              ? [0, 1]
-              : [2, 3];
-      for (const x of raisedXs) {
-        volumeCopy(
-          src,
-          dst,
-          x,
-          dst.h - 2,
-          faceName === "front" ? "lit" : "mid",
-        );
-      }
-      for (const x of raisedXs.filter(
-        (x) => x === 0 || x === dst.w - 1 || faceName === "front",
-      ))
-        volumeCopy(src, dst, x, dst.h - 1, "mid");
-    }
-    for (let y = 0; y < leg.overlay.bottom.h; y++) {
-      for (let x = 0; x < leg.overlay.bottom.w; x++) {
-        if (
-          x === 0 ||
-          y === 0 ||
-          x === leg.overlay.bottom.w - 1 ||
-          y === leg.overlay.bottom.h - 1
-        )
-          volumeCopy(leg.base.bottom, leg.overlay.bottom, x, y, "hem");
-      }
-    }
+    const front = leg.overlay.front;
+    const outerToeX = part === "rightLeg" ? 0 : front.w - 1;
+    volumeCopy(leg.base.front, front, outerToeX, front.h - 1, "mid");
   }
 
   const dressyShoes =
@@ -5753,50 +5708,33 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         const sole = shadeRgb(mixRgb(shoeBase, [255, 252, 244], 0.62), 0.82);
         const soleShadow = shadeRgb(sole, 0.72);
         const strapDeep = shadeRgb(bowShadow, 0.72);
+        // Mary Janes read from the bow, instep strap, toe corners and heel
+        // anchors. Leave the remaining base pixels visible instead of adding
+        // a second complete shoe cuboid.
         put(front, 1, front.h - 2, shoeAccent);
         put(front, 2, front.h - 2, shadeRgb(shoeAccent, 0.88));
         put(front, 0, front.h - 1, sole);
-        put(front, 1, front.h - 1, shadeRgb(shoeAccent, 0.96));
         put(front, 2, front.h - 1, shoeShadow);
-        put(front, 3, front.h - 1, soleShadow);
-        put(front, 0, front.h - 2, shoeBright);
-        put(front, 3, front.h - 2, shadeRgb(shoeBright, 0.88));
         put(front, 1, front.h - 3, shoeBright);
         put(front, 2, front.h - 3, bowShadow);
-        for (const side of [leg.overlay.right, leg.overlay.left]) {
-          put(side, 0, side.h - 1, sole);
-          put(side, 1, side.h - 1, shadeRgb(sole, 0.88));
-          put(side, 0, side.h - 2, shoeAccent);
-          put(side, 1, side.h - 2, shadeRgb(shoeAccent, 0.88));
-          put(side, side.w - 1, side.h - 1, shoeShadow);
-          put(side, side.w - 2, side.h - 1, soleShadow);
-          put(side, side.w - 1, side.h - 3, shoeBright);
-          put(side, 0, side.h - 3, bowShadow);
-          put(side, 1, side.h - 3, strapDeep);
-          put(side, side.w - 2, side.h - 3, shadeRgb(shoeBright, 0.86));
-        }
-        for (let x = 0; x < leg.overlay.bottom.w; x++) {
-          put(leg.overlay.bottom, x, 0, x % 2 === 0 ? sole : soleShadow);
-          put(
-            leg.overlay.bottom,
-            x,
-            leg.overlay.bottom.h - 1,
-            x % 2 === 0 ? soleShadow : shadeRgb(sole, 0.9),
-          );
-        }
-        for (const x of [1, 2])
-          put(
-            leg.overlay.back,
-            x,
-            leg.overlay.back.h - 2,
-            shadeRgb(shoeAccent, 0.9),
-          );
+        const rightSide = leg.overlay.right;
+        const leftSide = leg.overlay.left;
+        put(rightSide, 0, rightSide.h - 2, shoeAccent);
+        put(rightSide, rightSide.w - 1, rightSide.h - 3, shoeBright);
+        put(rightSide, 0, rightSide.h - 1, sole);
+        put(leftSide, 1, leftSide.h - 2, shadeRgb(shoeAccent, 0.88));
+        put(leftSide, 0, leftSide.h - 3, bowShadow);
+        put(leg.overlay.bottom, 0, 0, sole);
+        put(leg.overlay.bottom, 0, leg.overlay.bottom.h - 1, soleShadow);
+        put(
+          leg.overlay.back,
+          2,
+          leg.overlay.back.h - 2,
+          shadeRgb(shoeAccent, 0.9),
+        );
         put(leg.overlay.back, 0, leg.overlay.back.h - 2, shoeBright);
-        put(leg.overlay.back, 3, leg.overlay.back.h - 2, bowShadow);
         put(leg.overlay.back, 1, leg.overlay.back.h - 3, strapDeep);
         put(leg.overlay.back, 2, leg.overlay.back.h - 3, shoeBright);
-        put(leg.overlay.back, 0, leg.overlay.back.h - 1, sole);
-        put(leg.overlay.back, 3, leg.overlay.back.h - 1, soleShadow);
       }
     }
   }
@@ -5846,108 +5784,137 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       const topLace = shadeRgb(mixRgb(baseColor, [255, 250, 244], 0.55), 1.08);
       const ribLight = mixRgb(baseColor, [255, 248, 240], 0.22);
       const ribShadow = shadeRgb(baseColor, 0.96);
+
+      if (legwear === "leg_warmers") {
+        const laceY = Math.max(0, legwearRows.start - 1);
+        const cuffY = legwearRows.end;
+        const cuffLight = shadeRgb(
+          mixRgb(baseColor, [255, 250, 244], 0.42),
+          1.04,
+        );
+        const cuffDark = shadeRgb(baseColor, 0.78);
+        const scallopLight = shadeRgb(topLace, 1.08);
+        const scallopShadow = shadeRgb(topLace, 0.86);
+
+        // The continuous knitted tube belongs on the base layer. Reset only
+        // its occupied outer-layer rows, then author isolated slouch folds,
+        // lace and cuff anchors. This preserves a readable fabric silhouette
+        // without turning all four leg faces into a second solid cuboid.
+        for (const faceName of ["front", "back", "right", "left"] as const) {
+          const baseRect = leg.base[faceName];
+          const overRect = leg.overlay[faceName];
+          for (let y = legwearRows.start; y <= legwearRows.end; y++) {
+            for (let x = 0; x < baseRect.w; x++) {
+              const edge = x === 0 || x === baseRect.w - 1;
+              const wrinkle = edge ? 0.9 : y % 2 === 0 ? 0.94 : 1.02;
+              put(baseRect, x, y, shadeRgb(baseColor, wrinkle));
+            }
+          }
+          for (let y = laceY; y <= cuffY; y++) {
+            for (let x = 0; x < overRect.w; x++) clear(overRect, x, y);
+          }
+        }
+
+        const paint = (
+          rect: Rect,
+          points: readonly (readonly [number, number, Rgb])[],
+        ) => {
+          for (const [x, y, color] of points) put(rect, x, y, color);
+        };
+        const front = leg.overlay.front;
+        const back = leg.overlay.back;
+        const right = leg.overlay.right;
+        const left = leg.overlay.left;
+
+        paint(front, [
+          [0, laceY, scallopLight],
+          [1, laceY, scallopShadow],
+          [2, laceY, scallopLight],
+          [3, laceY, scallopShadow],
+          [0, legwearRows.start, topLace],
+          [1, legwearRows.start, shadeRgb(topLace, 0.82)],
+          [2, legwearRows.start, topLace],
+          [3, legwearRows.start, shadeRgb(topLace, 0.82)],
+          [1, 3, shadeRgb(ribShadow, 0.86)],
+          [2, 3, scallopShadow],
+          [1, 4, ribLight],
+          [2, 5, shadeRgb(ribShadow, 0.9)],
+          [1, 6, ribLight],
+          [2, 6, shadeRgb(ribShadow, 0.84)],
+          [1, 7, shadeRgb(ribShadow, 0.88)],
+          [1, cuffY - 1, cuffLight],
+          [2, cuffY - 1, shadeRgb(cuffLight, 0.92)],
+          [1, cuffY, cuffDark],
+          [2, cuffY, shadeRgb(cuffDark, 0.92)],
+        ]);
+        paint(back, [
+          [1, laceY, scallopShadow],
+          [2, laceY, scallopLight],
+          [0, legwearRows.start, shadeRgb(topLace, 0.82)],
+          [1, legwearRows.start, topLace],
+          [2, legwearRows.start, shadeRgb(topLace, 0.82)],
+          [3, legwearRows.start, topLace],
+          [1, 3, ribLight],
+          [2, 3, shadeRgb(ribShadow, 0.88)],
+          [1, 5, shadeRgb(ribShadow, 0.9)],
+          [2, 6, ribLight],
+          [2, 7, shadeRgb(ribShadow, 0.84)],
+          [1, cuffY - 1, cuffLight],
+          [1, cuffY, cuffDark],
+          [2, cuffY, shadeRgb(cuffDark, 0.92)],
+        ]);
+        paint(right, [
+          [0, laceY, scallopLight],
+          [1, laceY, scallopShadow],
+          [0, legwearRows.start, topLace],
+          [1, legwearRows.start, shadeRgb(topLace, 0.82)],
+          [1, 4, ribLight],
+          [0, 5, shadeRgb(ribShadow, 0.86)],
+          [1, 7, shadeRgb(ribShadow, 0.9)],
+          [1, cuffY - 1, cuffLight],
+          [0, cuffY, cuffDark],
+        ]);
+        paint(left, [
+          [0, laceY, scallopLight],
+          [3, laceY, scallopShadow],
+          [2, legwearRows.start, shadeRgb(topLace, 0.82)],
+          [3, legwearRows.start, topLace],
+          [2, 4, ribLight],
+          [3, 5, shadeRgb(ribShadow, 0.84)],
+          [2, 7, shadeRgb(ribShadow, 0.9)],
+          [2, cuffY - 1, cuffLight],
+          [0, cuffY, cuffDark],
+          [3, cuffY, shadeRgb(cuffDark, 0.9)],
+        ]);
+
+        return;
+      }
+
       for (const faceName of ["front", "back", "right", "left"] as const) {
         const baseRect = leg.base[faceName];
         const overRect = leg.overlay[faceName];
         for (let y = legwearRows.start; y <= legwearRows.end; y++) {
           for (let x = 0; x < baseRect.w; x++) {
-            const wrinkle =
-              legwear === "leg_warmers" && y % 2 === 0
-                ? 0.94
-                : x === 0 || x === baseRect.w - 1
-                  ? 0.9
-                  : 1.02;
+            const wrinkle = x === 0 || x === baseRect.w - 1 ? 0.9 : 1.02;
             put(baseRect, x, y, shadeRgb(baseColor, wrinkle));
           }
-          if (legwear !== "leg_warmers") {
-            // A single raised rib keeps long socks readable in profile while
-            // the base layer carries the continuous fabric colour.
-            const ribX =
-              faceName === "left"
-                ? overRect.w - 1
-                : faceName === "right"
-                  ? 0
-                  : 1;
+          // A single raised rib keeps long socks readable in profile while
+          // the base layer carries the continuous fabric colour.
+          const ribX =
+            faceName === "left" ? overRect.w - 1 : faceName === "right" ? 0 : 1;
+          put(
+            overRect,
+            ribX,
+            y,
+            shadeRgb(baseColor, y % 3 === 0 ? 0.76 : 0.94),
+          );
+          if ((faceName === "front" || faceName === "back") && y % 3 === 0) {
             put(
               overRect,
-              ribX,
+              Math.min(overRect.w - 1, ribX + 1),
               y,
-              shadeRgb(baseColor, y % 3 === 0 ? 0.76 : 0.94),
+              shadeRgb(baseColor, 1.08),
             );
-            if ((faceName === "front" || faceName === "back") && y % 3 === 0) {
-              put(
-                overRect,
-                Math.min(overRect.w - 1, ribX + 1),
-                y,
-                shadeRgb(baseColor, 1.08),
-              );
-            }
-          }
-          if (legwear === "leg_warmers") {
-            const ribbed = y % 2 === 1 || y === legwearRows.end;
-            if (ribbed) {
-              const ribXs =
-                faceName === "front" || faceName === "back"
-                  ? []
-                  : faceName === "right"
-                    ? [0, 1]
-                    : [2, 3];
-              for (const x of ribXs) {
-                const sideEdge = x === 0 || x === overRect.w - 1;
-                put(
-                  overRect,
-                  x,
-                  y,
-                  sideEdge ? shadeRgb(ribShadow, 0.99) : ribShadow,
-                );
-              }
-            } else if (faceName === "front" || faceName === "back") {
-              for (const x of [1, 2]) put(overRect, x, y, ribLight);
-            } else {
-              put(
-                overRect,
-                faceName === "right" ? 0 : overRect.w - 1,
-                y,
-                ribLight,
-              );
-              put(
-                overRect,
-                faceName === "right" ? 1 : overRect.w - 2,
-                y,
-                shadeRgb(ribLight, 0.9),
-              );
-            }
-            if (faceName === "front" || faceName === "back") {
-              const foldX = y % 2 === 0 ? 2 : 1;
-              const liftX = foldX === 1 ? 2 : 1;
-              put(
-                overRect,
-                foldX,
-                y,
-                ribbed ? shadeRgb(ribShadow, 0.98) : shadeRgb(ribLight, 0.99),
-              );
-              put(
-                overRect,
-                liftX,
-                y,
-                ribbed ? shadeRgb(ribShadow, 1.02) : shadeRgb(ribLight, 1.02),
-              );
-            } else {
-              const outerX = faceName === "right" ? 0 : overRect.w - 1;
-              const innerX = faceName === "right" ? 1 : overRect.w - 2;
-              put(
-                overRect,
-                outerX,
-                y,
-                ribbed ? shadeRgb(ribShadow, 0.98) : ribLight,
-              );
-              put(
-                overRect,
-                innerX,
-                y,
-                ribbed ? shadeRgb(ribShadow, 1.01) : shadeRgb(ribLight, 0.98),
-              );
-            }
           }
         }
         const rimXs =
@@ -5963,78 +5930,6 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             legwearRows.start,
             x % 2 === 0 ? topLace : shadeRgb(topLace, 0.82),
           );
-        }
-        if (legwear === "leg_warmers") {
-          const laceY = Math.max(0, legwearRows.start - 1);
-          const ankleCuffY = Math.min(overRect.h - 1, legwearRows.end);
-          const ankleFoldY = Math.max(legwearRows.start, ankleCuffY - 1);
-          const scallopA = shadeRgb(topLace, 1.08);
-          const scallopB = shadeRgb(topLace, 0.86);
-          const cuffLight = shadeRgb(
-            mixRgb(baseColor, [255, 250, 244], 0.42),
-            1.04,
-          );
-          const cuffDark = shadeRgb(baseColor, 0.78);
-          for (const x of rimXs) {
-            const edge = x === 0 || x === overRect.w - 1;
-            put(overRect, x, laceY, x % 2 === 0 ? scallopA : scallopB);
-            if (!edge && (faceName === "front" || faceName === "back")) {
-              put(
-                overRect,
-                x,
-                legwearRows.start + 1,
-                x % 2 === 0 ? shadeRgb(scallopA, 0.94) : ribShadow,
-              );
-            }
-            put(
-              baseRect,
-              x,
-              ankleCuffY,
-              x % 2 === 0
-                ? shadeRgb(baseColor, 0.78)
-                : shadeRgb(baseColor, 0.88),
-            );
-            put(
-              overRect,
-              x,
-              ankleCuffY,
-              x % 2 === 0 ? cuffDark : shadeRgb(cuffDark, 0.92),
-            );
-            if (!edge) {
-              put(
-                overRect,
-                x,
-                ankleFoldY,
-                x % 2 === 0 ? cuffLight : shadeRgb(cuffDark, 0.9),
-              );
-            }
-          }
-          if (faceName === "right" || faceName === "left") {
-            const outerX = faceName === "right" ? 0 : overRect.w - 1;
-            const innerX = faceName === "right" ? 1 : overRect.w - 2;
-            put(overRect, outerX, laceY, scallopA);
-            put(overRect, innerX, laceY, scallopB);
-            put(
-              overRect,
-              outerX,
-              legwearRows.start + 1,
-              shadeRgb(scallopB, 0.82),
-            );
-            put(overRect, outerX, ankleCuffY, cuffDark);
-            put(overRect, innerX, ankleFoldY, shadeRgb(cuffLight, 0.9));
-          } else {
-            put(overRect, 1, ankleFoldY, cuffLight);
-            put(overRect, 2, ankleFoldY, shadeRgb(cuffLight, 0.92));
-            put(overRect, 1, ankleCuffY, cuffDark);
-            put(overRect, 2, ankleCuffY, shadeRgb(cuffDark, 0.92));
-          }
-          for (let y = legwearRows.start + 1; y <= legwearRows.end; y += 2) {
-            const edgeX =
-              Math.floor((y - legwearRows.start - 1) / 2) % 2 === 0
-                ? 0
-                : overRect.w - 1;
-            put(overRect, edgeX, y, shadeRgb(ribShadow, 0.98));
-          }
         }
       }
     };
@@ -6080,7 +5975,6 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           [1, 2, bowKnot],
           [2, 2, accent],
           [0, 3, mid],
-          [2, 3, shade],
         ] as const) {
           put(leg.front, x, y, color);
         }
@@ -6090,7 +5984,6 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         // view while the back and inner side remain a clean one-pixel strap.
         for (const [x, y, color] of [
           [0, 1, light],
-          [1, 1, mid],
           [0, 2, bowKnot],
           [0, 3, mid],
           [1, 4, shade],
@@ -6121,7 +6014,6 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       // Continue the raised attachment onto the top face so the accessory
       // does not terminate as a floating front-only decal at the UV fold.
       put(leg.top, 1, leg.top.h - 1, light);
-      put(leg.top, 2, leg.top.h - 1, mid);
     };
 
     for (const part of targetParts) drawThighAccessory(part);

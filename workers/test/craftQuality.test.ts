@@ -73,10 +73,10 @@ describe("handcrafted atlas quality metrics", () => {
       80,
     );
     expect(proceduralMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
-      140,
+      90,
     );
     expect(proceduralMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(
-      195,
+      120,
     );
     expect(proceduralMetrics.solidOverlayFaces).toBe(0);
     expect(proceduralMetrics.overlayVerticalSeamMismatches).toBe(0);
