@@ -1682,6 +1682,65 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("full wavy tousled hair bevels every raised crown corner without losing its tufts", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      bangs: "curtain",
+      bangsLength: "brow",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairSilhouette: "tousled",
+      hairBackShape: "long",
+      overallHairLength: "waist",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head.overlay;
+
+    for (const [face, rect] of [
+      ["front", head.front],
+      ["back", head.back],
+      ["right", head.right],
+      ["left", head.left],
+    ] as const) {
+      expect(alphaAt(atlas, rect, 0, 0), `${face} upper-left`).toBe(0);
+      expect(
+        alphaAt(atlas, rect, rect.w - 1, 0),
+        `${face} upper-right`,
+      ).toBe(0);
+    }
+    for (const [x, y] of [
+      [0, 0],
+      [head.top.w - 1, 0],
+      [0, head.top.h - 1],
+      [head.top.w - 1, head.top.h - 1],
+    ] as const) {
+      expect(alphaAt(atlas, head.top, x, y)).toBe(0);
+    }
+    expect(alphaAt(atlas, head.top, 2, 0)).toBe(255);
+    expect(alphaAt(atlas, head.top, 5, 0)).toBe(255);
+    expect(alphaAt(atlas, head.front, 2, 1)).toBe(255);
+    expect(alphaAt(atlas, head.front, 5, 1)).toBe(255);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+    for (const [face, rect] of [
+      ["front", head.front],
+      ["back", head.back],
+      ["right", head.right],
+      ["left", head.left],
+    ] as const) {
+      expect(alphaAt(atlas, rect, 0, 0), `${face} upper-left after mask`).toBe(
+        0,
+      );
+      expect(
+        alphaAt(atlas, rect, rect.w - 1, 0),
+        `${face} upper-right after mask`,
+      ).toBe(0);
+    }
+  });
+
   it("hairBackShape controls inferred rear hair and connects it to side rear edges", () => {
     const longBack = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -2284,13 +2343,16 @@ describe("packFrontViewToAtlas", () => {
       [head.right, 0, 7],
       [head.left, 7, 0],
     ] as const) {
-      // Rear volume remains connected to the long back hair. The front
-      // face-framing lock ends two rows earlier, so the enlarged layer steps
-      // back toward the base cube instead of outlining the whole 8x8 profile.
-      for (let y = 0; y < rect.h; y++) {
+      // The exact upper vertex is bevelled on every adjacent face, then the
+      // rear volume stays continuously connected to the long back hair. The
+      // front face-framing lock ends two rows earlier, so the enlarged layer
+      // steps back instead of outlining the whole 8x8 profile.
+      expect(alphaAt(atlas, rect, rearSeam, 0)).toBe(0);
+      for (let y = 1; y < rect.h; y++) {
         expect(alphaAt(atlas, rect, rearSeam, y)).toBe(255);
       }
-      for (let y = 0; y <= 5; y++) {
+      expect(alphaAt(atlas, rect, frontSeam, 0)).toBe(0);
+      for (let y = 1; y <= 5; y++) {
         expect(alphaAt(atlas, rect, frontSeam, y)).toBe(255);
       }
       for (let y = 6; y < rect.h; y++) {

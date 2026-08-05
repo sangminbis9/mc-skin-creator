@@ -4181,6 +4181,26 @@ function composeHair(
     syncEdgePixel(over.back, 7, over.right, 0, y);
     syncEdgePixel(over.back, 0, over.left, 7, y);
   }
+
+  if (hairSilhouette === "tousled") {
+    // Apply the bevel after fringe, accessory and seam passes. Long,
+    // full-volume masks intentionally retain more mass than rounded hair,
+    // but an opaque pixel on all three faces of each upper cube vertex makes
+    // wavy hair read as a rectangular helmet. Clear every physical corner
+    // together while preserving the irregular central tufts authored above.
+    for (const rect of [over.front, over.back, over.right, over.left]) {
+      clearPixel(rect, 0, 0);
+      clearPixel(rect, rect.w - 1, 0);
+    }
+    for (const [x, y] of [
+      [0, 0],
+      [over.top.w - 1, 0],
+      [0, over.top.h - 1],
+      [over.top.w - 1, over.top.h - 1],
+    ] as const) {
+      clearPixel(over.top, x, y);
+    }
+  }
 }
 
 /**
