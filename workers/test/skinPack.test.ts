@@ -4166,6 +4166,54 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("glasses keep their second-layer frame without retaining raised mouth and chin skin", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      glasses: "regular",
+      glassesColor: "#302c2a",
+      facialHair: "none",
+      mouthShape: "small",
+    })!.atlas;
+    const raisedFace = CLASSIC_LAYOUT.head.overlay.front;
+
+    expect(rgbaAt(atlas, raisedFace, 2, 4)).toEqual([48, 44, 42, 255]);
+    expect(rgbaAt(atlas, raisedFace, 3, 3)).toEqual([48, 44, 42, 255]);
+    expect(alphaAt(atlas, raisedFace, 3, 6)).toBe(0);
+    expect(alphaAt(atlas, raisedFace, 3, 7)).toBe(0);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("eye-length bangs naturally occlude glasses while their side arms remain connected", () => {
+    const glassesStyle: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      glasses: "regular",
+      glassesColor: "#302c2a",
+      facialHair: "none",
+    };
+    const withoutBangs = packFrontViewToAtlas(makeFrontView(), {
+      ...glassesStyle,
+      bangs: "none",
+    })!.atlas;
+    const withBangs = packFrontViewToAtlas(makeFrontView(), {
+      ...glassesStyle,
+      bangs: "straight",
+      bangsLength: "eye",
+    })!.atlas;
+    const raisedHead = CLASSIC_LAYOUT.head.overlay;
+
+    expect(rgbaAt(withBangs, raisedHead.front, 2, 4)).not.toEqual(
+      rgbaAt(withoutBangs, raisedHead.front, 2, 4),
+    );
+    expect(alphaAt(withBangs, raisedHead.front, 2, 4)).toBe(255);
+    expect(alphaAt(withBangs, raisedHead.right, 6, 3)).toBe(255);
+    expect(alphaAt(withBangs, raisedHead.left, 1, 3)).toBe(255);
+    expect(alphaAt(withBangs, raisedHead.front, 3, 7)).toBe(0);
+    expect(validateFinalAtlas(withBangs).ok).toBe(true);
+  });
+
   it("four-view sheets preserve distinct left and right profile colors", () => {
     const packed = packFrontViewToAtlas(
       makeFourViewSheet(),

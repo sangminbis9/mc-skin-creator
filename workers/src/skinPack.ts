@@ -1386,39 +1386,6 @@ function composeFace(
     fringe([1, 4, 7], 1);
     fringe([2, 5], 2);
   }
-
-  if (style.glasses !== "none") {
-    const rim = hexToRgb(style.glassesColor, [34, 32, 30]);
-    const lens = style.glasses === "sunglasses" ? shadeRgb(rim, 0.55) : null;
-    for (const x0 of [0, 5]) {
-      if (style.glasses === "round") {
-        put(overlay, x0 + 1, 2, rim);
-        put(overlay, x0, 3, rim);
-        put(overlay, x0 + 2, 3, rim);
-        put(overlay, x0 + 1, 5, rim);
-      } else {
-        for (let x = x0; x < x0 + 3; x++) {
-          put(overlay, x, 2, rim);
-          put(overlay, x, 5, rim);
-        }
-        put(overlay, x0, 3, rim);
-        put(overlay, x0 + 2, 3, rim);
-        put(overlay, x0, 4, rim);
-        put(overlay, x0 + 2, 4, rim);
-      }
-      if (lens) {
-        put(overlay, x0 + 1, 3, lens);
-        put(overlay, x0 + 1, 4, lens);
-      }
-    }
-    put(overlay, 3, 3, rim);
-    put(overlay, 4, 3, rim);
-    // 안경 다리 (옆면 overlay)
-    put(CLASSIC_LAYOUT.head.overlay.right, 7, 3, rim);
-    put(CLASSIC_LAYOUT.head.overlay.right, 6, 3, rim);
-    put(CLASSIC_LAYOUT.head.overlay.left, 0, 3, rim);
-    put(CLASSIC_LAYOUT.head.overlay.left, 1, 3, rim);
-  }
 }
 
 /**
@@ -1558,12 +1525,7 @@ function preserveFaceReadability(
  * into a noisy mosaic. Clear those temporary portrait details before the hair
  * pass rebuilds the outer layer with genuine fringe and temple pixels.
  */
-function resetPortraitFaceOverlay(atlas: RawImage, style: FaceStyle): void {
-  // Glass frames genuinely live on the second layer and must survive until
-  // the hair pass can occlude them. Facial hair is authored on the base face,
-  // so it does not need the temporary raised skin, mouth and chin pixels that
-  // otherwise make a bearded face look like a protruding mosaic.
-  if (style.glasses !== "none") return;
+function resetPortraitFaceOverlay(atlas: RawImage): void {
   for (const rect of [
     CLASSIC_LAYOUT.head.overlay.front,
     CLASSIC_LAYOUT.head.overlay.right,
@@ -1579,6 +1541,56 @@ function resetPortraitFaceOverlay(atlas: RawImage, style: FaceStyle): void {
       }
     }
   }
+}
+
+/**
+ * Draw glasses as a genuine second-layer accessory after temporary portrait
+ * pixels have been cleared. This keeps the frame raised without also raising
+ * the mouth, cheeks and chin. Hair is composed afterwards so photographed
+ * bangs can naturally occlude the frame while the side-hair pass restores the
+ * visible temple arms where appropriate.
+ */
+function composeGlassesOverlay(atlas: RawImage, style: FaceStyle): void {
+  if (style.glasses === "none") return;
+
+  const overlay = CLASSIC_LAYOUT.head.overlay.front;
+  const rim = hexToRgb(style.glassesColor, [34, 32, 30]);
+  const lens = style.glasses === "sunglasses" ? shadeRgb(rim, 0.55) : null;
+  const put = (rect: Rect, x: number, y: number, color: Rgb) => {
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba[d] = color[0];
+    atlas.rgba[d + 1] = color[1];
+    atlas.rgba[d + 2] = color[2];
+    atlas.rgba[d + 3] = 255;
+  };
+
+  for (const x0 of [0, 5]) {
+    if (style.glasses === "round") {
+      put(overlay, x0 + 1, 2, rim);
+      put(overlay, x0, 3, rim);
+      put(overlay, x0 + 2, 3, rim);
+      put(overlay, x0 + 1, 5, rim);
+    } else {
+      for (let x = x0; x < x0 + 3; x++) {
+        put(overlay, x, 2, rim);
+        put(overlay, x, 5, rim);
+      }
+      put(overlay, x0, 3, rim);
+      put(overlay, x0 + 2, 3, rim);
+      put(overlay, x0, 4, rim);
+      put(overlay, x0 + 2, 4, rim);
+    }
+    if (lens) {
+      put(overlay, x0 + 1, 3, lens);
+      put(overlay, x0 + 1, 4, lens);
+    }
+  }
+  put(overlay, 3, 3, rim);
+  put(overlay, 4, 3, rim);
+  put(CLASSIC_LAYOUT.head.overlay.right, 7, 3, rim);
+  put(CLASSIC_LAYOUT.head.overlay.right, 6, 3, rim);
+  put(CLASSIC_LAYOUT.head.overlay.left, 0, 3, rim);
+  put(CLASSIC_LAYOUT.head.overlay.left, 1, 3, rim);
 }
 
 /** 좌표 해시 기반 결정적 지터 색 (머리카락 질감용) */
@@ -6912,7 +6924,8 @@ export function packFrontViewToAtlas(
 
   // ---------- 마감: 의상/액세서리 레이어 + 헤어/모자 구조 + 셰이딩 ----------
   composeGarmentLayers(atlas, faceStyle);
-  resetPortraitFaceOverlay(atlas, faceStyle);
+  resetPortraitFaceOverlay(atlas);
+  composeGlassesOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);
   preserveFaceReadability(atlas, faceStyle, hairColor);
   composeHat(atlas, hatColor, faceStyle);
