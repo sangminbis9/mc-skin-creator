@@ -1429,8 +1429,11 @@ export interface PortraitDetailAnalysis {
   sideHairShape: PixelRenderHints["sideHairShape"];
   sideHairAsymmetry: PixelRenderHints["sideHairAsymmetry"];
   earExposure: PixelRenderHints["earExposure"];
+  neckAccessory: NeckDetailAnalysis["neckAccessory"];
+  neckConfidence: NeckDetailAnalysis["confidence"];
   faceEvidence: string;
   hairEvidence: string;
+  neckEvidence: string;
 }
 
 export type PortraitDetailCallResult =
@@ -1467,7 +1470,12 @@ Hair:
 - Classify fringe density, edge, opening and part from the visible construction, not isolated highlight strands.
 - Use low confidence when the crop does not clearly show a feature.
 
-Return concise faceEvidence and hairEvidence describing visible geometry and colors.`;
+Neck detail:
+- Also classify the strongest visible fabric construction at the throat: bow, tie, scarf, ordinary collar, or none.
+- A bow has a central knot with paired loops/wings or broad hanging tails; a scarf wraps or drapes without clear bow loops; a tie has a narrow knot and vertical blade; an ordinary collar has only short paired flaps.
+- A collared shirt can still have a bow or scarf over it. Choose the stronger low-resolution identity cue and use low neckConfidence when the knot/loops/tails are not clearly visible.
+
+Return concise faceEvidence, hairEvidence and neckEvidence describing only visible geometry and colors.`;
 
 const PORTRAIT_DETAIL_SCHEMA = {
   type: "object",
@@ -1594,8 +1602,17 @@ const PORTRAIT_DETAIL_SCHEMA = {
       type: "string",
       enum: ["covered", "partial", "visible"],
     },
+    neckAccessory: {
+      type: "string",
+      enum: ["none", "bow", "tie", "scarf", "collar"],
+    },
+    neckConfidence: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+    },
     faceEvidence: { type: "string" },
     hairEvidence: { type: "string" },
+    neckEvidence: { type: "string" },
   },
   required: [
     "faceConfidence",
@@ -1629,8 +1646,11 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "sideHairShape",
     "sideHairAsymmetry",
     "earExposure",
+    "neckAccessory",
+    "neckConfidence",
     "faceEvidence",
     "hairEvidence",
+    "neckEvidence",
   ],
 } as const;
 
@@ -1791,7 +1811,7 @@ export async function runPortraitDetailAnalysis(
             ],
           },
         ],
-        max_tokens: 520,
+        max_tokens: 620,
         temperature: 0,
         ...modelOptions,
         response_format: {
@@ -1821,7 +1841,10 @@ export async function runPortraitDetailAnalysis(
     }
 
     const enumFields: Record<
-      keyof Omit<PortraitDetailAnalysis, "faceEvidence" | "hairEvidence">,
+      keyof Omit<
+        PortraitDetailAnalysis,
+        "faceEvidence" | "hairEvidence" | "neckEvidence"
+      >,
       readonly string[]
     > = {
       faceConfidence: ["low", "medium", "high"],
@@ -1884,6 +1907,8 @@ export async function runPortraitDetailAnalysis(
       ],
       sideHairAsymmetry: ["none", "left", "right"],
       earExposure: ["covered", "partial", "visible"],
+      neckAccessory: ["none", "bow", "tie", "scarf", "collar"],
+      neckConfidence: ["low", "medium", "high"],
     };
     const validEnums = Object.entries(enumFields).every(([field, values]) =>
       values.includes(String(parsed[field])),
@@ -1893,7 +1918,9 @@ export async function runPortraitDetailAnalysis(
       typeof parsed.faceEvidence !== "string" ||
       parsed.faceEvidence.trim().length < 3 ||
       typeof parsed.hairEvidence !== "string" ||
-      parsed.hairEvidence.trim().length < 3
+      parsed.hairEvidence.trim().length < 3 ||
+      typeof parsed.neckEvidence !== "string" ||
+      parsed.neckEvidence.trim().length < 3
     ) {
       return {
         ok: false,
@@ -1909,6 +1936,7 @@ export async function runPortraitDetailAnalysis(
         ...(parsed as unknown as PortraitDetailAnalysis),
         faceEvidence: parsed.faceEvidence.trim(),
         hairEvidence: parsed.hairEvidence.trim(),
+        neckEvidence: parsed.neckEvidence.trim(),
       },
       attempts: 1,
       neuronsSpent,

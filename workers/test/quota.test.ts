@@ -47,7 +47,7 @@ describe("provider quota circuit breaker", () => {
 
     expect(estimatedNeuronsPerGeneration(env)).toBe(
       NEURONS_VISION_ANALYSIS_ESTIMATE +
-        2 * NEURONS_VISION_DETAIL_ESTIMATE +
+        NEURONS_VISION_DETAIL_ESTIMATE +
         NEURONS_IMAGE_GEN_QUALITY_CALL +
         NEURONS_IMAGE_GEN_QUALITY_CALL +
         66,

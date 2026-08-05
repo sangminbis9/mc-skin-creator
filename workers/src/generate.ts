@@ -9,7 +9,6 @@
  */
 
 import {
-  runNeckDetailAnalysis,
   runPortraitDetailAnalysis,
   runPhotoAnalysis,
   type FallbackFeatures,
@@ -156,8 +155,10 @@ export async function generateSkin(
 
   // The full-frame pass has to divide its attention between the face, hair,
   // outfit and missing-body inference. On tall photos, enlarge the visible
-  // portrait once and let a cheap structured pass re-check only the identity
-  // features that become a handful of pixels in the original frame.
+  // portrait once and let one cheap structured pass re-check the face, hair
+  // and throat construction that become a handful of pixels in the original
+  // frame. Keeping these in one pass avoids spending free-tier capacity on a
+  // second request over the exact same crop.
   const upperBodyDetailCrop =
     await createUpperBodyDetailCrop(analysisImageDataUrl);
   if (
@@ -185,39 +186,15 @@ export async function generateSkin(
       }
     } else {
       analysis = applyFocusedPortraitDetail(analysis, portraitResult.detail);
-    }
-  }
-
-  // Full-body photos shrink neck fabric to a handful of source pixels. Give
-  // only that ambiguous area a second, enlarged look instead of asking the
-  // main analysis to guess from garment stereotypes. This pass is
-  // deliberately conservative: it may correct collar/none, but it never
-  // overwrites a more specific main-pass bow, tie, or scarf classification.
-  if (
-    (analysis.framing === "full_body" ||
-      analysis.framing === "three_quarter") &&
-    (analysis.renderHints.neckAccessory === "none" ||
-      analysis.renderHints.neckAccessory === "collar")
-  ) {
-    if (upperBodyDetailCrop) {
-      const neckResult = await runNeckDetailAnalysis(env, upperBodyDetailCrop);
-      spent += neckResult.neuronsSpent;
-      if (!neckResult.ok) {
-        console.log(
-          "focused neck analysis failed:",
-          neckResult.reason,
-          neckResult.detail,
-        );
-        if (neckResult.reason === "quota_exceeded") {
-          return fail(
-            429,
-            "오늘의 AI 생성 할당량이 소진되었어요.",
-            "quota_exceeded",
-            spent,
-          );
-        }
-      } else {
-        analysis = applyFocusedNeckDetail(analysis, neckResult.detail);
+      if (
+        analysis.framing === "full_body" ||
+        analysis.framing === "three_quarter"
+      ) {
+        analysis = applyFocusedNeckDetail(analysis, {
+          neckAccessory: portraitResult.detail.neckAccessory,
+          confidence: portraitResult.detail.neckConfidence,
+          evidence: portraitResult.detail.neckEvidence,
+        });
       }
     }
   }

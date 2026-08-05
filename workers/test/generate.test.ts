@@ -92,8 +92,11 @@ function focusedPortraitDetail() {
     sideHairShape: "ear_hugging" as const,
     sideHairAsymmetry: "none" as const,
     earExposure: "partial" as const,
+    neckAccessory: "bow" as const,
+    neckConfidence: "high" as const,
     faceEvidence: "Light cool skin, small almond eyes and a soft oval jaw.",
     hairEvidence: "A domed crown connects through the temples around the ears.",
+    neckEvidence: "A central knot has two broad pointed hanging tails.",
   };
 }
 
@@ -193,19 +196,14 @@ describe("generateSkin", () => {
     env.AI.run = vi
       .fn()
       .mockResolvedValueOnce({ response: main })
-      .mockResolvedValueOnce({ response: focusedPortraitDetail() })
       .mockResolvedValueOnce({
-        response: {
-          neckAccessory: "bow",
-          confidence: "high",
-          evidence: "A central knot has two broad pointed hanging tails.",
-        },
+        response: focusedPortraitDetail(),
       }) as unknown as Env["AI"]["run"];
 
     const result = await generateSkin(env, await portraitPhotoDataUrl());
 
-    expect(env.AI.run).toHaveBeenCalledTimes(3);
-    expect(result.neuronsSpent).toBe(370);
+    expect(env.AI.run).toHaveBeenCalledTimes(2);
+    expect(result.neuronsSpent).toBe(270);
     expect(result.body.analysis?.renderHints.neckAccessory).toBe("bow");
     expect(result.body.analysis?.renderHints).toMatchObject({
       faceShape: "oval",

@@ -263,8 +263,11 @@ describe("runPortraitDetailAnalysis", () => {
       sideHairShape: "ear_hugging",
       sideHairAsymmetry: "none",
       earExposure: "partial",
+      neckAccessory: "bow",
+      neckConfidence: "high",
       faceEvidence: "Light neutral skin and a soft oval jaw are visible.",
       hairEvidence: "A domed crown flows into ear-hugging temple hair.",
+      neckEvidence: "A central knot has two broad pointed hanging tails.",
     };
     const run = vi.fn(async () => ({ response: detail }));
 
@@ -304,6 +307,8 @@ describe("runPortraitDetailAnalysis", () => {
       "It is not the lower edge of the fringe",
     );
     expect(PORTRAIT_DETAIL_PROMPT).toContain("crown to temple to sideburn/ear");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("central knot with paired loops");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("low neckConfidence");
   });
 });
 
