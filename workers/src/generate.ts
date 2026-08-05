@@ -225,7 +225,10 @@ export async function generateSkin(
   const renderAnalysis = normalizeAnalysisForRendering(analysis);
   const features = refineFeatureColorsFromAnalysis(
     renderAnalysis,
-    fallbackFeaturesToHex(renderAnalysis.fallbackFeatures),
+    fallbackFeaturesToHex(
+      renderAnalysis.fallbackFeatures,
+      renderAnalysis.renderHints.skinUndertone,
+    ),
   );
   const summary: AnalysisSummary = {
     framing: renderAnalysis.framing,
@@ -450,6 +453,7 @@ export function applyFocusedPortraitDetail(
 
   if (faceReliable) {
     Object.assign(renderHints, {
+      skinUndertone: detail.skinUndertone,
       faceShape: detail.faceShape,
       eyeShape: detail.eyeShape,
       eyeSize: detail.eyeSize,
@@ -952,6 +956,45 @@ const SKIN_TONES: Record<string, string> = {
   brown: "#8d5a3a",
   dark: "#5f3a24",
 };
+
+type SkinUndertone = PhotoAnalysis["renderHints"]["skinUndertone"];
+
+// Preserve lightness while shifting only enough chroma to make undertone
+// readable across the three-to-five shade ramp of an 8x8 Minecraft face.
+// Neutral intentionally retains the historical palette for compatibility.
+const SKIN_TONES_BY_UNDERTONE: Record<
+  SkinUndertone,
+  Record<string, string>
+> = {
+  neutral: SKIN_TONES,
+  warm: {
+    pale: "#f3d2b9",
+    light: "#ecb78c",
+    medium: "#d69a68",
+    tan: "#bd7d4d",
+    brown: "#925938",
+    dark: "#633a23",
+  },
+  cool: {
+    pale: "#efd0c7",
+    light: "#e5b5a6",
+    medium: "#ce9580",
+    tan: "#b37b67",
+    brown: "#895749",
+    dark: "#5d3930",
+  },
+};
+
+function skinToneHex(value: unknown, undertone: SkinUndertone): string {
+  if (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim())) {
+    return value.trim().toLowerCase();
+  }
+  const key = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return (
+    SKIN_TONES_BY_UNDERTONE[undertone][key] ??
+    SKIN_TONES_BY_UNDERTONE[undertone].light
+  );
+}
 
 const HAIR_COLORS: Record<string, string> = {
   black: "#1b1b1b",
@@ -1578,7 +1621,10 @@ export function refineFeatureColorsFromAnalysis(
       faceText,
     )
   ) {
-    refined.skinTone = "#f2d6c0";
+    refined.skinTone = skinToneHex(
+      "pale",
+      analysis.renderHints.skinUndertone,
+    );
   } else if (
     /\blight(?:[-\s]+(?:warm|cool|neutral|pink|peach|golden|beige|olive))*[-\s]+skin(?:[-\s]*tone)?\b/.test(
       faceText,
@@ -1588,7 +1634,10 @@ export function refineFeatureColorsFromAnalysis(
     // The coarse fallback palette can occasionally classify a softly lit
     // fair portrait as medium. Explicit visual prose is the stronger signal;
     // use a neutral peach light tone instead of the more orange enum swatch.
-    refined.skinTone = "#edc8b4";
+    refined.skinTone =
+      analysis.renderHints.skinUndertone === "neutral"
+        ? "#edc8b4"
+        : skinToneHex("light", analysis.renderHints.skinUndertone);
   }
 
   if (
@@ -2233,11 +2282,12 @@ function relevantClauseList(
 
 export function fallbackFeaturesToHex(
   raw: FallbackFeatures,
+  skinUndertone: SkinUndertone = "neutral",
 ): Record<string, unknown> {
   const source = raw as unknown as Record<string, unknown>;
   return {
     ...source,
-    skinTone: paletteHex(source.skinTone, SKIN_TONES, SKIN_TONES.light),
+    skinTone: skinToneHex(source.skinTone, skinUndertone),
     hairColor: paletteHex(
       source.hairColor,
       HAIR_COLORS,

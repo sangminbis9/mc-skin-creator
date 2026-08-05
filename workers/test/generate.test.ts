@@ -64,7 +64,7 @@ function focusedPortraitDetail() {
     faceConfidence: "high" as const,
     hairConfidence: "high" as const,
     skinTone: "light" as const,
-    skinUndertone: "neutral" as const,
+    skinUndertone: "cool" as const,
     eyeColor: "dark-brown" as const,
     hairColor: "black" as const,
     faceShape: "oval" as const,
@@ -91,7 +91,7 @@ function focusedPortraitDetail() {
     sideHairShape: "ear_hugging" as const,
     sideHairAsymmetry: "none" as const,
     earExposure: "partial" as const,
-    faceEvidence: "Light neutral skin, small almond eyes and a soft oval jaw.",
+    faceEvidence: "Light cool skin, small almond eyes and a soft oval jaw.",
     hairEvidence: "A domed crown connects through the temples around the ears.",
   };
 }
@@ -254,6 +254,7 @@ describe("generateSkin", () => {
     const merged = applyFocusedPortraitDetail(main, focusedPortraitDetail());
 
     expect(merged.renderHints).toMatchObject({
+      skinUndertone: "cool",
       faceShape: "oval",
       eyeSize: "small",
       lipColor: "berry",
@@ -271,7 +272,7 @@ describe("generateSkin", () => {
     expect(merged.fallbackFeatures.skinTone).toBe("light");
     expect(merged.fallbackFeatures.eyeColor).toBe("dark-brown");
     expect(merged.fallbackFeatures.hairColor).toBe("black");
-    expect(merged.observed.face).toContain("neutral light skin");
+    expect(merged.observed.face).toContain("cool light skin");
     expect(merged.observed.face).toContain("dark brown eyes");
     expect(merged.observed.hair).toContain("domed crown");
     expect(merged.observed.clothing).toBe(main.observed.clothing);
@@ -762,6 +763,10 @@ describe("generateSkin", () => {
       },
       identityPrompt:
         "An oval-faced person with light warm skin and short black hair.",
+      renderHints: {
+        ...base.renderHints,
+        skinUndertone: "warm",
+      },
       fallbackFeatures: {
         ...base.fallbackFeatures,
         skinTone: "medium",
@@ -774,8 +779,51 @@ describe("generateSkin", () => {
 
     expect(result.status).toBe(200);
     expect(result.body.features).toMatchObject({
-      skinTone: "#edc8b4",
+      skinTone: "#ecb78c",
     });
+  });
+
+  it("preserves structured warm and cool skin undertones at the same lightness", async () => {
+    const base = makeAnalysis();
+    const makeTone = (skinUndertone: "warm" | "cool") =>
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face: "oval face with almond dark-brown eyes",
+        },
+        identityPrompt: "An oval-faced person with short black hair.",
+        renderHints: { ...base.renderHints, skinUndertone },
+        fallbackFeatures: { ...base.fallbackFeatures, skinTone: "light" },
+      });
+
+    const warm = await generateSkin(
+      makeEnv(makeTone("warm"), false),
+      await photoDataUrl(),
+    );
+    const cool = await generateSkin(
+      makeEnv(makeTone("cool"), false),
+      await photoDataUrl(),
+    );
+
+    expect(warm.status).toBe(200);
+    expect(cool.status).toBe(200);
+    expect(warm.body.features?.skinTone).toBe("#ecb78c");
+    expect(cool.body.features?.skinTone).toBe("#e5b5a6");
+    expect(warm.body.features?.skinTone).not.toBe(cool.body.features?.skinTone);
+
+    const decodeAtlas = (base64: string) =>
+      decodePng(
+        Uint8Array.from(atob(base64), (character) => character.charCodeAt(0)),
+      );
+    const warmAtlas = await decodeAtlas(warm.body.skinPngBase64 as string);
+    const coolAtlas = await decodeAtlas(cool.body.skinPngBase64 as string);
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const cheek = ((face.y + 5) * ATLAS_SIZE + face.x) * 4;
+
+    expect(warmAtlas.rgba[cheek]).toBeGreaterThan(coolAtlas.rgba[cheek]);
+    expect(coolAtlas.rgba[cheek + 2]).toBeGreaterThan(
+      warmAtlas.rgba[cheek + 2],
+    );
   });
 
   it("stabilizes explicit center-parted curtain hair across inconsistent enum hints", async () => {

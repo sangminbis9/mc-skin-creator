@@ -44,7 +44,12 @@ describe("buildSkinPrompt framing 정책", () => {
   });
 
   it("front_view 프롬프트는 정면+뒷면 두 뷰를 요구하고 인물 특징을 담는다", () => {
-    const prompt = buildFrontViewPrompt(makeAnalysis());
+    const base = makeAnalysis();
+    const prompt = buildFrontViewPrompt(
+      makeAnalysis({
+        renderHints: { ...base.renderHints, skinUndertone: "cool" },
+      }),
+    );
     expect(prompt).toContain("FRONT view");
     expect(prompt).toContain("BACK view");
     expect(prompt).toContain(
@@ -53,6 +58,7 @@ describe("buildSkinPrompt framing 정책", () => {
     expect(prompt).toContain("silver glasses"); // identityPrompt 반영
     expect(prompt).toContain("knit garment texture");
     expect(prompt).toContain("side hair");
+    expect(prompt).toContain("cool skin undertone");
     expect(prompt).toContain("lower-body accent");
     expect(prompt).toContain("evidence-based completions");
     expect(prompt).toContain("Minecraft second skin layer logic");

@@ -41,6 +41,7 @@ export interface InferredLowerBodyDesign {
  * 자유 서술(identityPrompt)은 이미지 모델에, 이 구조화 값은 결정적 packer에 사용한다.
  */
 export interface PixelRenderHints {
+  skinUndertone: "warm" | "cool" | "neutral";
   faceShape: "round" | "oval" | "long" | "angular" | "square";
   eyeShape: "narrow" | "almond" | "round";
   eyeSize: "small" | "average" | "large";
@@ -202,7 +203,8 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- Classify the visible skin undertone, face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- skinUndertone records the skin itself after discounting studio color casts, background spill, blush and makeup: warm for golden/peach/yellow, cool for rosy/pink/blue-red, and neutral when neither direction clearly dominates. Keep it independent from skin lightness.
 - eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
 - eyeTilt describes the line between each eye's inner and outer corner: upturned when the outer corners sit visibly higher, level when nearly horizontal, or downturned when the outer corners sit visibly lower. Judge geometry, not expression.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
@@ -286,6 +288,7 @@ Respond with ONLY a JSON object matching this shape:
     "shoes": { "value": str, "rationale": str } | null
   },
   "renderHints": {
+    "skinUndertone": "warm" | "cool" | "neutral",
     "faceShape": "round" | "oval" | "long" | "angular" | "square",
     "eyeShape": "narrow" | "almond" | "round",
     "eyeSize": "small" | "average" | "large",
@@ -453,6 +456,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
     renderHints: {
       type: "object",
       properties: {
+        skinUndertone: {
+          type: "string",
+          enum: ["warm", "cool", "neutral"],
+        },
         faceShape: {
           type: "string",
           enum: ["round", "oval", "long", "angular", "square"],
@@ -637,6 +644,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         },
       },
       required: [
+        "skinUndertone",
         "faceShape",
         "eyeShape",
         "eyeSize",
@@ -795,6 +803,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           shoes: null,
         },
         renderHints: {
+          skinUndertone: "neutral",
           faceShape: "oval",
           eyeShape: "almond",
           eyeSize: "average",
@@ -996,6 +1005,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
   };
   const hints = (obj.renderHints ?? {}) as Record<string, unknown>;
   const renderHints: PixelRenderHints = {
+    skinUndertone: enumValue(
+      "renderHints.skinUndertone",
+      hints.skinUndertone,
+      ["warm", "cool", "neutral"],
+      "neutral",
+    ),
     faceShape: enumValue(
       "renderHints.faceShape",
       hints.faceShape,

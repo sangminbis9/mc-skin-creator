@@ -41,6 +41,7 @@ export function makeAnalysis(
       },
     },
     renderHints: {
+      skinUndertone: "neutral",
       faceShape: "round",
       eyeShape: "round",
       eyeSize: "average",
