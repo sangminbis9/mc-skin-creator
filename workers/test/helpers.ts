@@ -50,6 +50,7 @@ export function makeAnalysis(
       noseShape: "rounded",
       mouthShape: "wide",
       lipFullness: "average",
+      lipColor: "natural",
       jawShape: "rounded",
       bangs: "side",
       bangsLength: "brow",

@@ -51,6 +51,7 @@ export interface FaceStyle {
   noseShape?: "small" | "straight" | "rounded" | "prominent";
   mouthShape?: "small" | "wide" | "full" | "thin";
   lipFullness?: "thin" | "average" | "full";
+  lipColor?: "natural" | "rose" | "red" | "berry" | "brown" | "coral";
   jawShape?: "rounded" | "pointed" | "square" | "soft";
   bangs?: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength?: "none" | "short" | "brow" | "eye";
@@ -128,6 +129,7 @@ export const DEFAULT_FACE_STYLE: FaceStyle = {
   noseShape: "small",
   mouthShape: "small",
   lipFullness: "average",
+  lipColor: "natural",
   jawShape: "soft",
   bangs: "none",
   bangsLength: "none",
@@ -1077,7 +1079,19 @@ function composeFace(
       : mouthShape === "thin"
         ? "thin"
         : "average");
-  const baseMouthColor = mixRgb(shadeRgb(skinColor, 0.62), [160, 74, 60], 0.5);
+  const lipColor = style.lipColor ?? "natural";
+  const lipPigment: Record<NonNullable<FaceStyle["lipColor"]>, Rgb> = {
+    natural: [160, 74, 60],
+    rose: [181, 92, 108],
+    red: [196, 54, 60],
+    berry: [139, 54, 91],
+    brown: [133, 77, 62],
+    coral: [207, 96, 78],
+  };
+  const baseMouthColor =
+    lipColor === "natural"
+      ? mixRgb(shadeRgb(skinColor, 0.62), lipPigment.natural, 0.5)
+      : mixRgb(shadeRgb(skinColor, 0.7), lipPigment[lipColor], 0.72);
   const mouthColor =
     lipFullness === "full"
       ? mixRgb(baseMouthColor, [184, 78, 78], 0.34)

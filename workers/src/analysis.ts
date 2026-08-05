@@ -50,6 +50,7 @@ export interface PixelRenderHints {
   noseShape: "small" | "straight" | "rounded" | "prominent";
   mouthShape: "small" | "wide" | "full" | "thin";
   lipFullness: "thin" | "average" | "full";
+  lipColor: "natural" | "rose" | "red" | "berry" | "brown" | "coral";
   jawShape: "rounded" | "pointed" | "square" | "soft";
   bangs: "none" | "straight" | "side" | "curtain" | "wispy";
   bangsLength: "none" | "short" | "brow" | "eye";
@@ -201,13 +202,14 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- Classify the visible face geometry, eye geometry/size/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
 - eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
 - eyeTilt describes the line between each eye's inner and outer corner: upturned when the outer corners sit visibly higher, level when nearly horizontal, or downturned when the outer corners sit visibly lower. Judge geometry, not expression.
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
 - mouthShape means the visible low-resolution mouth footprint: use small for a compact mouth even when the lips are full, wide for a broad mouth, full for a strongly defined mouth whose footprint is not compact, and thin for a very subtle line.
 - lipFullness independently records lip volume: thin, average, or full/plump. Do not collapse "small full lips" into only small or only full; return mouthShape "small" and lipFullness "full".
+- lipColor records the dominant visible lip pigmentation after discounting specular highlights and deep mouth-corner shadows: natural for skin-adjacent/subtle lips, rose for muted pink, red for clear red lipstick, berry for cool magenta/wine, brown for warm nude/brown, and coral for orange-pink. Judge the lips themselves, not cheek blush or surrounding skin.
 - jawShape means the visible lower-face contour: rounded/full jaw, pointed/narrow chin, square/strong jaw corners, or soft/low-contrast jaw.
 - bangsLength means how far the front fringe visually falls: none, short/upper-forehead, brow/eyebrow-level, or eye/partly covering the eyes.
 - bangsDensity describes how continuous the visible fringe is: sparse for separated wisps with substantial forehead gaps, balanced for clustered locks with several gaps, or dense for a bowl/blunt fringe with only a small staggered break. Do not infer a center part merely from a tiny separation between bang tips; hairPart requires a visible scalp/root direction.
@@ -293,6 +295,7 @@ Respond with ONLY a JSON object matching this shape:
     "noseShape": "small" | "straight" | "rounded" | "prominent",
     "mouthShape": "small" | "wide" | "full" | "thin",
     "lipFullness": "thin" | "average" | "full",
+    "lipColor": "natural" | "rose" | "red" | "berry" | "brown" | "coral",
     "jawShape": "rounded" | "pointed" | "square" | "soft",
     "bangs": "none" | "straight" | "side" | "curtain" | "wispy",
     "bangsLength": "none" | "short" | "brow" | "eye",
@@ -474,6 +477,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
           type: "string",
           enum: ["thin", "average", "full"],
         },
+        lipColor: {
+          type: "string",
+          enum: ["natural", "rose", "red", "berry", "brown", "coral"],
+        },
         jawShape: {
           type: "string",
           enum: ["rounded", "pointed", "square", "soft"],
@@ -639,6 +646,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "noseShape",
         "mouthShape",
         "lipFullness",
+        "lipColor",
         "jawShape",
         "bangs",
         "bangsLength",
@@ -796,6 +804,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           noseShape: "small",
           mouthShape: "small",
           lipFullness: "average",
+          lipColor: "natural",
           jawShape: "soft",
           bangs: "none",
           bangsLength: "none",
@@ -1040,6 +1049,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       hints.lipFullness,
       ["thin", "average", "full"],
       "average",
+    ),
+    lipColor: enumValue(
+      "renderHints.lipColor",
+      hints.lipColor,
+      ["natural", "rose", "red", "berry", "brown", "coral"],
+      "natural",
     ),
     jawShape: enumValue(
       "renderHints.jawShape",
@@ -1367,6 +1382,7 @@ export interface PortraitDetailAnalysis {
   noseShape: PixelRenderHints["noseShape"];
   mouthShape: PixelRenderHints["mouthShape"];
   lipFullness: PixelRenderHints["lipFullness"];
+  lipColor: PixelRenderHints["lipColor"];
   jawShape: PixelRenderHints["jawShape"];
   bangs: PixelRenderHints["bangs"];
   bangsLength: PixelRenderHints["bangsLength"];
@@ -1404,7 +1420,8 @@ export const PORTRAIT_DETAIL_PROMPT = `This is an enlarged head-and-upper-body c
 Re-check only the face and visible hair geometry. Do not infer clothing or the unseen back/lower endpoint of the hair.
 
 Face:
-- Classify the person's actual skin lightness/undertone and iris color, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth and lip fullness.
+- Classify the person's actual skin lightness/undertone and iris color, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth, lip fullness and dominant lip pigmentation.
+- For lipColor discount shine and mouth-corner shadow: natural means skin-adjacent/subtle, rose muted pink, red clear red, berry cool magenta/wine, brown warm nude/brown, and coral orange-pink.
 - Judge eye size from the open eye aperture, not eyeliner, eyelashes, catchlights, expression, or the apparent size of the dark iris.
 - Use low confidence when resolution, occlusion, pose, or lighting cannot support a correction.
 
@@ -1479,6 +1496,10 @@ const PORTRAIT_DETAIL_SCHEMA = {
       enum: ["small", "wide", "full", "thin"],
     },
     lipFullness: { type: "string", enum: ["thin", "average", "full"] },
+    lipColor: {
+      type: "string",
+      enum: ["natural", "rose", "red", "berry", "brown", "coral"],
+    },
     jawShape: {
       type: "string",
       enum: ["rounded", "pointed", "square", "soft"],
@@ -1554,6 +1575,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "noseShape",
     "mouthShape",
     "lipFullness",
+    "lipColor",
     "jawShape",
     "bangs",
     "bangsLength",
@@ -1801,6 +1823,7 @@ export async function runPortraitDetailAnalysis(
       noseShape: ["small", "straight", "rounded", "prominent"],
       mouthShape: ["small", "wide", "full", "thin"],
       lipFullness: ["thin", "average", "full"],
+      lipColor: ["natural", "rose", "red", "berry", "brown", "coral"],
       jawShape: ["rounded", "pointed", "square", "soft"],
       bangs: ["none", "straight", "side", "curtain", "wispy"],
       bangsLength: ["none", "short", "brow", "eye"],

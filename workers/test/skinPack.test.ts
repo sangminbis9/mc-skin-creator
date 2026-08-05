@@ -3808,6 +3808,47 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(full, face, 5, 6)).toBe(redAt(small, face, 5, 6));
   });
 
+  it("keeps analyzed lip pigmentation distinct in the low-resolution face", () => {
+    const baseStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short" as const,
+      bangs: "none" as const,
+      expression: "neutral" as const,
+      glasses: "none" as const,
+      mouthShape: "small" as const,
+      lipFullness: "average" as const,
+    };
+    const colors = [
+      "natural",
+      "rose",
+      "red",
+      "berry",
+      "brown",
+      "coral",
+    ] as const;
+    const atlases = Object.fromEntries(
+      colors.map((lipColor) => [
+        lipColor,
+        packFrontViewToAtlas(makeFrontView(), {
+          ...baseStyle,
+          lipColor,
+        })!.atlas,
+      ]),
+    ) as Record<(typeof colors)[number], RawImage>;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const signature = (atlas: RawImage) => rgbaAt(atlas, face, 3, 6).join(",");
+
+    expect(new Set(colors.map((color) => signature(atlases[color]))).size).toBe(
+      colors.length,
+    );
+    expect(redAt(atlases.red, face, 3, 6)).toBeGreaterThan(
+      redAt(atlases.berry, face, 3, 6),
+    );
+    expect(rgbaAt(atlases.berry, face, 3, 6)[2]).toBeGreaterThan(
+      rgbaAt(atlases.red, face, 3, 6)[2],
+    );
+  });
+
   it("clean faces keep low-res landmark shadows for under-eye, philtrum, mouth corners and chin", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

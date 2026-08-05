@@ -76,6 +76,7 @@ function focusedPortraitDetail() {
     noseShape: "straight" as const,
     mouthShape: "thin" as const,
     lipFullness: "thin" as const,
+    lipColor: "berry" as const,
     jawShape: "soft" as const,
     bangs: "straight" as const,
     bangsLength: "brow" as const,
@@ -255,6 +256,7 @@ describe("generateSkin", () => {
     expect(merged.renderHints).toMatchObject({
       faceShape: "oval",
       eyeSize: "small",
+      lipColor: "berry",
       hairSilhouette: "rounded",
       bangs: "straight",
       bangsLength: "brow",

@@ -283,6 +283,7 @@ describe("hair accessory recovery", () => {
           noseShape: "rounded",
           mouthShape: "small",
           lipFullness: "full",
+          lipColor: "rose",
           jawShape: "soft",
           bangs: "curtain",
           bangsLength: "eye",

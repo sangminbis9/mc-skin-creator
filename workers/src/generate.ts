@@ -459,6 +459,7 @@ export function applyFocusedPortraitDetail(
       noseShape: detail.noseShape,
       mouthShape: detail.mouthShape,
       lipFullness: detail.lipFullness,
+      lipColor: detail.lipColor,
       jawShape: detail.jawShape,
     });
     fallbackFeatures = {
@@ -609,6 +610,7 @@ function buildFaceStyle(
     noseShape: analysis.renderHints.noseShape,
     mouthShape: analysis.renderHints.mouthShape,
     lipFullness: analysis.renderHints.lipFullness,
+    lipColor: analysis.renderHints.lipColor,
     jawShape: analysis.renderHints.jawShape,
     bangs: analysis.renderHints.bangs,
     bangsLength: analysis.renderHints.bangsLength,

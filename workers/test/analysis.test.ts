@@ -247,6 +247,7 @@ describe("runPortraitDetailAnalysis", () => {
       noseShape: "straight",
       mouthShape: "thin",
       lipFullness: "thin",
+      lipColor: "natural",
       jawShape: "soft",
       bangs: "straight",
       bangsLength: "brow",
@@ -384,6 +385,8 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("eyeSize");
     expect(ANALYSIS_PROMPT).toContain("actual eye opening");
     expect(ANALYSIS_PROMPT).toContain("lipFullness");
+    expect(ANALYSIS_PROMPT).toContain("lipColor");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("dominant lip pigmentation");
     expect(ANALYSIS_PROMPT).toContain("small full lips");
     expect(ANALYSIS_PROMPT).toContain("eyeTilt");
     expect(ANALYSIS_PROMPT).toContain("solid rectangular bar");
@@ -498,6 +501,7 @@ describe("validatePhotoAnalysis", () => {
     broken.renderHints.eyebrowShape = "zigzag" as never;
     broken.renderHints.noseShape = "triangle" as never;
     broken.renderHints.mouthShape = "square" as never;
+    broken.renderHints.lipColor = "neon" as never;
     broken.renderHints.jawShape = "blocky" as never;
     broken.renderHints.bangs = "generic" as never;
     broken.renderHints.bangsLength = "forehead" as never;
@@ -518,6 +522,7 @@ describe("validatePhotoAnalysis", () => {
       expect(result.errors.join()).toContain("renderHints.eyebrowShape");
       expect(result.errors.join()).toContain("renderHints.noseShape");
       expect(result.errors.join()).toContain("renderHints.mouthShape");
+      expect(result.errors.join()).toContain("renderHints.lipColor");
       expect(result.errors.join()).toContain("renderHints.jawShape");
       expect(result.errors.join()).toContain("renderHints.bangs");
       expect(result.errors.join()).toContain("renderHints.bangsLength");
