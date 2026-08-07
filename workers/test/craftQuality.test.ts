@@ -100,7 +100,9 @@ describe("handcrafted atlas quality metrics", () => {
     expect(opaquePixelsIn(procedural, proceduralHead.back)).toBeLessThanOrEqual(
       28,
     );
-    expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(265);
+    // The final seam pass adds only the perimeter of the hidden underside;
+    // keep enough room for that connected hem without allowing solid faces.
+    expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(295);
     expect(proceduralMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(
       80,
     );
@@ -108,7 +110,7 @@ describe("handcrafted atlas quality metrics", () => {
       80,
     );
     expect(proceduralMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
-      90,
+      100,
     );
     expect(proceduralMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(
       120,
@@ -118,10 +120,25 @@ describe("handcrafted atlas quality metrics", () => {
     expect(proceduralMetrics.overlayVerticalSeamColorDistance).toBe(0);
     expect(
       proceduralMetrics.overlayHorizontalSeamMismatches,
-    ).toBeLessThanOrEqual(80);
+    ).toBeLessThanOrEqual(3);
+    expect(proceduralMetrics.overlayHorizontalSeamMismatchesByPart.body).toBe(
+      0,
+    );
+    expect(
+      proceduralMetrics.overlayHorizontalSeamMismatchesByPart.rightArm,
+    ).toBe(0);
+    expect(
+      proceduralMetrics.overlayHorizontalSeamMismatchesByPart.leftArm,
+    ).toBe(0);
+    expect(
+      proceduralMetrics.overlayHorizontalSeamMismatchesByPart.rightLeg,
+    ).toBe(0);
+    expect(
+      proceduralMetrics.overlayHorizontalSeamMismatchesByPart.leftLeg,
+    ).toBe(0);
     expect(
       proceduralMetrics.overlayHorizontalSeamColorDistance,
-    ).toBeLessThanOrEqual(80);
+    ).toBeLessThanOrEqual(12);
     expect(
       proceduralMetrics.baseHorizontalSeamColorDistance,
     ).toBeLessThanOrEqual(200);
@@ -184,8 +201,8 @@ describe("handcrafted atlas quality metrics", () => {
     );
     expect(compactMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(150);
     expect(compactMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(160);
-    expect(compactMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(60);
-    expect(compactMetrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(60);
+    expect(compactMetrics.overlayPixelsByPart.rightArm).toBeLessThanOrEqual(75);
+    expect(compactMetrics.overlayPixelsByPart.leftArm).toBeLessThanOrEqual(75);
     expect(compactMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
       110,
     );
@@ -193,12 +210,10 @@ describe("handcrafted atlas quality metrics", () => {
     expect(compactMetrics.solidOverlayFaces).toBe(0);
     expect(compactMetrics.overlayVerticalSeamMismatches).toBe(0);
     expect(compactMetrics.overlayVerticalSeamColorDistance).toBe(0);
-    expect(compactMetrics.overlayHorizontalSeamMismatches).toBeLessThanOrEqual(
-      80,
-    );
+    expect(compactMetrics.overlayHorizontalSeamMismatches).toBe(0);
     expect(
       compactMetrics.overlayHorizontalSeamColorDistance,
-    ).toBeLessThanOrEqual(80);
+    ).toBeLessThanOrEqual(3);
   });
 
   it("rejects hair that covers both irises and a one-sided profile collapse", () => {

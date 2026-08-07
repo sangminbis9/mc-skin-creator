@@ -444,8 +444,9 @@ function fillRectSolid(
  * been composed. Authored vertical faces carry the semantic pattern; their
  * physically adjacent side/top/bottom edge inherits it. Vertical faces are
  * reconciled in both directions because the procedural author may place a
- * side-only lock or fold. Horizontal faces only inherit from their vertical
- * source: a broad crown or sole must never leak into an open face silhouette.
+ * side-only lock or fold. Horizontal edges bridge in either direction only
+ * for semantic structures (hair, shoulders, hems, cuffs, and soles), so a
+ * deliberately isolated accessory pixel still keeps its authored silhouette.
  */
 function reconcileOverlaySeams(
   atlas: RawImage,
@@ -473,6 +474,64 @@ function reconcileOverlaySeams(
       );
     }
   };
+  const shouldBridgeHorizontal = (
+    part: (typeof ALL_PARTS)[number],
+    seamIndex: number,
+    sourceIndex: number,
+  ) => {
+    const hairDistance =
+      Math.abs(atlas.rgba[sourceIndex] - hairColor[0]) +
+      Math.abs(atlas.rgba[sourceIndex + 1] - hairColor[1]) +
+      Math.abs(atlas.rgba[sourceIndex + 2] - hairColor[2]);
+    const topSeam = seamIndex < 4;
+    const bottomSeam = !topSeam;
+    const longHair =
+      style.hairstyle === "long" ||
+      style.hairBackShape === "long" ||
+      style.sideHairLength === "shoulder";
+    const continuesHair =
+      longHair &&
+      hairDistance <= 120 &&
+      ((topSeam &&
+        (part === "head" ||
+          part === "body" ||
+          part === "rightArm" ||
+          part === "leftArm")) ||
+        (bottomSeam && part === "head"));
+    const styledHair = !["none", "bald", "buzz"].includes(
+      style.hairstyle ?? "none",
+    );
+    const continuesCrown =
+      topSeam && part === "head" && styledHair && hairDistance <= 120;
+    const layeredGarment =
+      (style.outerLayer ?? "none") !== "none" ||
+      (style.outerGarment ?? "none") !== "none" ||
+      ["sweater", "hoodie", "jacket"].includes(style.topType ?? "tshirt");
+    const continuesShoulder =
+      topSeam &&
+      layeredGarment &&
+      (part === "body" || part === "rightArm" || part === "leftArm");
+    const continuesLowerBody =
+      topSeam && (part === "rightLeg" || part === "leftLeg");
+    const continuesCuff =
+      bottomSeam &&
+      (part === "rightArm" || part === "leftArm") &&
+      ((style.outerGarment ?? "none") !== "none" ||
+        style.sleeveLength === "long");
+    const continuesHem = bottomSeam && part === "body" && layeredGarment;
+    const continuesSole =
+      bottomSeam && (part === "rightLeg" || part === "leftLeg");
+
+    return (
+      continuesHair ||
+      continuesCrown ||
+      continuesShoulder ||
+      continuesLowerBody ||
+      continuesCuff ||
+      continuesHem ||
+      continuesSole
+    );
+  };
 
   for (const part of ALL_PARTS) {
     const seams = getBoxUvSeams(CLASSIC_LAYOUT[part].overlay);
@@ -496,65 +555,24 @@ function reconcileOverlaySeams(
         const adjacent = seam.adjacent[index];
         const primaryIndex = (primary.y * ATLAS_SIZE + primary.x) * 4;
         const adjacentIndex = (adjacent.y * ATLAS_SIZE + adjacent.x) * 4;
-        if (atlas.rgba[primaryIndex + 3] === 0) {
+        const primaryOpaque = atlas.rgba[primaryIndex + 3] !== 0;
+        const adjacentOpaque = atlas.rgba[adjacentIndex + 3] !== 0;
+        if (!primaryOpaque) {
+          if (
+            adjacentOpaque &&
+            shouldBridgeHorizontal(part, seamIndex, adjacentIndex)
+          ) {
+            copyPixel(adjacent, primary);
+          }
           continue;
         }
-        if (atlas.rgba[adjacentIndex + 3] !== 0) {
+        if (adjacentOpaque) {
           const preservesAuthoredSole =
             seamIndex >= 4 && (part === "rightLeg" || part === "leftLeg");
-          if (!preservesAuthoredSole) blendPixel(primary, adjacent, 0.35);
+          if (!preservesAuthoredSole) blendPixel(primary, adjacent, 0.65);
           continue;
         }
-        const hairDistance =
-          Math.abs(atlas.rgba[primaryIndex] - hairColor[0]) +
-          Math.abs(atlas.rgba[primaryIndex + 1] - hairColor[1]) +
-          Math.abs(atlas.rgba[primaryIndex + 2] - hairColor[2]);
-        const topSeam = seamIndex < 4;
-        const bottomSeam = !topSeam;
-        const longHair =
-          style.hairstyle === "long" ||
-          style.hairBackShape === "long" ||
-          style.sideHairLength === "shoulder";
-        const continuesHair =
-          longHair &&
-          hairDistance <= 120 &&
-          ((topSeam &&
-            (part === "head" ||
-              part === "body" ||
-              part === "rightArm" ||
-              part === "leftArm")) ||
-            (bottomSeam && part === "head"));
-        const styledHair = !["none", "bald", "buzz"].includes(
-          style.hairstyle ?? "none",
-        );
-        const continuesCrown =
-          topSeam && part === "head" && styledHair && hairDistance <= 120;
-        const layeredGarment =
-          (style.outerLayer ?? "none") !== "none" ||
-          (style.outerGarment ?? "none") !== "none" ||
-          ["sweater", "hoodie", "jacket"].includes(style.topType ?? "tshirt");
-        const continuesShoulder =
-          topSeam &&
-          layeredGarment &&
-          (part === "body" || part === "rightArm" || part === "leftArm");
-        const continuesLowerBody =
-          topSeam && (part === "rightLeg" || part === "leftLeg");
-        const continuesCuff =
-          bottomSeam &&
-          (part === "rightArm" || part === "leftArm") &&
-          ((style.outerGarment ?? "none") !== "none" ||
-            style.sleeveLength === "long");
-        const continuesSole =
-          bottomSeam && (part === "rightLeg" || part === "leftLeg");
-
-        if (
-          continuesHair ||
-          continuesCrown ||
-          continuesShoulder ||
-          continuesLowerBody ||
-          continuesCuff ||
-          continuesSole
-        ) {
+        if (shouldBridgeHorizontal(part, seamIndex, primaryIndex)) {
           copyPixel(primary, adjacent);
         }
       }
@@ -6840,8 +6858,10 @@ export function packFrontViewToAtlas(
   composeHair(atlas, hairColor, skinColor, faceStyle);
   preserveFaceReadability(atlas, faceStyle, hairColor);
   composeHat(atlas, hatColor, faceStyle);
-  reconcileOverlaySeams(atlas, faceStyle, hairColor);
   applyShading(atlas);
+  // Reconcile last so directional face shading cannot reopen a color break at
+  // a physically shared edge. Only seam-edge pixels are affected.
+  reconcileOverlaySeams(atlas, faceStyle, hairColor);
 
   return {
     atlas,
