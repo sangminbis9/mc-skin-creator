@@ -709,6 +709,203 @@ describe("generateSkin", () => {
     expect(normalized.outfitPrompt).toContain("cuffed hems");
   });
 
+  it("expands a generic unseen lower half into a complete preppy design from cardigan and bow cues", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        framing: "upper_body",
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "soft knit cardigan over a blouse with a prominent neck bow",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "none",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
+            shoeStyle: "sneakers",
+            rationale: "generic safe completion",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          garmentTexture: "knit",
+          outerGarment: "cardigan",
+          neckAccessory: "bow",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          topType: "sweater",
+          bottomType: "pants",
+        },
+      }),
+    );
+
+    expect(normalized.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "skirt",
+      bottomPattern: "pleated",
+      bottomAccent: "ribbon",
+      legwear: "socks",
+      legwearAsymmetry: "both",
+      shoeStyle: "dress_shoes",
+    });
+    expect(normalized.renderHints).toMatchObject({
+      bottomPattern: "pleated",
+      bottomAccent: "ribbon",
+      legwear: "socks",
+      legwearAsymmetry: "both",
+    });
+    expect(normalized.inferred.lowerBodyDesign?.rationale).toContain(
+      "cardigan and neck bow",
+    );
+    expect(normalized.outfitPrompt).toContain("pleated skirt");
+    expect(normalized.outfitPrompt).toContain("strap dress shoes");
+  });
+
+  it("completes a generic shirt-and-tie lower half with tailored construction", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        framing: "upper_body",
+        visibleRegions: {
+          face: true,
+          hair: true,
+          upperBody: true,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "structured collared shirt and narrow tie",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "none",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
+            shoeStyle: "sneakers",
+            rationale: "generic safe completion",
+          },
+        },
+        renderHints: {
+          ...base.renderHints,
+          outerGarment: "none",
+          neckAccessory: "tie",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          topType: "shirt",
+          bottomType: "pants",
+        },
+      }),
+    );
+
+    expect(normalized.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "pants",
+      bottomPattern: "plain",
+      bottomAccent: "belt",
+      legwear: "none",
+      shoeStyle: "dress_shoes",
+    });
+    expect(normalized.renderHints.bottomAccent).toBe("belt");
+    expect(normalized.inferred.shoes?.value).toContain("leather dress shoes");
+    expect(normalized.outfitPrompt).toContain("tailored trousers");
+  });
+
+  it("renders the inferred preppy completion as skirt volume and shoe straps end to end", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      framing: "upper_body",
+      visibleRegions: {
+        face: true,
+        hair: true,
+        upperBody: true,
+        lowerBody: false,
+        feet: false,
+      },
+      inferred: {
+        ...base.inferred,
+        lowerBodyDesign: {
+          bottomType: "pants",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+          thighAccessory: "none",
+          thighAccessorySide: "none",
+          shoeStyle: "sneakers",
+          rationale: "generic safe completion",
+        },
+      },
+      renderHints: {
+        ...base.renderHints,
+        outerGarment: "cardigan",
+        neckAccessory: "bow",
+        bottomPattern: "plain",
+        bottomAccent: "none",
+        legwear: "none",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topType: "sweater",
+        bottomType: "pants",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body.generationMode).toBe("procedural_fallback");
+    expect(result.body.analysis?.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "skirt",
+      bottomPattern: "pleated",
+      bottomAccent: "ribbon",
+      legwear: "socks",
+      shoeStyle: "dress_shoes",
+    });
+    const atlas = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const body = CLASSIC_LAYOUT.body.overlay.front;
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const skirtHem =
+      ((body.y + body.h - 1) * ATLAS_SIZE + body.x + 3) * 4 + 3;
+    const shoeStrap =
+      ((rightLeg.y + rightLeg.h - 2) * ATLAS_SIZE + rightLeg.x + 1) * 4 + 3;
+
+    expect(atlas.rgba[skirtHem]).toBe(255);
+    expect(atlas.rgba[shoeStrap]).toBe(255);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("does not overwrite a concrete inferred lower-body design", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(

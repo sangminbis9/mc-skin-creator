@@ -1530,6 +1530,92 @@ export function normalizeAnalysisForRendering(
         ["shirt", "jacket", "dress"].includes(topType) ||
         renderHints.outerGarment !== "none" ||
         renderHints.neckAccessory !== "none";
+      const preppyTop =
+        (renderHints.outerGarment === "cardigan" ||
+          renderHints.outerGarment === "vest") &&
+        (renderHints.neckAccessory === "bow" ||
+          renderHints.neckAccessory === "collar");
+      const tailoredTop =
+        topType === "shirt" ||
+        topType === "jacket" ||
+        renderHints.neckAccessory === "tie" ||
+        renderHints.outerGarment === "open_jacket" ||
+        renderHints.outerGarment === "coat";
+
+      if (preppyTop) {
+        // A cardigan/vest plus a visible bow or collar supplies substantially
+        // more style evidence than the model's safe pants+sneakers fallback.
+        // Complete all lower-body layers together so the result reads as one
+        // authored outfit rather than generic pants with a token accent.
+        const outerCue =
+          renderHints.outerGarment === "vest" ? "vest" : "cardigan";
+        const neckCue =
+          renderHints.neckAccessory === "bow" ? "neck bow" : "collar";
+        const waistCue =
+          renderHints.neckAccessory === "bow"
+            ? "a ribbon waistband"
+            : "a readable belt";
+        const completionSentence = `Complete the unseen lower body as a coordinated pleated skirt with ${waistCue}, paired socks and polished strap dress shoes, grounded in the visible ${outerCue} and ${neckCue}.`;
+        renderHints.bottomPattern = "pleated";
+        renderHints.bottomAccent =
+          renderHints.neckAccessory === "bow" ? "ribbon" : "belt";
+        renderHints.legwear = "socks";
+        renderHints.legwearAsymmetry = "both";
+        inferred = {
+          ...analysis.inferred,
+          lowerBody: {
+            value: `a coordinated pleated skirt with ${waistCue} and paired socks`,
+            rationale: `${analysis.inferred.lowerBody?.rationale ?? lowerDesign.rationale} ${completionSentence}`,
+          },
+          lowerBodyDesign: {
+            ...lowerDesign,
+            bottomType: "skirt",
+            bottomPattern: "pleated",
+            bottomAccent:
+              renderHints.neckAccessory === "bow" ? "ribbon" : "belt",
+            legwear: "socks",
+            legwearAsymmetry: "both",
+            shoeStyle: "dress_shoes",
+            rationale: `${lowerDesign.rationale} ${completionSentence}`,
+          },
+          shoes: {
+            value: "polished strap dress shoes",
+            rationale: `${analysis.inferred.shoes?.rationale ?? "The structured upper outfit calls for a refined shoe."} ${completionSentence}`,
+          },
+        };
+        outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
+        return { ...analysis, inferred, renderHints, outfitPrompt };
+      }
+
+      if (tailoredTop) {
+        const completionSentence =
+          "Complete the unseen lower body with tailored trousers, a readable belt and polished leather dress shoes, grounded in the visible structured shirt, jacket or tie.";
+        renderHints.bottomAccent = "belt";
+        inferred = {
+          ...analysis.inferred,
+          lowerBody: {
+            value: "coordinated tailored trousers with a readable belt",
+            rationale: `${analysis.inferred.lowerBody?.rationale ?? lowerDesign.rationale} ${completionSentence}`,
+          },
+          lowerBodyDesign: {
+            ...lowerDesign,
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "belt",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            shoeStyle: "dress_shoes",
+            rationale: `${lowerDesign.rationale} ${completionSentence}`,
+          },
+          shoes: {
+            value: "polished leather dress shoes",
+            rationale: `${analysis.inferred.shoes?.rationale ?? "The structured upper outfit calls for formal footwear."} ${completionSentence}`,
+          },
+        };
+        outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
+        return { ...analysis, inferred, renderHints, outfitPrompt };
+      }
+
       const groundedAccent =
         topType === "sweater" ||
         topType === "hoodie" ||
