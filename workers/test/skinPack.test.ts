@@ -3450,23 +3450,24 @@ describe("packFrontViewToAtlas", () => {
       thighAccessorySide: "none",
     })!.atlas;
     const atlas = packed.atlas;
-    const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
-    const leftBase = CLASSIC_LAYOUT.leftLeg.base.front;
-    const leftSide = CLASSIC_LAYOUT.leftLeg.overlay.left;
-    const leftBack = CLASSIC_LAYOUT.leftLeg.overlay.back;
-    const right = CLASSIC_LAYOUT.rightLeg.overlay.front;
-    const rightSide = CLASSIC_LAYOUT.rightLeg.overlay.right;
-    const rightBack = CLASSIC_LAYOUT.rightLeg.overlay.back;
-    const rightTop = CLASSIC_LAYOUT.rightLeg.overlay.top;
+    // Side hints use the viewer's perspective: viewer-left maps to the
+    // character's right leg in the Java skin atlas, and vice versa.
+    const left = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftBase = CLASSIC_LAYOUT.rightLeg.base.front;
+    const leftSide = CLASSIC_LAYOUT.rightLeg.overlay.right;
+    const leftBack = CLASSIC_LAYOUT.rightLeg.overlay.back;
+    const right = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const rightSide = CLASSIC_LAYOUT.leftLeg.overlay.left;
+    const rightBack = CLASSIC_LAYOUT.leftLeg.overlay.back;
+    const rightTop = CLASSIC_LAYOUT.leftLeg.overlay.top;
     const warmer = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerLace = ((left.y + 1) * ATLAS_SIZE + left.x) * 4;
     const warmerLaceShadow = ((left.y + 1) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerRidge = ((left.y + 3) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerLift = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
     const warmerScallopDrop = ((left.y + 3) * ATLAS_SIZE + left.x + 2) * 4;
-    const warmerSideRidge =
-      ((leftSide.y + 5) * ATLAS_SIZE + leftSide.x + 3) * 4;
-    const warmerSideLift = ((leftSide.y + 4) * ATLAS_SIZE + leftSide.x + 2) * 4;
+    const warmerSideRidge = ((leftSide.y + 5) * ATLAS_SIZE + leftSide.x) * 4;
+    const warmerSideLift = ((leftSide.y + 4) * ATLAS_SIZE + leftSide.x + 1) * 4;
     const warmerSideLace = ((leftSide.y + 1) * ATLAS_SIZE + leftSide.x) * 4;
     const warmerBackRidge =
       ((leftBack.y + 7) * ATLAS_SIZE + leftBack.x + 2) * 4;
@@ -3478,14 +3479,14 @@ describe("packFrontViewToAtlas", () => {
     const warmerSideAnkle = ((leftSide.y + 9) * ATLAS_SIZE + leftSide.x) * 4;
     const warmerBackAnkleFold =
       ((leftBack.y + 8) * ATLAS_SIZE + leftBack.x + 1) * 4;
-    const bow = ((right.y + 2) * ATLAS_SIZE + right.x) * 4;
-    const bowKnot = ((right.y + 2) * ATLAS_SIZE + right.x + 1) * 4;
-    const bowTopBand = ((right.y + 1) * ATLAS_SIZE + right.x + 2) * 4;
-    const bowCrownGap = ((right.y + 1) * ATLAS_SIZE + right.x + 1) * 4;
-    const bowUpperGap = ((right.y + 1) * ATLAS_SIZE + right.x + 3) * 4;
-    const bowLowerCornerGap = ((right.y + 3) * ATLAS_SIZE + right.x + 3) * 4;
-    const bowTailGap = ((right.y + 4) * ATLAS_SIZE + right.x + 1) * 4;
-    const bareLowerLeg = ((right.y + 5) * ATLAS_SIZE + right.x + 3) * 4;
+    const bow = ((right.y + 2) * ATLAS_SIZE + right.x + 3) * 4;
+    const bowKnot = ((right.y + 2) * ATLAS_SIZE + right.x + 2) * 4;
+    const bowTopBand = ((right.y + 1) * ATLAS_SIZE + right.x + 1) * 4;
+    const bowCrownGap = ((right.y + 1) * ATLAS_SIZE + right.x + 2) * 4;
+    const bowUpperGap = ((right.y + 1) * ATLAS_SIZE + right.x) * 4;
+    const bowLowerCornerGap = ((right.y + 3) * ATLAS_SIZE + right.x) * 4;
+    const bowTailGap = ((right.y + 4) * ATLAS_SIZE + right.x + 2) * 4;
+    const bareLowerLeg = ((right.y + 5) * ATLAS_SIZE + right.x) * 4;
     const sideTopBand = ((rightSide.y + 1) * ATLAS_SIZE + rightSide.x) * 4;
     const sideBand = ((rightSide.y + 2) * ATLAS_SIZE + rightSide.x + 1) * 4;
     const sideTail = ((rightSide.y + 3) * ATLAS_SIZE + rightSide.x) * 4;
@@ -3494,6 +3495,17 @@ describe("packFrontViewToAtlas", () => {
     const backBand = ((rightBack.y + 2) * ATLAS_SIZE + rightBack.x + 2) * 4;
     const topAttachment =
       ((rightTop.y + rightTop.h - 1) * ATLAS_SIZE + rightTop.x + 1) * 4;
+    const bareBase = CLASSIC_LAYOUT.leftLeg.base;
+    const bareSkinSamples = [
+      rgbaAt(atlas, bareBase.front, 3, 5),
+      rgbaAt(atlas, bareBase.right, 0, 5),
+      rgbaAt(atlas, bareBase.left, 3, 5),
+      rgbaAt(atlas, bareBase.back, 0, 5),
+    ];
+    const skinDistance = (leftPixel: number[], rightPixel: number[]) =>
+      Math.abs(leftPixel[0] - rightPixel[0]) +
+      Math.abs(leftPixel[1] - rightPixel[1]) +
+      Math.abs(leftPixel[2] - rightPixel[2]);
 
     expect(atlas.rgba[warmer + 3]).toBe(255);
     expect(atlas.rgba[warmerLace + 3]).toBe(255);
@@ -3509,6 +3521,24 @@ describe("packFrontViewToAtlas", () => {
       Array.from(noThighAccessory.rgba.slice(bowTailGap, bowTailGap + 4)),
     );
     expect(atlas.rgba[bareLowerLeg + 3]).toBe(0);
+    // The non-legwarmer leg must remain bare skin on every UV face. Without
+    // this assertion, the generated front looked correct while a 3D
+    // three-quarter view exposed grey trouser-coloured side faces.
+    for (const profileSkin of bareSkinSamples.slice(1, 3)) {
+      expect(
+        skinDistance(bareSkinSamples[0], profileSkin),
+        `bare leg faces: ${JSON.stringify(bareSkinSamples)}`,
+      ).toBeLessThan(45);
+    }
+    // The back face intentionally receives stronger global cube shading, but
+    // must preserve the same skin chroma instead of reverting to skirt cloth.
+    for (let channel = 0; channel < 3; channel++) {
+      expect(
+        Math.abs(
+          bareSkinSamples[3][channel] - bareSkinSamples[0][channel] * 0.79,
+        ),
+      ).toBeLessThan(8);
+    }
     expect(atlas.rgba[sideBand + 3]).toBe(255);
     expect(atlas.rgba[sideTail + 3]).toBe(255);
     expect(atlas.rgba[sideLongTail + 3]).toBe(255);
@@ -3576,8 +3606,8 @@ describe("packFrontViewToAtlas", () => {
       legwear: "none",
       legwearAsymmetry: "none",
     })!.atlas;
-    const left = CLASSIC_LAYOUT.leftLeg.overlay.front;
-    const right = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const left = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const right = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const warmer = ((left.y + 4) * ATLAS_SIZE + left.x + 1) * 4;
 
     expect(atlas.rgba[warmer + 3]).toBe(255);

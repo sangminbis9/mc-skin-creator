@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildProceduralFallbackAtlas } from "../src/generate";
 import { decodePng, encodePng } from "../src/png";
 import { measureAtlasCraft, validateAtlasCraft } from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
@@ -47,14 +48,14 @@ describe("handcrafted atlas quality metrics", () => {
         character.charCodeAt(0),
       ),
     );
-    const procedural = packFrontViewToAtlas(makeFrontView(), {
+    const richStyle = {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
       hairColor: "#6f4c45",
-      bangs: "straight",
-      bangsLength: "brow",
-      bangsDensity: "dense",
-      fringeEdge: "staggered",
+      bangs: "curtain",
+      bangsLength: "eye",
+      bangsDensity: "balanced",
+      fringeEdge: "wispy",
       fringeOpening: "center",
       hairTexture: "wavy",
       hairVolume: "full",
@@ -66,6 +67,20 @@ describe("handcrafted atlas quality metrics", () => {
       hairAccessoryScale: "large",
       hairAccessorySide: "left",
       hairAccessoryColor: "pink",
+      faceShape: "oval",
+      eyeShape: "almond",
+      eyeSize: "large",
+      irisLightness: "dark",
+      eyeSpacing: "average",
+      eyeTilt: "level",
+      eyebrowShape: "soft",
+      eyebrowThickness: "thin",
+      noseShape: "small",
+      mouthShape: "full",
+      mouthOpening: "closed",
+      lipFullness: "full",
+      lipColor: "berry",
+      jawShape: "pointed",
       topType: "sweater",
       sleeveLength: "long",
       garmentTexture: "knit",
@@ -80,7 +95,19 @@ describe("handcrafted atlas quality metrics", () => {
       thighAccessory: "bow",
       thighAccessorySide: "right",
       shoeStyle: "dress_shoes",
-    })!.atlas;
+    };
+    const procedural = buildProceduralFallbackAtlas(
+      {
+        skinTone: "#efd0c7",
+        hairColor: "#6f4c45",
+        eyeColor: "#4a3728",
+        topColor: "#bea0a8",
+        topAccentColor: "#f4eee7",
+        bottomColor: "#d4c0b3",
+        shoesColor: "#e8dfd1",
+      },
+      richStyle,
+    )!;
     const referenceMetrics = measureAtlasCraft(reference);
     const proceduralMetrics = measureAtlasCraft(procedural);
     expect(referenceMetrics.opaqueOverlayPixels).toBe(269);
@@ -93,7 +120,9 @@ describe("handcrafted atlas quality metrics", () => {
     expect(proceduralMetrics.shadedOverlayFaces).toBeGreaterThanOrEqual(
       referenceMetrics.shadedOverlayFaces,
     );
-    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(145);
+    // The target-like large almond eyes and full lips deliberately use four
+    // extra overlay pixels for readable iris/lid and lip clusters.
+    expect(proceduralMetrics.overlayPixelsByPart.head).toBeLessThanOrEqual(150);
     const referenceHead = CLASSIC_LAYOUT.head.overlay;
     const proceduralHead = CLASSIC_LAYOUT.head.overlay;
     expect(opaquePixelsIn(reference, referenceHead.top)).toBe(9);
@@ -179,10 +208,10 @@ describe("handcrafted atlas quality metrics", () => {
       80,
     );
     expect(proceduralMetrics.overlayPixelsByPart.rightLeg).toBeLessThanOrEqual(
-      100,
+      120,
     );
     expect(proceduralMetrics.overlayPixelsByPart.leftLeg).toBeLessThanOrEqual(
-      120,
+      100,
     );
     expect(proceduralMetrics.solidOverlayFaces).toBe(0);
     expect(proceduralMetrics.overlayVerticalSeamMismatches).toBe(0);

@@ -7172,11 +7172,14 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   const legwear = style.legwear ?? "none";
   if (legwear !== "none") {
     const asym = style.legwearAsymmetry ?? "none";
+    // Analysis side labels are always from the viewer's perspective. In a
+    // front-facing Minecraft model, viewer-left is the character's right leg
+    // and viewer-right is the character's left leg.
     const targetParts =
       asym === "left"
-        ? (["leftLeg"] as const)
+        ? (["rightLeg"] as const)
         : asym === "right"
-          ? (["rightLeg"] as const)
+          ? (["leftLeg"] as const)
           : (["rightLeg", "leftLeg"] as const);
     const legwearRows =
       legwear === "socks"
@@ -7372,9 +7375,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
   if (thighAccessory !== "none" && thighAccessorySide !== "none") {
     const targetParts =
       thighAccessorySide === "left"
-        ? (["leftLeg"] as const)
+        ? (["rightLeg"] as const)
         : thighAccessorySide === "right"
-          ? (["rightLeg"] as const)
+          ? (["leftLeg"] as const)
           : (["rightLeg", "leftLeg"] as const);
     const accent = hexToRgb(style.topAccentColor ?? "", [248, 242, 232]);
     const light = shadeRgb(mixRgb(accent, [255, 250, 244], 0.36), 1.04);
@@ -7386,6 +7389,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
     const drawThighAccessory = (part: "rightLeg" | "leftLeg") => {
       const leg = CLASSIC_LAYOUT[part].overlay;
       const outerSide = part === "rightLeg" ? leg.right : leg.left;
+      const frontX = (x: number) =>
+        part === "rightLeg" ? x : leg.front.w - 1 - x;
 
       if (thighAccessory === "bow") {
         // Keep only a single continuous strap around the thigh. Filling two
@@ -7406,7 +7411,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
           [2, 2, accent],
           [0, 3, mid],
         ] as const) {
-          put(leg.front, x, y, color);
+          // Mirror the front cluster so a one-sided bow always grows toward
+          // the selected viewer-outer edge, not toward the gap between legs.
+          put(leg.front, frontX(x), y, color);
         }
 
         // Let the outer loop turn the corner without duplicating the bow on
@@ -7426,8 +7433,8 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
             put(rect, x, 2, x % 2 === 0 ? accent : shade);
           }
         }
-        put(leg.front, 1, 1, light);
-        put(leg.front, 2, 1, mid);
+        put(leg.front, frontX(1), 1, light);
+        put(leg.front, frontX(2), 1, mid);
         put(outerSide, 0, 3, mid);
         put(outerSide, 1, 4, deep);
       } else {
@@ -8246,6 +8253,30 @@ export function packFrontViewToAtlas(
       ? alignRgbChroma(sampledShoeColor, declaredShoesColor)
       : sampledShoeColor;
     completeSides(atlas, box, pantsColor, shoeColor);
+
+    // `completeSides` has no knowledge of short hems: it fills both profile
+    // faces with the sampled trouser colour.  With the common single-front
+    // portrait input there is no real side view to replace those pixels, so a
+    // skirt/shorts outfit used to have skin-coloured shins on the front and a
+    // grey cloth slab on either side.  Re-establish the exposed leg interval
+    // on every vertical face before optional profile/back samples and
+    // legwear overlays are composed.  The selected asymmetric legwear can
+    // then deliberately replace these base pixels, while the opposite leg
+    // remains continuous skin around the whole cuboid.
+    if (exposedSkinRows > 0) {
+      for (const rect of [box.right, box.left, box.back]) {
+        fillRectSolid(
+          atlas,
+          {
+            x: rect.x,
+            y: rect.y + garmentRows,
+            w: rect.w,
+            h: exposedSkinRows,
+          },
+          skinColor,
+        );
+      }
+    }
     for (const [profile, side] of [
       [leftProfile, box.left],
       [rightProfile, box.right],

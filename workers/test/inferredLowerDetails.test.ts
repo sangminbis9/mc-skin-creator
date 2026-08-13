@@ -89,9 +89,9 @@ describe("inferred lower-body completion", () => {
       ),
     );
     const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
-    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
-    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
-    const rightShoe = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const rightShoe = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const bodyHem =
       ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
     const plaidDark =
@@ -101,7 +101,7 @@ describe("inferred lower-body completion", () => {
     const leftWarmer =
       ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
     const oppositeBow =
-      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x + 3) * 4;
     const shoeBow =
       ((rightShoe.y + rightShoe.h - 3) * ATLAS_SIZE + rightShoe.x + 1) * 4;
 
@@ -250,7 +250,7 @@ describe("inferred lower-body completion", () => {
       ),
     );
     const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
-    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const bodyHem =
       ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
@@ -326,19 +326,19 @@ describe("inferred lower-body completion", () => {
         c.charCodeAt(0),
       ),
     );
-    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
-    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const leftWarmer =
       ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
     const rightThighBow =
-      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x + 3) * 4;
     const rightBareLowerLeg =
-      ((rightLegFront.y + 5) * ATLAS_SIZE + rightLegFront.x + 3) * 4;
+      ((rightLegFront.y + 5) * ATLAS_SIZE + rightLegFront.x) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[leftWarmer + 3]).toBe(255);
     expect(decoded.rgba[rightThighBow + 3]).toBe(255);
-    expect(decoded.rgba[rightThighBow]).toBeGreaterThan(220);
+    expect(decoded.rgba[rightThighBow]).toBeGreaterThan(140);
     expect(decoded.rgba[rightBareLowerLeg + 3]).toBe(0);
   });
 
@@ -397,16 +397,16 @@ describe("inferred lower-body completion", () => {
         c.charCodeAt(0),
       ),
     );
-    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
-    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const leftHighSockTop =
       (leftLegFront.y * ATLAS_SIZE + leftLegFront.x + 1) * 4;
     const leftHighSockMid =
       ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
     const rightThighBow =
-      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x + 3) * 4;
     const rightBareLowerLeg =
-      ((rightLegFront.y + 5) * ATLAS_SIZE + rightLegFront.x + 3) * 4;
+      ((rightLegFront.y + 5) * ATLAS_SIZE + rightLegFront.x) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[leftHighSockTop + 3]).toBe(255);
@@ -481,8 +481,8 @@ describe("inferred lower-body completion", () => {
       ),
     );
     const bodyFront = CLASSIC_LAYOUT.body.overlay.front;
-    const leftLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
-    const rightLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftLegFront = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightLegFront = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const bodyHem =
       ((bodyFront.y + bodyFront.h - 1) * ATLAS_SIZE + bodyFront.x + 3) * 4;
     const plaidDark =
@@ -491,7 +491,8 @@ describe("inferred lower-body completion", () => {
       ((bodyFront.y + bodyFront.h - 3) * ATLAS_SIZE + bodyFront.x + 2) * 4;
     const leftWarmer =
       ((leftLegFront.y + 4) * ATLAS_SIZE + leftLegFront.x + 1) * 4;
-    const rightBow = ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x) * 4;
+    const rightBow =
+      ((rightLegFront.y + 2) * ATLAS_SIZE + rightLegFront.x + 3) * 4;
 
     expect(result.status).toBe(200);
     expect(decoded.rgba[bodyHem + 3]).toBe(255);

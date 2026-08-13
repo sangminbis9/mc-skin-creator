@@ -353,8 +353,8 @@ describe("hair accessory recovery", () => {
     const body = CLASSIC_LAYOUT.body;
     const rightArmOuter = CLASSIC_LAYOUT.rightArm.overlay.left;
     const leftArmOuter = CLASSIC_LAYOUT.leftArm.overlay.right;
-    const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay.front;
-    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const leftLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const rightLeg = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const offset = (rect: { x: number; y: number }, x: number, y: number) =>
       ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
 
@@ -413,8 +413,8 @@ describe("hair accessory recovery", () => {
     const plaidDark = offset(body.overlay.front, 1, body.overlay.front.h - 3);
     const plaidLight = offset(body.overlay.front, 2, body.overlay.front.h - 3);
     const leftWarmer = offset(leftLeg, 1, 4);
-    const rightThighBow = offset(rightLeg, 0, 2);
-    const rightBareLowerLeg = offset(rightLeg, 3, 5);
+    const rightThighBow = offset(rightLeg, 3, 2);
+    const rightBareLowerLeg = offset(rightLeg, 0, 5);
     const maryJaneBow = offset(rightLeg, 1, rightLeg.h - 3);
     expect(decoded.rgba[plaidDark + 3]).toBe(255);
     expect(decoded.rgba[plaidDark]).toBeLessThan(decoded.rgba[plaidLight]);
