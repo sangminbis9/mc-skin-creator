@@ -77,6 +77,27 @@ function rgbaAt(
   return Array.from(atlas.rgba.slice(index, index + 4));
 }
 
+function opaquePixelsIn(atlas: RawImage, rect: Rect): number {
+  let count = 0;
+  for (let y = 0; y < rect.h; y++) {
+    for (let x = 0; x < rect.w; x++) {
+      if (alphaAt(atlas, rect, x, y) !== 0) count++;
+    }
+  }
+  return count;
+}
+
+function distinctOpaqueColorsIn(atlas: RawImage, rect: Rect): number {
+  const colors = new Set<string>();
+  for (let y = 0; y < rect.h; y++) {
+    for (let x = 0; x < rect.w; x++) {
+      const pixel = rgbaAt(atlas, rect, x, y);
+      if (pixel[3] !== 0) colors.add(pixel.slice(0, 3).join(","));
+    }
+  }
+  return colors.size;
+}
+
 describe("packFrontViewToAtlas", () => {
   it("정면 뷰를 유효한 64x64 atlas로 pack한다", () => {
     const packed = packFrontViewToAtlas(makeFrontView());
@@ -3011,6 +3032,43 @@ describe("packFrontViewToAtlas", () => {
       sideHairLength: "shoulder",
     },
   ] satisfies Array<Partial<FaceStyle>>;
+
+  it("coily afro hair keeps rounded connected curl clusters on every visible head face", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "afro",
+      hairTexture: "coily",
+      hairVolume: "full",
+      hairSilhouette: "rounded",
+      hairBackShape: "rounded",
+      bangs: "none",
+      sideHairLength: "short",
+      glasses: "none",
+    })!.atlas;
+    const head = CLASSIC_LAYOUT.head;
+
+    for (const [rect, minimumMass] of [
+      [head.overlay.top, 48],
+      [head.overlay.front, 28],
+      [head.overlay.right, 42],
+      [head.overlay.left, 42],
+      [head.overlay.back, 42],
+    ] as const) {
+      expect(opaquePixelsIn(atlas, rect)).toBeGreaterThanOrEqual(minimumMass);
+      expect(distinctOpaqueColorsIn(atlas, rect)).toBeGreaterThanOrEqual(3);
+    }
+    // The crown is rounded without perforating the main curl mass. The front
+    // opens below the fringe so facial landmarks remain readable.
+    expect(alphaAt(atlas, head.overlay.top, 0, 0)).toBe(0);
+    expect(alphaAt(atlas, head.overlay.top, 3, 3)).toBe(255);
+    expect(alphaAt(atlas, head.overlay.front, 3, 3)).toBe(255);
+    expect(alphaAt(atlas, head.base.front, 3, 3)).toBe(255);
+    // The lower face remains readable below the temple curls.
+    for (const x of [2, 5]) {
+      expect(alphaAt(atlas, head.overlay.front, x, 4)).toBe(0);
+    }
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
 
   it.each(representativeHairStyles)(
     "keeps eyes and UV seams valid for $hairstyle/$bangs/$sideHairLength",

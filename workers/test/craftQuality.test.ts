@@ -729,7 +729,7 @@ describe("handcrafted atlas quality metrics", () => {
 
   it.each(styleMatrix)(
     "keeps $name outer-layer clusters below solid-shell density",
-    ({ style, maxOverlayPixels }) => {
+    async ({ name, style, maxOverlayPixels }) => {
       const atlas = packFrontViewToAtlas(makeFrontView(), {
         ...DEFAULT_FACE_STYLE,
         ...style,
@@ -752,6 +752,16 @@ describe("handcrafted atlas quality metrics", () => {
       );
       expect(metrics.baseVerticalSeamColorDistance).toBeLessThanOrEqual(200);
       expect(metrics.baseHorizontalSeamColorDistance).toBeLessThanOrEqual(200);
+
+      const artifactDir = process.env.CRAFT_ARTIFACT_DIR?.trim();
+      if (artifactDir) {
+        await mkdir(artifactDir, { recursive: true });
+        const slug = name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+        await writeFile(
+          join(artifactDir, `matrix-${slug}-six-view.png`),
+          await encodePng(buildSkinViewMontage(renderSkinViews(atlas))),
+        );
+      }
     },
   );
 });

@@ -4272,11 +4272,78 @@ function composeHair(
   }
 
   if (s === "afro" || style.hairTexture === "coily") {
-    const rows = s === "afro" ? 4 : 2;
-    fill(over.front, 0, 0, 8, rows, true);
-    fill(over.right, 0, 0, 8, rows + 1, true);
-    fill(over.left, 0, 0, 8, rows + 1, true);
-    fill(over.back, 0, 0, 8, rows + 1, true);
+    // Coily hair needs distinct raised curl clusters. A solid upper band
+    // passes every density metric but renders like a flat short haircut.
+    // Rebuild all visible outer faces as connected, stepped masks. Keep the
+    // mass mostly opaque: sparse transparent holes read as a lattice at skin
+    // resolution, while compact two-pixel colour groups read as curls.
+    const clearFace = (rect: Rect) => {
+      for (let y = 0; y < rect.h; y++) {
+        for (let x = 0; x < rect.w; x++) clearPixel(rect, x, y);
+      }
+    };
+    const coilLight = mixRgb(hairColor, [214, 190, 154], 0.2);
+    const coilMid = mixRgb(hairColor, [132, 104, 78], 0.14);
+    const coilDark = shadeRgb(hairColor, 0.56);
+    const paintCoilMask = (
+      rect: Rect,
+      rows: readonly (readonly number[])[],
+      phase: number,
+    ) => {
+      clearFace(rect);
+      for (let y = 0; y < Math.min(rect.h, rows.length); y++) {
+        for (const x of rows[y]) {
+          const group = (Math.floor(x / 2) + Math.floor(y / 2) + phase) % 3;
+          const corner = (x + phase) % 2 === 0 && y % 2 === 0;
+          putColor(
+            rect,
+            x,
+            y,
+            corner ? coilLight : group === 0 ? coilDark : coilMid,
+          );
+        }
+      }
+    };
+    const crownRows = [
+      [2, 3, 4, 5],
+      [1, 2, 3, 4, 5, 6],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [1, 2, 3, 4, 5, 6],
+      [2, 3, 4, 5],
+    ] as const;
+    const frontRows = [
+      [2, 3, 4, 5],
+      [1, 2, 3, 4, 5, 6],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 6, 7],
+      [0, 7],
+      [],
+      [],
+    ] as const;
+    const profileRows = [
+      [2, 3, 4, 5],
+      [1, 2, 3, 4, 5, 6],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [1, 2, 3, 4, 5, 6],
+      [],
+    ] as const;
+    paintCoilMask(over.top, crownRows, 0);
+    paintCoilMask(over.front, frontRows, 1);
+    paintCoilMask(over.right, profileRows, 2);
+    paintCoilMask(
+      over.left,
+      profileRows.map((row) => row.map((x) => over.left.w - 1 - x)),
+      3,
+    );
+    paintCoilMask(over.back, profileRows, 4);
+    clearFace(over.bottom);
   }
   if (s === "long") {
     // 어깨까지 내려오는 뒷머리 (몸통 뒤 overlay) + 옆 볼륨
