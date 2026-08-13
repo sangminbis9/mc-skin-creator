@@ -3,12 +3,14 @@ import {
   ALL_PARTS,
   ATLAS_SIZE,
   CLASSIC_LAYOUT,
+  SLIM_LAYOUT,
   buildZoneMap,
   getBoxUvSeams,
 } from "../src/uvLayout";
 import {
   CLASSIC_LAYOUT as CLIENT_LAYOUT,
   MINECRAFT_BOX_FACE_ORDER,
+  SLIM_LAYOUT as CLIENT_SLIM_LAYOUT,
 } from "../../src/lib/skinAtlas";
 
 describe("uvLayout", () => {
@@ -17,6 +19,17 @@ describe("uvLayout", () => {
       expect(CLASSIC_LAYOUT[part].base).toEqual(CLIENT_LAYOUT[part].base);
       expect(CLASSIC_LAYOUT[part].overlay).toEqual(CLIENT_LAYOUT[part].overlay);
     }
+  });
+
+  it("클라이언트 slim 좌표와 3px 팔 너비도 일치한다", () => {
+    for (const part of ALL_PARTS) {
+      expect(SLIM_LAYOUT[part].base).toEqual(CLIENT_SLIM_LAYOUT[part].base);
+      expect(SLIM_LAYOUT[part].overlay).toEqual(
+        CLIENT_SLIM_LAYOUT[part].overlay,
+      );
+    }
+    expect(CLIENT_SLIM_LAYOUT.rightArm.size.w).toBe(3);
+    expect(CLIENT_SLIM_LAYOUT.leftArm.size.w).toBe(3);
   });
 
   it("zone map에서 base/overlay가 겹치지 않고 영역 밖이 존재한다", () => {

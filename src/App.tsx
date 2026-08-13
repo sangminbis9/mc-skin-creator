@@ -9,6 +9,7 @@ import { SkinDocument } from "./editor/editorState";
 import { decodeSkinPng } from "./lib/skinDecode";
 import { generateSkinFromFeatures } from "./lib/skinFromFeatures";
 import type { PreparedPhotoUpload } from "./lib/imageQuality";
+import type { SkinGeometry } from "./lib/skinAtlas";
 import { normalizeFeatures, type QuotaStatus } from "./lib/skinFeatures";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { ApplyGuidePage } from "./pages/ApplyGuidePage";
@@ -68,6 +69,7 @@ function App() {
   const [failure, setFailure] = useState<GenerationFailure | null>(null);
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [skinGeometry, setSkinGeometry] = useState<SkinGeometry>("classic");
   const [showSample, setShowSample] = useState(
     () => sessionStorage.getItem(SAMPLE_SEEN_KEY) === null,
   );
@@ -105,6 +107,7 @@ function App() {
     setDoc(null);
     setFailure(null);
     setCapturedImage(null);
+    setSkinGeometry("classic");
     setStep("upload");
   };
 
@@ -193,6 +196,8 @@ function App() {
             }}
             onApplyGuide={() => setStep("guide")}
             onCreateAnother={resetToUpload}
+            geometry={skinGeometry}
+            onGeometryChange={setSkinGeometry}
           />
         </Suspense>
       )}
@@ -208,6 +213,7 @@ function App() {
           doc={doc}
           onBack={() => setStep("preview")}
           onApplyGuide={() => setStep("guide")}
+          preferredGeometry={skinGeometry}
         />
       )}
 

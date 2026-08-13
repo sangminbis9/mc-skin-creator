@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import type { SkinGeometry } from "../lib/skinAtlas";
 import type { SkinScene, ViewDirection } from "./skinScene";
 import { createSkinScene } from "./skinScene";
 
@@ -11,6 +12,7 @@ interface SkinViewer3DProps {
   /** 스킨 캔버스 내용이 바뀔 때 증가시키면 텍스처가 갱신된다 */
   version?: number;
   height?: number;
+  geometry?: SkinGeometry;
   /** 공유 이미지 캡처용 — scene 핸들 전달 */
   onReady?: (scene: SkinScene) => void;
 }
@@ -26,6 +28,7 @@ export function SkinViewer3D({
   skinCanvas,
   version = 0,
   height = 320,
+  geometry = "classic",
   onReady,
 }: SkinViewer3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -36,7 +39,7 @@ export function SkinViewer3D({
     if (!container) {
       return;
     }
-    const scene = createSkinScene(container, skinCanvas);
+    const scene = createSkinScene(container, skinCanvas, geometry);
     sceneRef.current = scene;
     onReady?.(scene);
     return () => {
@@ -45,7 +48,7 @@ export function SkinViewer3D({
     };
     // skinCanvas 인스턴스가 바뀌면 장면을 다시 만든다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skinCanvas]);
+  }, [skinCanvas, geometry]);
 
   useEffect(() => {
     const scene = sceneRef.current;

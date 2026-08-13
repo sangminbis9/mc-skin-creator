@@ -11,11 +11,14 @@ import {
   CLASSIC_LAYOUT,
   MINECRAFT_BOX_FACE_ORDER,
   PART_GROUPS,
+  SLIM_LAYOUT,
   type BodyPart,
   type BoxUV,
   type PartGroup,
   type Rect,
+  type SkinGeometry,
 } from "../lib/skinAtlas";
+import { convertClassicRgbaToSlim } from "../lib/slimSkin";
 
 /**
  * 면 UV 설정. 텍스처 flipY=false 기준으로 v = y / 64.
@@ -61,6 +64,17 @@ const PART_POSITIONS: Record<BodyPart, [number, number, number]> = {
   leftLeg: [-2, 6, 0],
 };
 
+function partPosition(
+  part: BodyPart,
+  geometry: SkinGeometry,
+): [number, number, number] {
+  const [x, y, z] = PART_POSITIONS[part];
+  if (geometry !== "slim") return [x, y, z];
+  if (part === "rightArm") return [5.5, y, z];
+  if (part === "leftArm") return [-5.5, y, z];
+  return [x, y, z];
+}
+
 /** 오버레이 인플레이트: 머리 +0.5/side, 나머지 +0.25/side */
 function overlayInflate(part: BodyPart): number {
   return part === "head" ? 1.0 : 0.5;
@@ -73,9 +87,25 @@ export class SkinModel {
   readonly meshes: THREE.Mesh[] = [];
   private overlayMeshes = new Set<THREE.Mesh>();
   private partMeshes = new Map<BodyPart, THREE.Mesh[]>();
+  private readonly sourceCanvas: HTMLCanvasElement;
+  private readonly displayCanvas: HTMLCanvasElement;
+  private readonly geometry: SkinGeometry;
 
-  constructor(skinCanvas: HTMLCanvasElement) {
-    this.texture = new THREE.CanvasTexture(skinCanvas);
+  constructor(
+    skinCanvas: HTMLCanvasElement,
+    geometry: SkinGeometry = "classic",
+  ) {
+    this.sourceCanvas = skinCanvas;
+    this.geometry = geometry;
+    this.displayCanvas =
+      geometry === "classic" ? skinCanvas : document.createElement("canvas");
+    if (geometry === "slim") {
+      this.displayCanvas.width = ATLAS_SIZE;
+      this.displayCanvas.height = ATLAS_SIZE;
+      this.syncDisplayCanvas();
+    }
+
+    this.texture = new THREE.CanvasTexture(this.displayCanvas);
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
     this.texture.flipY = false;
@@ -84,9 +114,10 @@ export class SkinModel {
     this.group = new THREE.Group();
 
     for (const part of ALL_PARTS) {
-      const layout = CLASSIC_LAYOUT[part];
+      const layout =
+        geometry === "slim" ? SLIM_LAYOUT[part] : CLASSIC_LAYOUT[part];
       const { w, h, d } = layout.size;
-      const [px, py, pz] = PART_POSITIONS[part];
+      const [px, py, pz] = partPosition(part, geometry);
       const list: THREE.Mesh[] = [];
 
       // 베이스 (스킨 셰이딩이 텍스처에 구워져 있으므로 조명 불필요)
@@ -138,7 +169,18 @@ export class SkinModel {
 
   /** 스킨 캔버스가 바뀌었을 때 호출 */
   refresh(): void {
+    if (this.geometry === "slim") this.syncDisplayCanvas();
     this.texture.needsUpdate = true;
+  }
+
+  private syncDisplayCanvas(): void {
+    const context = this.displayCanvas.getContext("2d");
+    if (!context) throw new Error("2D context unavailable");
+    context.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+    context.drawImage(this.sourceCanvas, 0, 0, ATLAS_SIZE, ATLAS_SIZE);
+    const image = context.getImageData(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+    image.data.set(convertClassicRgbaToSlim(image.data));
+    context.putImageData(image, 0, 0);
   }
 
   /** 부위 그룹만 표시 (편집기 부위 선택) */

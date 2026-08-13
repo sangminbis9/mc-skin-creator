@@ -6,6 +6,7 @@ import { useState } from "react";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelPanel } from "../components/pixel/PixelPanel";
 import type { SkinDocument } from "../editor/editorState";
+import type { SkinGeometry } from "../lib/skinAtlas";
 import { trackEvent } from "../lib/cloudflareAI";
 import { savePng } from "../lib/download";
 import {
@@ -18,6 +19,7 @@ interface DownloadPageProps {
   doc: SkinDocument;
   onBack: () => void;
   onApplyGuide: () => void;
+  preferredGeometry: SkinGeometry;
 }
 
 const FORMAT_LABELS: Record<ExportFormat, string> = {
@@ -26,7 +28,12 @@ const FORMAT_LABELS: Record<ExportFormat, string> = {
   bedrock: "Bedrock 다운로드",
 };
 
-export function DownloadPage({ doc, onBack, onApplyGuide }: DownloadPageProps) {
+export function DownloadPage({
+  doc,
+  onBack,
+  onApplyGuide,
+  preferredGeometry,
+}: DownloadPageProps) {
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   const download = async (format: ExportFormat) => {
@@ -66,10 +73,16 @@ export function DownloadPage({ doc, onBack, onApplyGuide }: DownloadPageProps) {
         </p>
       </PixelPanel>
 
-      <PixelButton onClick={() => download("java-classic")}>
+      <PixelButton
+        variant={preferredGeometry === "classic" ? "grass" : "ghost"}
+        onClick={() => download("java-classic")}
+      >
         {FORMAT_LABELS["java-classic"]}
       </PixelButton>
-      <PixelButton onClick={() => download("java-slim")}>
+      <PixelButton
+        variant={preferredGeometry === "slim" ? "grass" : "ghost"}
+        onClick={() => download("java-slim")}
+      >
         {FORMAT_LABELS["java-slim"]}
       </PixelButton>
       <PixelButton onClick={() => download("bedrock")}>

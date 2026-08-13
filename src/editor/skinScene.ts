@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import type { SkinGeometry } from "../lib/skinAtlas";
 import { SkinModel } from "./SkinModel";
 
 export type ViewDirection = "front" | "back" | "left" | "right";
@@ -31,6 +32,7 @@ export interface SkinScene {
 export function createSkinScene(
   container: HTMLElement,
   skinCanvas: HTMLCanvasElement,
+  geometry: SkinGeometry = "classic",
 ): SkinScene {
   const scene = new THREE.Scene();
   scene.background = null;
@@ -50,7 +52,7 @@ export function createSkinScene(
   renderer.domElement.style.display = "block";
   renderer.domElement.style.touchAction = "none";
 
-  const model = new SkinModel(skinCanvas);
+  const model = new SkinModel(skinCanvas, geometry);
   scene.add(model.group);
 
   const controls = new OrbitControls(camera, renderer.domElement);

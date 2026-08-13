@@ -50,6 +50,8 @@ function boxUV(u: number, v: number, w: number, h: number, d: number): BoxUV {
 export type BodyPart =
   "head" | "body" | "rightArm" | "leftArm" | "rightLeg" | "leftLeg";
 
+export type SkinGeometry = "classic" | "slim";
+
 export interface PartLayout {
   /** 박스 크기 (게임 내 픽셀 단위) */
   size: { w: number; h: number; d: number };
@@ -106,6 +108,12 @@ export const SLIM_ARM_LAYOUT: Pick<
     base: boxUV(32, 48, 3, 12, 4),
     overlay: boxUV(48, 48, 3, 12, 4),
   },
+};
+
+/** 전체 slim 레이아웃. 머리·몸·다리는 classic과 같고 팔만 3px다. */
+export const SLIM_LAYOUT: Record<BodyPart, PartLayout> = {
+  ...CLASSIC_LAYOUT,
+  ...SLIM_ARM_LAYOUT,
 };
 
 export const ALL_PARTS: BodyPart[] = [

@@ -8,6 +8,7 @@ import { PixelPanel } from "../components/pixel/PixelPanel";
 import type { SkinDocument } from "../editor/editorState";
 import { SkinViewer3D } from "../editor/SkinViewer3D";
 import type { SkinScene } from "../editor/skinScene";
+import type { SkinGeometry } from "../lib/skinAtlas";
 
 interface PreviewPageProps {
   doc: SkinDocument;
@@ -17,6 +18,8 @@ interface PreviewPageProps {
   onShare: (previewImageDataUrl: string | null) => void;
   onApplyGuide: () => void;
   onCreateAnother: () => void;
+  geometry: SkinGeometry;
+  onGeometryChange: (geometry: SkinGeometry) => void;
 }
 
 export function PreviewPage({
@@ -27,6 +30,8 @@ export function PreviewPage({
   onShare,
   onApplyGuide,
   onCreateAnother,
+  geometry,
+  onGeometryChange,
 }: PreviewPageProps) {
   const sceneRef = useRef<SkinScene | null>(null);
 
@@ -54,10 +59,33 @@ export function PreviewPage({
       </p>
 
       <PixelPanel tone="sky" style={{ padding: 8 }}>
+        <div
+          className="px-row"
+          style={{ justifyContent: "center", marginBottom: 8 }}
+          aria-label="팔 모델 선택"
+        >
+          <button
+            type="button"
+            className={`px-btn px-btn--small ${geometry === "classic" ? "" : "px-btn--ghost"}`}
+            aria-pressed={geometry === "classic"}
+            onClick={() => onGeometryChange("classic")}
+          >
+            Classic 팔 (4px)
+          </button>
+          <button
+            type="button"
+            className={`px-btn px-btn--small ${geometry === "slim" ? "" : "px-btn--ghost"}`}
+            aria-pressed={geometry === "slim"}
+            onClick={() => onGeometryChange("slim")}
+          >
+            Slim 팔 (3px)
+          </button>
+        </div>
         <SkinViewer3D
           skinCanvas={doc.canvas}
           version={skinVersion}
           height={300}
+          geometry={geometry}
           onReady={(scene) => {
             sceneRef.current = scene;
           }}
