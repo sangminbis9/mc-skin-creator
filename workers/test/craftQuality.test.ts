@@ -73,7 +73,9 @@ describe("handcrafted atlas quality metrics", () => {
       eyebrowShape: "soft",
       eyebrowThickness: "thin",
       noseShape: "small",
-      mouthShape: "full",
+      // The target has a compact mouth footprint with visibly full lips;
+      // width and fullness are independent portrait-analysis dimensions.
+      mouthShape: "small",
       mouthOpening: "closed",
       lipFullness: "full",
       lipColor: "berry",

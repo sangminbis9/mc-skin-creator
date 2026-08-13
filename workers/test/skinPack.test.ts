@@ -4707,8 +4707,16 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(compactFull, face, 3, 6)).toBeGreaterThan(
       redAt(small, face, 3, 6) + 20,
     );
-    expect(redAt(full, face, 2, 6)).toBe(redAt(small, face, 2, 6));
-    expect(redAt(full, face, 5, 6)).toBe(redAt(small, face, 5, 6));
+    // mouthShape=full means a strongly defined, non-compact footprint;
+    // lipFullness=full on a small mouth remains the compact two-pixel case.
+    expect(redAt(full, face, 2, 6)).toBeLessThan(
+      redAt(small, face, 2, 6) - 20,
+    );
+    expect(redAt(full, face, 5, 6)).toBeLessThan(
+      redAt(small, face, 5, 6) - 20,
+    );
+    expect(rgbaAt(full, face, 2, 6)).not.toEqual(rgbaAt(wide, face, 2, 6));
+    expect(rgbaAt(full, face, 5, 6)).not.toEqual(rgbaAt(wide, face, 5, 6));
   });
 
   it("keeps analyzed lip pigmentation distinct in the low-resolution face", () => {

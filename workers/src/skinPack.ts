@@ -1339,7 +1339,19 @@ function composeFace(
       put(face, 3, 7, mixRgb(lipFull, skinColor, 0.3));
       put(face, 4, 7, mixRgb(lipLight, skinColor, 0.36));
     }
-  } else if (mouthShape === "full" || lipFullness === "full") {
+  } else if (mouthShape === "full") {
+    // mouthShape and lipFullness are independent observations. A genuinely
+    // full/defined mouth has a broader footprint than a compact mouth with
+    // full lips, but its soft pigment corners must not read as the dark,
+    // straight four-pixel bar used for a wide mouth. Keep all of this on the
+    // inner cube; raised lip pixels look like protruding face tiles in 3D.
+    put(face, 2, 6, mixRgb(lipFull, skinColor, 0.46));
+    put(face, 3, 6, lipFull);
+    put(face, 4, 6, shadeRgb(lipLight, 0.94));
+    put(face, 5, 6, mixRgb(shadeRgb(lipFull, 0.9), skinColor, 0.5));
+  } else if (lipFullness === "full") {
+    // Preserve the analysed "small full lips" combination as a saturated
+    // two-pixel cluster rather than widening every full-lipped person.
     put(face, 3, 6, lipFull);
     put(face, 4, 6, shadeRgb(lipLight, 0.94));
   } else if (
