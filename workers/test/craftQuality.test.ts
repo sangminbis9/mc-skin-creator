@@ -5,10 +5,7 @@ import { buildProceduralFallbackAtlas } from "../src/generate";
 import { decodePng, encodePng } from "../src/png";
 import { measureAtlasCraft, validateAtlasCraft } from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
-import {
-  buildSkinViewMontage,
-  renderSkinViews,
-} from "../src/skinRender";
+import { buildSkinViewMontage, renderSkinViews } from "../src/skinRender";
 import { REFERENCE_SKIN_BASE64 } from "./fixtures/referenceSkin";
 import { makeFrontView } from "./helpers";
 import {
@@ -139,9 +136,9 @@ describe("handcrafted atlas quality metrics", () => {
     expect(
       opaquePixelsIn(procedural, proceduralHead.right),
     ).toBeLessThanOrEqual(30);
-    expect(
-      opaquePixelsIn(procedural, proceduralHead.left),
-    ).toBeLessThanOrEqual(30);
+    expect(opaquePixelsIn(procedural, proceduralHead.left)).toBeLessThanOrEqual(
+      30,
+    );
     expect(opaquePixelsIn(procedural, proceduralHead.back)).toBeLessThanOrEqual(
       28,
     );
@@ -152,22 +149,20 @@ describe("handcrafted atlas quality metrics", () => {
     expect(
       channelAt(procedural, proceduralHead.front, 1, 2, 0),
     ).toBeGreaterThan(220);
-    expect(
-      channelAt(procedural, proceduralHead.front, 4, 1, 0),
-    ).toBeLessThan(170);
+    expect(channelAt(procedural, proceduralHead.front, 4, 1, 0)).toBeLessThan(
+      170,
+    );
     expect(
       channelAt(procedural, proceduralHead.right, 4, 4, 0),
     ).toBeGreaterThan(220);
-    expect(
-      channelAt(procedural, proceduralHead.top, 5, 3, 0),
-    ).toBeLessThan(170);
+    expect(channelAt(procedural, proceduralHead.top, 5, 3, 0)).toBeLessThan(
+      170,
+    );
     const proceduralBody = CLASSIC_LAYOUT.body;
     expect(
       opaquePixelsIn(procedural, proceduralBody.overlay.back),
     ).toBeLessThanOrEqual(55);
-    expect(channelAt(procedural, proceduralBody.overlay.back, 4, 2, 3)).toBe(
-      0,
-    );
+    expect(channelAt(procedural, proceduralBody.overlay.back, 4, 2, 3)).toBe(0);
     expect(channelAt(procedural, proceduralBody.overlay.back, 3, 7, 3)).toBe(
       255,
     );
@@ -244,6 +239,28 @@ describe("handcrafted atlas quality metrics", () => {
     const artifactDir = process.env.CRAFT_ARTIFACT_DIR?.trim();
     if (artifactDir) {
       await mkdir(artifactDir, { recursive: true });
+      const silhouetteVariants = (["rounded", "swept", "tousled"] as const).map(
+        (hairSilhouette) => ({
+          hairSilhouette,
+          atlas: buildProceduralFallbackAtlas(
+            {
+              skinTone: "#efd0c7",
+              hairColor: "#6f4c45",
+              eyeColor: "#4a3728",
+              topColor: "#bea0a8",
+              topAccentColor: "#f4eee7",
+              bottomColor: "#d4c0b3",
+              shoesColor: "#e8dfd1",
+            },
+            {
+              ...richStyle,
+              hairAccessory: "none",
+              hairPart: hairSilhouette === "swept" ? "left" : "center",
+              hairSilhouette,
+            },
+          )!,
+        }),
+      );
       await Promise.all([
         writeFile(
           join(artifactDir, "handcrafted-reference-atlas.png"),
@@ -260,6 +277,12 @@ describe("handcrafted atlas quality metrics", () => {
         writeFile(
           join(artifactDir, "reference-style-six-view.png"),
           await encodePng(buildSkinViewMontage(renderSkinViews(procedural))),
+        ),
+        ...silhouetteVariants.map(async ({ hairSilhouette, atlas }) =>
+          writeFile(
+            join(artifactDir, `long-${hairSilhouette}-six-view.png`),
+            await encodePng(buildSkinViewMontage(renderSkinViews(atlas))),
+          ),
         ),
       ]);
     }
@@ -453,8 +476,7 @@ describe("handcrafted atlas quality metrics", () => {
       ]) {
         for (let y = 0; y < rect.h; y++) {
           for (let x = 0; x < rect.w; x++) {
-            const offset =
-              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
             missingHorizontalFaces.rgba[offset + 3] = 0;
           }
         }
@@ -467,8 +489,7 @@ describe("handcrafted atlas quality metrics", () => {
       ]) {
         for (const y of [0, rect.h - 1]) {
           for (let x = 0; x < rect.w; x++) {
-            const offset =
-              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
             missingHorizontalFaces.rgba.set([32, 32, 32, 255], offset);
           }
         }
@@ -489,8 +510,7 @@ describe("handcrafted atlas quality metrics", () => {
       ]) {
         for (let y = 0; y < rect.h; y++) {
           for (let x = 0; x < rect.w; x++) {
-            const offset =
-              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
             clashingBaseFaces.rgba.set([0, 255, 0, 255], offset);
           }
         }
@@ -513,8 +533,7 @@ describe("handcrafted atlas quality metrics", () => {
       ] as const) {
         for (let y = 0; y < rect.h; y++) {
           for (let x = 0; x < rect.w; x++) {
-            const offset =
-              ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+            const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
             clashingBaseSides.rgba.set(color, offset);
           }
         }
@@ -546,8 +565,7 @@ describe("handcrafted atlas quality metrics", () => {
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
     const outerCorner =
       ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 6) * 4;
-    const iris =
-      ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 5) * 4;
+    const iris = ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 5) * 4;
 
     expect(source.rgba[outerCorner + 3]).toBe(255);
     expect(source.rgba[iris + 3]).toBe(0);

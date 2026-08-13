@@ -654,9 +654,9 @@ describe("packFrontViewToAtlas", () => {
     }
 
     expect(brightnessDeltas.some((delta) => delta >= 15)).toBe(true);
-    expect(brightnessDeltas.filter((delta) => delta !== 0).length).toBeGreaterThan(
-      3,
-    );
+    expect(
+      brightnessDeltas.filter((delta) => delta !== 0).length,
+    ).toBeGreaterThan(3);
     const outsideHeadOverlay = (atlas: RawImage) => {
       const bytes: number[] = [];
       for (let y = 0; y < ATLAS_SIZE; y++) {
@@ -1168,12 +1168,8 @@ describe("packFrontViewToAtlas", () => {
       expect(redAt(atlas, base, irisX, 4)).toBeLessThan(80);
       expect(alphaAt(atlas, overlay, irisX, 4)).toBe(0);
     }
-    expect(redAt(atlas, base, 1, 7)).toBeGreaterThan(
-      redAt(atlas, base, 1, 5),
-    );
-    expect(redAt(atlas, base, 6, 7)).toBeGreaterThan(
-      redAt(atlas, base, 6, 5),
-    );
+    expect(redAt(atlas, base, 1, 7)).toBeGreaterThan(redAt(atlas, base, 1, 5));
+    expect(redAt(atlas, base, 6, 7)).toBeGreaterThan(redAt(atlas, base, 6, 5));
 
     for (const y of [5, 6]) {
       expect(alphaAt(atlas, overlay, 1, y)).toBe(0);
@@ -1993,6 +1989,91 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("long hair keeps rounded, swept and tousled crown silhouettes distinct after sparse masking", () => {
+    const render = (
+      hairSilhouette: "rounded" | "swept" | "tousled",
+      hairPart: "left" | "right" = "left",
+    ) =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        hairColor: "#745249",
+        bangs: "curtain",
+        bangsLength: "brow",
+        hairTexture: "wavy",
+        hairVolume: "full",
+        hairSilhouette,
+        hairBackShape: "long",
+        hairPart,
+        overallHairLength: "waist",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+      })!.atlas;
+    const rounded = render("rounded");
+    const sweptLeft = render("swept", "left");
+    const sweptRight = render("swept", "right");
+    const tousled = render("tousled");
+    const crown = CLASSIC_LAYOUT.head.overlay.top;
+    const signature = (atlas: RawImage) =>
+      Array.from({ length: crown.h }, (_, y) =>
+        Array.from({ length: crown.w }, (_, x) =>
+          alphaAt(atlas, crown, x, y) === 255 ? "1" : "0",
+        ).join(""),
+      );
+    const opaqueCount = (atlas: RawImage) =>
+      signature(atlas)
+        .join("")
+        .split("")
+        .filter((value) => value === "1").length;
+    const faceOpaqueCount = (atlas: RawImage, rect: Rect) => {
+      let count = 0;
+      for (let y = 0; y < rect.h; y++) {
+        for (let x = 0; x < rect.w; x++) {
+          if (alphaAt(atlas, rect, x, y) === 255) count++;
+        }
+      }
+      return count;
+    };
+
+    expect(
+      new Set([rounded, sweptLeft, tousled].map(signature).map(String)).size,
+    ).toBe(3);
+    expect(signature(sweptRight)).toEqual(
+      signature(sweptLeft).map((row) => row.split("").reverse().join("")),
+    );
+    expect(opaqueCount(tousled)).toBeGreaterThan(opaqueCount(rounded));
+    expect(
+      new Set(
+        [rounded, sweptLeft, tousled].map((atlas) =>
+          Array.from({ length: CLASSIC_LAYOUT.head.overlay.right.h }, (_, y) =>
+            Array.from(
+              { length: CLASSIC_LAYOUT.head.overlay.right.w },
+              (_, x) =>
+                alphaAt(atlas, CLASSIC_LAYOUT.head.overlay.right, x, y) === 255
+                  ? "1"
+                  : "0",
+            ).join(""),
+          ).join("/"),
+        ),
+      ).size,
+    ).toBe(3);
+    expect(
+      faceOpaqueCount(sweptLeft, CLASSIC_LAYOUT.head.overlay.left),
+    ).toBeGreaterThan(
+      faceOpaqueCount(sweptLeft, CLASSIC_LAYOUT.head.overlay.right),
+    );
+    expect(
+      faceOpaqueCount(sweptRight, CLASSIC_LAYOUT.head.overlay.right),
+    ).toBeGreaterThan(
+      faceOpaqueCount(sweptRight, CLASSIC_LAYOUT.head.overlay.left),
+    );
+    for (const atlas of [rounded, sweptLeft, sweptRight, tousled]) {
+      expect(measureAtlasCraft(atlas).solidOverlayFaces).toBe(0);
+      applyUvMask(atlas);
+      expect(validateFinalAtlas(atlas).ok).toBe(true);
+    }
+  });
+
   it("full wavy tousled hair bevels every raised crown corner without losing its tufts", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -2176,9 +2257,7 @@ describe("packFrontViewToAtlas", () => {
     ) => {
       const [red, green, blue] = rgbaAt(atlas, rect, x, y);
       return (
-        Math.abs(red - 0x76) +
-        Math.abs(green - 0x5b) +
-        Math.abs(blue - 0x57)
+        Math.abs(red - 0x76) + Math.abs(green - 0x5b) + Math.abs(blue - 0x57)
       );
     };
     expect(hairDistance(shoulder, body.base.front, 1, 3)).toBeLessThan(90);
@@ -2254,27 +2333,17 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.overlay.right, 1, 3)).toBe(255);
     expect(alphaAt(atlas, body.overlay.left, 2, 3)).toBe(255);
     expect(alphaAt(atlas, body.overlay.left, 2, 4)).toBe(255);
-    expect(rgbaAt(atlas, body.overlay.right, body.overlay.right.w - 1, 3)).toEqual(
-      rgbaAt(atlas, body.overlay.front, 0, 3),
-    );
+    expect(
+      rgbaAt(atlas, body.overlay.right, body.overlay.right.w - 1, 3),
+    ).toEqual(rgbaAt(atlas, body.overlay.front, 0, 3));
     expect(rgbaAt(atlas, body.overlay.left, 0, 4)).toEqual(
-      rgbaAt(
-        atlas,
-        body.overlay.front,
-        body.overlay.front.w - 1,
-        4,
-      ),
+      rgbaAt(atlas, body.overlay.front, body.overlay.front.w - 1, 4),
     );
     expect(rgbaAt(atlas, body.overlay.right, 0, 1)).toEqual(
       rgbaAt(atlas, body.overlay.back, body.overlay.back.w - 1, 1),
     );
     expect(
-      rgbaAt(
-        atlas,
-        body.overlay.left,
-        body.overlay.left.w - 1,
-        1,
-      ),
+      rgbaAt(atlas, body.overlay.left, body.overlay.left.w - 1, 1),
     ).toEqual(rgbaAt(atlas, body.overlay.back, 0, 1));
     expect(redAt(atlas, body.base.back, 2, 4)).toBeGreaterThan(
       redAt(atlas, body.base.back, 4, 7),
@@ -2296,9 +2365,7 @@ describe("packFrontViewToAtlas", () => {
     const sideHairDistance = (rect: Rect, x: number, y: number) => {
       const [red, green, blue] = rgbaAt(atlas, rect, x, y);
       return (
-        Math.abs(red - 0x6f) +
-        Math.abs(green - 0x4c) +
-        Math.abs(blue - 0x45)
+        Math.abs(red - 0x6f) + Math.abs(green - 0x4c) + Math.abs(blue - 0x45)
       );
     };
     for (let y = 0; y < 10; y++) {
@@ -2339,9 +2406,7 @@ describe("packFrontViewToAtlas", () => {
     const hairDistance = (atlas: RawImage, x: number, y: number) => {
       const [red, green, blue] = rgbaAt(atlas, baseFront, x, y);
       return (
-        Math.abs(red - 0x76) +
-        Math.abs(green - 0x5b) +
-        Math.abs(blue - 0x57)
+        Math.abs(red - 0x76) + Math.abs(green - 0x5b) + Math.abs(blue - 0x57)
       );
     };
 
@@ -2504,9 +2569,7 @@ describe("packFrontViewToAtlas", () => {
     ) => {
       const [red, green, blue] = rgbaAt(atlas, rect, x, y);
       return (
-        Math.abs(red - 0x76) +
-        Math.abs(green - 0x5b) +
-        Math.abs(blue - 0x57)
+        Math.abs(red - 0x76) + Math.abs(green - 0x5b) + Math.abs(blue - 0x57)
       );
     };
 
@@ -2519,12 +2582,7 @@ describe("packFrontViewToAtlas", () => {
     );
     expect(hairDistance(leftLonger, body.base.right, 0, 6)).toBeLessThan(130);
     expect(
-      hairDistance(
-        leftLonger,
-        body.base.left,
-        body.base.left.w - 1,
-        6,
-      ),
+      hairDistance(leftLonger, body.base.left, body.base.left.w - 1, 6),
     ).toBeGreaterThan(130);
 
     expect(alphaAt(rightLonger, head.right, 3, 7)).toBe(0);
@@ -2537,12 +2595,7 @@ describe("packFrontViewToAtlas", () => {
       130,
     );
     expect(
-      hairDistance(
-        rightLonger,
-        body.base.left,
-        body.base.left.w - 1,
-        6,
-      ),
+      hairDistance(rightLonger, body.base.left, body.base.left.w - 1, 6),
     ).toBeLessThan(130);
 
     applyUvMask(leftLonger);
@@ -2624,22 +2677,12 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.overlay.front, 1, 1)).toBe(255);
     expect(alphaAt(atlas, body.overlay.right, 0, 1)).toBe(255);
     expect(alphaAt(atlas, body.overlay.right, 1, 3)).toBe(255);
-    expect(
-      alphaAt(
-        atlas,
-        body.overlay.top,
-        0,
-        body.overlay.top.h - 1,
-      ),
-    ).toBe(255);
-    expect(
-      alphaAt(
-        atlas,
-        body.overlay.top,
-        1,
-        body.overlay.top.h - 1,
-      ),
-    ).toBe(255);
+    expect(alphaAt(atlas, body.overlay.top, 0, body.overlay.top.h - 1)).toBe(
+      255,
+    );
+    expect(alphaAt(atlas, body.overlay.top, 1, body.overlay.top.h - 1)).toBe(
+      255,
+    );
     expect(alphaAt(atlas, arm.front, 0, 1)).toBe(255);
     expect(alphaAt(atlas, arm.right, 1, 2)).toBe(255);
     expect(alphaAt(atlas, arm.top, 0, 1)).toBe(255);
@@ -3579,9 +3622,7 @@ describe("packFrontViewToAtlas", () => {
     // Enlarging a side flower adds volume on the same physical side; it must
     // not paint a second bloom across the centre-right fringe or opposite
     // crown and recreate a forehead band.
-    expect(rgbaAt(large, front, 4, 1)).toEqual(
-      rgbaAt(medium, front, 4, 1),
-    );
+    expect(rgbaAt(large, front, 4, 1)).toEqual(rgbaAt(medium, front, 4, 1));
     expect(rgbaAt(large, top, 5, 3)).toEqual(rgbaAt(medium, top, 5, 3));
     for (let y = 2; y <= 4; y++) {
       for (let x = 3; x <= 5; x++) {
@@ -4221,21 +4262,11 @@ describe("packFrontViewToAtlas", () => {
     const face = CLASSIC_LAYOUT.head.base.front;
     const overlay = CLASSIC_LAYOUT.head.overlay.front;
 
-    expect(redAt(boosted, face, 2, 4)).toBeLessThan(
-      redAt(normal, face, 2, 4),
-    );
-    expect(redAt(boosted, face, 1, 3)).toBeLessThan(
-      redAt(normal, face, 1, 3),
-    );
-    expect(redAt(boosted, face, 3, 5)).toBeLessThan(
-      redAt(normal, face, 3, 5),
-    );
-    expect(redAt(boosted, face, 3, 6)).toBeLessThan(
-      redAt(normal, face, 3, 6),
-    );
-    expect(rgbaAt(boosted, face, 4, 4)).toEqual(
-      rgbaAt(normal, face, 4, 4),
-    );
+    expect(redAt(boosted, face, 2, 4)).toBeLessThan(redAt(normal, face, 2, 4));
+    expect(redAt(boosted, face, 1, 3)).toBeLessThan(redAt(normal, face, 1, 3));
+    expect(redAt(boosted, face, 3, 5)).toBeLessThan(redAt(normal, face, 3, 5));
+    expect(redAt(boosted, face, 3, 6)).toBeLessThan(redAt(normal, face, 3, 6));
+    expect(rgbaAt(boosted, face, 4, 4)).toEqual(rgbaAt(normal, face, 4, 4));
     for (const x of [1, 2, 5, 6]) {
       expect(alphaAt(boosted, overlay, x, 4)).toBe(0);
     }

@@ -3068,17 +3068,11 @@ function composeHair(
                     : highlight
                       ? 0.96
                       : 0.86;
-            putColor(
-              bodyBase.back,
-              x,
-              y,
-              bodyHair(bodyBase.back, x, y, shade),
-            );
+            putColor(bodyBase.back, x, y, bodyHair(bodyBase.back, x, y, shade));
           }
           if (baseRow.includes(0)) {
             const edge = readColor(bodyBase.back, 0, y);
-            if (edge)
-              putColor(bodyBase.left, bodyBase.left.w - 1, y, edge);
+            if (edge) putColor(bodyBase.left, bodyBase.left.w - 1, y, edge);
           }
           if (baseRow.includes(bodyBase.back.w - 1)) {
             const edge = readColor(bodyBase.back, bodyBase.back.w - 1, y);
@@ -4287,50 +4281,103 @@ function composeHair(
         }
       }
     };
+    const mirrorCrownRows = (rows: readonly (readonly number[])[]) =>
+      rows.map((row) => row.map((x) => over.top.w - 1 - x));
+    const sweptCrownRows = [
+      [2, 3, 4, 5],
+      [1, 2, 4, 5],
+      [1, 3, 5],
+      [2, 4, 6],
+      [2, 3, 5, 6],
+      [3, 4, 6],
+      [4, 5, 6],
+      [3, 4],
+    ] as const;
+    const tousledCrownRows = [
+      [2, 3, 4, 5],
+      [1, 2, 5, 6],
+      [2, 4, 6],
+      [1, 3, 5],
+      [2, 4, 6],
+      [1, 3, 5],
+      [2, 4, 6],
+      [3, 4],
+    ] as const;
     const longTopRows =
-      style.hairVolume === "full"
-        ? [[2, 3, 4, 5], [1, 6], [3, 4], [2, 5], [], [], [1, 6], [3, 4]]
-        : style.hairVolume === "flat"
-          ? // Long hair used to overwrite the earlier flat-volume mask with
-            // the normal crown. Keep only a restrained central highlight
-            // cluster; the base cube still supplies the continuous hair mass.
-            [[], [], [3, 4], [2, 3, 4, 5], [2, 3, 4, 5], [3, 4], [], []]
-          : [
-              [1, 2, 5, 6],
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 3, 6, 7],
-              [0, 4, 7],
-              [0, 2, 5, 7],
-              [0, 1, 6, 7],
-              [1, 2, 5, 6],
-              [2, 5],
-            ];
+      style.hairVolume === "flat"
+        ? // Long hair used to overwrite the earlier flat-volume mask with
+          // the normal crown. Keep only a restrained central highlight
+          // cluster; the base cube still supplies the continuous hair mass.
+          [[], [], [3, 4], [2, 3, 4, 5], [2, 3, 4, 5], [3, 4], [], []]
+        : hairSilhouette === "swept"
+          ? style.hairPart === "right"
+            ? mirrorCrownRows(sweptCrownRows)
+            : sweptCrownRows
+          : hairSilhouette === "tousled" || hairSilhouette === "spiky"
+            ? tousledCrownRows
+            : style.hairVolume === "full"
+              ? [[2, 3, 4, 5], [1, 6], [3, 4], [2, 5], [], [], [1, 6], [3, 4]]
+              : [
+                  [1, 2, 5, 6],
+                  [0, 1, 2, 5, 6, 7],
+                  [0, 1, 3, 6, 7],
+                  [0, 4, 7],
+                  [0, 2, 5, 7],
+                  [0, 1, 6, 7],
+                  [1, 2, 5, 6],
+                  [2, 5],
+                ];
     retainRows(over.top, longTopRows);
-    const longSideRows =
+    const roundedFaceFramingRows = [
+      [1, 6],
+      [0, 1, 2, 5, 6, 7],
+      [0, 1, 2, 5, 6, 7],
+      [0, 1, 6, 7],
+      [0, 1, 6, 7],
+      [0, 7],
+      [0],
+      [],
+    ] as const;
+    const tousledFaceFramingRows = [
+      [1, 6],
+      [0, 1, 6, 7],
+      [0, 1, 6, 7],
+      [0, 1, 6, 7],
+      [0, 1, 6, 7],
+      [0, 1, 6, 7],
+      [0, 1],
+      [0],
+    ] as const;
+    const sweptFullSideRows = roundedFaceFramingRows;
+    const sweptLightSideRows = [
+      [1, 6],
+      [0, 1, 6, 7],
+      [0, 1, 6, 7],
+      [0, 1, 7],
+      [0, 7],
+      [0, 7],
+      [0],
+      [],
+    ] as const;
+    const straightFaceFramingRows = [
+      [0, 1, 2, 5, 6, 7],
+      [0, 1, 2, 5, 6, 7],
+      [0, 1, 2, 5, 6, 7],
+      [0, 1, 2, 6, 7],
+      [0, 7],
+      [0, 7],
+      [0, 7],
+      [0, 7],
+    ] as const;
+    const sharedLongSideRows =
       sideHairShape === "face_framing"
-        ? style.hairTexture === "wavy" ||
-          style.hairTexture === "curly" ||
-          style.hairSilhouette === "tousled"
-          ? [
-              [1, 6],
-              [0, 1, 6, 7],
-              [0, 1, 6, 7],
-              [0, 1, 6, 7],
-              [0, 1, 6, 7],
-              [0, 1, 6, 7],
-              [0, 1],
-              [0],
-            ]
-          : [
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 2, 5, 6, 7],
-              [0, 1, 2, 6, 7],
-              [0, 7],
-              [0, 7],
-              [0, 7],
-              [0, 7],
-            ]
+        ? hairSilhouette === "rounded"
+          ? roundedFaceFramingRows
+          : hairSilhouette === "tousled" || hairSilhouette === "spiky"
+            ? tousledFaceFramingRows
+            : hairSilhouette === "swept"
+              ? sweptLightSideRows
+              : straightFaceFramingRows
         : sideHairShape === "flared"
           ? [
               [1, 2, 5, 6],
@@ -4349,21 +4396,37 @@ function composeHair(
                   ? [0, 1, 3, 4, 6, 7]
                   : [0, 1, y % 2 === 0 ? 2 : 5, 6, 7],
             );
+    const sweptHeavyViewerSide =
+      hairPart === "right" ? "left" : hairPart === "left" ? "right" : "both";
+    const rightLongSideRows =
+      sideHairShape === "face_framing" && hairSilhouette === "swept"
+        ? sweptHeavyViewerSide === "left" || sweptHeavyViewerSide === "both"
+          ? sweptFullSideRows
+          : sweptLightSideRows
+        : sharedLongSideRows;
+    const leftLongSideRows =
+      sideHairShape === "face_framing" && hairSilhouette === "swept"
+        ? sweptHeavyViewerSide === "right" || sweptHeavyViewerSide === "both"
+          ? sweptFullSideRows
+          : sweptLightSideRows
+        : sharedLongSideRows;
     if (sideHairShape === "face_framing" || sideHairShape === "flared") {
       // Earlier detail passes intentionally leave holes for texture. On an
       // exact profile those holes became alternating isolated pixels, so
       // complete the intended rails before applying the sparse silhouette.
-      for (let y = 0; y < longSideRows.length; y++) {
-        for (const x of longSideRows[y]) {
+      for (let y = 0; y < rightLongSideRows.length; y++) {
+        for (const x of rightLongSideRows[y]) {
           fillTransparent(over.right, x, y, 1, 1, true);
+        }
+        for (const x of leftLongSideRows[y]) {
           fillTransparent(over.left, 7 - x, y, 1, 1, true);
         }
       }
     }
-    retainRows(over.right, longSideRows);
+    retainRows(over.right, rightLongSideRows);
     retainRows(
       over.left,
-      longSideRows.map((row) => row.map((x) => 7 - x)),
+      leftLongSideRows.map((row) => row.map((x) => 7 - x)),
     );
     if (
       sideHairShape === "face_framing" &&
@@ -4457,13 +4520,7 @@ function composeHair(
         // The connected face-framing mass now lives on the base cube. Trim
         // all three lower front columns on the shorter viewer side, while the
         // separate rear base mass remains bilateral.
-        restoreRect(
-          bodyBase.front,
-          bodyFrontX,
-          5,
-          3,
-          bodyBase.front.h - 5,
-        );
+        restoreRect(bodyBase.front, bodyFrontX, 5, 3, bodyBase.front.h - 5);
 
         if (shorterSide === "left") {
           restoreRect(
@@ -4508,20 +4565,8 @@ function composeHair(
         restoreRect(body.front, bodyFrontX, 3, 3, body.front.h - 3);
         restoreRect(bodySide, 0, 3, bodySide.w, bodySide.h - 3);
         restoreRect(body.back, bodyBackX, 3, 3, body.back.h - 3);
-        restoreRect(
-          bodyBase.front,
-          bodyFrontX,
-          3,
-          3,
-          bodyBase.front.h - 3,
-        );
-        restoreRect(
-          bodyBaseSide,
-          0,
-          3,
-          bodyBaseSide.w,
-          bodyBaseSide.h - 3,
-        );
+        restoreRect(bodyBase.front, bodyFrontX, 3, 3, bodyBase.front.h - 3);
+        restoreRect(bodyBaseSide, 0, 3, bodyBaseSide.w, bodyBaseSide.h - 3);
         for (const rect of [arm.front, arm.back, arm.right, arm.left]) {
           restoreRect(rect, 0, 3, rect.w, rect.h - 3);
         }
