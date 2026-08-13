@@ -51,6 +51,93 @@ describe("Gemini REST client", () => {
     );
   });
 
+  it("falls back to account-internal Workers AI when the gateway rejects authentication", async () => {
+    const getUrl = vi.fn(async () =>
+      "https://gateway.ai.cloudflare.com/v1/account/default/google-ai-studio",
+    );
+    const run = vi.fn(async () => ({ response: '{"quality":"pass"}' }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "Unauthorized", status: "UNAUTHENTICATED" } },
+          { status: 401 },
+        ),
+      ),
+    );
+    const legacyWorkersAiInput = {
+      messages: [{ role: "user", content: [{ type: "text", text: "A" }] }],
+    };
+
+    const result = await generateGeminiStructuredJson(
+      {
+        ...env,
+        AI: {
+          gateway: () => ({ getUrl }),
+          run,
+        } as unknown as Ai,
+      },
+      {
+        model: "gemini-test",
+        imageDataUrls: ["data:image/png;base64,AQID"],
+        prompt: "Analyze",
+        responseSchema: { type: "object" },
+        maxOutputTokens: 100,
+        legacyWorkersAiInput,
+      },
+    );
+
+    expect(result).toEqual({ response: '{"quality":"pass"}' });
+    expect(run).toHaveBeenCalledWith(
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      legacyWorkersAiInput,
+    );
+  });
+
+  it("builds a Workers AI schema request for critique fallback", async () => {
+    const run = vi.fn(async () => ({ response: "{}" }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: "User location is not supported for the API use.",
+              status: "INVALID_ARGUMENT",
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    await generateGeminiStructuredJson(
+      {
+        ...env,
+        AI: { run } as unknown as Ai,
+      },
+      {
+        model: "gemini-test",
+        imageDataUrls: ["data:image/png;base64,AQID"],
+        imageLabels: ["Source portrait:"],
+        prompt: "Critique",
+        responseSchema: { type: "object", properties: {} },
+        maxOutputTokens: 100,
+      },
+    );
+
+    const input = run.mock.calls[0][1] as Record<string, unknown>;
+    expect(run.mock.calls[0][0]).toBe(
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+    );
+    expect(input).toMatchObject({
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "minecraft_skin_structured_fallback" },
+      },
+    });
+  });
+
   it("sends multimodal structured-output requests server-side", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({

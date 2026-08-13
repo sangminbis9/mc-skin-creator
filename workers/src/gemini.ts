@@ -3,6 +3,8 @@ import type { Env } from "./types";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_GATEWAY_ID = "default";
+const DEFAULT_WORKERS_VISION_MODEL =
+  "@cf/meta/llama-4-scout-17b-16e-instruct";
 const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 const DEFAULT_IMAGE_TIMEOUT_MS = 120_000;
 
@@ -108,6 +110,64 @@ async function geminiApiBase(env: Env): Promise<string> {
   return GEMINI_API_BASE;
 }
 
+function workersAiStructuredInput(
+  request: GeminiStructuredRequest,
+): Record<string, unknown> {
+  if (request.legacyWorkersAiInput) return request.legacyWorkersAiInput;
+  return {
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...request.imageDataUrls.map((url, index) => ({
+            type: "image_url",
+            image_url: { url },
+            ...(request.imageLabels?.[index]
+              ? { label: request.imageLabels[index] }
+              : {}),
+          })),
+          { type: "text", text: request.prompt },
+        ],
+      },
+    ],
+    max_tokens: request.maxOutputTokens,
+    temperature: 0,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "minecraft_skin_structured_fallback",
+        description:
+          "Structured portrait analysis or rendered-skin critique for a Minecraft skin",
+        schema: request.responseSchema,
+      },
+    },
+  };
+}
+
+function shouldUseWorkersAiFallback(error: unknown): boolean {
+  if (!(error instanceof GeminiApiError)) return false;
+  return (
+    error.status === 401 ||
+    error.status === 403 ||
+    /user location is not supported|unauthorized/i.test(error.message)
+  );
+}
+
+async function runWorkersAiStructuredFallback(
+  env: Env,
+  request: GeminiStructuredRequest,
+): Promise<unknown> {
+  if (!env.AI) {
+    throw new GeminiApiError("Workers AI binding is not configured", 500);
+  }
+  const model =
+    env.WORKERS_VISION_MODEL?.trim() || DEFAULT_WORKERS_VISION_MODEL;
+  return env.AI.run(
+    model as never,
+    workersAiStructuredInput(request) as never,
+  );
+}
+
 function requestTimeoutMs(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0
@@ -185,7 +245,8 @@ export async function generateGeminiStructuredJson(
   env: Env,
   request: GeminiStructuredRequest,
 ): Promise<unknown> {
-  // Production has no AI binding. This branch is only a local test seam.
+  // Preserve the original no-key test/local seam. Production has both the
+  // encrypted Gemini key and an account-internal Workers AI fallback.
   if (!env.GEMINI_API_KEY && env.AI && request.legacyWorkersAiInput) {
     return env.AI.run(
       request.model as never,
@@ -225,65 +286,72 @@ export async function generateGeminiStructuredJson(
       },
     },
   ]);
-  const apiBase = await geminiApiBase(env);
-  const response = await fetchGemini(
-    `${apiBase}/models/${encodeURIComponent(request.model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": requireApiKey(env),
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [...imageParts, { text: request.prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: request.maxOutputTokens,
-          // Gemini 3 defaults to medium thinking. Low is sufficient for
-          // extraction and leaves the output budget for the large schema.
-          thinkingConfig: { thinkingLevel: "LOW" },
-          responseMimeType: "application/json",
-          responseJsonSchema: request.responseSchema,
+  try {
+    const apiBase = await geminiApiBase(env);
+    const response = await fetchGemini(
+      `${apiBase}/models/${encodeURIComponent(request.model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": requireApiKey(env),
         },
-      }),
-    },
-    requestTimeoutMs(
-      env.GEMINI_STRUCTURED_TIMEOUT_MS,
-      DEFAULT_STRUCTURED_TIMEOUT_MS,
-    ),
-    `Gemini structured request (${request.model})`,
-  );
-  const payload =
-    await parseGeminiResponse<GeminiGenerateContentResponse>(response);
-  const output = payload.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text || "")
-    .join("")
-    .trim();
-  if (!output) {
-    const blocked = payload.promptFeedback?.blockReason;
-    throw new GeminiApiError(
-      blocked
-        ? `Gemini blocked the prompt: ${blocked}`
-        : "Gemini returned no JSON",
-      502,
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [...imageParts, { text: request.prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: request.maxOutputTokens,
+            // Gemini 3 defaults to medium thinking. Low is sufficient for
+            // extraction and leaves the output budget for the large schema.
+            thinkingConfig: { thinkingLevel: "LOW" },
+            responseMimeType: "application/json",
+            responseJsonSchema: request.responseSchema,
+          },
+        }),
+      },
+      requestTimeoutMs(
+        env.GEMINI_STRUCTURED_TIMEOUT_MS,
+        DEFAULT_STRUCTURED_TIMEOUT_MS,
+      ),
+      `Gemini structured request (${request.model})`,
     );
+    const payload =
+      await parseGeminiResponse<GeminiGenerateContentResponse>(response);
+    const output = payload.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text || "")
+      .join("")
+      .trim();
+    if (!output) {
+      const blocked = payload.promptFeedback?.blockReason;
+      throw new GeminiApiError(
+        blocked
+          ? `Gemini blocked the prompt: ${blocked}`
+          : "Gemini returned no JSON",
+        502,
+      );
+    }
+    return {
+      response: output,
+      ...(payload.candidates?.[0]?.finishReason
+        ? { finishReason: payload.candidates[0].finishReason }
+        : {}),
+      usage: {
+        prompt_tokens: payload.usageMetadata?.promptTokenCount,
+        completion_tokens: payload.usageMetadata?.candidatesTokenCount,
+        total_tokens: payload.usageMetadata?.totalTokenCount,
+      },
+    };
+  } catch (error) {
+    if (env.AI && shouldUseWorkersAiFallback(error)) {
+      return runWorkersAiStructuredFallback(env, request);
+    }
+    throw error;
   }
-  return {
-    response: output,
-    ...(payload.candidates?.[0]?.finishReason
-      ? { finishReason: payload.candidates[0].finishReason }
-      : {}),
-    usage: {
-      prompt_tokens: payload.usageMetadata?.promptTokenCount,
-      completion_tokens: payload.usageMetadata?.candidatesTokenCount,
-      total_tokens: payload.usageMetadata?.totalTokenCount,
-    },
-  };
 }
 
 export interface GeminiImageRequest {

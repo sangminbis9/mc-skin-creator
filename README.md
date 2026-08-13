@@ -123,6 +123,7 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 | --- | --- |
 | `VITE_API_BASE_URL` | Cloudflare Worker API 주소 (예: `https://mc-skin-creator-api.xxx.workers.dev`) |
 | `GEMINI_API_KEY` | Worker 전용 Gemini API 키. 로컬은 `workers/.dev.vars`, 운영은 Wrangler secret 사용 |
+| `WORKERS_VISION_MODEL` | Gemini가 Cloudflare 실행 위치 또는 Gateway 인증을 거부할 때 사용하는 계정 내부 멀티모달 분석 모델 (기본 `@cf/meta/llama-4-scout-17b-16e-instruct`) |
 | `VISION_MODEL` | 사진 분석 모델 (기본 `gemini-3.6-flash`) |
 | `GEMINI_IMAGE_MODEL` | 이미지 생성 모델 (기본 `gemini-3.1-flash-image`, 이미지 quota/결제 필요) |
 | `GEMINI_IMAGE_FALLBACK_MODEL` | 기본 이미지 모델의 할당량이 닫혔거나 모델을 사용할 수 없을 때만 시도하는 폴백 (기본 `gemini-3.1-flash-lite-image`) |
@@ -135,6 +136,7 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 - KV 사용량 게이지는 앱 내부의 보수적 예상치이며 Gemini 결제/쿼터 화면을 대체하지 않습니다.
 - Gemini의 실제 가격·요청 한도는 선택한 모델과 Google AI 프로젝트 설정을 따릅니다.
 - 이미지 모델 quota가 0이어도 사진 분석과 검증된 절차적 스킨 fallback은 계속 동작합니다.
+- Gemini가 실행 위치나 Gateway 인증을 거부하면 구조화 사진 분석·비평은 Workers AI로 전환되고, 이미지 생성 실패는 검증된 절차적 UV 렌더러가 처리합니다.
 - 일시적인 rate limit은 일일 소진과 구분하며 앱 전체 quota를 닫지 않습니다.
 - 일일 quota 차단은 Gemini 정책에 맞춰 **미국 Pacific 자정**에 리셋됩니다.
 - 실제 Gemini 한도와 비용은 Google AI Studio 또는 Google Cloud 콘솔에서 확인하세요.

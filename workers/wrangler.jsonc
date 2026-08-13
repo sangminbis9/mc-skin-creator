@@ -14,6 +14,9 @@
     // Separate model quota keeps analysis/critique available when the small
     // Gemini 3.6 free request bucket is temporarily exhausted.
     "VISION_FALLBACK_MODEL": "gemini-3.1-flash-lite",
+    // Account-internal multimodal fallback when Google rejects Cloudflare's
+    // egress location or the provider-native gateway cannot authenticate.
+    "WORKERS_VISION_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
     "GEMINI_STRUCTURED_TIMEOUT_MS": "45000",
     "GEMINI_IMAGE_TIMEOUT_MS": "120000",
     "GEMINI_IMAGE_MODEL": "gemini-3.1-flash-image",

@@ -12,6 +12,8 @@ interface EnvOverrides {
   VISION_MODEL?: string;
   /** Secondary multimodal model used when the primary model fails or returns invalid JSON. */
   VISION_FALLBACK_MODEL?: string;
+  /** Cloudflare-native multimodal fallback for Gemini region/gateway failures. */
+  WORKERS_VISION_MODEL?: string;
   /** Per-request deadline for Gemini structured analysis and critique. */
   GEMINI_STRUCTURED_TIMEOUT_MS?: string;
   /** Per-request deadline for Gemini image generation. */
