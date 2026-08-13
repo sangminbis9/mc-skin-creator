@@ -328,6 +328,7 @@ export interface AtlasCraftStyle {
   bangsLength?: string;
   fringeOpening?: string;
   hairstyle?: string;
+  hairTexture?: string;
   hat?: string;
   sideHairLength?: string;
   sideHairShape?: string;
@@ -851,7 +852,19 @@ export function validateAtlasCraft(
           `head side-hair seams are not continuous (breaks ${headVerticalBreaks}, colour distance ${headVerticalColorDistance.toFixed(1)})`,
         );
       }
-      if (metrics.overlayHorizontalSeamMismatchesByPart.head > 20) {
+      // A few open underside pixels are valid around exposed ears/neck and a
+      // sparse flower can add intentional top-face edges. Curly/coily locks
+      // reaching the cheek or lower need the stricter limit because their
+      // bottom row is visible as side volume; other styles retain a small
+      // allowance for those authored cut-outs.
+      const headHorizontalMismatchLimit =
+        ["curly", "coily"].includes(value(style.hairTexture)) && longSideHair
+          ? 8
+          : 12;
+      if (
+        metrics.overlayHorizontalSeamMismatchesByPart.head >
+        headHorizontalMismatchLimit
+      ) {
         problems.push(
           `head crown and side hair are disconnected (${metrics.overlayHorizontalSeamMismatchesByPart.head})`,
         );

@@ -526,19 +526,22 @@ function reconcileOverlaySeams(
       style.hairstyle === "long" ||
       style.hairBackShape === "long" ||
       style.sideHairLength === "shoulder";
+    const extendedSideHair = ["cheek", "jaw", "shoulder"].includes(
+      style.sideHairLength ?? "none",
+    );
     const hairTolerance =
       style.hairTexture === "curly" || style.hairTexture === "coily"
         ? 220
         : 150;
     const continuesHair =
-      longHair &&
       hairDistance <= hairTolerance &&
-      ((topSeam &&
+      ((longHair &&
+        topSeam &&
         (part === "head" ||
           part === "body" ||
           part === "rightArm" ||
           part === "leftArm")) ||
-        (bottomSeam && part === "head"));
+        (bottomSeam && part === "head" && extendedSideHair));
     const styledHair = !["none", "bald", "buzz"].includes(
       style.hairstyle ?? "none",
     );

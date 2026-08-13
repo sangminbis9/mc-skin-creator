@@ -290,6 +290,37 @@ describe("handcrafted atlas quality metrics", () => {
       validateAtlasCraft(brokenHairEdge, style).problems.join(" / "),
     ).toContain("head side-hair seams are not continuous");
 
+    const brokenHairCrown = {
+      ...source,
+      rgba: new Uint8Array(source.rgba),
+    };
+    const headHorizontal = getBoxUvSeams(
+      CLASSIC_LAYOUT.head.overlay,
+    ).horizontal;
+    let clearedHeadEdges = 0;
+    for (const seam of headHorizontal) {
+      for (let index = 0; index < seam.primary.length; index++) {
+        const primary = seam.primary[index];
+        const adjacent = seam.adjacent[index];
+        const primaryOffset = (primary.y * ATLAS_SIZE + primary.x) * 4;
+        const adjacentOffset = (adjacent.y * ATLAS_SIZE + adjacent.x) * 4;
+        if (
+          brokenHairCrown.rgba[primaryOffset + 3] === 0 ||
+          brokenHairCrown.rgba[adjacentOffset + 3] === 0
+        ) {
+          continue;
+        }
+        brokenHairCrown.rgba[adjacentOffset + 3] = 0;
+        clearedHeadEdges++;
+        if (clearedHeadEdges >= 16) break;
+      }
+      if (clearedHeadEdges >= 16) break;
+    }
+    expect(clearedHeadEdges).toBeGreaterThan(12);
+    expect(
+      validateAtlasCraft(brokenHairCrown, style).problems.join(" / "),
+    ).toContain("head crown and side hair are disconnected");
+
     const missingHorizontalFaces = {
       ...source,
       rgba: new Uint8Array(source.rgba),

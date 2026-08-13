@@ -1265,6 +1265,59 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("curly jaw-length side hair closes every hair-coloured lower head seam", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairColor: "#3b2a24",
+      skinTone: "#d9a17f",
+      hairstyle: "curly",
+      bangs: "curly",
+      bangsLength: "brow",
+      hairTexture: "curly",
+      hairVolume: "full",
+      hairSilhouette: "rounded",
+      hairBackShape: "rounded",
+      sideHairLength: "jaw",
+      sideHairShape: "flared",
+    })!.atlas;
+    const bottomSeams = getBoxUvSeams(
+      CLASSIC_LAYOUT.head.overlay,
+    ).horizontal.slice(4);
+    const declaredHair = [0x3b, 0x2a, 0x24] as const;
+    const resemblesHair = (offset: number) =>
+      Math.abs(atlas.rgba[offset] - declaredHair[0]) +
+        Math.abs(atlas.rgba[offset + 1] - declaredHair[1]) +
+        Math.abs(atlas.rgba[offset + 2] - declaredHair[2]) <=
+      160;
+    let occupiedPairs = 0;
+    let mismatches = 0;
+
+    for (const seam of bottomSeams) {
+      for (let index = 0; index < seam.primary.length; index++) {
+        const primary = seam.primary[index];
+        const adjacent = seam.adjacent[index];
+        const primaryAlpha =
+          atlas.rgba[(primary.y * ATLAS_SIZE + primary.x) * 4 + 3];
+        const adjacentAlpha =
+          atlas.rgba[(adjacent.y * ATLAS_SIZE + adjacent.x) * 4 + 3];
+        if (adjacentAlpha !== primaryAlpha) {
+          mismatches++;
+          const opaque = primaryAlpha === 0 ? adjacent : primary;
+          const opaqueOffset = (opaque.y * ATLAS_SIZE + opaque.x) * 4;
+          // A transparent underside is intentional beneath exposed skin, but
+          // an actual curl must wrap onto the physical bottom face.
+          expect(resemblesHair(opaqueOffset)).toBe(false);
+        }
+        if (primaryAlpha !== 0) occupiedPairs++;
+      }
+    }
+
+    expect(occupiedPairs).toBeGreaterThanOrEqual(8);
+    expect(mismatches).toBeLessThanOrEqual(4);
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("short face-framing, flared and undercut profiles keep distinct connected side layers", () => {
     const makeShape = (sideHairShape: "face_framing" | "flared" | "undercut") =>
       packFrontViewToAtlas(makeFrontView(), {
