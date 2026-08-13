@@ -2939,15 +2939,15 @@ function composeHair(
       const longBackBaseRows = [
         [0, 1, 2, 3, 4, 5, 6, 7],
         [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6, 7],
         [1, 2, 3, 4, 5, 6],
         [1, 2, 3, 4, 5, 6],
+        [1, 2, 3, 4, 5],
+        [2, 3, 4, 5, 6],
+        [1, 2, 3, 4, 5, 6],
+        [1, 2, 3, 4, 5],
+        [2, 3, 4, 5, 6],
         [2, 3, 4, 5],
+        [2, 3, 4],
         [3, 4],
       ] as const;
       const longBackOuterRows = [
@@ -2975,11 +2975,12 @@ function composeHair(
         [0, 3, 4, 7],
       ] as const;
       if (hairBackShape === "long") {
-        // A handcrafted long-hair back uses the torso base for the continuous
-        // mass and reserves the raised layer for sparse shade ribbons. The
-        // previous nearly opaque (95/96 px) outer face hid both the base and
-        // cardigan construction, reading as a flat floating slab in rear and
-        // three-quarter views.
+        // A handcrafted long-hair back uses the torso base for a connected,
+        // tapered mass and reserves the raised layer for sparse shade ribbons.
+        // Keep the first two shoulder rows broad, then expose alternating
+        // garment margins so waist-length hair does not become another flat
+        // 8x8 rectangle. Every successive row still overlaps the previous one,
+        // preserving one continuous rear flow into the two-pixel tip.
         for (let y = 0; y < Math.min(torsoHairRows, bodyBase.back.h); y++) {
           for (let x = 0; x < bodyOver.back.w; x++)
             clearPixel(bodyOver.back, x, y);

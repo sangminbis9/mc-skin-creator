@@ -1,7 +1,13 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { decodePng } from "../src/png";
+import { decodePng, encodePng } from "../src/png";
 import { measureAtlasCraft, validateAtlasCraft } from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
+import {
+  buildSkinViewMontage,
+  renderSkinViews,
+} from "../src/skinRender";
 import { REFERENCE_SKIN_BASE64 } from "./fixtures/referenceSkin";
 import { makeFrontView } from "./helpers";
 import {
@@ -131,6 +137,22 @@ describe("handcrafted atlas quality metrics", () => {
     ).toBeGreaterThan(
       channelAt(procedural, proceduralBody.base.back, 4, 4, 1) + 15,
     );
+    // The shoulder stays broad, but the rear mass must start tapering by the
+    // third torso row. Leaving both edges hair-coloured through row seven made
+    // long hair read as a rigid rectangular cape from back and side views.
+    expect(
+      channelAt(procedural, proceduralBody.base.back, 0, 0, 0),
+    ).toBeLessThan(125);
+    expect(
+      channelAt(procedural, proceduralBody.base.back, 0, 4, 0),
+    ).toBeGreaterThan(
+      channelAt(procedural, proceduralBody.base.back, 4, 4, 0) + 10,
+    );
+    expect(
+      channelAt(procedural, proceduralBody.base.back, 7, 6, 0),
+    ).toBeGreaterThan(
+      channelAt(procedural, proceduralBody.base.back, 4, 6, 0) + 10,
+    );
     // The final seam pass adds only the perimeter of the hidden underside;
     // keep enough room for that connected hem without allowing solid faces.
     expect(proceduralMetrics.overlayPixelsByPart.body).toBeLessThanOrEqual(295);
@@ -173,6 +195,21 @@ describe("handcrafted atlas quality metrics", () => {
     expect(
       proceduralMetrics.baseHorizontalSeamColorDistance,
     ).toBeLessThanOrEqual(200);
+
+    const artifactDir = process.env.CRAFT_ARTIFACT_DIR?.trim();
+    if (artifactDir) {
+      await mkdir(artifactDir, { recursive: true });
+      await Promise.all([
+        writeFile(
+          join(artifactDir, "reference-style-atlas.png"),
+          await encodePng(procedural),
+        ),
+        writeFile(
+          join(artifactDir, "reference-style-six-view.png"),
+          await encodePng(buildSkinViewMontage(renderSkinViews(procedural))),
+        ),
+      ]);
+    }
 
     const compactMale = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
