@@ -105,13 +105,34 @@ function assignmentsForFeature(
   }));
 }
 
+function usableInference(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^(?:null|none|unknown|not[-\s]+visible|n\/?a)$/i.test(trimmed)
+    ? null
+    : trimmed;
+}
+
+function describeStructuredLowerBody(analysis: PhotoAnalysis): string | null {
+  const design = analysis.inferred.lowerBodyDesign;
+  if (!design) return null;
+  const accent =
+    design.bottomAccent === "none" ? "" : ` with ${design.bottomAccent}`;
+  const legwear =
+    design.legwear === "none"
+      ? "no separate legwear"
+      : `${design.legwearAsymmetry} ${design.legwear}`;
+  return `${design.bottomPattern} ${design.bottomType}${accent}, ${legwear}, and ${design.shoeStyle}; ${design.rationale}`;
+}
+
 export function buildSkinPlan(analysis: PhotoAnalysis): SkinPlan {
   const assignments = analysis.canonicalIdentity.features
     .slice()
     .sort((a, b) => b.priority - a.priority)
     .flatMap(assignmentsForFeature);
   const lower =
-    analysis.inferred.lowerBody?.value ||
+    usableInference(analysis.inferred.lowerBody?.value) ||
+    describeStructuredLowerBody(analysis) ||
     analysis.inferred.lowerBodyDesign?.rationale ||
     analysis.outfitPrompt;
   const hiddenSurfaces: HiddenSurfacePlan[] = [

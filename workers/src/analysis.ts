@@ -1911,7 +1911,9 @@ Hair:
 - Classify overallHairLength from the lowest substantial visible lock relative to the ear, jaw, neck and physical shoulder seam. Correct for head tilt and slanted shoulders by mentally rotating the head upright and comparing each lock with its same-side anatomical landmarks; do not use raw screen y-position. Curly hair that flares widely around the head but ends above the shoulder is ear- or jaw-length, not shoulder-length. Use shoulder only when multiple substantial locks visibly touch or overlap the shoulder seam.
 - A short two-block, bowl-like or ear-length cut with a domed top and tapered/ear-hugging sides is rounded unless the crown itself is visibly flat, boxy or close-cropped.
 - Trace continuity from crown to temple to sideburn/ear on both sides. sideHairShape describes that contour; earExposure describes the visible ear opening rather than hair length.
-- Classify fringe density, edge, opening and part from the visible construction, not isolated highlight strands.
+- Measure bangsLength from the lowest substantial front-fringe tips against the upper forehead, eyebrow line and eye aperture. A short overall haircut can still have brow- or eye-length bangs; never reuse overallHairLength for bangsLength.
+- Classify fringe density, edge and opening from the visible construction, not isolated highlight strands. A few narrow gaps between dense blunt tips do not make the fringe short or sparse.
+- Set hairPart only when a visible scalp/root line or coherent root direction proves it. Do not turn a gap between bang tips, a highlight, or a shadow channel into a center part; use none when dense fringe hides the roots.
 - Use low confidence when the crop does not clearly show a feature.
 
 Neck detail:

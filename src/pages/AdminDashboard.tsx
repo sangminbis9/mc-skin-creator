@@ -51,11 +51,13 @@ export function AdminDashboard() {
         <>
           <PixelPanel>
             <div className="px-row" style={{ justifyContent: "space-between" }}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>AI 생성 한도</span>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>
+                AI 생성 한도
+              </span>
               {stats.quota.level === "closed" ? (
                 <PixelBadge tone="red">오늘 마감</PixelBadge>
               ) : stats.quota.level === "almost" ? (
-                <PixelBadge tone="gold">거의 마감</PixelBadge>
+                <PixelBadge tone="gold">사용량 높음</PixelBadge>
               ) : (
                 <PixelBadge tone="green">생성 가능</PixelBadge>
               )}
@@ -73,8 +75,9 @@ export function AdminDashboard() {
               />
             </div>
             <p className="px-caption" style={{ margin: 0 }}>
-              사용률 {Math.round(stats.quota.usedRatio * 100)}% · 예상 남은 생성{" "}
-              {stats.quota.remainingGenerations}회
+              {stats.quota.capacityBasis === "local_estimate"
+                ? `로컬 추정 사용률 ${Math.round(stats.quota.usedRatio * 100)}% · 실제 제공자 소진 전까지 요청 허용`
+                : "Cloudflare가 오늘 무료 AI 한도 소진을 보고함"}
               <br />
               다음 리셋: {formatResetTime(stats.quota.resetAtIso)}
             </p>
@@ -97,7 +100,11 @@ export function AdminDashboard() {
             />
             <StatCard label="광고 노출" value={stats.adImpressions} icon="📺" />
             <StatCard label="공유 클릭" value={stats.shareClicks} icon="📤" />
-            <StatCard label="공유 링크 생성" value={stats.shareLinks} icon="🔗" />
+            <StatCard
+              label="공유 링크 생성"
+              value={stats.shareLinks}
+              icon="🔗"
+            />
             <StatCard label="다운로드" value={stats.downloads} icon="⬇️" />
           </div>
 
@@ -107,7 +114,11 @@ export function AdminDashboard() {
         </>
       )}
 
-      <a href="#/" className="px-btn px-btn--stone" style={{ textDecoration: "none" }}>
+      <a
+        href="#/"
+        className="px-btn px-btn--stone"
+        style={{ textDecoration: "none" }}
+      >
         앱으로 돌아가기
       </a>
     </div>

@@ -21,7 +21,10 @@ interface UploadPageProps {
   onQuotaClosed: (quota: QuotaStatus | null) => void;
 }
 
-export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) {
+export function UploadPage({
+  onPhotoSelected,
+  onQuotaClosed,
+}: UploadPageProps) {
   const [agreed, setAgreed] = useState(false);
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [albumSupported, setAlbumSupported] = useState(false);
@@ -105,15 +108,13 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
         ) : quota.level === "closed" ? (
           <PixelBadge tone="red">오늘 생성 마감</PixelBadge>
         ) : quota.level === "almost" ? (
-          <PixelBadge tone="gold">
-            생성 가능 예상 · 약 {quota.remainingGenerations}회
-          </PixelBadge>
+          <PixelBadge tone="gold">생성 가능 · 무료 한도 사용 중</PixelBadge>
         ) : (
           <PixelBadge tone="green">생성 가능 예상</PixelBadge>
         )}
         {quota?.capacityBasis === "local_estimate" && (
           <p className="px-caption" style={{ margin: "6px 0 0" }}>
-            실제 AI 한도는 생성 요청 때 최종 확인돼요.
+            로컬 추정치는 요청을 막지 않으며, 실제 AI 한도는 생성할 때 확인돼요.
           </p>
         )}
       </div>
@@ -144,7 +145,10 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
               무료 생성 한도는 아래 표시된 시각에 다시 열려요.
             </p>
             {quota && (
-              <p className="px-caption" style={{ marginTop: 6, color: "#ffe9c2" }}>
+              <p
+                className="px-caption"
+                style={{ marginTop: 6, color: "#ffe9c2" }}
+              >
                 다음 오픈: {formatResetTime(quota.resetAtIso)}
               </p>
             )}

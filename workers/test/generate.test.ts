@@ -1376,6 +1376,27 @@ describe("generateSkin", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("keeps an explicitly dark gray sweater charcoal instead of generic mid-gray", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        clothing: "dark gray cable-knit crewneck sweater",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topType: "sweater",
+        topColor: "gray",
+      },
+    });
+    const features = refineFeatureColorsFromAnalysis(
+      analysis,
+      fallbackFeaturesToHex(analysis.fallbackFeatures),
+    );
+
+    expect(features.topColor).toBe("#474a50");
+  });
+
   it("recovers explicit blonde hair and blue eyes from rich observed prose", async () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({
@@ -1646,6 +1667,8 @@ describe("generateSkin", () => {
       topAccentColor: "#e3c14d",
       topGraphic: true,
       topGraphicSide: "viewer_left",
+      garmentTexture: "plain",
+      sleeveLength: "short",
       matureFeatures: true,
     });
     const atlas = await decodePng(

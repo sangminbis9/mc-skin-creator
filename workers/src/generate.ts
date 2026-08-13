@@ -1857,36 +1857,30 @@ export function normalizeAnalysisForRendering(
   const focusedHairText = /focused portrait crop confirms/i.test(
     analysis.observed.hair,
   )
-    ? analysis.observed.hair
+    ? (analysis.observed.hair
         .split(/focused portrait crop confirms/i)
         .at(-1)
-        ?.toLowerCase() ?? ""
+        ?.toLowerCase() ?? "")
     : "";
   const focusedOverallHairLength:
-    | "cropped"
-    | "ear"
-    | "jaw"
-    | "shoulder"
-    | "chest"
-    | "waist"
-    | "hip"
-    | null = /\bhip[-\s]+length\b/.test(focusedHairText)
-    ? "hip"
-    : /\bwaist[-\s]+length\b/.test(focusedHairText)
-      ? "waist"
-      : /\b(?:chest|bust)[-\s]+length\b/.test(focusedHairText)
-        ? "chest"
-        : /\bshoulder[-\s]+length\b/.test(focusedHairText)
-          ? "shoulder"
-          : /\b(?:jaw|chin)[-\s]+length\b/.test(focusedHairText)
-            ? "jaw"
-            : /\bear[-\s]+length\b|\breaching approximately ear length\b/.test(
-                  focusedHairText,
-                )
-              ? "ear"
-              : /\b(?:cropped|buzzed|shaved)\b/.test(focusedHairText)
-                ? "cropped"
-                : null;
+    "cropped" | "ear" | "jaw" | "shoulder" | "chest" | "waist" | "hip" | null =
+    /\bhip[-\s]+length\b/.test(focusedHairText)
+      ? "hip"
+      : /\bwaist[-\s]+length\b/.test(focusedHairText)
+        ? "waist"
+        : /\b(?:chest|bust)[-\s]+length\b/.test(focusedHairText)
+          ? "chest"
+          : /\bshoulder[-\s]+length\b/.test(focusedHairText)
+            ? "shoulder"
+            : /\b(?:jaw|chin)[-\s]+length\b/.test(focusedHairText)
+              ? "jaw"
+              : /\bear[-\s]+length\b|\breaching approximately ear length\b/.test(
+                    focusedHairText,
+                  )
+                ? "ear"
+                : /\b(?:cropped|buzzed|shaved)\b/.test(focusedHairText)
+                  ? "cropped"
+                  : null;
   const shoulderSideHair =
     /\b(?:shoulder[-\s]+length|to[-\s]+the[-\s]+shoulders?|over[-\s]+the[-\s]+shoulders?|past[-\s]+the[-\s]+shoulders?)\b/.test(
       hairEndpointText,
@@ -2437,8 +2431,18 @@ export function refineFeatureColorsFromAnalysis(
         4,
       ))
     : null;
+  const observedTopText = joinedAnalysisText([analysis.observed.clothing]);
+  const observedTopColor =
+    recoverNamedColorBeforeItem(
+      observedTopText,
+      dominantTopGarmentPattern,
+      5,
+    ) ??
+    recoverNamedColorNearItem(observedTopText, dominantTopGarmentPattern) ??
+    recoverNamedColorNearItem(observedTopText, topGarmentPattern);
   const recoveredTopColor =
     recoveredOuterGarmentColor ??
+    observedTopColor ??
     recoverNamedColorBeforeItem(topText, dominantTopGarmentPattern, 5) ??
     recoverNamedColorNearItem(topText, dominantTopGarmentPattern) ??
     recoverNamedColorNearItem(topText, topGarmentPattern);
@@ -2482,19 +2486,19 @@ export function refineFeatureColorsFromAnalysis(
   const darkNeutralPattern =
     "(?:dark(?:[-\\s]+colou?red)?|charcoal|monochrome|near[-\\s]+black)";
   if (
-    !recoveredTopColor &&
-    mentionsColorNearItem(topText, darkNeutralPattern, topGarmentPattern, 6)
+    mentionsColorNearItem(topText, darkNeutralPattern, topGarmentPattern, 6) &&
+    (!recoveredTopColor || recoveredTopColor === CLOTHING_COLORS.gray)
   ) {
     refined.topColor = "#474a50";
   }
   if (
-    !recoveredBottomColor &&
     mentionsColorNearItem(
       bottomText,
       darkNeutralPattern,
       lowerGarmentPattern,
       6,
-    )
+    ) &&
+    (!recoveredBottomColor || recoveredBottomColor === CLOTHING_COLORS.gray)
   ) {
     refined.bottomColor = "#2e343b";
   }
@@ -2848,6 +2852,10 @@ function completeVisibleUpperDetails(
     )
   ) {
     style.topType = "jersey";
+    // A stale generic texture hint must not turn visible athletic mesh into a
+    // cable-knit sweater. Jersey-specific vent/fold clusters are authored by
+    // the skin packer, so plain is the correct neutral starting point.
+    style.garmentTexture = "plain";
     if (style.outerLayer === "none") style.outerLayer = "light";
     const graphicPattern =
       /\b(?:graphic|badge|emblem|crest|patch|logo|chest[-\s]+mark(?:ing)?)s?\b/;
@@ -2886,8 +2894,10 @@ function completeVisibleUpperDetails(
     style.garmentTexture = "patterned";
   }
 
-  if (
-    /\b(long sleeve|long-sleeve|long sleeves|sleeved cardigan|sleeved jacket)\b/.test(
+  if (/\bshort[-\s]+sleeve(?:d|s)?\b/.test(upperText)) {
+    style.sleeveLength = "short";
+  } else if (
+    /\b(?:long[-\s]+sleeve(?:d|s)?|sleeved cardigan|sleeved jacket)\b/.test(
       upperText,
     )
   ) {

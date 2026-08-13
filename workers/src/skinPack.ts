@@ -490,6 +490,16 @@ function reconcileOverlaySeams(
   style: FaceStyle,
   hairColor: Rgb,
 ): void {
+  const jerseyAccent =
+    style.topType === "jersey" &&
+    typeof style.topAccentColor === "string" &&
+    /^#[0-9a-f]{6}$/i.test(style.topAccentColor)
+      ? hexToRgb(style.topAccentColor, [0, 0, 0])
+      : null;
+  const colorDistance = (pixelIndex: number, color: Rgb) =>
+    Math.abs(atlas.rgba[pixelIndex] - color[0]) +
+    Math.abs(atlas.rgba[pixelIndex + 1] - color[1]) +
+    Math.abs(atlas.rgba[pixelIndex + 2] - color[2]);
   const copyPixel = (source: PixelPoint, target: PixelPoint) => {
     const sourceIndex = (source.y * ATLAS_SIZE + source.x) * 4;
     const targetIndex = (target.y * ATLAS_SIZE + target.x) * 4;
@@ -611,6 +621,25 @@ function reconcileOverlaySeams(
           continue;
         }
         if (adjacentOpaque) {
+          // A jersey's shoulder stripe or marking is an authored identity cue,
+          // not generic cloth shading. When it reaches the top edge, carry the
+          // accent around the physical shoulder instead of averaging it back
+          // into the shirt colour during seam reconciliation.
+          const jerseyShoulderSeam =
+            jerseyAccent !== null &&
+            seamIndex < 4 &&
+            (part === "body" || part === "rightArm" || part === "leftArm");
+          if (jerseyShoulderSeam) {
+            const primaryIsAccent =
+              colorDistance(primaryIndex, jerseyAccent) <= 84;
+            const adjacentIsAccent =
+              colorDistance(adjacentIndex, jerseyAccent) <= 84;
+            if (primaryIsAccent !== adjacentIsAccent) {
+              if (primaryIsAccent) copyPixel(primary, adjacent);
+              else copyPixel(adjacent, primary);
+              continue;
+            }
+          }
           const preservesAuthoredSole =
             seamIndex >= 4 && (part === "rightLeg" || part === "leftLeg");
           if (!preservesAuthoredSole) blendPixel(primary, adjacent, 0.65);
@@ -633,9 +662,7 @@ function reconcileOverlaySeams(
  */
 function reconcileBaseHorizontalSeams(atlas: RawImage): void {
   for (const part of ALL_PARTS) {
-    const horizontalSeams = getBoxUvSeams(
-      CLASSIC_LAYOUT[part].base,
-    ).horizontal;
+    const horizontalSeams = getBoxUvSeams(CLASSIC_LAYOUT[part].base).horizontal;
     const authoredSeams =
       part === "rightLeg" || part === "leftLeg"
         ? horizontalSeams.slice(0, 4)
@@ -1519,11 +1546,7 @@ function composeFace(
         put(overlay, 5, 5, shadeRgb(smileCorner, 0.96));
         put(overlay, 2, 6, mixRgb(mouthCorner, skinColor, 0.48));
         for (let x = 3; x <= 4; x++) {
-          const softenedTeeth = mixRgb(
-            teeth,
-            skinColor,
-            x === 3 ? 0.08 : 0.2,
-          );
+          const softenedTeeth = mixRgb(teeth, skinColor, x === 3 ? 0.08 : 0.2);
           put(overlay, x, 6, softenedTeeth);
         }
         put(overlay, 5, 6, mixRgb(mouthCorner, skinColor, 0.5));
@@ -4133,13 +4156,13 @@ function composeHair(
               [0, 1, 6, 7],
               [0, 7],
             ]
-        : Array.from({ length: 8 }, (_, y) =>
-            y === 0
-              ? [0, 1, 2, 5, 6, 7]
-              : y === 7
-                ? [0, 1, 3, 4, 6, 7]
-                : [0, 1, y % 2 === 0 ? 2 : 5, 6, 7],
-          );
+          : Array.from({ length: 8 }, (_, y) =>
+              y === 0
+                ? [0, 1, 2, 5, 6, 7]
+                : y === 7
+                  ? [0, 1, 3, 4, 6, 7]
+                  : [0, 1, y % 2 === 0 ? 2 : 5, 6, 7],
+            );
     if (sideHairShape === "face_framing" || sideHairShape === "flared") {
       // Earlier detail passes intentionally leave holes for texture. On an
       // exact profile those holes became alternating isolated pixels, so
@@ -4981,9 +5004,7 @@ function composeHair(
     // to hair than skin, leaving flowers, scarves, ears and face openings
     // untouched. The seam guard below re-synchronizes every physical edge.
     const rgbDistance = (a: Rgb, b: Rgb) =>
-      Math.abs(a[0] - b[0]) +
-      Math.abs(a[1] - b[1]) +
-      Math.abs(a[2] - b[2]);
+      Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
     for (const rect of [
       over.top,
       over.front,
@@ -7364,18 +7385,32 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       // A single closed top should not inherit saturated segmentation noise
       // from the generated guide at its shoulder rim. Keep the two raised
       // shoulder rows in the analysed garment colour before tapering corners.
+      const raisedJerseyAccent =
+        topType === "jersey" && style.topAccentColor
+          ? hexToRgb(style.topAccentColor, bodyShoulderColor)
+          : null;
+      const distinctJerseyAccent =
+        raisedJerseyAccent !== null &&
+        Math.abs(raisedJerseyAccent[0] - bodyShoulderColor[0]) +
+          Math.abs(raisedJerseyAccent[1] - bodyShoulderColor[1]) +
+          Math.abs(raisedJerseyAccent[2] - bodyShoulderColor[2]) >=
+          36;
       for (const rect of [body.overlay.front, body.overlay.back]) {
         for (let y = 0; y <= 1; y++) {
           for (const x of [0, 1, rect.w - 2, rect.w - 1]) {
             const edgeDistance = Math.min(x, rect.w - 1 - x);
+            const keepsJerseyShoulderMark =
+              distinctJerseyAccent && y === 0 && edgeDistance === 1;
             put(
               rect,
               x,
               y,
-              shadeRgb(
-                bodyShoulderColor,
-                edgeDistance === 0 ? 0.82 : y === 0 ? 0.98 : 0.9,
-              ),
+              keepsJerseyShoulderMark
+                ? shadeRgb(raisedJerseyAccent, x < rect.w / 2 ? 1 : 0.9)
+                : shadeRgb(
+                    bodyShoulderColor,
+                    edgeDistance === 0 ? 0.82 : y === 0 ? 0.98 : 0.9,
+                  ),
             );
           }
         }

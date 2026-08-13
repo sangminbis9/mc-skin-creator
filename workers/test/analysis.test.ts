@@ -402,9 +402,7 @@ describe("runPortraitDetailAnalysis", () => {
     expect(PORTRAIT_DETAIL_PROMPT).toContain("teeth_visible");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("low neckConfidence");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("clothingConfidence low");
-    expect(PORTRAIT_DETAIL_PROMPT).toContain(
-      "viewer-relative location",
-    );
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("viewer-relative location");
   });
 });
 
@@ -507,6 +505,10 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("crown and temple OUTER CONTOUR");
     expect(ANALYSIS_PROMPT).toContain("Long hair is not automatically full");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("Do not call all long hair full");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain(
+      "lowest substantial front-fringe tips",
+    );
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("gap between bang tips");
     expect(ANALYSIS_PROMPT).toContain(
       "A smooth dome over staggered bangs is rounded",
     );
