@@ -94,6 +94,82 @@ describe("Gemini REST client", () => {
     );
   });
 
+  it("falls back to account-internal Workers AI when Gemini exhausts its daily quota", async () => {
+    const run = vi.fn(async () => ({
+      response: '{"quality":"pass"}',
+      usage: { prompt_tokens: 1200, completion_tokens: 180 },
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: "Gemini free-tier requests per day exhausted",
+              status: "RESOURCE_EXHAUSTED",
+            },
+          },
+          { status: 429 },
+        ),
+      ),
+    );
+
+    const result = await generateGeminiStructuredJson(
+      {
+        ...env,
+        AI: { run } as unknown as Ai,
+      },
+      {
+        model: "gemini-test",
+        imageDataUrls: ["data:image/png;base64,AQID"],
+        prompt: "Analyze",
+        responseSchema: { type: "object" },
+        maxOutputTokens: 100,
+      },
+    );
+
+    expect(result).toMatchObject({ response: '{"quality":"pass"}' });
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0][0]).toBe(
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+    );
+  });
+
+  it("falls back to Workers AI when a structured Gemini request times out", async () => {
+    const run = vi.fn(async () => ({ response: '{"quality":"pass"}' }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(
+                Object.assign(new Error("aborted"), { name: "AbortError" }),
+              ),
+            );
+          }),
+      ),
+    );
+
+    const result = await generateGeminiStructuredJson(
+      {
+        ...env,
+        GEMINI_STRUCTURED_TIMEOUT_MS: "10",
+        AI: { run } as unknown as Ai,
+      },
+      {
+        model: "gemini-stalled",
+        imageDataUrls: ["data:image/png;base64,AQID"],
+        prompt: "Analyze",
+        responseSchema: { type: "object" },
+        maxOutputTokens: 100,
+      },
+    );
+
+    expect(result).toEqual({ response: '{"quality":"pass"}' });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("builds a Workers AI schema request for critique fallback", async () => {
     const run = vi.fn(async () => ({ response: "{}" }));
     vi.stubGlobal(

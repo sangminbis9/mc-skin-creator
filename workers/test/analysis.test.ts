@@ -185,6 +185,26 @@ describe("runPhotoAnalysis", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("recognizes Cloudflare's current 3036 account-limited error", async () => {
+    const run = vi.fn(async () => {
+      throw new Error(
+        "3036: Account limited: daily free allocation of 10,000 neurons exhausted",
+      );
+    });
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "quota_exceeded",
+      attempts: 1,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it("returns invalid_response when neither model emits JSON", async () => {
     const run = vi.fn(async () => ({ response: "not-json" }));
 

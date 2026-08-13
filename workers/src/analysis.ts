@@ -2647,6 +2647,8 @@ export function isWorkersAiQuotaError(detail: string): boolean {
   const normalized = detail.toLowerCase();
   return (
     normalized.includes("4006") ||
+    normalized.includes("3036") ||
+    normalized.includes("account limited") ||
     normalized.includes("daily free allocation") ||
     (normalized.includes("neurons") && normalized.includes("used up"))
   );

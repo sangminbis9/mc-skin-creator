@@ -145,10 +145,26 @@ function workersAiStructuredInput(
 }
 
 function shouldUseWorkersAiFallback(error: unknown): boolean {
-  if (!(error instanceof GeminiApiError)) return false;
+  // A dedicated Workers AI account is the structured-analysis safety net,
+  // not only an authentication workaround. Preserve deterministic skin
+  // generation when Gemini's free request bucket, gateway, or network is
+  // temporarily unavailable. Invalid payload/schema errors remain with
+  // Gemini so a malformed application request is never hidden by a fallback.
+  if (!(error instanceof GeminiApiError)) {
+    return (
+      error instanceof TypeError ||
+      /(?:fetch failed|network|connection|socket|econnreset)/i.test(
+        error instanceof Error ? error.message : String(error),
+      )
+    );
+  }
   return (
     error.status === 401 ||
     error.status === 403 ||
+    error.status === 404 ||
+    error.status === 408 ||
+    error.status === 429 ||
+    error.status >= 500 ||
     /user location is not supported|unauthorized/i.test(error.message)
   );
 }
