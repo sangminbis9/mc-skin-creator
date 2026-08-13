@@ -4503,14 +4503,19 @@ function composeHair(
           putBackAccessory(1, 3, leaf);
           putBackAccessory(0, 4, leafDark);
           if (accessoryScale === "large") {
-            // A second, offset bloom produces the petal/centre silhouette of
-            // a large floral hairpiece. Stagger it below the crown edge and
-            // preserve a hair-coloured gap from the first bloom; placing all
-            // four colours on y=0 reads as a straight headband in 3D.
-            drawFrontMiniFlower(4, 1);
-            // One isolated crown centre distinguishes the large cluster in
-            // top/three-quarter views without restoring the full mini bloom.
-            putTopAccessory(5, 3, flowerCenter);
+            // Keep the second bloom on the same physical temple instead of
+            // stretching it across the front face. A front mini-flower at
+            // x=4 connected the left bloom to the centre fringe and turned a
+            // one-sided hairpiece into a wide pink forehead band. Four side
+            // pixels make the larger cluster readable from its owning profile
+            // and three-quarter view while the opposite view remains hair.
+            putSideAccessory(4, 4, flowerCenter);
+            putSideAccessory(3, 4, flowerPetal);
+            putSideAccessory(5, 4, flowerShade);
+            putSideAccessory(4, 3, flowerLight);
+            // Continue only the owning-side edge over the crown. Keeping this
+            // accent beside the existing x=2 cluster avoids a floral headband.
+            putTopAccessory(1, 3, flowerPetal);
           }
         }
       }

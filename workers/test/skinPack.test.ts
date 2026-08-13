@@ -3350,12 +3350,13 @@ describe("packFrontViewToAtlas", () => {
     const medium = makeFlower("medium");
     const large = makeFlower("large");
     const front = CLASSIC_LAYOUT.head.overlay.front;
+    const side = CLASSIC_LAYOUT.head.overlay.right;
     const top = CLASSIC_LAYOUT.head.overlay.top;
     const mediumLeaf = ((front.y + 1) * ATLAS_SIZE + front.x + 2) * 4;
     const largeCrownLeaf = (front.y * ATLAS_SIZE + front.x + 2) * 4;
-    const largeSecondCenter = ((front.y + 1) * ATLAS_SIZE + front.x + 4) * 4;
-    const largeSecondPetal = ((front.y + 1) * ATLAS_SIZE + front.x + 3) * 4;
-    const largeCrownCenter = ((top.y + 3) * ATLAS_SIZE + top.x + 5) * 4;
+    const largeSecondCenter = ((side.y + 4) * ATLAS_SIZE + side.x + 4) * 4;
+    const largeSecondPetal = ((side.y + 4) * ATLAS_SIZE + side.x + 3) * 4;
+    const largeCrownPetal = ((top.y + 3) * ATLAS_SIZE + top.x + 1) * 4;
 
     expect(medium.rgba[mediumLeaf + 1]).toBeGreaterThan(
       small.rgba[mediumLeaf + 1] + 25,
@@ -3372,14 +3373,22 @@ describe("packFrontViewToAtlas", () => {
     expect(large.rgba[largeSecondPetal]).toBeGreaterThan(
       large.rgba[largeSecondPetal + 2],
     );
-    expect(large.rgba[largeCrownCenter]).toBeGreaterThan(200);
-    expect(large.rgba[largeCrownCenter + 1]).toBeGreaterThan(180);
+    expect(large.rgba[largeCrownPetal]).toBeGreaterThan(
+      large.rgba[largeCrownPetal + 2],
+    );
     // Leave one hair-coloured pixel between the two front blooms so the
     // accessory does not collapse into a single rectangular colour block.
     expect(rgbaAt(large, front, 2, 1)).toEqual(rgbaAt(small, front, 2, 1));
-    // Crown leaf and second bloom are separated by a dark hair pixel, so the
-    // large accessory reads as clustered flowers instead of a coloured band.
+    // The crown leaf remains isolated from the central fringe, so the large
+    // side cluster does not create a coloured band across the front face.
     expect(rgbaAt(large, front, 3, 0)).toEqual(rgbaAt(small, front, 3, 0));
+    // Enlarging a side flower adds volume on the same physical side; it must
+    // not paint a second bloom across the centre-right fringe or opposite
+    // crown and recreate a forehead band.
+    expect(rgbaAt(large, front, 4, 1)).toEqual(
+      rgbaAt(medium, front, 4, 1),
+    );
+    expect(rgbaAt(large, top, 5, 3)).toEqual(rgbaAt(medium, top, 5, 3));
     for (let y = 2; y <= 4; y++) {
       for (let x = 3; x <= 5; x++) {
         expect(rgbaAt(large, front, x, y)).toEqual(rgbaAt(medium, front, x, y));

@@ -116,6 +116,22 @@ describe("handcrafted atlas quality metrics", () => {
     expect(opaquePixelsIn(procedural, proceduralHead.back)).toBeLessThanOrEqual(
       28,
     );
+    // A large side flower stays a physical one-sided cluster. It retains a
+    // bright centre on the owning profile while leaving the centre-right
+    // fringe and opposite crown hair-coloured instead of forming a horizontal
+    // pink band across the forehead.
+    expect(
+      channelAt(procedural, proceduralHead.front, 1, 2, 0),
+    ).toBeGreaterThan(220);
+    expect(
+      channelAt(procedural, proceduralHead.front, 4, 1, 0),
+    ).toBeLessThan(170);
+    expect(
+      channelAt(procedural, proceduralHead.right, 4, 4, 0),
+    ).toBeGreaterThan(220);
+    expect(
+      channelAt(procedural, proceduralHead.top, 5, 3, 0),
+    ).toBeLessThan(170);
     const proceduralBody = CLASSIC_LAYOUT.body;
     expect(
       opaquePixelsIn(procedural, proceduralBody.overlay.back),
@@ -200,6 +216,14 @@ describe("handcrafted atlas quality metrics", () => {
     if (artifactDir) {
       await mkdir(artifactDir, { recursive: true });
       await Promise.all([
+        writeFile(
+          join(artifactDir, "handcrafted-reference-atlas.png"),
+          await encodePng(reference),
+        ),
+        writeFile(
+          join(artifactDir, "handcrafted-reference-six-view.png"),
+          await encodePng(buildSkinViewMontage(renderSkinViews(reference))),
+        ),
         writeFile(
           join(artifactDir, "reference-style-atlas.png"),
           await encodePng(procedural),
