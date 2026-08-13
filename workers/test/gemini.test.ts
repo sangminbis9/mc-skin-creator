@@ -18,6 +18,39 @@ afterEach(() => {
 });
 
 describe("Gemini REST client", () => {
+  it("routes production requests through the account-bound AI Gateway", async () => {
+    const getUrl = vi.fn(async () =>
+      "https://gateway.ai.cloudflare.com/v1/account/default/google-ai-studio",
+    );
+    const gateway = vi.fn(() => ({ getUrl }));
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        candidates: [{ content: { parts: [{ text: "{}" }] } }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generateGeminiStructuredJson(
+      {
+        ...env,
+        AI: { gateway } as unknown as Ai,
+      },
+      {
+        model: "gemini-test",
+        imageDataUrls: ["data:image/png;base64,AQID"],
+        prompt: "Analyze",
+        responseSchema: { type: "object" },
+        maxOutputTokens: 100,
+      },
+    );
+
+    expect(gateway).toHaveBeenCalledWith("default");
+    expect(getUrl).toHaveBeenCalledWith("google-ai-studio");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://gateway.ai.cloudflare.com/v1/account/default/google-ai-studio/v1beta/models/gemini-test:generateContent",
+    );
+  });
+
   it("sends multimodal structured-output requests server-side", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({

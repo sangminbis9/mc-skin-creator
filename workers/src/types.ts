@@ -5,7 +5,7 @@
 interface EnvOverrides {
   /** Configure as a Wrangler secret, never as a public Vite variable. */
   GEMINI_API_KEY?: string;
-  /** Legacy unit-test seam; production no longer declares this binding. */
+  /** Production AI Gateway binding; tests may also use it as a legacy provider seam. */
   AI?: Ai;
   MCSKIN_KV: KVNamespace;
   /** Primary multimodal model used to turn a portrait into structured skin details. */

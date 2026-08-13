@@ -2,6 +2,7 @@ import { base64ToBytes } from "./png";
 import type { Env } from "./types";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const GEMINI_GATEWAY_ID = "default";
 const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 const DEFAULT_IMAGE_TIMEOUT_MS = 120_000;
 
@@ -88,6 +89,23 @@ function requireApiKey(env: Env): string {
     throw new GeminiApiError("GEMINI_API_KEY is not configured", 500);
   }
   return key;
+}
+
+/**
+ * Route production Gemini calls through the account-bound AI Gateway. Direct
+ * Google AI Studio calls from a Cloudflare egress POP can be rejected as an
+ * unsupported user location. The Worker AI binding authenticates the gateway
+ * subrequest without storing a second Cloudflare token, while the provider
+ * still receives the user's encrypted Google API key.
+ */
+async function geminiApiBase(env: Env): Promise<string> {
+  if (env.AI && typeof env.AI.gateway === "function") {
+    const providerBase = await env.AI
+      .gateway(GEMINI_GATEWAY_ID)
+      .getUrl("google-ai-studio");
+    return `${providerBase.replace(/\/$/, "")}/v1beta`;
+  }
+  return GEMINI_API_BASE;
 }
 
 function requestTimeoutMs(value: string | undefined, fallback: number): number {
@@ -207,8 +225,9 @@ export async function generateGeminiStructuredJson(
       },
     },
   ]);
+  const apiBase = await geminiApiBase(env);
   const response = await fetchGemini(
-    `${GEMINI_API_BASE}/models/${encodeURIComponent(request.model)}:generateContent`,
+    `${apiBase}/models/${encodeURIComponent(request.model)}:generateContent`,
     {
       method: "POST",
       headers: {
@@ -297,8 +316,9 @@ export async function generateGeminiImage(
   }));
   input.push({ type: "text", text: request.prompt });
 
+  const apiBase = await geminiApiBase(env);
   const response = await fetchGemini(
-    `${GEMINI_API_BASE}/interactions`,
+    `${apiBase}/interactions`,
     {
       method: "POST",
       headers: {
