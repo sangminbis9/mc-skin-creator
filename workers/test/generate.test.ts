@@ -1795,6 +1795,158 @@ describe("generateSkin", () => {
     expect(normalized.inferred.lowerBodyDesign?.bottomAccent).toBe("belt");
   });
 
+  it("synthesizes a detailed unseen lower body when the model returns null for a knit portrait", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        framing: "upper_body",
+        visibleRegions: {
+          ...base.visibleRegions,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "dark gray cable-knit crewneck sweater",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: null,
+          lowerBodyDesign: null,
+          shoes: null,
+        },
+        renderHints: {
+          ...base.renderHints,
+          garmentTexture: "knit",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          topType: "sweater",
+          topColor: "gray",
+          bottomType: "pants",
+          bottomColor: "black",
+          shoesColor: "black",
+        },
+        outfitPrompt: "A dark gray cable-knit crewneck sweater.",
+      }),
+    );
+
+    expect(normalized.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "jeans",
+      bottomPattern: "plain",
+      bottomAccent: "belt",
+      legwear: "socks",
+      legwearAsymmetry: "both",
+      shoeStyle: "sneakers",
+    });
+    expect(normalized.inferred.lowerBody?.value).toContain(
+      "dark blue denim jeans",
+    );
+    expect(normalized.inferred.shoes?.value).toBe(
+      "clean off-white low-top sneakers",
+    );
+    expect(normalized.outfitPrompt).toContain("readable belt");
+    expect(normalized.outfitPrompt).toContain("paired socks");
+    expect(
+      refineFeatureColorsFromAnalysis(
+        normalized,
+        fallbackFeaturesToHex(normalized.fallbackFeatures),
+      ),
+    ).toMatchObject({
+      bottomColor: "#3b5a80",
+      shoesColor: "#e8dfd1",
+    });
+  });
+
+  it("completes a missing athletic lower body with track construction instead of formalwear", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        framing: "upper_body",
+        visibleRegions: {
+          ...base.visibleRegions,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "bright red short-sleeved athletic jersey",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: null,
+          lowerBodyDesign: null,
+          shoes: null,
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          topType: "shirt",
+          bottomType: "pants",
+        },
+        outfitPrompt: "A bright red athletic jersey.",
+      }),
+    );
+
+    expect(normalized.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "pants",
+      bottomAccent: "side_stripe",
+      legwear: "none",
+      shoeStyle: "sneakers",
+    });
+    expect(normalized.outfitPrompt).toContain("dark jogger pants");
+    expect(normalized.outfitPrompt).toContain("white low-top sneakers");
+    expect(normalized.outfitPrompt).not.toMatch(/dress shoes|formal/i);
+  });
+
+  it("completes a missing bow-cardigan lower body as one coherent preppy outfit", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        framing: "upper_body",
+        visibleRegions: {
+          ...base.visibleRegions,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "soft pink cardigan over a white blouse and neck bow",
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: null,
+          lowerBodyDesign: null,
+          shoes: null,
+        },
+        renderHints: {
+          ...base.renderHints,
+          outerGarment: "cardigan",
+          neckAccessory: "bow",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+        },
+        outfitPrompt: "A soft pink cardigan, white blouse and neck bow.",
+      }),
+    );
+
+    expect(normalized.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "skirt",
+      bottomPattern: "pleated",
+      bottomAccent: "ribbon",
+      legwear: "socks",
+      legwearAsymmetry: "both",
+      shoeStyle: "dress_shoes",
+    });
+    expect(normalized.outfitPrompt).toContain("ribbon waistband");
+    expect(normalized.outfitPrompt).toContain("polished strap dress shoes");
+  });
+
   it("rejects formal hidden-lower inference that conflicts with an observed athletic shirt", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(

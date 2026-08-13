@@ -2164,6 +2164,151 @@ export function normalizeAnalysisForRendering(
       analysis.canonicalIdentity.overallImpression,
       ...analysis.canonicalIdentity.mustPreserve,
     ]);
+    const lowerValue = inferred.lowerBody?.value?.trim() ?? "";
+    const missingLowerInference =
+      !lowerDesign &&
+      (!lowerValue ||
+        /^(?:null|none|unknown|not[-\s]+visible|n\/?a)$/i.test(lowerValue));
+
+    if (missingLowerInference) {
+      const topType = analysis.fallbackFeatures.topType.toLowerCase();
+      const upperConstructionText = joinedAnalysisText([
+        analysis.observed.clothing,
+        analysis.observed.accessories,
+        analysis.outfitPrompt,
+        analysis.canonicalIdentity.overallImpression,
+      ]);
+      const preppyTop =
+        (renderHints.outerGarment === "cardigan" ||
+          renderHints.outerGarment === "vest") &&
+        (renderHints.neckAccessory === "bow" ||
+          renderHints.neckAccessory === "collar");
+      const tailoredTop =
+        topType === "jacket" ||
+        renderHints.neckAccessory === "tie" ||
+        renderHints.outerGarment === "open_jacket" ||
+        renderHints.outerGarment === "coat" ||
+        (topType === "shirt" &&
+          /\b(?:dress|formal|collared|button[-\s]+down|tailored)\b/.test(
+            upperConstructionText,
+          ));
+      const athleticTop =
+        /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|top|jersey|jacket)|\bjersey\b/.test(
+          upperConstructionText,
+        );
+      const knitTop =
+        topType === "sweater" ||
+        renderHints.garmentTexture === "knit" ||
+        /\b(?:knit|knitted|sweater|pullover)\b/.test(upperConstructionText);
+      const hoodieTop =
+        topType === "hoodie" || /\bhoodie\b/.test(upperConstructionText);
+
+      const bottomType = preppyTop
+        ? "skirt"
+        : /\b(?:skirt|skort|culottes)\b/.test(
+              analysis.outfitPrompt.toLowerCase(),
+            )
+          ? "skirt"
+          : /\bshorts?\b/.test(analysis.outfitPrompt.toLowerCase())
+            ? "shorts"
+            : /\b(?:jeans?|denim)\b/.test(
+                  analysis.outfitPrompt.toLowerCase(),
+                ) ||
+                (knitTop && !athleticTop && !tailoredTop && !hoodieTop)
+              ? "jeans"
+              : "pants";
+      const bottomPattern =
+        bottomType === "skirt" && renderHints.bottomPattern === "plain"
+          ? "pleated"
+          : renderHints.bottomPattern;
+      const bottomAccent = preppyTop
+        ? renderHints.neckAccessory === "bow"
+          ? "ribbon"
+          : "belt"
+        : tailoredTop
+          ? "belt"
+          : athleticTop
+            ? "side_stripe"
+            : knitTop
+              ? "belt"
+              : hoodieTop || bottomType === "shorts" || bottomType === "jeans"
+                ? "cuffs"
+                : "belt";
+      const legwear =
+        preppyTop || (knitTop && !athleticTop && !tailoredTop && !hoodieTop)
+          ? "socks"
+          : renderHints.legwear === "none"
+            ? "none"
+            : renderHints.legwear;
+      const legwearAsymmetry = legwear === "none" ? "none" : "both";
+      const shoeStyle = preppyTop || tailoredTop ? "dress_shoes" : "sneakers";
+      const bottomDescription =
+        bottomType === "jeans"
+          ? "dark blue denim jeans"
+          : bottomType === "skirt"
+            ? `a coordinated ${bottomPattern === "plain" ? "clean-lined" : bottomPattern} skirt`
+            : bottomType === "shorts"
+              ? "coordinated cuffed shorts"
+              : athleticTop || hoodieTop
+                ? "dark jogger pants"
+                : tailoredTop
+                  ? "charcoal tailored trousers"
+                  : "coordinated trousers";
+      const accentDescription =
+        bottomAccent === "side_stripe"
+          ? " with a readable side stripe"
+          : bottomAccent === "cuffs"
+            ? " with visible cuffs"
+            : bottomAccent === "ribbon"
+              ? " with a ribbon waistband"
+              : " with a readable belt";
+      const legwearDescription =
+        legwear === "none" ? "" : `, paired ${legwear.replace("_", " ")}`;
+      const shoeDescription =
+        shoeStyle === "dress_shoes"
+          ? preppyTop
+            ? "polished strap dress shoes"
+            : "polished black leather dress shoes"
+          : athleticTop
+            ? "clean white low-top sneakers"
+            : "clean off-white low-top sneakers";
+      const visibleUpperCue =
+        analysis.observed.clothing.trim() || `${topType} upper garment`;
+      const completionSentence = `Complete the unseen lower body with ${bottomDescription}${accentDescription}${legwearDescription} and ${shoeDescription}, grounded in the visible ${visibleUpperCue}.`;
+
+      lowerDesign = {
+        bottomType,
+        bottomPattern,
+        bottomAccent,
+        legwear,
+        legwearAsymmetry,
+        thighAccessory: renderHints.thighAccessory,
+        thighAccessorySide:
+          renderHints.thighAccessory === "none"
+            ? "none"
+            : renderHints.thighAccessorySide,
+        shoeStyle,
+        rationale: completionSentence,
+      };
+      renderHints.bottomPattern = bottomPattern;
+      renderHints.bottomAccent = bottomAccent;
+      renderHints.legwear = legwear;
+      renderHints.legwearAsymmetry = legwearAsymmetry;
+      if (legwear !== "none") renderHints.legwearColor = "white";
+      inferred = {
+        ...inferred,
+        lowerBody: {
+          value: `${bottomDescription}${accentDescription}${legwearDescription}`,
+          rationale: completionSentence,
+        },
+        lowerBodyDesign: lowerDesign,
+        shoes: {
+          value: shoeDescription,
+          rationale: completionSentence,
+        },
+      };
+      outfitPrompt = `${outfitPrompt} ${completionSentence}`.trim();
+    }
     const explicitlyAthleticUpper =
       /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|top|jersey|jacket)|\bjersey\b/.test(
         observedUpperText,
