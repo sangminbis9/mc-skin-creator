@@ -3324,20 +3324,25 @@ function composeHair(
           );
         }
       };
+      // In model space the right arm occupies negative X, so its body-facing
+      // edge is front x=max / the UV `left` face. The left arm is the exact
+      // inverse. Keeping these physical mappings explicit prevents shoulder
+      // hair from jumping to the outside of each arm in side/three-quarter
+      // views even though the atlas looked locally seam-connected.
       paintShoulderDrape(
         rightArmOver,
-        0,
         rightArmOver.front.w - 1,
-        rightArmOver.right,
+        0,
         rightArmOver.left,
+        rightArmOver.right,
         0,
       );
       paintShoulderDrape(
         leftArmOver,
-        leftArmOver.front.w - 1,
         0,
-        leftArmOver.left,
+        leftArmOver.front.w - 1,
         leftArmOver.right,
+        leftArmOver.left,
         1,
       );
 

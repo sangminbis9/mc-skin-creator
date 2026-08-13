@@ -351,8 +351,8 @@ describe("hair accessory recovery", () => {
     );
     const head = CLASSIC_LAYOUT.head;
     const body = CLASSIC_LAYOUT.body;
-    const rightArmOuter = CLASSIC_LAYOUT.rightArm.overlay.left;
-    const leftArmOuter = CLASSIC_LAYOUT.leftArm.overlay.right;
+    const rightArmOuter = CLASSIC_LAYOUT.rightArm.overlay.right;
+    const leftArmOuter = CLASSIC_LAYOUT.leftArm.overlay.left;
     const leftLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const rightLeg = CLASSIC_LAYOUT.leftLeg.overlay.front;
     const offset = (rect: { x: number; y: number }, x: number, y: number) =>

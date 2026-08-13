@@ -2369,19 +2369,25 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, body.base.back, 2, 4)).toBeGreaterThan(
       redAt(atlas, body.base.back, 4, 7),
     );
-    expect(alphaAt(atlas, rightArm.front, 0, 5)).toBe(255);
+    expect(
+      alphaAt(atlas, rightArm.front, rightArm.front.w - 1, 5),
+    ).toBe(255);
     expect(alphaAt(atlas, rightArm.front, rightArm.front.w - 1, 1)).toBe(255);
     expect(alphaAt(atlas, rightArm.right, 1, 3)).toBe(255);
-    expect(alphaAt(atlas, rightArm.top, 0, 1)).toBe(255);
-    expect(alphaAt(atlas, leftArm.front, leftArm.front.w - 1, 5)).toBe(255);
+    expect(
+      alphaAt(atlas, rightArm.top, rightArm.top.w - 1, 1),
+    ).toBe(255);
+    expect(alphaAt(atlas, leftArm.front, 0, 5)).toBe(255);
     expect(alphaAt(atlas, leftArm.front, 0, 1)).toBe(255);
     expect(alphaAt(atlas, leftArm.left, 1, 3)).toBe(255);
-    expect(alphaAt(atlas, leftArm.top, leftArm.top.w - 1, 1)).toBe(255);
-    expect(redAt(atlas, rightArm.front, 0, 0)).toBeGreaterThan(
-      redAt(atlas, rightArm.front, 0, 5),
+    expect(alphaAt(atlas, leftArm.top, 0, 1)).toBe(255);
+    expect(
+      redAt(atlas, rightArm.front, rightArm.front.w - 1, 0),
+    ).toBeGreaterThan(
+      redAt(atlas, rightArm.front, rightArm.front.w - 1, 5),
     );
-    expect(redAt(atlas, leftArm.front, leftArm.front.w - 1, 0)).toBeGreaterThan(
-      redAt(atlas, leftArm.front, leftArm.front.w - 1, 5),
+    expect(redAt(atlas, leftArm.front, 0, 0)).toBeGreaterThan(
+      redAt(atlas, leftArm.front, 0, 5),
     );
     const sideHairDistance = (rect: Rect, x: number, y: number) => {
       const [red, green, blue] = rgbaAt(atlas, rect, x, y);
@@ -2481,12 +2487,12 @@ describe("packFrontViewToAtlas", () => {
       sideHairShape: "face_framing",
     })!.atlas;
     const innerSideFaces = [
-      CLASSIC_LAYOUT.rightArm.overlay.right,
-      CLASSIC_LAYOUT.leftArm.overlay.left,
-    ];
-    const outerSideFaces = [
       CLASSIC_LAYOUT.rightArm.overlay.left,
       CLASSIC_LAYOUT.leftArm.overlay.right,
+    ];
+    const outerSideFaces = [
+      CLASSIC_LAYOUT.rightArm.overlay.right,
+      CLASSIC_LAYOUT.leftArm.overlay.left,
     ];
 
     for (const side of innerSideFaces) {
@@ -2512,7 +2518,9 @@ describe("packFrontViewToAtlas", () => {
         const waveX = (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
         expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(255);
       }
-      for (const y of [0, 2, 4, 5, 6]) {
+      // y=0 wraps the authored arm-top bridge onto this profile edge. Below
+      // that physical corner, only the intended staggered wave is present.
+      for (const y of [2, 4, 5, 6]) {
         const waveX = (Math.floor(y / 3) + sideIndex) % 2 === 0 ? 1 : 2;
         expect(alphaAt(atlas, side, waveX === 1 ? 2 : 1, y)).toBe(0);
       }
@@ -2564,19 +2572,25 @@ describe("packFrontViewToAtlas", () => {
 
     const rightFront = CLASSIC_LAYOUT.rightArm.overlay.front;
     const leftFront = CLASSIC_LAYOUT.leftArm.overlay.front;
-    const rightOuter = rightFront.w - 1;
+    const rightInner = rightFront.w - 1;
 
     for (const y of [0, 1, 2]) {
-      expect(alphaAt(atlas, rightFront, rightOuter, y)).toBe(255);
+      expect(alphaAt(atlas, rightFront, 0, y)).toBe(255);
     }
     for (const y of [3, 4, 5]) {
-      expect(alphaAt(atlas, rightFront, rightOuter, y)).toBe(0);
+      expect(alphaAt(atlas, rightFront, 0, y)).toBe(0);
     }
     for (const y of [0, 1, 3]) {
-      expect(alphaAt(atlas, leftFront, 0, y)).toBe(255);
+      expect(alphaAt(atlas, leftFront, leftFront.w - 1, y)).toBe(255);
     }
     for (const y of [2, 4, 5]) {
-      expect(alphaAt(atlas, leftFront, 0, y)).toBe(0);
+      expect(alphaAt(atlas, leftFront, leftFront.w - 1, y)).toBe(0);
+    }
+    // The continuous rail belongs to the body-facing front edge. The outer
+    // edge carries only the staggered volume pixels asserted above.
+    for (let y = 0; y <= 5; y++) {
+      expect(alphaAt(atlas, rightFront, rightInner, y)).toBe(255);
+      expect(alphaAt(atlas, leftFront, 0, y)).toBe(255);
     }
   });
 
@@ -2671,8 +2685,10 @@ describe("packFrontViewToAtlas", () => {
     expect(
       redAt(leftLonger, body.base.left, body.base.left.w - 1, 6),
     ).toBeLessThan(150);
-    expect(alphaAt(leftLonger, rightArm.front, 0, 5)).toBe(255);
-    expect(alphaAt(leftLonger, leftArm.front, leftArm.front.w - 1, 5)).toBe(0);
+    expect(
+      alphaAt(leftLonger, rightArm.front, rightArm.front.w - 1, 5),
+    ).toBe(255);
+    expect(alphaAt(leftLonger, leftArm.front, 0, 5)).toBe(0);
 
     expect(redAt(rightLonger, body.base.front, 0, 6)).toBeGreaterThan(150);
     expect(redAt(rightLonger, body.base.front, 7, 6)).toBeLessThan(150);
@@ -2682,10 +2698,10 @@ describe("packFrontViewToAtlas", () => {
     expect(
       redAt(rightLonger, body.base.left, body.base.left.w - 1, 6),
     ).toBeLessThan(150);
-    expect(alphaAt(rightLonger, rightArm.front, 0, 5)).toBe(0);
-    expect(alphaAt(rightLonger, leftArm.front, leftArm.front.w - 1, 5)).toBe(
-      255,
-    );
+    expect(
+      alphaAt(rightLonger, rightArm.front, rightArm.front.w - 1, 5),
+    ).toBe(0);
+    expect(alphaAt(rightLonger, leftArm.front, 0, 5)).toBe(255);
 
     applyUvMask(leftLonger);
     applyUvMask(rightLonger);
@@ -2720,8 +2736,8 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(atlas, body.overlay.top, 1, body.overlay.top.h - 1)).toBe(
       255,
     );
-    expect(alphaAt(atlas, arm.front, 0, 1)).toBe(255);
-    expect(alphaAt(atlas, arm.right, 1, 2)).toBe(255);
+    expect(alphaAt(atlas, arm.front, arm.front.w - 1, 1)).toBe(255);
+    expect(alphaAt(atlas, arm.left, 1, 2)).toBe(255);
     expect(alphaAt(atlas, arm.top, 0, 1)).toBe(255);
     expect(alphaAt(atlas, arm.top, arm.top.w - 1, 2)).toBe(255);
 
@@ -2734,8 +2750,8 @@ describe("packFrontViewToAtlas", () => {
       [body.base.front, 1, 7],
       [body.overlay.front, 1, 1],
       [body.overlay.right, 1, 3],
-      [arm.front, 0, 1],
-      [arm.right, 1, 2],
+      [arm.front, arm.front.w - 1, 1],
+      [arm.left, 1, 2],
     ] as const) {
       const [red, green, blue] = rgbaAt(atlas, rect, x, y);
       expect(red).toBeGreaterThan(green);
