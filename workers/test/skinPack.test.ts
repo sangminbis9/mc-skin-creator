@@ -2414,7 +2414,8 @@ describe("packFrontViewToAtlas", () => {
     expect(hairDistance(straight, 6, 4)).toBeLessThan(90);
 
     expect(hairDistance(wavy, 1, 4)).toBeLessThan(90);
-    expect(hairDistance(wavy, 6, 4)).toBeGreaterThan(90);
+    expect(hairDistance(wavy, 5, 4)).toBeGreaterThan(90);
+    expect(hairDistance(wavy, 6, 4)).toBeLessThan(90);
     expect(hairDistance(wavy, 7, 4)).toBeLessThan(90);
     expect(rgbaAt(wavy, baseFront, 1, 4)).not.toEqual(
       rgbaAt(wavy, baseFront, 7, 4),
@@ -2429,6 +2430,21 @@ describe("packFrontViewToAtlas", () => {
     expect(alphaAt(wavy, overFront, 5, 11)).toBe(255);
     expect(alphaAt(wavy, overFront, 3, 11)).toBe(0);
     expect(alphaAt(wavy, overFront, 4, 11)).toBe(0);
+
+    // Each lateral turn becomes a connected two-pixel bend on the base
+    // layer. Rows with no turn stay narrow, so the result reads as an organic
+    // lock rather than either a dotted chain or a rigid 2px vertical rail.
+    expect(hairDistance(wavy, 0, 5)).toBeLessThan(110);
+    expect(hairDistance(wavy, 1, 5)).toBeLessThan(110);
+    expect(hairDistance(wavy, 6, 7)).toBeLessThan(110);
+    expect(hairDistance(wavy, 7, 7)).toBeLessThan(160);
+    expect(hairDistance(wavy, 0, 4)).toBeGreaterThan(90);
+    expect(hairDistance(wavy, 2, 4)).toBeGreaterThan(90);
+
+    // Straight hair keeps its deliberately tidy one-pixel fall after the
+    // shoulder instead of inheriting the wavy turn clusters.
+    expect(hairDistance(straight, 0, 5)).toBeLessThan(90);
+    expect(hairDistance(straight, 1, 5)).toBeGreaterThan(90);
   });
 
   it("shoulder hair drapes down arm side faces without checkerboard gaps", () => {

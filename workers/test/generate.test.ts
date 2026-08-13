@@ -2983,7 +2983,9 @@ describe("generateSkin", () => {
     // The continuous shoulder lock belongs to the opaque base layer; the
     // second layer is reserved for sparse flyaways, bends and highlights.
     const hairDrape = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x) * 4;
-    const cardiganPanel = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x + 1) * 4;
+    // The wavy turn bridges x=0 and x=1; x=2 remains the adjacent
+    // photographed cardigan panel used for the material contrast assertion.
+    const cardiganPanel = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x + 2) * 4;
     const cardiganCenter = ((body.y + 5) * ATLAS_SIZE + body.x + 3) * 4;
     const plaidDark = (plaidLeg.y * ATLAS_SIZE + plaidLeg.x + 1) * 4;
     const plaidLight = (plaidLeg.y * ATLAS_SIZE + plaidLeg.x + 2) * 4;

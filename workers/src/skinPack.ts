@@ -2919,9 +2919,11 @@ function composeHair(
           bodyHair(bodyBase.front, rightX, y, taperShade * 0.98),
         );
 
-        // The inner mass is two pixels wide for only the first three shoulder
-        // rows, then immediately narrows. Volume lower down is expressed by
-        // the sparse outer-layer clusters rather than a second solid rail.
+        // The inner mass is two pixels wide across the first three shoulder
+        // rows. Below that, a wavy/curly lock widens only on an actual lateral
+        // turn, bridging the previous and current columns. This produces
+        // connected two-pixel bends instead of a one-pixel vertical chain,
+        // while still avoiding the rigid parallel rails of a solid 2px strip.
         if (y <= 2) {
           const leftInner = Math.min(bodyBase.front.w - 1, leftX + 1);
           const rightInner = Math.max(0, rightX - 1);
@@ -2937,6 +2939,35 @@ function composeHair(
             y,
             bodyHair(bodyBase.front, rightInner, y, taperShade * 0.78),
           );
+        } else if (organicFrontDrape && y > 0) {
+          const previousLeftX = leftFrontPath[y - 1];
+          const previousRightX = rightFrontPath[y - 1];
+          if (previousLeftX !== leftX) {
+            putColor(
+              bodyBase.front,
+              previousLeftX,
+              y,
+              bodyHair(
+                bodyBase.front,
+                previousLeftX,
+                y,
+                taperShade * 0.82,
+              ),
+            );
+          }
+          if (previousRightX !== rightX) {
+            putColor(
+              bodyBase.front,
+              previousRightX,
+              y,
+              bodyHair(
+                bodyBase.front,
+                previousRightX,
+                y,
+                taperShade * 0.8,
+              ),
+            );
+          }
         }
 
         // Turn any edge-reaching base strand onto the physically adjacent
