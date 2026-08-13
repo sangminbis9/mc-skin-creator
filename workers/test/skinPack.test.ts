@@ -3896,6 +3896,53 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("dense eye-length bangs keep narrow eyes from merging into square brow blocks", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      hairTexture: "straight",
+      hairColor: "#111111",
+      bangs: "straight",
+      bangsLength: "eye",
+      bangsDensity: "dense",
+      fringeEdge: "blunt",
+      fringeOpening: "none",
+      eyeColor: "#2c241f",
+      eyeShape: "narrow",
+      eyeSize: "average",
+      eyeSpacing: "average",
+      eyeTilt: "level",
+      eyebrowShape: "straight",
+      eyebrowThickness: "thin",
+      glasses: "none",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const over = CLASSIC_LAYOUT.head.overlay.front;
+
+    for (const [outer, inner] of [
+      [1, 2],
+      [6, 5],
+    ] as const) {
+      const browValue = rgbaAt(atlas, face, inner, 3)
+        .slice(0, 3)
+        .reduce((sum, channel) => sum + channel, 0);
+      const eyeValue = rgbaAt(atlas, face, inner, 4)
+        .slice(0, 3)
+        .reduce((sum, channel) => sum + channel, 0);
+      const nearbySkinValue = rgbaAt(atlas, face, 3, 4)
+        .slice(0, 3)
+        .reduce((sum, channel) => sum + channel, 0);
+
+      expect(Math.abs(browValue - nearbySkinValue)).toBeLessThan(75);
+      expect(browValue).toBeGreaterThan(eyeValue + 250);
+      expect(alphaAt(atlas, over, outer, 4)).toBe(0);
+      expect(alphaAt(atlas, over, inner, 4)).toBe(0);
+    }
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("faceContrastBoost strengthens analyzed landmarks without recoloring the complexion", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,

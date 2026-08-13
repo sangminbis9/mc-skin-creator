@@ -30,6 +30,16 @@ const REQUIRE_APPROVAL = process.env.REPLAY_REQUIRE_APPROVAL === "1";
 interface SavedAnalysisDocument {
   primaryAnalysis?: PhotoAnalysis;
   generationAnalysis?: Partial<PhotoAnalysis>;
+  analysis?: Omit<
+    PhotoAnalysis,
+    | "quality"
+    | "failReason"
+    | "identityPrompt"
+    | "outfitPrompt"
+    | "negativePrompt"
+    | "fallbackFeatures"
+  >;
+  features?: PhotoAnalysis["fallbackFeatures"];
 }
 
 describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
@@ -46,7 +56,24 @@ describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
           outfitPrompt: document.primaryAnalysis.outfitPrompt,
           negativePrompt: document.primaryAnalysis.negativePrompt,
         } satisfies PhotoAnalysis)
-      : undefined;
+      : document.analysis && document.features
+        ? ({
+            ...document.analysis,
+            quality: "pass",
+            failReason: null,
+            identityPrompt: [
+              document.analysis.canonicalIdentity.overallImpression,
+              document.analysis.observed.face,
+              document.analysis.observed.hair,
+            ].join("; "),
+            outfitPrompt: [
+              document.analysis.observed.clothing,
+              document.analysis.observed.accessories,
+            ].join("; "),
+            negativePrompt: "",
+            fallbackFeatures: document.features,
+          } satisfies PhotoAnalysis)
+        : undefined;
     expect(source).toBeDefined();
     if (!source) return;
 

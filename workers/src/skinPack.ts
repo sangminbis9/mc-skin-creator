@@ -1027,6 +1027,10 @@ function composeFace(
   const browOccludedByFringe =
     bangs !== "none" &&
     (style.bangsLength === "brow" || style.bangsLength === "eye");
+  const browStronglyOccludedByFringe =
+    bangs !== "none" &&
+    style.bangsLength === "eye" &&
+    style.bangsDensity === "dense";
   const eyebrowShape = style.eyebrowShape ?? "straight";
   const eyeTilt = style.eyeTilt ?? "level";
   const eyeSize = style.eyeSize ?? "average";
@@ -1036,13 +1040,21 @@ function composeFace(
       face,
       outer,
       outerBrowY,
-      browOccludedByFringe ? mixRgb(brow, skinColor, 0.72) : brow,
+      browStronglyOccludedByFringe
+        ? mixRgb(brow, skinColor, 0.94)
+        : browOccludedByFringe
+          ? mixRgb(brow, skinColor, 0.72)
+          : brow,
     );
     put(
       face,
       inner,
       3,
-      browOccludedByFringe ? mixRgb(brow, skinColor, 0.58) : brow,
+      browStronglyOccludedByFringe
+        ? mixRgb(brow, skinColor, 0.9)
+        : browOccludedByFringe
+          ? mixRgb(brow, skinColor, 0.58)
+          : brow,
     );
     const baseScleraMix =
       style.eyeShape === "round"
@@ -1134,23 +1146,26 @@ function composeFace(
       : shadeRgb(brow, 0.96);
   const browShadow = shadeRgb(brow, 0.74);
   const [[leftOuter, leftInner], [rightOuter, rightInner]] = eyePairs;
-  if (eyebrowShape === "arched") {
+  if (!browStronglyOccludedByFringe && eyebrowShape === "arched") {
     put(face, leftInner, 2, browAccent);
     put(face, rightOuter, 2, browAccent);
     put(overlay, leftOuter, 3, shadeRgb(brow, 0.9));
     put(overlay, rightInner, 3, shadeRgb(brow, 0.9));
-  } else if (eyebrowShape === "slanted") {
+  } else if (!browStronglyOccludedByFringe && eyebrowShape === "slanted") {
     put(face, leftOuter, 2, browAccent);
     put(face, rightInner, 2, browAccent);
     put(overlay, leftInner, 3, browShadow);
     put(overlay, rightOuter, 3, browShadow);
-  } else if (eyebrowShape === "soft") {
+  } else if (!browStronglyOccludedByFringe && eyebrowShape === "soft") {
     const softBrow = mixRgb(brow, skinColor, 0.48);
     for (const [outer, inner] of eyePairs) {
       put(face, outer, 3, softBrow);
       put(face, inner, 3, mixRgb(softBrow, brow, 0.22));
     }
-  } else if (style.eyebrowThickness === "thick") {
+  } else if (
+    !browStronglyOccludedByFringe &&
+    style.eyebrowThickness === "thick"
+  ) {
     put(face, leftOuter, 2, browAccent);
     put(face, rightInner, 2, browAccent);
   }
