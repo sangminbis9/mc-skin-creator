@@ -113,4 +113,14 @@ describe("buildSkinPrompt framing 정책", () => {
     expect(prompt).toContain("full rectangular shells");
     expect(prompt).toContain("more or fewer than four figures");
   });
+
+  it("does not fuse a conflicting alternate photo into a composite person", () => {
+    const frontPrompt = buildFrontViewPrompt(makeAnalysis(), 2);
+    const fourPrompt = buildFourViewPrompt(makeAnalysis(), 2);
+    for (const prompt of [frontPrompt, fourPrompt]) {
+      expect(prompt).toContain("Images 0-2 are intended to show the same person");
+      expect(prompt).toContain("do not blend it into a composite");
+      expect(prompt).toContain("follow image 0 and the canonical identity text");
+    }
+  });
 });

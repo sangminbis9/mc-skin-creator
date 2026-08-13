@@ -5,6 +5,23 @@
  */
 
 import type { PhotoAnalysis } from "./analysis";
+import {
+  buildSkinPlan,
+  formatSkinPlanForPrompt,
+  type SkinPlan,
+} from "./skinPlan";
+
+function saliencePolicy(analysis: PhotoAnalysis): string {
+  const ranked = analysis.canonicalIdentity.features
+    .slice()
+    .sort((a, b) => b.priority - a.priority)
+    .map(
+      (item) =>
+        `P${item.priority} ${item.feature} (${item.targetRegions.join("+")})`,
+    )
+    .join("; ");
+  return `Canonical identity: ${analysis.canonicalIdentity.overallImpression}. Preserve in strict priority order: ${ranked}. If pixel space conflicts, protect higher-priority cues first.`;
+}
 
 /** 스타일 참고 이미지 유무에 따른 레퍼런스 인덱스 배치 */
 export interface ReferenceLayout {
@@ -43,7 +60,17 @@ function framingPolicy(analysis: PhotoAnalysis, personRef: string): string {
  * 잘 그린다 — 배치는 skinPack이 결정적으로 수행하고, 뒷면 뷰 덕분에
  * 머리 뒷모습/옷 뒷면이 실제 렌더로 채워진다.
  */
-export function buildFrontViewPrompt(analysis: PhotoAnalysis): string {
+export function buildFrontViewPrompt(
+  analysis: PhotoAnalysis,
+  referenceCount = 0,
+  suppliedPlan?: SkinPlan,
+): string {
+  const skinPlan = suppliedPlan ?? buildSkinPlan(analysis);
+  const guideIndex = referenceCount + 1;
+  const identityReferences =
+    referenceCount > 0
+      ? `Images 0-${referenceCount} are intended to show the same person; image 0 is primary and the compatible alternates resolve identity from other views. If one alternate visibly conflicts with image 0 and the other references on multiple stable identity traits, do not blend it into a composite; follow image 0 and the canonical identity text for that disagreement.`
+      : "Image 0 shows the person.";
   const inferred = [
     analysis.inferred.hairBack?.value,
     analysis.inferred.upperBody?.value,
@@ -53,11 +80,13 @@ export function buildFrontViewPrompt(analysis: PhotoAnalysis): string {
     .filter((value): value is string => Boolean(value))
     .join("; ");
   const lines = [
-    "Use image 1 strictly as the composition and pose guide: replace both guide figures with two views of the SAME blocky pixel-art character, preserving their exact left/right placement, gap, scale, straight pose and proportions.",
+    `Use image ${guideIndex} strictly as the composition and pose guide: replace both guide figures with two views of the SAME blocky pixel-art character, preserving their exact left/right placement, gap, scale, straight pose and proportions.`,
     "On the left render the FRONT view. On the right render the true BACK view seen from behind, including the back of the head, inferred hair, garment construction and shoes. Never draw a second front view.",
     "Minecraft proportions: large cubic head (about a quarter of total height), rectangular torso, straight blocky arms and legs.",
     "Both views centered on a plain solid very light gray background with a clear gap between them. Nothing else in the image.",
-    `Design the character after the subject of image 0: hairstyle silhouette, bangs, hair color, skin tone, accessories and visible clothing must be clearly readable. ${analysis.identityPrompt}`,
+    `${identityReferences} Design the character after that subject: hairstyle silhouette, bangs, hair color, skin tone, accessories and visible clothing must be clearly readable. ${analysis.identityPrompt}`,
+    saliencePolicy(analysis),
+    formatSkinPlanForPrompt(skinPlan),
     framingPolicy(analysis, "Image 0"),
     `For surfaces not visible in image 0, use these evidence-based completions consistently in the back view: ${inferred || analysis.outfitPrompt}.`,
     `Low-resolution identity priorities: ${analysis.renderHints.skinUndertone} skin undertone, ${analysis.renderHints.faceShape} face, ${analysis.renderHints.eyeSize} ${analysis.renderHints.eyeShape} ${analysis.renderHints.eyeTilt} eyes with ${analysis.renderHints.eyeSpacing} spacing and ${analysis.renderHints.irisLightness} iris lightness, ${analysis.renderHints.eyebrowShape} eyebrows, ${analysis.renderHints.noseShape} nose, ${analysis.renderHints.mouthShape} mouth with ${analysis.renderHints.lipFullness} ${analysis.renderHints.lipColor} lips, ${analysis.renderHints.jawShape} jaw, ${analysis.renderHints.bangsDensity} ${analysis.renderHints.bangsLength} ${analysis.renderHints.bangs} bangs with a ${analysis.renderHints.fringeEdge} edge and ${analysis.renderHints.fringeOpening} fringe opening, ${analysis.renderHints.hairTexture} ${analysis.renderHints.hairVolume}-volume ${analysis.renderHints.hairSilhouette} hair silhouette reaching ${analysis.renderHints.overallHairLength} length, ${analysis.renderHints.hairBackShape} back hair, ${analysis.renderHints.hairPart} root parting, ${analysis.renderHints.sideHairLength} ${analysis.renderHints.sideHairShape} side hair with ${analysis.renderHints.sideHairAsymmetry} viewer-side asymmetry and ${analysis.renderHints.earExposure} ear exposure.`,
@@ -89,7 +118,17 @@ export function buildFrontViewPrompt(analysis: PhotoAnalysis): string {
  * Four orthographic views give the deterministic packer real left/right
  * surface evidence instead of forcing it to mirror or guess every side face.
  */
-export function buildFourViewPrompt(analysis: PhotoAnalysis): string {
+export function buildFourViewPrompt(
+  analysis: PhotoAnalysis,
+  referenceCount = 0,
+  suppliedPlan?: SkinPlan,
+): string {
+  const skinPlan = suppliedPlan ?? buildSkinPlan(analysis);
+  const guideIndex = referenceCount + 1;
+  const identityReferences =
+    referenceCount > 0
+      ? `Images 0-${referenceCount} are intended to show the same person; image 0 is primary and the compatible alternates resolve identity from other views. If one alternate visibly conflicts with image 0 and the other references on multiple stable identity traits, do not blend it into a composite; follow image 0 and the canonical identity text for that disagreement.`
+      : "Image 0 shows the person.";
   const inferred = [
     analysis.inferred.hairBack?.value,
     analysis.inferred.upperBody?.value,
@@ -99,11 +138,13 @@ export function buildFourViewPrompt(analysis: PhotoAnalysis): string {
     .filter((value): value is string => Boolean(value))
     .join("; ");
   const lines = [
-    "Use image 1 strictly as the composition guide. Replace its four guide figures with four orthographic views of the SAME blocky pixel-art character, preserving exact placement, scale, straight pose and spacing.",
+    `Use image ${guideIndex} strictly as the composition guide. Replace its four guide figures with four orthographic views of the SAME blocky pixel-art character, preserving exact placement, scale, straight pose and spacing.`,
     "Left-to-right order is mandatory: FRONT view, true BACK view, character LEFT PROFILE, character RIGHT PROFILE. The two profile views must be genuine opposite sides, not repeated front or back views.",
     "Keep all four figures completely separated on one solid very light gray background. Draw exactly four figures and nothing else.",
     "Minecraft proportions: cubic head, rectangular torso, straight blocky arms and legs. Crisp low-resolution pixel clusters, hard edges and no antialiasing.",
-    `Design every view after the subject of image 0. Preserve identity, hairstyle silhouette, bangs, hair color, skin tone, accessories and clothing: ${analysis.identityPrompt}`,
+    `${identityReferences} Design every view after that subject. Preserve identity, hairstyle silhouette, bangs, hair color, skin tone, accessories and clothing: ${analysis.identityPrompt}`,
+    saliencePolicy(analysis),
+    formatSkinPlanForPrompt(skinPlan),
     framingPolicy(analysis, "Image 0"),
     `Use these evidence-based completions consistently on unseen surfaces: ${inferred || analysis.outfitPrompt}.`,
     `Face priorities: ${analysis.renderHints.skinUndertone} skin undertone, ${analysis.renderHints.faceShape} face, ${analysis.renderHints.eyeSize} ${analysis.renderHints.eyeShape} ${analysis.renderHints.eyeTilt} eyes, ${analysis.renderHints.eyeSpacing} spacing, ${analysis.renderHints.irisLightness} iris lightness, ${analysis.renderHints.eyebrowShape} eyebrows, ${analysis.renderHints.noseShape} nose and ${analysis.renderHints.mouthShape} mouth with ${analysis.renderHints.lipFullness} ${analysis.renderHints.lipColor} lips.`,

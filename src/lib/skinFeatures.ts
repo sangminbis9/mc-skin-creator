@@ -73,6 +73,7 @@ export interface GenerateResponse {
   error?: string;
   errorCode?:
     | "quota_exceeded"
+    | "rate_limited"
     | "photo_rejected"
     | "ai_failed"
     | "bad_request";
@@ -85,7 +86,7 @@ export interface QuotaStatus {
   level: QuotaLevel;
   /** 예상 남은 생성 가능 수 */
   remainingGenerations: number;
-  /** 다음 리셋 시각 (ISO, KST 오전 9시) */
+  /** 다음 Gemini 제공자 일일 quota 리셋 시각 (ISO). */
   resetAtIso: string;
   /** 사용률 0~1 */
   usedRatio: number;

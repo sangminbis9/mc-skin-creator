@@ -76,7 +76,7 @@ export function AdminDashboard() {
               사용률 {Math.round(stats.quota.usedRatio * 100)}% · 예상 남은 생성{" "}
               {stats.quota.remainingGenerations}회
               <br />
-              다음 리셋: {formatResetTime(stats.quota.resetAtIso)} (매일 오전 9시)
+              다음 리셋: {formatResetTime(stats.quota.resetAtIso)}
             </p>
           </PixelPanel>
 

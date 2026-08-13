@@ -140,6 +140,23 @@ export const CLASSIC_LAYOUT: Record<BodyPart, PartLayout> = {
   leftLeg: { base: boxUV(16, 48, 4, 12, 4), overlay: boxUV(0, 48, 4, 12, 4) },
 };
 
+/**
+ * Java slim (Alex) keeps every body allocation except the four arm nets.
+ * Slim arms are 3 pixels wide and 4 pixels deep; their enclosing atlas
+ * allocations stay in the same places as the classic layout.
+ */
+export const SLIM_LAYOUT: Record<BodyPart, PartLayout> = {
+  ...CLASSIC_LAYOUT,
+  rightArm: {
+    base: boxUV(40, 16, 3, 12, 4),
+    overlay: boxUV(40, 32, 3, 12, 4),
+  },
+  leftArm: {
+    base: boxUV(32, 48, 3, 12, 4),
+    overlay: boxUV(48, 48, 3, 12, 4),
+  },
+};
+
 export const ALL_PARTS: BodyPart[] = [
   "head",
   "body",

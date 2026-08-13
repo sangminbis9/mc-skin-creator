@@ -17,7 +17,7 @@ import type { QuotaStatus } from "../lib/skinFeatures";
 import { formatResetTime } from "../lib/quotaText";
 
 interface UploadPageProps {
-  onPhotoSelected: (photo: PreparedPhotoUpload) => void;
+  onPhotoSelected: (photos: PreparedPhotoUpload[]) => void;
   onQuotaClosed: (quota: QuotaStatus | null) => void;
 }
 
@@ -39,14 +39,16 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
 
   const closed = quota?.level === "closed";
 
-  const handlePhoto = async (source: string | File) => {
+  const handlePhotos = async (sources: Array<string | File>) => {
     if (closed) {
       onQuotaClosed(quota);
       return;
     }
     setBusy(true);
     try {
-      const prepared = await preparePhotoForUpload(source);
+      const prepared = await Promise.all(
+        sources.slice(0, 5).map(preparePhotoForUpload),
+      );
       onPhotoSelected(prepared);
     } finally {
       setBusy(false);
@@ -54,23 +56,24 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []).slice(0, 5);
     event.target.value = "";
-    if (file) {
-      void handlePhoto(file);
+    if (files.length > 0) {
+      void handlePhotos(files);
     }
   };
 
   const handleAlbumPick = async () => {
     try {
       const photos = await fetchAlbumPhotos({
-        maxCount: 1,
+        maxCount: 5,
         maxWidth: 1024,
         base64: true,
       });
-      const photo = photos[0];
-      if (photo) {
-        await handlePhoto(`data:image/jpeg;base64,${photo.dataUri}`);
+      if (photos.length > 0) {
+        await handlePhotos(
+          photos.map((photo) => `data:image/jpeg;base64,${photo.dataUri}`),
+        );
       }
     } catch {
       // 권한 거부 등 — 파일 선택으로 폴백
@@ -92,7 +95,7 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
         <p className="px-subtitle" style={{ marginTop: 8 }}>
           얼굴 사진도, 전신 사진도 좋아요.
           <br />
-          AI가 나를 닮은 픽셀 캐릭터로 바꿔줘요.
+          최대 5장의 다른 각도 사진이면 더 닮게 만들 수 있어요.
         </p>
       </div>
 
@@ -138,7 +141,7 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.8 }}>
               오늘의 AI 스킨 생성 수량이 모두 마감됐어요.
               <br />
-              무료 생성 한도는 매일 오전 9시에 다시 열려요.
+              무료 생성 한도는 아래 표시된 시각에 다시 열려요.
             </p>
             {quota && (
               <p className="px-caption" style={{ marginTop: 6, color: "#ffe9c2" }}>
@@ -156,7 +159,7 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
             disabled={!agreed || busy}
             onClick={() => fileInputRef.current?.click()}
           >
-            {busy ? "사진 준비 중…" : "얼굴/전신 사진 올리기"}
+            {busy ? "사진 준비 중…" : "사진 1~5장 올리기"}
           </PixelButton>
           {albumSupported && (
             <PixelButton
@@ -174,6 +177,7 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed }: UploadPageProps) 
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        multiple
         style={{ display: "none" }}
         onChange={handleFileChange}
       />

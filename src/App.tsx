@@ -61,7 +61,8 @@ function App() {
   const hash = useHashRoute();
 
   const [step, setStep] = useState<Step>("upload");
-  const [photo, setPhoto] = useState<PreparedPhotoUpload | null>(null);
+  const [photos, setPhotos] = useState<PreparedPhotoUpload[]>([]);
+  const photo = photos[0] ?? null;
   const [doc, setDoc] = useState<SkinDocument | null>(null);
   const [skinVersion, setSkinVersion] = useState(0);
   const [failure, setFailure] = useState<GenerationFailure | null>(null);
@@ -100,7 +101,7 @@ function App() {
   };
 
   const resetToUpload = () => {
-    setPhoto(null);
+    setPhotos([]);
     setDoc(null);
     setFailure(null);
     setCapturedImage(null);
@@ -112,8 +113,8 @@ function App() {
       {step === "upload" && (
         <>
           <UploadPage
-            onPhotoSelected={(preparedPhoto) => {
-              setPhoto(preparedPhoto);
+            onPhotoSelected={(preparedPhotos) => {
+              setPhotos(preparedPhotos);
               setStep("quality");
             }}
             onQuotaClosed={(q) => {
@@ -141,6 +142,9 @@ function App() {
         <GeneratingPage
           photoDataUrl={photo.generationDataUrl}
           analysisPhotoDataUrl={photo.analysisDataUrl}
+          referencePhotoDataUrls={photos
+            .slice(1)
+            .map((reference) => reference.analysisDataUrl)}
           onDone={async (result) => {
             // AI가 직접 생성한 스킨 우선, 실패하면 특징 기반 절차 생성으로 fallback
             const decoded = result.skinPngBase64

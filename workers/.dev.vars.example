@@ -1,0 +1,7 @@
+# Copy this file to .dev.vars for local development.
+# Never commit the real key.
+GEMINI_API_KEY=replace_with_a_gemini_api_key
+GEMINI_STRUCTURED_TIMEOUT_MS=45000
+GEMINI_IMAGE_TIMEOUT_MS=120000
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-image
+GEMINI_IMAGE_FALLBACK_MODEL=gemini-3.1-flash-lite-image

@@ -11,6 +11,7 @@ import {
   validatePhotoAnalysis,
 } from "../src/analysis";
 import type { Env } from "../src/types";
+import { GeminiApiError } from "../src/gemini";
 import { makeAnalysis } from "./helpers";
 
 function makeVisionEnv(
@@ -41,6 +42,31 @@ describe("runPhotoAnalysis", () => {
       "fallback-model",
     ]);
     expect(result).toMatchObject({ attempts: 2 });
+  });
+
+  it("uses a distinct fallback immediately when the primary Gemini model is rate limited", async () => {
+    const run = vi.fn(async (model: string) => {
+      if (model === "primary-model") {
+        throw new GeminiApiError(
+          "primary request bucket exhausted",
+          429,
+          "RESOURCE_EXHAUSTED",
+          25_000,
+        );
+      }
+      return { response: makeAnalysis() };
+    });
+
+    const result = await runPhotoAnalysis(
+      makeVisionEnv(run),
+      "data:image/jpeg;base64,photo",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(run.mock.calls.map(([model]) => model)).toEqual([
+      "primary-model",
+      "fallback-model",
+    ]);
   });
 
   it("falls back when the primary model emits invalid structured output", async () => {
@@ -248,6 +274,7 @@ describe("runPortraitDetailAnalysis", () => {
       eyebrowThickness: "thin",
       noseShape: "straight",
       mouthShape: "thin",
+      mouthOpening: "closed",
       lipFullness: "thin",
       lipColor: "natural",
       jawShape: "soft",
@@ -259,6 +286,7 @@ describe("runPortraitDetailAnalysis", () => {
       fringeOpening: "none",
       hairTexture: "straight",
       hairVolume: "normal",
+      overallHairLength: "ear",
       hairPart: "none",
       sideHairLength: "short",
       sideHairShape: "ear_hugging",
@@ -266,9 +294,12 @@ describe("runPortraitDetailAnalysis", () => {
       earExposure: "partial",
       neckAccessory: "bow",
       neckConfidence: "high",
+      clothingConfidence: "high",
       faceEvidence: "Light neutral skin and a soft oval jaw are visible.",
       hairEvidence: "A domed crown flows into ear-hugging temple hair.",
       neckEvidence: "A central knot has two broad pointed hanging tails.",
+      clothingEvidence:
+        "A small blue and gold rectangular viewer-left chest badge is visible.",
     };
     const run = vi.fn(async () => ({ response: detail }));
 
@@ -302,6 +333,65 @@ describe("runPortraitDetailAnalysis", () => {
     });
   });
 
+  it("uses the fallback model when focused portrait output is unavailable", async () => {
+    const detail = {
+      faceConfidence: "high",
+      hairConfidence: "high",
+      skinTone: "light",
+      skinUndertone: "neutral",
+      eyeColor: "blue",
+      hairColor: "blonde",
+      faceShape: "oval",
+      eyeShape: "almond",
+      eyeSize: "average",
+      irisLightness: "light",
+      eyeSpacing: "average",
+      eyeTilt: "level",
+      eyebrowShape: "soft",
+      eyebrowThickness: "normal",
+      noseShape: "straight",
+      mouthShape: "wide",
+      mouthOpening: "closed",
+      lipFullness: "average",
+      lipColor: "rose",
+      jawShape: "rounded",
+      bangs: "none",
+      bangsLength: "none",
+      hairSilhouette: "tousled",
+      bangsDensity: "balanced",
+      fringeEdge: "wispy",
+      fringeOpening: "none",
+      hairTexture: "curly",
+      hairVolume: "full",
+      overallHairLength: "jaw",
+      hairPart: "none",
+      sideHairLength: "jaw",
+      sideHairShape: "flared",
+      sideHairAsymmetry: "none",
+      earExposure: "partial",
+      neckAccessory: "none",
+      neckConfidence: "high",
+      faceEvidence: "Warm smiling oval face and light eyes.",
+      hairEvidence: "Full curls end above the shoulder at the jaw line.",
+      neckEvidence: "No neck accessory is visible.",
+    };
+    const run = vi.fn(async (model: string) => {
+      if (model === "primary-model") throw new Error("primary unavailable");
+      return { response: detail };
+    });
+
+    const result = await runPortraitDetailAnalysis(
+      makeVisionEnv(run),
+      "data:image/png;base64,portrait-crop",
+    );
+
+    expect(result).toMatchObject({ ok: true, detail, attempts: 2 });
+    expect(run.mock.calls.map(([model]) => model)).toEqual([
+      "primary-model",
+      "fallback-model",
+    ]);
+  });
+
   it("distinguishes the outer crown from the fringe edge", () => {
     expect(PORTRAIT_DETAIL_PROMPT).toContain("OUTER crown and temple contour");
     expect(PORTRAIT_DETAIL_PROMPT).toContain(
@@ -309,7 +399,12 @@ describe("runPortraitDetailAnalysis", () => {
     );
     expect(PORTRAIT_DETAIL_PROMPT).toContain("crown to temple to sideburn/ear");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("central knot with paired loops");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("teeth_visible");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("low neckConfidence");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("clothingConfidence low");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain(
+      "viewer-relative location",
+    );
   });
 });
 
@@ -391,11 +486,17 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain("independent from hairPart");
     expect(ANALYSIS_PROMPT).toContain("eyeSize");
     expect(ANALYSIS_PROMPT).toContain("skinUndertone");
+    expect(ANALYSIS_PROMPT).toContain("accidental outlier");
+    expect(ANALYSIS_PROMPT).toContain(
+      "Never reject an otherwise compatible alternate",
+    );
     expect(ANALYSIS_PROMPT).toContain("actual eye opening");
     expect(ANALYSIS_PROMPT).toContain("irisLightness");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("iris itself");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("eyebrowThickness");
-    expect(PORTRAIT_DETAIL_PROMPT).toContain("visible hair-bearing brow stroke");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain(
+      "visible hair-bearing brow stroke",
+    );
     expect(ANALYSIS_PROMPT).toContain("lipFullness");
     expect(ANALYSIS_PROMPT).toContain("lipColor");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("dominant lip pigmentation");
@@ -451,6 +552,38 @@ describe("validatePhotoAnalysis", () => {
   it("유효한 분석은 통과한다", () => {
     const result = validatePhotoAnalysis(makeAnalysis());
     expect(result.ok).toBe(true);
+  });
+
+  it("recovers a complete safe fallback contract when Gemini omits coarse enums", () => {
+    const base = makeAnalysis();
+    const result = validatePhotoAnalysis(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "long wavy brown hair falling below the shoulders",
+          accessories: "turquoise teardrop earrings and round glasses",
+          clothing: "black jacket over a white shirt",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairTexture: "wavy",
+          overallHairLength: "chest",
+        },
+        fallbackFeatures: {} as never,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.analysis.fallbackFeatures).toMatchObject({
+        hairstyle: "long",
+        glasses: "round",
+        earrings: true,
+        topType: "jacket",
+        bottomType: "pants",
+      });
+      expect(Object.keys(result.analysis.fallbackFeatures)).toHaveLength(19);
+    }
   });
 
   it("얼굴만 보이는 사진(framing=face)도 품질 실패로 처리되지 않는다", () => {

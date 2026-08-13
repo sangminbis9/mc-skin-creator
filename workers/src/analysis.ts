@@ -12,10 +12,16 @@ import {
   NEURONS_VISION_DETAIL_ESTIMATE,
   visionNeuronsFromUsage,
 } from "./quota";
+import {
+  geminiRetryAfterMs,
+  generateGeminiStructuredJson,
+  isGeminiQuotaError,
+  isGeminiTemporaryRateLimit,
+} from "./gemini";
 import type { Env } from "./types";
 
-const DEFAULT_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
-const DEFAULT_FALLBACK_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+const DEFAULT_VISION_MODEL = "gemini-3.6-flash";
+const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
 
 export type Framing = "face" | "upper_body" | "three_quarter" | "full_body";
 
@@ -51,6 +57,7 @@ export interface PixelRenderHints {
   eyebrowShape: "straight" | "arched" | "slanted" | "soft";
   noseShape: "small" | "straight" | "rounded" | "prominent";
   mouthShape: "small" | "wide" | "full" | "thin";
+  mouthOpening: "closed" | "slightly_open" | "teeth_visible";
   lipFullness: "thin" | "average" | "full";
   lipColor: "natural" | "rose" | "red" | "berry" | "brown" | "coral";
   jawShape: "rounded" | "pointed" | "square" | "soft";
@@ -161,6 +168,11 @@ export interface PhotoAnalysis {
     lowerBodyDesign?: InferredLowerBodyDesign | null;
     shoes: InferredItem | null;
   };
+  canonicalIdentity: {
+    overallImpression: string;
+    mustPreserve: string[];
+    features: IdentityFeaturePriority[];
+  };
   renderHints: PixelRenderHints;
   identityPrompt: string;
   outfitPrompt: string;
@@ -168,8 +180,42 @@ export interface PhotoAnalysis {
   fallbackFeatures: FallbackFeatures;
 }
 
-const CLOTHING_COLOR_ENUM =
-  '"black" | "white" | "gray" | "light-gray" | "red" | "orange" | "yellow" | "green" | "dark-green" | "blue" | "navy" | "sky-blue" | "purple" | "pink" | "brown" | "beige" | "denim" | "khaki"';
+export type IdentityFeatureCategory =
+  "face" | "hair" | "accessory" | "outfit" | "color" | "silhouette";
+
+export interface IdentityFeaturePriority {
+  feature: string;
+  category: IdentityFeatureCategory;
+  /** 5 is the strongest likeness cue and must be protected first. */
+  priority: 1 | 2 | 3 | 4 | 5;
+  confidence: "low" | "medium" | "high";
+  evidence: string;
+  targetRegions: string[];
+}
+
+const CLOTHING_COLOR_VALUES = [
+  "black",
+  "white",
+  "gray",
+  "light-gray",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "dark-green",
+  "blue",
+  "navy",
+  "sky-blue",
+  "purple",
+  "pink",
+  "brown",
+  "beige",
+  "denim",
+  "khaki",
+] as const;
+const CLOTHING_COLOR_ENUM = CLOTHING_COLOR_VALUES.map(
+  (color) => `"${color}"`,
+).join(" | ");
 
 export const ANALYSIS_PROMPT = `You are a character designer analyzing a photo to build a Minecraft-style avatar that closely resembles the person in it.
 
@@ -183,9 +229,9 @@ If multiple people appear, analyze only the most prominent/central person.
 
 STEP 2 — framing: how much of the person is visible: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
 
-STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logos.
+STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logo identities. Never return the bare word "logo": describe a visible small mark neutrally as a graphic, badge or marking and include its visible colors, approximate shape and viewer-relative chest location when readable.
 - observed.face MUST explicitly state the visible skin-tone impression (pale/fair, light, medium, tan, brown or dark, plus warm/cool/neutral undertone when readable). Include that skin colour in observed.colorPalette. Do not omit it merely because the lighting is soft or the face occupies a small part of the frame.
-- For observed.hair, explicitly describe root/scalp part visibility, fringe density and gaps, left and right temple contours, whether either ear is exposed or framed, side-hair taper/flare, the visible transition toward the nape, and the lowest substantial hair endpoint relative to the shoulders, chest/bust, natural waist or belt, and hips. Do not summarize all short hair as a bowl cut or all side hair as merely "short".
+- For observed.hair, explicitly describe root/scalp part visibility, fringe density and gaps, left and right temple contours, whether either ear is exposed or framed, side-hair taper/flare, the visible transition toward the nape, and the lowest substantial hair endpoint relative to the shoulders, chest/bust, natural waist or belt, and hips. Correct for head tilt and slanted shoulders: compare the locks with local physical landmarks on the same side of the person instead of raw screen height. Do not summarize all short hair as a bowl cut or all side hair as merely "short".
 - For every visible white or contrasting fabric at the throat, describe its construction separately from the shirt: ordinary collar flaps, a central knot, paired loops, and any broad hanging tails. Do not call the whole shape a "collar" merely because a collared shirt is underneath. A central knot with two long pointed fabric tails is a neck bow or scarf even when its loops are folded flat or partly hidden.
 - If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans; describe skorts, pleated shorts or skirt-like culottes as skirt-like for low-resolution rendering), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs/knee-high or over-knee socks), legwear asymmetry from the viewer's perspective, and shoe type/color.
 - Preserve side-specific details using viewer-left/viewer-right wording for one-sided flowers, bows, leg warmers, thigh bows, side stripes, straps or shoe details.
@@ -203,8 +249,16 @@ STEP 5 — prompts for an image generation model:
 - outfitPrompt: 1-3 sentences describing the COMPLETE head-to-toe outfit: visible garments first (preserve them faithfully), then inferred garments. When lower body or feet are visible, explicitly include the lower garment, legwear/asymmetry and shoe details instead of summarizing them as "bottoms" or omitting them.
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
+STEP 5A — canonicalIdentity and likeness salience:
+- When multiple reference images are supplied, treat image 0 as the primary composition/outfit reference and every remaining image as identity evidence for the SAME person. Reconcile lighting, pose and expression differences; never create multiple people or average away a distinctive feature.
+- Before fusing identity evidence, check that each alternate is compatible with image 0 and the majority on multiple stable cues. If one alternate conflicts on several stable traits beyond plausible lighting, pose, expression, styling or time differences, treat it as an accidental outlier: do not blend its conflicting face, hair or accessory traits. Image 0 and cues consistently supported by the remaining references win. Never reject an otherwise compatible alternate merely because makeup, expression, lighting, hairstyle or outfit changed.
+- canonicalIdentity.overallImpression: one concise description of the stable appearance shared across the references.
+- canonicalIdentity.mustPreserve: 3-8 concrete, ordered likeness cues that must remain readable after reduction to a 64x64 Minecraft skin.
+- canonicalIdentity.features: 4-12 distinct cues. Assign priority 5 only to the strongest identity cues, then 4/3/2/1 in descending importance. Include category, confidence, visible evidence, and exact targetRegions such as "head.front", "head.overlay", "torso.front", "arm.left" or "leg.right".
+- Prefer stable face geometry, hair silhouette/part/fringe, signature glasses/accessories, characteristic color blocks and outfit silhouette. Do not use race, gender, age guesses, attractiveness, or personality as identity cues.
+
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Classify the visible skin undertone, face geometry, eye geometry/size/iris lightness/spacing/tilt, eyebrow shape, nose shape, mouth footprint, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
+- Classify the visible skin undertone, face geometry, eye geometry/size/iris lightness/spacing/tilt, eyebrow shape, nose shape, mouth footprint/opening, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
 - skinUndertone records the skin itself after discounting studio color casts, background spill, blush and makeup: warm for golden/peach/yellow, cool for rosy/pink/blue-red, and neutral when neither direction clearly dominates. Keep it independent from skin lightness.
 - eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
 - irisLightness describes the value of the iris itself within its color family: dark for near-black/deep irises, medium for a subdued but readable color, and light for distinctly pale/bright irises. Ignore white catchlights, sclera, eyelid shadow, exposure and red-eye; do not call a dark iris light because it contains a small reflection.
@@ -212,6 +266,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - eyebrowShape means the visible brow impression: straight/horizontal, arched/raised center, slanted/serious angled, or soft/low-contrast.
 - noseShape means the visible low-res nose impression: small/subtle, straight/vertical, rounded/soft tip, or prominent/strong bridge.
 - mouthShape means the visible low-resolution mouth footprint: use small for a compact mouth even when the lips are full, wide for a broad mouth, full for a strongly defined mouth whose footprint is not compact, and thin for a very subtle line.
+- mouthOpening is independent from mouth width and expression: closed when the lips meet with no dark opening, slightly_open when a narrow dark gap is visible but teeth are not a dominant cue, and teeth_visible only when a clear white tooth row is visibly exposed. A friendly or wide smile is not automatically teeth_visible.
 - lipFullness independently records lip volume: thin, average, or full/plump. Do not collapse "small full lips" into only small or only full; return mouthShape "small" and lipFullness "full".
 - lipColor records the dominant visible lip pigmentation after discounting specular highlights and deep mouth-corner shadows: natural for skin-adjacent/subtle lips, rose for muted pink, red for clear red lipstick, berry for cool magenta/wine, brown for warm nude/brown, and coral for orange-pink. Judge the lips themselves, not cheek blush or surrounding skin.
 - jawShape means the visible lower-face contour: rounded/full jaw, pointed/narrow chin, square/strong jaw corners, or soft/low-contrast jaw.
@@ -224,7 +279,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - hairVolume is independent from silhouette and length: flat means sleek/low-volume hair lying close to the head, normal means ordinary lift, and full means visibly thick, voluminous or expanded away from the scalp. Long hair is not automatically full, and a rounded anatomical crown can still have flat volume.
 - Straight or blunt bangs do NOT make the crown silhouette flat. Short two-block, bowl-like or ear-length hair with a visibly domed crown and tapered/ear-hugging sides is rounded unless the top itself is explicitly flat, boxy or close-cropped.
 - hairBackShape is the inferred rear construction: tapered neat nape, rounded full back, long hair down the back, tied ponytail/bun, or undercut close nape. Use visible side/top hair and inferred.hairBack rationale.
-- overallHairLength records the lowest point reached by the longest clearly visible, substantial continuous locks (ignore only isolated flyaway hairs), not just the front fringe: cropped/scalp, ear, jaw, shoulder, chest, waist, or hip. "chest" ends around the bust/upper torso and clearly above the natural waist; "waist" reaches the lower ribs, waistband or belt line; "hip" reaches the shorts/skirt side seam or hip line. For full-body and three-quarter photos, compare the endpoint directly with the bust, belt/natural waist and hip line before choosing. Preserve clearly visible chest-, waist- or hip-length hair instead of collapsing every long hairstyle to shoulder length. If the endpoint is hidden by the crop, infer it conservatively from visible strands and inferred.hairBack and state that inference in identityPrompt.
+- overallHairLength records the lowest point reached by the longest clearly visible, substantial continuous locks (ignore only isolated flyaway hairs), not just the front fringe: cropped/scalp, ear, jaw, shoulder, chest, waist, or hip. Curly width/volume is NOT length: curls that flare outward around the ears or jaw but do not visibly touch or overlap the shoulder line are ear- or jaw-length, never shoulder-length. Choose shoulder only when substantial locks visibly reach the physical shoulder seam. When the head is tilted or the shoulders slope in the image, mentally rotate the head upright and compare each lock with its local ear, jaw, neck and same-side shoulder seam; never use raw image y-position alone. "chest" ends around the bust/upper torso and clearly above the natural waist; "waist" reaches the lower ribs, waistband or belt line; "hip" reaches the shorts/skirt side seam or hip line. For full-body and three-quarter photos, compare the endpoint directly with the jaw, neck, shoulder seam, bust, belt/natural waist and hip line before choosing. Preserve clearly visible chest-, waist- or hip-length hair instead of collapsing every long hairstyle to shoulder length. If the endpoint is hidden by the crop, infer it conservatively from visible strands and inferred.hairBack and state that inference in identityPrompt.
 - hairPart is the visible parting direction from the viewer's perspective: center, left, right, or none.
 - sideHairLength is how far the side hair visually falls: none, short/ear-level, cheek, jaw, or shoulder. Keep it geometrically consistent with overallHairLength, hairBackShape, and sideHairShape: a cropped/ear-length cut with a tapered or undercut back normally has none/short side hair, never a cheek/jaw/shoulder panel, unless a distinct longer face-framing lock is clearly visible and explicitly described.
 - sideHairShape describes the side profile around the temple and ear: tapered narrows cleanly toward the ear, ear_hugging wraps around and partly frames the ear, face_framing forms longer front locks, flared pushes outward with visible volume, and undercut is close/shaved below the top. Infer it from both visible sides and keep left/right profiles coherent unless the photo clearly shows an asymmetric cut.
@@ -234,7 +289,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - hairAccessory means a visible hair flower, bow, ribbon or clip that should survive at 64x64; otherwise "none". hairAccessoryScale is small for a tiny pin/single subtle bloom, medium for a clearly visible ordinary accessory, and large for an oversized bloom, multiple-flower cluster, floral arrangement or prominent bow. Judge its occupied area relative to the head. hairAccessorySide is the accessory position from the viewer's perspective: left, right, or center. hairAccessoryColor is the dominant visible accessory color; do not copy the hair or clothing color when the accessory itself has a different color. For multicolor flowers choose the dominant petal color.
 - neckAccessory means a visible bow, necktie, scarf or distinct collar at the throat/chest that should be rendered as a bold low-res cue. Inspect the knot and hanging fabric: paired loops or broad pointed tails descending below the throat are a bow or scarf, not merely a collar. Use "collar" only when the visible fabric consists of paired shirt/lapel flaps ending close to the neckline with no central knot and no long hanging tails. A shirt can have both an ordinary collar and a prominent white neck bow; choose "bow" when the bow is the stronger 64x64 identity cue.
 - bottomPattern captures visible plaid/checks, stripes, pleats or lace on the lower garment. If the lower body is not visible, choose a coherent inferred pattern only when it fits the visible top; otherwise "plain".
-- bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, infer one from the visible top's formality and color harmony when useful; otherwise "none".
+- bottomAccent captures a bold low-res lower-body detail: belt, cuffs, side stripe or ribbon. If the lower body is not visible, use "none" unless the visible outfit directly supports a coordinated construction such as matching formal trousers with a belt. Never invent a side stripe, ribbon, cuff or other new motif merely to make the hidden lower body more detailed.
 - legwear captures visible socks, stockings, leg warmers or thigh-highs. Treat knee-high, over-knee and OTK socks as thigh_highs for low-resolution rendering. legwearColor is the closest dominant fabric color of that legwear (use beige for cream/ivory/oatmeal). Preserve the photographed color instead of borrowing the top or shoe color. If legwear is inferred, choose a coherent color from the visible outfit. legwearAsymmetry is "left" or "right" when only one leg has the distinctive legwear, "both" when both legs do, and "none" when no legwear is visible.
 - thighAccessory independently captures a bow, tied ribbon or garter visibly attached around the upper thigh. thighAccessorySide is its side from the VIEWER'S perspective. Use "none" for both fields when no thigh accessory exists. Never infer a thigh bow merely because the opposite leg has one-sided legwear.
 - For full_body photos, renderHints.bottomPattern, bottomAccent, legwear, legwearAsymmetry, thighAccessory and thighAccessorySide must be based on the visible lower body whenever visible; do not default to plain/none if plaid, pleats, lace, ribbons, socks, stockings, leg warmers or asymmetric details are visible.
@@ -301,6 +356,7 @@ Respond with ONLY a JSON object matching this shape:
     "eyebrowShape": "straight" | "arched" | "slanted" | "soft",
     "noseShape": "small" | "straight" | "rounded" | "prominent",
     "mouthShape": "small" | "wide" | "full" | "thin",
+    "mouthOpening": "closed" | "slightly_open" | "teeth_visible",
     "lipFullness": "thin" | "average" | "full",
     "lipColor": "natural" | "rose" | "red" | "berry" | "brown" | "coral",
     "jawShape": "rounded" | "pointed" | "square" | "soft",
@@ -457,6 +513,62 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "shoes",
       ],
     },
+    canonicalIdentity: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        overallImpression: { type: "string" },
+        mustPreserve: {
+          type: "array",
+          minItems: 3,
+          maxItems: 8,
+          items: { type: "string" },
+        },
+        features: {
+          type: "array",
+          minItems: 4,
+          maxItems: 12,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              feature: { type: "string" },
+              category: {
+                type: "string",
+                enum: [
+                  "face",
+                  "hair",
+                  "accessory",
+                  "outfit",
+                  "color",
+                  "silhouette",
+                ],
+              },
+              priority: { type: "integer", minimum: 1, maximum: 5 },
+              confidence: {
+                type: "string",
+                enum: ["low", "medium", "high"],
+              },
+              evidence: { type: "string" },
+              targetRegions: {
+                type: "array",
+                minItems: 1,
+                items: { type: "string" },
+              },
+            },
+            required: [
+              "feature",
+              "category",
+              "priority",
+              "confidence",
+              "evidence",
+              "targetRegions",
+            ],
+          },
+        },
+      },
+      required: ["overallImpression", "mustPreserve", "features"],
+    },
     renderHints: {
       type: "object",
       properties: {
@@ -487,6 +599,10 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         mouthShape: {
           type: "string",
           enum: ["small", "wide", "full", "thin"],
+        },
+        mouthOpening: {
+          type: "string",
+          enum: ["closed", "slightly_open", "teeth_visible"],
         },
         lipFullness: {
           type: "string",
@@ -662,6 +778,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         "eyebrowShape",
         "noseShape",
         "mouthShape",
+        "mouthOpening",
         "lipFullness",
         "lipColor",
         "jawShape",
@@ -701,7 +818,11 @@ export const PHOTO_ANALYSIS_SCHEMA = {
     identityPrompt: { type: "string" },
     outfitPrompt: { type: "string" },
     negativePrompt: { type: "string" },
-    fallbackFeatures: { type: "object" },
+    fallbackFeatures: {
+      type: "object",
+      description:
+        "Coarse optional cache. The server reconstructs any omitted keys from observed, inferred and canonical identity evidence.",
+    },
   },
   required: [
     "quality",
@@ -710,6 +831,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
     "visibleRegions",
     "observed",
     "inferred",
+    "canonicalIdentity",
     "renderHints",
     "identityPrompt",
     "outfitPrompt",
@@ -811,6 +933,11 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           lowerBodyDesign: null,
           shoes: null,
         },
+        canonicalIdentity: {
+          overallImpression: "",
+          mustPreserve: [],
+          features: [],
+        },
         renderHints: {
           skinUndertone: "neutral",
           faceShape: "oval",
@@ -822,6 +949,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           eyebrowShape: "straight",
           noseShape: "small",
           mouthShape: "small",
+          mouthOpening: "closed",
           lipFullness: "average",
           lipColor: "natural",
           jawShape: "soft",
@@ -1075,6 +1203,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       ["small", "wide", "full", "thin"],
       "small",
     ),
+    mouthOpening: enumValue(
+      "renderHints.mouthOpening",
+      hints.mouthOpening,
+      ["closed", "slightly_open", "teeth_visible"],
+      "closed",
+    ),
     lipFullness: enumValue(
       "renderHints.lipFullness",
       hints.lipFullness,
@@ -1316,11 +1450,306 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     errors.push("outfitPrompt: 내용이 비어 있거나 너무 짧음");
   }
 
-  const fallbackFeatures = (
-    typeof obj.fallbackFeatures === "object" && obj.fallbackFeatures !== null
-      ? obj.fallbackFeatures
-      : (errors.push("fallbackFeatures: 객체가 아님"), {})
-  ) as FallbackFeatures;
+  const canonical =
+    typeof obj.canonicalIdentity === "object" &&
+    obj.canonicalIdentity !== null &&
+    !Array.isArray(obj.canonicalIdentity)
+      ? (obj.canonicalIdentity as Record<string, unknown>)
+      : (errors.push("canonicalIdentity: 객체가 아님"), {});
+  const overallImpression = str(
+    "canonicalIdentity.overallImpression",
+    canonical.overallImpression,
+  );
+  const mustPreserve = Array.isArray(canonical.mustPreserve)
+    ? canonical.mustPreserve.filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim().length > 0,
+      )
+    : (errors.push("canonicalIdentity.mustPreserve: 배열이 아님"), []);
+  if (overallImpression.trim().length < 10) {
+    errors.push("canonicalIdentity.overallImpression: 내용이 너무 짧음");
+  }
+  if (mustPreserve.length < 3 || mustPreserve.length > 8) {
+    errors.push("canonicalIdentity.mustPreserve: 3~8개 필요");
+  }
+
+  const featureCategories: IdentityFeatureCategory[] = [
+    "face",
+    "hair",
+    "accessory",
+    "outfit",
+    "color",
+    "silhouette",
+  ];
+  const identityFeatures: IdentityFeaturePriority[] = [];
+  if (!Array.isArray(canonical.features)) {
+    errors.push("canonicalIdentity.features: 배열이 아님");
+  } else {
+    for (const [index, rawFeature] of canonical.features.entries()) {
+      const path = `canonicalIdentity.features[${index}]`;
+      if (
+        typeof rawFeature !== "object" ||
+        rawFeature === null ||
+        Array.isArray(rawFeature)
+      ) {
+        errors.push(`${path}: 객체가 아님`);
+        continue;
+      }
+      const item = rawFeature as Record<string, unknown>;
+      const feature = str(`${path}.feature`, item.feature);
+      const evidence = str(`${path}.evidence`, item.evidence);
+      const category = str(`${path}.category`, item.category);
+      const confidence = str(`${path}.confidence`, item.confidence);
+      const priority = item.priority;
+      const targetRegions = Array.isArray(item.targetRegions)
+        ? item.targetRegions.filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0,
+          )
+        : (errors.push(`${path}.targetRegions: 배열이 아님`), []);
+      if (!featureCategories.includes(category as IdentityFeatureCategory)) {
+        errors.push(`${path}.category: 허용되지 않은 값`);
+      }
+      if (
+        !Number.isInteger(priority) ||
+        Number(priority) < 1 ||
+        Number(priority) > 5
+      ) {
+        errors.push(`${path}.priority: 1~5 정수 필요`);
+      }
+      if (
+        !(["low", "medium", "high"] as const).includes(
+          confidence as "low" | "medium" | "high",
+        )
+      ) {
+        errors.push(`${path}.confidence: 허용되지 않은 값`);
+      }
+      if (feature.trim().length < 3 || evidence.trim().length < 3) {
+        errors.push(`${path}: feature/evidence가 너무 짧음`);
+      }
+      if (targetRegions.length === 0) {
+        errors.push(`${path}.targetRegions: 한 개 이상 필요`);
+      }
+      identityFeatures.push({
+        feature,
+        category: category as IdentityFeatureCategory,
+        priority: Number(priority) as IdentityFeaturePriority["priority"],
+        confidence: confidence as IdentityFeaturePriority["confidence"],
+        evidence,
+        targetRegions,
+      });
+    }
+  }
+  if (identityFeatures.length < 4 || identityFeatures.length > 12) {
+    errors.push("canonicalIdentity.features: 4~12개 필요");
+  }
+  identityFeatures.sort((a, b) => b.priority - a.priority);
+
+  const fallbackSource =
+    typeof obj.fallbackFeatures === "object" &&
+    obj.fallbackFeatures !== null &&
+    !Array.isArray(obj.fallbackFeatures)
+      ? (obj.fallbackFeatures as Record<string, unknown>)
+      : {};
+  const fallbackEnum = <T extends string>(
+    value: unknown,
+    allowed: readonly T[],
+    fallback: T,
+  ): T =>
+    typeof value === "string" && allowed.includes(value as T)
+      ? (value as T)
+      : fallback;
+  const fallbackColor = <T extends string>(
+    value: unknown,
+    allowed: readonly T[],
+    fallback: T,
+  ): string =>
+    typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim())
+      ? value.trim().toLowerCase()
+      : fallbackEnum(value, allowed, fallback);
+  const fallbackEvidence = [
+    observed.face,
+    observed.hair,
+    observed.accessories,
+    observed.clothing,
+    identityPrompt,
+    outfitPrompt,
+    overallImpression,
+    ...mustPreserve,
+  ]
+    .join(" ")
+    .toLowerCase();
+  const inferredHairstyle: FallbackFeatures["hairstyle"] =
+    renderHints.hairTexture === "curly" || renderHints.hairTexture === "coily"
+      ? "curly"
+      : renderHints.hairBackShape === "tied"
+        ? "bun"
+        : ["shoulder", "chest", "waist", "hip"].includes(
+              renderHints.overallHairLength,
+            )
+          ? "long"
+          : "short";
+  const inferredGlasses: FallbackFeatures["glasses"] = /\bsunglasses?\b/.test(
+    fallbackEvidence,
+  )
+    ? "sunglasses"
+    : /\b(?:round|circular)[- ](?:frame|framed)|\bround glasses\b/.test(
+          fallbackEvidence,
+        )
+      ? "round"
+      : /\b(?:glasses|spectacles|eyeglasses|frames)\b/.test(fallbackEvidence)
+        ? "regular"
+        : "none";
+  const inferredTopType: FallbackFeatures["topType"] = /\bhoodie\b/.test(
+    fallbackEvidence,
+  )
+    ? "hoodie"
+    : /\b(?:jacket|coat|blazer)\b/.test(fallbackEvidence)
+      ? "jacket"
+      : /\b(?:sweater|pullover|knit)\b/.test(fallbackEvidence)
+        ? "sweater"
+        : /\bdress\b/.test(fallbackEvidence)
+          ? "dress"
+          : /\b(?:shirt|blouse)\b/.test(fallbackEvidence)
+            ? "shirt"
+            : "tshirt";
+  const inferredBottomType: FallbackFeatures["bottomType"] =
+    inferred.lowerBodyDesign?.bottomType ??
+    (/\bskirt\b/.test(fallbackEvidence)
+      ? "skirt"
+      : /\bshorts\b/.test(fallbackEvidence)
+        ? "shorts"
+        : /\bjeans\b/.test(fallbackEvidence)
+          ? "jeans"
+          : "pants");
+  const fallbackFeatures: FallbackFeatures = {
+    skinTone: fallbackColor(
+      fallbackSource.skinTone,
+      ["pale", "light", "medium", "tan", "brown", "dark"],
+      "light",
+    ),
+    hairColor: fallbackColor(
+      fallbackSource.hairColor,
+      [
+        "black",
+        "dark-brown",
+        "brown",
+        "light-brown",
+        "blonde",
+        "platinum",
+        "red",
+        "auburn",
+        "gray",
+        "white",
+        "dyed-blue",
+        "dyed-pink",
+        "dyed-purple",
+        "dyed-green",
+      ],
+      "dark-brown",
+    ),
+    hairstyle: fallbackEnum(
+      fallbackSource.hairstyle,
+      [
+        "bald",
+        "buzz",
+        "short",
+        "medium",
+        "long",
+        "ponytail",
+        "bun",
+        "twintails",
+        "curly",
+        "afro",
+      ],
+      inferredHairstyle,
+    ),
+    eyeColor: fallbackColor(
+      fallbackSource.eyeColor,
+      ["black", "dark-brown", "brown", "hazel", "green", "blue", "gray"],
+      "dark-brown",
+    ),
+    eyebrowThickness: fallbackEnum(
+      fallbackSource.eyebrowThickness,
+      ["thin", "normal", "thick"],
+      "normal",
+    ),
+    facialHair: fallbackEnum(
+      fallbackSource.facialHair,
+      ["none", "mustache", "goatee", "beard", "stubble"],
+      "none",
+    ),
+    glasses: fallbackEnum(
+      fallbackSource.glasses,
+      ["none", "regular", "round", "sunglasses"],
+      inferredGlasses,
+    ),
+    glassesColor: fallbackColor(
+      fallbackSource.glassesColor,
+      CLOTHING_COLOR_VALUES,
+      "black",
+    ),
+    earrings:
+      typeof fallbackSource.earrings === "boolean"
+        ? fallbackSource.earrings
+        : /\b(?:earrings?|ear studs?|hoops?)\b/.test(fallbackEvidence),
+    hat: fallbackEnum(
+      fallbackSource.hat,
+      ["none", "cap", "beanie", "hood"],
+      /\bcap\b/.test(fallbackEvidence)
+        ? "cap"
+        : /\bbeanie\b/.test(fallbackEvidence)
+          ? "beanie"
+          : /\bhood\b/.test(fallbackEvidence)
+            ? "hood"
+            : "none",
+    ),
+    hatColor: fallbackColor(
+      fallbackSource.hatColor,
+      CLOTHING_COLOR_VALUES,
+      "black",
+    ),
+    expression: fallbackEnum(
+      fallbackSource.expression,
+      ["smile", "neutral", "serious"],
+      /\b(?:smile|smiling|grin)\b/.test(fallbackEvidence) ? "smile" : "neutral",
+    ),
+    topType: fallbackEnum(
+      fallbackSource.topType,
+      ["tshirt", "shirt", "hoodie", "jacket", "sweater", "dress", "tank"],
+      inferredTopType,
+    ),
+    topColor: fallbackColor(
+      fallbackSource.topColor,
+      CLOTHING_COLOR_VALUES,
+      "blue",
+    ),
+    topAccentColor: fallbackColor(
+      fallbackSource.topAccentColor,
+      CLOTHING_COLOR_VALUES,
+      "white",
+    ),
+    sleeveLength: fallbackEnum(
+      fallbackSource.sleeveLength,
+      ["short", "long"],
+      /\blong[- ]sleeves?\b/.test(fallbackEvidence) ? "long" : "short",
+    ),
+    bottomType: fallbackEnum(
+      fallbackSource.bottomType,
+      ["pants", "jeans", "shorts", "skirt"],
+      inferredBottomType,
+    ),
+    bottomColor: fallbackColor(
+      fallbackSource.bottomColor,
+      CLOTHING_COLOR_VALUES,
+      "denim",
+    ),
+    shoesColor: fallbackColor(
+      fallbackSource.shoesColor,
+      CLOTHING_COLOR_VALUES,
+      "white",
+    ),
+  };
 
   if (errors.length > 0) {
     return { ok: false, errors };
@@ -1335,6 +1764,11 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       visibleRegions,
       observed,
       inferred,
+      canonicalIdentity: {
+        overallImpression,
+        mustPreserve,
+        features: identityFeatures,
+      },
       renderHints,
       identityPrompt,
       outfitPrompt,
@@ -1355,10 +1789,12 @@ export type AnalysisCallResult =
     }
   | {
       ok: false;
-      reason: "ai_error" | "invalid_response" | "quota_exceeded";
+      reason:
+        "ai_error" | "invalid_response" | "quota_exceeded" | "rate_limited";
       detail: string;
       attempts: number;
       neuronsSpent: number;
+      retryAfterMs?: number;
     };
 
 export interface NeckDetailAnalysis {
@@ -1385,6 +1821,7 @@ export type NeckDetailCallResult =
 export interface PortraitDetailAnalysis {
   faceConfidence: "low" | "medium" | "high";
   hairConfidence: "low" | "medium" | "high";
+  clothingConfidence?: "low" | "medium" | "high";
   skinTone: "pale" | "light" | "medium" | "tan" | "brown" | "dark";
   skinUndertone: "warm" | "cool" | "neutral";
   eyeColor:
@@ -1414,6 +1851,7 @@ export interface PortraitDetailAnalysis {
   eyebrowThickness: "thin" | "normal" | "thick";
   noseShape: PixelRenderHints["noseShape"];
   mouthShape: PixelRenderHints["mouthShape"];
+  mouthOpening: PixelRenderHints["mouthOpening"];
   lipFullness: PixelRenderHints["lipFullness"];
   lipColor: PixelRenderHints["lipColor"];
   jawShape: PixelRenderHints["jawShape"];
@@ -1425,6 +1863,7 @@ export interface PortraitDetailAnalysis {
   fringeOpening: PixelRenderHints["fringeOpening"];
   hairTexture: PixelRenderHints["hairTexture"];
   hairVolume: PixelRenderHints["hairVolume"];
+  overallHairLength: PixelRenderHints["overallHairLength"];
   hairPart: PixelRenderHints["hairPart"];
   sideHairLength: PixelRenderHints["sideHairLength"];
   sideHairShape: PixelRenderHints["sideHairShape"];
@@ -1435,6 +1874,7 @@ export interface PortraitDetailAnalysis {
   faceEvidence: string;
   hairEvidence: string;
   neckEvidence: string;
+  clothingEvidence?: string;
 }
 
 export type PortraitDetailCallResult =
@@ -1453,10 +1893,11 @@ export type PortraitDetailCallResult =
     };
 
 export const PORTRAIT_DETAIL_PROMPT = `This is an enlarged head-and-upper-body crop of the same real person already analyzed for a Minecraft skin.
-Re-check only the face and visible hair geometry. Do not infer clothing or the unseen back/lower endpoint of the hair.
+Re-check the face, visible hair geometry, throat construction, and only upper-garment micro-details actually visible in this crop. Do not infer unseen clothing or the unseen back/lower endpoint of the hair.
 
 Face:
-- Classify the person's actual skin lightness/undertone, iris color and irisLightness, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth, lip fullness and dominant lip pigmentation.
+- Classify the person's actual skin lightness/undertone, iris color and irisLightness, face/jaw outline, visible eye aperture and spacing, eyebrow line, nose, mouth footprint and opening, lip fullness and dominant lip pigmentation.
+- mouthOpening is closed when the lips meet, slightly_open for a narrow dark gap without a dominant white row, and teeth_visible only when clearly exposed teeth are an important visible cue. Do not infer teeth from a friendly or wide smile alone.
 - irisLightness is the iris itself: dark near-black/deep, medium subdued but colored, light distinctly pale/bright. Ignore catchlights, sclera, eyelid shadow and exposure.
 - For lipColor discount shine and mouth-corner shadow: natural means skin-adjacent/subtle, rose muted pink, red clear red, berry cool magenta/wine, brown warm nude/brown, and coral orange-pink.
 - Judge eye size from the open eye aperture, not eyeliner, eyelashes, catchlights, expression, or the apparent size of the dark iris.
@@ -1467,6 +1908,7 @@ Hair:
 - Classify the dominant root hair color separately from highlights, reflections and background spill.
 - hairSilhouette is the OUTER crown and temple contour. It is not the lower edge of the fringe. Straight or blunt bangs can still sit under a rounded crown.
 - hairVolume is independent from length and silhouette: flat for sleek/low-volume hair close to the head, normal for ordinary lift, and full only when the hair visibly expands away from the scalp. Do not call all long hair full.
+- Classify overallHairLength from the lowest substantial visible lock relative to the ear, jaw, neck and physical shoulder seam. Correct for head tilt and slanted shoulders by mentally rotating the head upright and comparing each lock with its same-side anatomical landmarks; do not use raw screen y-position. Curly hair that flares widely around the head but ends above the shoulder is ear- or jaw-length, not shoulder-length. Use shoulder only when multiple substantial locks visibly touch or overlap the shoulder seam.
 - A short two-block, bowl-like or ear-length cut with a domed top and tapered/ear-hugging sides is rounded unless the crown itself is visibly flat, boxy or close-cropped.
 - Trace continuity from crown to temple to sideburn/ear on both sides. sideHairShape describes that contour; earExposure describes the visible ear opening rather than hair length.
 - Classify fringe density, edge, opening and part from the visible construction, not isolated highlight strands.
@@ -1477,7 +1919,12 @@ Neck detail:
 - A bow has a central knot with paired loops/wings or broad hanging tails; a scarf wraps or drapes without clear bow loops; a tie has a narrow knot and vertical blade; an ordinary collar has only short paired flaps.
 - A collared shirt can still have a bow or scarf over it. Choose the stronger low-resolution identity cue and use low neckConfidence when the knot/loops/tails are not clearly visible.
 
-Return concise faceEvidence, hairEvidence and neckEvidence describing only visible geometry and colors.`;
+Visible upper-garment detail:
+- Use clothingConfidence low when the crop does not clearly show the garment.
+- In clothingEvidence describe only stable, low-resolution cues missing from a generic color block: small chest graphic/badge/patch colors, approximate shape and viewer-relative location; shoulder stripes or piping; collar/cuff construction; and a clearly visible knit, denim or athletic texture.
+- Never identify a brand or write only "logo". Use neutral graphic/badge/marking wording and preserve visible colors. Do not invent text or symbols that cannot be read.
+
+Return concise faceEvidence, hairEvidence, neckEvidence and clothingEvidence describing only visible geometry and colors.`;
 
 const PORTRAIT_DETAIL_SCHEMA = {
   type: "object",
@@ -1485,6 +1932,10 @@ const PORTRAIT_DETAIL_SCHEMA = {
   properties: {
     faceConfidence: { type: "string", enum: ["low", "medium", "high"] },
     hairConfidence: { type: "string", enum: ["low", "medium", "high"] },
+    clothingConfidence: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+    },
     skinTone: {
       type: "string",
       enum: ["pale", "light", "medium", "tan", "brown", "dark"],
@@ -1547,6 +1998,10 @@ const PORTRAIT_DETAIL_SCHEMA = {
       type: "string",
       enum: ["small", "wide", "full", "thin"],
     },
+    mouthOpening: {
+      type: "string",
+      enum: ["closed", "slightly_open", "teeth_visible"],
+    },
     lipFullness: { type: "string", enum: ["thin", "average", "full"] },
     lipColor: {
       type: "string",
@@ -1588,6 +2043,10 @@ const PORTRAIT_DETAIL_SCHEMA = {
       type: "string",
       enum: ["flat", "normal", "full"],
     },
+    overallHairLength: {
+      type: "string",
+      enum: ["cropped", "ear", "jaw", "shoulder", "chest", "waist", "hip"],
+    },
     hairPart: {
       type: "string",
       enum: ["none", "center", "left", "right"],
@@ -1619,6 +2078,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     faceEvidence: { type: "string" },
     hairEvidence: { type: "string" },
     neckEvidence: { type: "string" },
+    clothingEvidence: { type: "string" },
   },
   required: [
     "faceConfidence",
@@ -1637,6 +2097,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "eyebrowThickness",
     "noseShape",
     "mouthShape",
+    "mouthOpening",
     "lipFullness",
     "lipColor",
     "jawShape",
@@ -1648,6 +2109,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "fringeOpening",
     "hairTexture",
     "hairVolume",
+    "overallHairLength",
     "hairPart",
     "sideHairLength",
     "sideHairShape",
@@ -1691,6 +2153,52 @@ const NECK_DETAIL_SCHEMA = {
   required: ["neckAccessory", "confidence", "evidence"],
 } as const;
 
+async function runStructuredVision(
+  env: Env,
+  options: {
+    model: string;
+    imageDataUrls: string[];
+    prompt: string;
+    schema: unknown;
+    schemaName: string;
+    schemaDescription: string;
+    maxOutputTokens: number;
+  },
+): Promise<unknown> {
+  const legacyInput = {
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...options.imageDataUrls.map((url) => ({
+            type: "image_url",
+            image_url: { url },
+          })),
+          { type: "text", text: options.prompt },
+        ],
+      },
+    ],
+    max_tokens: options.maxOutputTokens,
+    temperature: 0,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: options.schemaName,
+        description: options.schemaDescription,
+        schema: options.schema,
+      },
+    },
+  };
+  return generateGeminiStructuredJson(env, {
+    model: options.model,
+    imageDataUrls: options.imageDataUrls,
+    prompt: options.prompt,
+    responseSchema: options.schema,
+    maxOutputTokens: options.maxOutputTokens,
+    legacyWorkersAiInput: legacyInput,
+  });
+}
+
 /**
  * Focused second-pass classifier for tall full-body photos. The main pass
  * still owns every other feature; this crop only disambiguates tiny neck
@@ -1702,38 +2210,16 @@ export async function runNeckDetailAnalysis(
 ): Promise<NeckDetailCallResult> {
   const visionModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
   try {
-    const modelOptions = visionModel.includes("moonshotai/")
-      ? { chat_template_kwargs: { thinking: false } }
-      : {};
-    const result = await env.AI.run(
-      visionModel as never,
-      {
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: { url: detailImageDataUrl },
-              },
-              { type: "text", text: NECK_DETAIL_PROMPT },
-            ],
-          },
-        ],
-        max_tokens: 260,
-        temperature: 0,
-        ...modelOptions,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "minecraft_skin_neck_detail",
-            description:
-              "Focused neck fabric classification from an upper-body crop",
-            schema: NECK_DETAIL_SCHEMA,
-          },
-        },
-      } as never,
-    );
+    const result = await runStructuredVision(env, {
+      model: visionModel,
+      imageDataUrls: [detailImageDataUrl],
+      prompt: NECK_DETAIL_PROMPT,
+      schema: NECK_DETAIL_SCHEMA,
+      schemaName: "minecraft_skin_neck_detail",
+      schemaDescription:
+        "Focused neck fabric classification from an upper-body crop",
+      maxOutputTokens: 260,
+    });
     const neuronsSpent = visionNeuronsFromUsage(
       result,
       NEURONS_VISION_DETAIL_ESTIMATE,
@@ -1781,7 +2267,7 @@ export async function runNeckDetailAnalysis(
     const detail = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      reason: isWorkersAiQuotaError(detail) ? "quota_exceeded" : "ai_error",
+      reason: isAiQuotaError(error) ? "quota_exceeded" : "ai_error",
       detail,
       attempts: 1,
       neuronsSpent: NEURONS_VISION_DETAIL_ESTIMATE,
@@ -1794,44 +2280,22 @@ export async function runNeckDetailAnalysis(
  * limited to features visible in the crop, leaving outfit and inferred rear
  * or lower-body construction under the main analysis.
  */
-export async function runPortraitDetailAnalysis(
+async function runPortraitDetailWithModel(
   env: Env,
   detailImageDataUrl: string,
+  visionModel: string,
 ): Promise<PortraitDetailCallResult> {
-  const visionModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
   try {
-    const modelOptions = visionModel.includes("moonshotai/")
-      ? { chat_template_kwargs: { thinking: false } }
-      : {};
-    const result = await env.AI.run(
-      visionModel as never,
-      {
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: { url: detailImageDataUrl },
-              },
-              { type: "text", text: PORTRAIT_DETAIL_PROMPT },
-            ],
-          },
-        ],
-        max_tokens: 620,
-        temperature: 0,
-        ...modelOptions,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "minecraft_skin_portrait_detail",
-            description:
-              "Focused face and visible hair classification from an enlarged portrait crop",
-            schema: PORTRAIT_DETAIL_SCHEMA,
-          },
-        },
-      } as never,
-    );
+    const result = await runStructuredVision(env, {
+      model: visionModel,
+      imageDataUrls: [detailImageDataUrl],
+      prompt: PORTRAIT_DETAIL_PROMPT,
+      schema: PORTRAIT_DETAIL_SCHEMA,
+      schemaName: "minecraft_skin_portrait_detail",
+      schemaDescription:
+        "Focused face and visible hair classification from an enlarged portrait crop",
+      maxOutputTokens: 620,
+    });
     const neuronsSpent = visionNeuronsFromUsage(
       result,
       NEURONS_VISION_DETAIL_ESTIMATE,
@@ -1850,7 +2314,11 @@ export async function runPortraitDetailAnalysis(
     const enumFields: Record<
       keyof Omit<
         PortraitDetailAnalysis,
-        "faceEvidence" | "hairEvidence" | "neckEvidence"
+        | "faceEvidence"
+        | "hairEvidence"
+        | "neckEvidence"
+        | "clothingConfidence"
+        | "clothingEvidence"
       >,
       readonly string[]
     > = {
@@ -1893,6 +2361,7 @@ export async function runPortraitDetailAnalysis(
       eyebrowThickness: ["thin", "normal", "thick"],
       noseShape: ["small", "straight", "rounded", "prominent"],
       mouthShape: ["small", "wide", "full", "thin"],
+      mouthOpening: ["closed", "slightly_open", "teeth_visible"],
       lipFullness: ["thin", "average", "full"],
       lipColor: ["natural", "rose", "red", "berry", "brown", "coral"],
       jawShape: ["rounded", "pointed", "square", "soft"],
@@ -1904,6 +2373,15 @@ export async function runPortraitDetailAnalysis(
       fringeOpening: ["none", "left", "center", "right"],
       hairTexture: ["straight", "wavy", "curly", "coily"],
       hairVolume: ["flat", "normal", "full"],
+      overallHairLength: [
+        "cropped",
+        "ear",
+        "jaw",
+        "shoulder",
+        "chest",
+        "waist",
+        "hip",
+      ],
       hairPart: ["none", "center", "left", "right"],
       sideHairLength: ["none", "short", "cheek", "jaw", "shoulder"],
       sideHairShape: [
@@ -1921,8 +2399,14 @@ export async function runPortraitDetailAnalysis(
     const validEnums = Object.entries(enumFields).every(([field, values]) =>
       values.includes(String(parsed[field])),
     );
+    const clothingConfidence = parsed.clothingConfidence;
+    const clothingFieldsValid =
+      clothingConfidence === undefined ||
+      (["low", "medium", "high"].includes(String(clothingConfidence)) &&
+        typeof parsed.clothingEvidence === "string");
     if (
       !validEnums ||
+      !clothingFieldsValid ||
       typeof parsed.faceEvidence !== "string" ||
       parsed.faceEvidence.trim().length < 3 ||
       typeof parsed.hairEvidence !== "string" ||
@@ -1945,6 +2429,9 @@ export async function runPortraitDetailAnalysis(
         faceEvidence: parsed.faceEvidence.trim(),
         hairEvidence: parsed.hairEvidence.trim(),
         neckEvidence: parsed.neckEvidence.trim(),
+        ...(typeof parsed.clothingEvidence === "string"
+          ? { clothingEvidence: parsed.clothingEvidence.trim() }
+          : {}),
       },
       attempts: 1,
       neuronsSpent,
@@ -1953,12 +2440,50 @@ export async function runPortraitDetailAnalysis(
     const detail = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      reason: isWorkersAiQuotaError(detail) ? "quota_exceeded" : "ai_error",
+      reason: isAiQuotaError(error) ? "quota_exceeded" : "ai_error",
       detail,
       attempts: 1,
       neuronsSpent: NEURONS_VISION_DETAIL_ESTIMATE,
     };
   }
+}
+
+export async function runPortraitDetailAnalysis(
+  env: Env,
+  detailImageDataUrl: string,
+): Promise<PortraitDetailCallResult> {
+  const primaryModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+  const fallbackModel =
+    env.VISION_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_VISION_MODEL;
+  const primary = await runPortraitDetailWithModel(
+    env,
+    detailImageDataUrl,
+    primaryModel,
+  );
+  if (
+    primary.ok ||
+    fallbackModel === primaryModel ||
+    (primary.reason === "quota_exceeded" && !env.GEMINI_API_KEY)
+  ) {
+    return primary;
+  }
+  const fallback = await runPortraitDetailWithModel(
+    env,
+    detailImageDataUrl,
+    fallbackModel,
+  );
+  return fallback.ok
+    ? {
+        ...fallback,
+        attempts: primary.attempts + fallback.attempts,
+        neuronsSpent: primary.neuronsSpent + fallback.neuronsSpent,
+      }
+    : {
+        ...fallback,
+        attempts: primary.attempts + fallback.attempts,
+        neuronsSpent: primary.neuronsSpent + fallback.neuronsSpent,
+        detail: `${primaryModel}: ${primary.detail}\n${fallbackModel}: ${fallback.detail}`,
+      };
 }
 
 /**
@@ -1967,31 +2492,11 @@ export async function runPortraitDetailAnalysis(
  */
 export async function runPhotoAnalysis(
   env: Env,
-  imageDataUrl: string,
+  imageDataUrls: string | string[],
 ): Promise<AnalysisCallResult> {
-  const messages = [
-    {
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: imageDataUrl } },
-        { type: "text", text: ANALYSIS_PROMPT },
-      ],
-    },
-  ];
-
-  // Workers AI follows the OpenAI-compatible response_format shape here.
-  // `json_schema.name` is required; passing the schema object directly makes
-  // the provider reject the request before inference and forces every request
-  // onto the less reliable free-form JSON retry.
-  const structuredResponseFormat = {
-    type: "json_schema",
-    json_schema: {
-      name: "minecraft_skin_photo_analysis",
-      description:
-        "Structured portrait, hair, face and outfit analysis for a Minecraft skin",
-      schema: PHOTO_ANALYSIS_SCHEMA,
-    },
-  };
+  const references = Array.isArray(imageDataUrls)
+    ? imageDataUrls.slice(0, 5)
+    : [imageDataUrls];
   const primaryModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
   const fallbackModel =
     env.VISION_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_VISION_MODEL;
@@ -2000,6 +2505,8 @@ export async function runPhotoAnalysis(
   let lastDetail = "";
   const failureDetails: string[] = [];
   let sawInvalidResponse = false;
+  let sawTemporaryRateLimit = false;
+  let lastRetryAfterMs: number | undefined;
   let attempts = 0;
   let neuronsSpent = 0;
   // A second structured pass is more reliable than switching to free-form
@@ -2007,23 +2514,23 @@ export async function runPhotoAnalysis(
   // schema-incomplete production responses. Alternate models across two rounds
   // so a transient provider error does not immediately fail the whole request.
   for (let round = 0; round < 2; round++) {
-    for (const visionModel of visionModels) {
+    for (let modelIndex = 0; modelIndex < visionModels.length; modelIndex++) {
+      const visionModel = visionModels[modelIndex];
       let parsed: unknown;
       try {
         attempts += 1;
-        const modelOptions = visionModel.includes("moonshotai/")
-          ? { chat_template_kwargs: { thinking: false } }
-          : {};
-        const result = await env.AI.run(
-          visionModel as never,
-          {
-            messages,
-            max_tokens: 3200,
-            temperature: 0,
-            ...modelOptions,
-            response_format: structuredResponseFormat,
-          } as never,
-        );
+        const result = await runStructuredVision(env, {
+          model: visionModel,
+          imageDataUrls: references,
+          prompt: `${ANALYSIS_PROMPT}\n\nREFERENCE SET: ${references.length} image(s) of the same person are attached in order. Image 0 is primary; use the others to resolve stable identity cues and side/back evidence.`,
+          schema: PHOTO_ANALYSIS_SCHEMA,
+          schemaName: "minecraft_skin_photo_analysis",
+          schemaDescription:
+            "Structured portrait, hair, face and outfit analysis for a Minecraft skin",
+          // The full identity + render-hint schema is intentionally rich.
+          // 3,200 truncated roughly half of the diverse real-photo set.
+          maxOutputTokens: 8192,
+        });
         neuronsSpent += visionNeuronsFromUsage(result, NEURONS_VISION_ANALYSIS);
         parsed = extractAnalysisPayload(result);
       } catch (error) {
@@ -2031,7 +2538,28 @@ export async function runPhotoAnalysis(
         const detail = error instanceof Error ? error.message : String(error);
         lastDetail = `round ${round + 1} ${visionModel}: ${detail}`;
         failureDetails.push(lastDetail);
-        if (isWorkersAiQuotaError(detail)) {
+        if (isGeminiTemporaryRateLimit(error)) {
+          const retryAfterMs = geminiRetryAfterMs(error) ?? 1_000;
+          sawTemporaryRateLimit = true;
+          lastRetryAfterMs = retryAfterMs;
+          // Gemini quotas are model-specific. Do not wait on an exhausted
+          // primary while a distinct fallback model may still be available.
+          if (modelIndex < visionModels.length - 1) continue;
+          if (round === 0 && retryAfterMs <= 30_000) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, retryAfterMs + 250),
+            );
+            continue;
+          }
+          continue;
+        }
+        if (isAiQuotaError(error)) {
+          if (
+            isGeminiQuotaError(error) &&
+            modelIndex < visionModels.length - 1
+          ) {
+            continue;
+          }
           return {
             ok: false,
             reason: "quota_exceeded",
@@ -2064,13 +2592,27 @@ export async function runPhotoAnalysis(
   }
   return {
     ok: false,
-    reason: sawInvalidResponse ? "invalid_response" : "ai_error",
+    reason: sawInvalidResponse
+      ? "invalid_response"
+      : sawTemporaryRateLimit
+        ? "rate_limited"
+        : "ai_error",
     detail: failureDetails.join("\n") || lastDetail,
     attempts,
     neuronsSpent,
+    ...(sawTemporaryRateLimit && lastRetryAfterMs
+      ? { retryAfterMs: lastRetryAfterMs }
+      : {}),
   };
 }
 
+function isAiQuotaError(error: unknown): boolean {
+  if (isGeminiQuotaError(error)) return true;
+  const detail = error instanceof Error ? error.message : String(error);
+  return isWorkersAiQuotaError(detail);
+}
+
+/** Legacy matcher retained for old diagnostic strings and unit tests. */
 export function isWorkersAiQuotaError(detail: string): boolean {
   const normalized = detail.toLowerCase();
   return (

@@ -1,8 +1,8 @@
-/** quota 리셋 시각 표시용 문자열 (KST) */
+/** Gemini quota 리셋 시각 표시용 문자열 (사용자 로컬 시간대). */
 export function formatResetTime(resetAtIso: string): string {
   const date = new Date(resetAtIso);
   if (Number.isNaN(date.getTime())) {
-    return "매일 오전 9시 (한국 시간)";
+    return "제공자 한도 갱신 시각";
   }
   const formatter = new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul",

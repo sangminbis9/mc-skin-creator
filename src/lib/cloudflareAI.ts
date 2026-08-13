@@ -18,6 +18,7 @@ export class ApiError extends Error {
     message: string,
     readonly code:
       | "quota_exceeded"
+      | "rate_limited"
       | "photo_rejected"
       | "ai_failed"
       | "network"
@@ -32,18 +33,23 @@ export class ApiError extends Error {
 export function requestSkinGeneration(
   imageDataUrl: string,
   analysisImageDataUrl?: string,
+  referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResponse> {
   // React StrictMode remounts effects during local development. Share the same
   // in-flight request without retaining the full private photo in a Map key.
   const requestKey = `${dataFingerprint(imageDataUrl)}:${dataFingerprint(
     analysisImageDataUrl ?? "",
-  )}`;
+  )}:${referenceImageDataUrls.map(dataFingerprint).join(":")}`;
   const existing = inFlightGenerations.get(requestKey);
   if (existing) {
     return existing;
   }
 
-  const request = performSkinGeneration(imageDataUrl, analysisImageDataUrl);
+  const request = performSkinGeneration(
+    imageDataUrl,
+    analysisImageDataUrl,
+    referenceImageDataUrls,
+  );
   inFlightGenerations.set(requestKey, request);
   const clearRequest = () => {
     if (inFlightGenerations.get(requestKey) === request) {
@@ -65,6 +71,7 @@ function dataFingerprint(value: string): string {
 async function performSkinGeneration(
   imageDataUrl: string,
   analysisImageDataUrl?: string,
+  referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResponse> {
   let res: Response;
   const controller = new AbortController();
@@ -80,6 +87,9 @@ async function performSkinGeneration(
       body: JSON.stringify({
         image: imageDataUrl,
         ...(analysisImageDataUrl ? { analysisImage: analysisImageDataUrl } : {}),
+        ...(referenceImageDataUrls.length > 0
+          ? { referenceImages: referenceImageDataUrls.slice(0, 4) }
+          : {}),
       }),
     });
   } catch (error) {

@@ -2,10 +2,10 @@
  * 사진 → 마인크래프트 스킨 생성 파이프라인.
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
  *
- * 1) llama-4-scout 사진 분석 (품질 검사 + observed/inferred + 생성 프롬프트)
- * 2) FLUX.2 [klein]으로 스킨 atlas 직접 생성 (스타일 참고 + 사용자 사진 + UV 가이드)
- * 3) 512→64 셀 축소 + UV 마스크 + 검증, 실패 시 seed를 바꿔 1회 재생성
- * 4) 두 번 실패하면 팔레트 특징만 내려보내 클라이언트의 절차적 생성기로 fallback
+ * 1) Gemini 멀티모달 분석 + 확대 인물 재검사
+ * 2) Gemini가 고정 포즈 캐릭터 시트를 생성하고 코드가 64×64 UV atlas로 조립
+ * 3) 6시점 렌더/구조 검사와 Gemini 닮음 비평 뒤 부위 한정 1회 수정
+ * 4) 이미지 모델이 불가하면 같은 분석으로 서버에서 검증된 절차적 atlas 생성
  */
 
 import {
@@ -35,11 +35,20 @@ import {
   validateFinalAtlas,
 } from "./skinPost";
 import {
-  FluxKleinProvider,
+  GeminiImageProvider,
   type GenerationStrategy,
   type ImageModelTier,
   type SkinGenerationProvider,
 } from "./skinProvider";
+import { runSkinCritique } from "./skinCritique";
+import { mergeTargetedAtlas } from "./skinCorrection";
+import { applyProceduralCritiqueCorrections } from "./proceduralCorrection";
+import { buildSkinPlan, type SkinPlan } from "./skinPlan";
+import {
+  buildSkinViewMontage,
+  inspectRenderedSkin,
+  renderSkinViews,
+} from "./skinRender";
 import { imageGenerationNeurons } from "./quota";
 import type { Env } from "./types";
 
@@ -47,6 +56,7 @@ import type { Env } from "./types";
 const MAX_IMAGE_CHARS = 1_500_000;
 
 export type GenerationMode = "image" | "procedural_fallback";
+const GEMINI_MAX_SEED = 2_147_483_647;
 
 /** 클라이언트에 내려보내는 분석 요약 (원본 사진 관련 정보는 포함하지 않는다) */
 export interface AnalysisSummary {
@@ -54,7 +64,9 @@ export interface AnalysisSummary {
   visibleRegions: PhotoAnalysis["visibleRegions"];
   observed: PhotoAnalysis["observed"];
   inferred: PhotoAnalysis["inferred"];
+  canonicalIdentity: PhotoAnalysis["canonicalIdentity"];
   renderHints: PhotoAnalysis["renderHints"];
+  skinPlan: SkinPlan;
 }
 
 export interface GenerateResult {
@@ -70,35 +82,46 @@ export interface GenerateResult {
     error?: string;
     errorCode?: string;
   };
-  /** 이 요청이 실제로 소비한 Neurons (실패 포함, KV에 커밋된다) */
+  /** 호환성 필드명. Gemini 토큰/이미지 호출을 상대 사용량 단위로 환산한 로컬 추정치. */
   neuronsSpent: number;
   success: boolean;
-  /** Workers AI rejected an image-model call because the shared account quota is closed. */
+  /** Gemini 이미지 모델이 프로젝트 할당량 부족을 보고했는지 여부. */
   providerQuotaExhausted?: boolean;
 }
 
 export async function generateSkin(
   env: Env,
   imageDataUrl: string,
-  provider: SkinGenerationProvider = new FluxKleinProvider(env),
+  provider: SkinGenerationProvider = new GeminiImageProvider(env),
   analysisImageDataUrl: string = imageDataUrl,
+  referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResult> {
+  const references = referenceImageDataUrls.slice(0, 4);
   if (
     typeof imageDataUrl !== "string" ||
     !imageDataUrl.startsWith("data:image/") ||
     imageDataUrl.length > MAX_IMAGE_CHARS ||
     typeof analysisImageDataUrl !== "string" ||
     !analysisImageDataUrl.startsWith("data:image/") ||
-    analysisImageDataUrl.length > MAX_IMAGE_CHARS
+    analysisImageDataUrl.length > MAX_IMAGE_CHARS ||
+    references.some(
+      (reference) =>
+        typeof reference !== "string" ||
+        !reference.startsWith("data:image/") ||
+        reference.length > MAX_IMAGE_CHARS,
+    )
   ) {
     return fail(400, "이미지 형식이 올바르지 않아요", "bad_request", 0);
   }
 
   // ---------- 1) 사진 분석 ----------
-  const analysisResult = await runPhotoAnalysis(env, analysisImageDataUrl);
-  // Every provider invocation consumes Workers AI capacity, including schema
-  // retries and fallback-model attempts. Count all of them so the app quota
-  // cannot claim capacity remains after the Cloudflare allocation is spent.
+  const analysisResult = await runPhotoAnalysis(env, [
+    analysisImageDataUrl,
+    ...references,
+  ]);
+  // Every Gemini invocation consumes provider capacity, including schema
+  // retries and fallback-model attempts. Count all of them in the advisory
+  // local meter; provider-reported exhaustion remains authoritative.
   let spent = analysisResult.neuronsSpent;
   if (!analysisResult.ok) {
     console.log(
@@ -124,6 +147,14 @@ export async function generateSkin(
         429,
         "오늘의 AI 생성 수량이 마감됐어요",
         "quota_exceeded",
+        spent,
+      );
+    }
+    if (analysisResult.reason === "rate_limited") {
+      return fail(
+        429,
+        "AI 요청이 잠시 몰렸어요. 잠시 후 다시 시도해 주세요.",
+        "rate_limited",
         spent,
       );
     }
@@ -176,14 +207,9 @@ export async function generateSkin(
         portraitResult.reason,
         portraitResult.detail,
       );
-      if (portraitResult.reason === "quota_exceeded") {
-        return fail(
-          429,
-          "오늘의 AI 생성 할당량이 소진되었어요.",
-          "quota_exceeded",
-          spent,
-        );
-      }
+      // This crop is an optional refinement. The primary full-frame analysis
+      // is already valid, so a second-pass quota/model failure must not throw
+      // away a usable result or prevent the deterministic renderer fallback.
     } else {
       analysis = applyFocusedPortraitDetail(analysis, portraitResult.detail);
       if (
@@ -200,6 +226,7 @@ export async function generateSkin(
   }
 
   const renderAnalysis = normalizeAnalysisForRendering(analysis);
+  const skinPlan = buildSkinPlan(renderAnalysis);
   const features = refineFeatureColorsFromAnalysis(
     renderAnalysis,
     fallbackFeaturesToHex(
@@ -212,7 +239,9 @@ export async function generateSkin(
     visibleRegions: renderAnalysis.visibleRegions,
     observed: renderAnalysis.observed,
     inferred: renderAnalysis.inferred,
+    canonicalIdentity: renderAnalysis.canonicalIdentity,
     renderHints: renderAnalysis.renderHints,
+    skinPlan,
   };
   const faceStyle = buildFaceStyle(renderAnalysis, features);
 
@@ -224,7 +253,7 @@ export async function generateSkin(
     const mode: GenerationStrategy =
       env.IMAGE_GEN_STRATEGY === "four_view" ? "four_view" : "front_view";
     // 얼굴 구조적 합성용 특징 (색은 hex로 매핑된 값, 나머지는 분류값 그대로)
-    const baseSeed = (Math.random() * 0xffffffff) >>> 0;
+    const baseSeed = Math.floor(Math.random() * (GEMINI_MAX_SEED + 1));
     // Start with Klein 9B for detail. If that sheet fails structural
     // post-processing, spend only a cheap 4B call on the recovery attempt.
     // Repeating the same expensive model tended to reproduce the same layout
@@ -236,6 +265,9 @@ export async function generateSkin(
         ? ["quality", "balanced"]
         : ["balanced", "balanced"];
     let generationReferenceDataUrl = imageDataUrl;
+    let correctionPrompt = "";
+    let correctionBaseAtlas: RawImage | null = null;
+    let correctionRegions: string[] = [];
     for (
       let attempt = 0;
       attempt < attemptPlan.length && skinPngBase64 === null;
@@ -244,10 +276,14 @@ export async function generateSkin(
       const modelTier = attemptPlan[attempt];
       const generated = await provider.generate({
         analysis: renderAnalysis,
+        skinPlan,
         photoDataUrl: generationReferenceDataUrl,
-        seed: (baseSeed + attempt * 7919) >>> 0,
+        referencePhotoDataUrls:
+          generationReferenceDataUrl === imageDataUrl ? references : [],
+        seed: (baseSeed + attempt * 7919) % (GEMINI_MAX_SEED + 1),
         mode,
         modelTier,
+        ...(correctionPrompt ? { correctionPrompt } : {}),
       });
       if (!generated.ok) {
         if (generated.capacityConsumed) {
@@ -290,6 +326,12 @@ export async function generateSkin(
           // 사진 크기/형식 문제는 재시도해도 동일하므로 즉시 fallback
           break;
         }
+        const retryAfterMs = generated.retryAfterMs;
+        if (retryAfterMs && retryAfterMs <= 30_000) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, retryAfterMs + 250),
+          );
+        }
         if (
           configuredTier === "quality" &&
           modelTier === "quality" &&
@@ -316,8 +358,131 @@ export async function generateSkin(
         mode,
         faceStyle,
       );
-      if (processed.atlasBase64) {
-        skinPngBase64 = processed.atlasBase64;
+      if (processed.atlasBase64 && processed.atlas) {
+        let candidateAtlas = processed.atlas;
+        let candidateBase64 = processed.atlasBase64;
+        if (correctionBaseAtlas && correctionRegions.length > 0) {
+          const merged = mergeTargetedAtlas(
+            correctionBaseAtlas,
+            candidateAtlas,
+            correctionRegions,
+          );
+          applyUvMask(merged.atlas);
+          const mergedFinal = validateFinalAtlas(merged.atlas);
+          const mergedCraft = validateAtlasCraft(merged.atlas, faceStyle);
+          if (
+            !mergedFinal.ok ||
+            !mergedCraft.ok ||
+            merged.plan.targets.length === 0
+          ) {
+            await env.MCSKIN_KV.put(
+              "diagnostic:last-targeted-correction-failure",
+              JSON.stringify({
+                at: new Date().toISOString(),
+                attempt: attempt + 1,
+                targets: correctionRegions,
+                unresolved: merged.plan.unresolvedRegions,
+                problems: [...mergedFinal.problems, ...mergedCraft.problems],
+              }),
+              { expirationTtl: 60 * 60 * 48 },
+            ).catch(() => undefined);
+            continue;
+          }
+          candidateAtlas = merged.atlas;
+          candidateBase64 = bytesToBase64(await encodePng(candidateAtlas));
+          await env.MCSKIN_KV.put(
+            "diagnostic:last-targeted-correction",
+            JSON.stringify({
+              at: new Date().toISOString(),
+              attempt: attempt + 1,
+              mode: "targeted_uv_merge",
+              targets: merged.plan.targets.map(
+                (target) => `${target.part}.${target.layer}.${target.face}`,
+              ),
+              unresolved: merged.plan.unresolvedRegions,
+            }),
+            { expirationTtl: 60 * 60 * 48 },
+          ).catch(() => undefined);
+        }
+        const renderedViews = renderSkinViews(candidateAtlas);
+        const renderedInspection = inspectRenderedSkin(renderedViews);
+        if (!renderedInspection.ok) {
+          correctionPrompt = renderedInspection.problems.join("; ");
+          await env.MCSKIN_KV.put(
+            "diagnostic:last-render-inspection-failure",
+            JSON.stringify({
+              at: new Date().toISOString(),
+              attempt: attempt + 1,
+              problems: renderedInspection.problems,
+            }),
+            { expirationTtl: 60 * 60 * 48 },
+          ).catch(() => undefined);
+          continue;
+        }
+
+        if (env.IMAGE_CRITIQUE_ENABLED === "true") {
+          const montage = buildSkinViewMontage(renderedViews);
+          const montageDataUrl = `data:image/png;base64,${bytesToBase64(
+            await encodePng(montage),
+          )}`;
+          const critique = await runSkinCritique(
+            env,
+            renderAnalysis,
+            [imageDataUrl, ...references].slice(0, 4),
+            montageDataUrl,
+            skinPlan,
+            candidateAtlas,
+          );
+          spent += critique.neuronsSpent;
+          if (!critique.ok) {
+            if (critique.quotaExceeded) providerQuotaExhausted = true;
+            correctionPrompt =
+              "Reinforce the ranked canonical identity, exact face/hair silhouette, outfit color blocks, connected side/back surfaces and deliberate outer-layer details.";
+            await env.MCSKIN_KV.put(
+              "diagnostic:last-critique-failure",
+              JSON.stringify({
+                at: new Date().toISOString(),
+                attempt: attempt + 1,
+                detail: critique.detail.slice(0, 1500),
+              }),
+              { expirationTtl: 60 * 60 * 48 },
+            ).catch(() => undefined);
+            continue;
+          }
+          if (!critique.approved) {
+            correctionPrompt =
+              critique.correctionPrompt ||
+              "Improve the highest-priority likeness cues and cross-view consistency without changing correct details.";
+            const actionableDefects = critique.critique.defects.filter(
+              (defect) => defect.severity !== "minor",
+            );
+            correctionRegions = [
+              ...new Set(
+                actionableDefects.flatMap((defect) => defect.targetRegions),
+              ),
+            ];
+            correctionBaseAtlas =
+              correctionRegions.length > 0 ? candidateAtlas : null;
+            await env.MCSKIN_KV.put(
+              "diagnostic:last-critique-rejection",
+              JSON.stringify({
+                at: new Date().toISOString(),
+                attempt: attempt + 1,
+                scores: {
+                  identity: critique.critique.identityScore,
+                  faceHair: critique.critique.faceHairScore,
+                  outfit: critique.critique.outfitScore,
+                  consistency: critique.critique.consistencyScore,
+                  layer: critique.critique.layerScore,
+                },
+                defects: critique.critique.defects,
+              }),
+              { expirationTtl: 60 * 60 * 48 },
+            ).catch(() => undefined);
+            continue;
+          }
+        }
+        skinPngBase64 = candidateBase64;
         generationMode = "image";
       } else if (processed.failure) {
         await env.MCSKIN_KV.put(
@@ -335,7 +500,95 @@ export async function generateSkin(
   }
 
   if (skinPngBase64 === null) {
-    skinPngBase64 = await buildProceduralFallbackPng(features, faceStyle);
+    let proceduralAtlas = buildProceduralFallbackAtlas(features, faceStyle);
+    if (proceduralAtlas && env.IMAGE_CRITIQUE_ENABLED === "true") {
+      const renderedViews = renderSkinViews(proceduralAtlas);
+      const renderedInspection = inspectRenderedSkin(renderedViews);
+      if (renderedInspection.ok) {
+        const montage = buildSkinViewMontage(renderedViews);
+        const montageDataUrl = `data:image/png;base64,${bytesToBase64(
+          await encodePng(montage),
+        )}`;
+        const critique = await runSkinCritique(
+          env,
+          renderAnalysis,
+          [imageDataUrl, ...references].slice(0, 4),
+          montageDataUrl,
+          skinPlan,
+          proceduralAtlas,
+        );
+        spent += critique.neuronsSpent;
+        if (!critique.ok) {
+          if (critique.quotaExceeded) providerQuotaExhausted = true;
+          await env.MCSKIN_KV.put(
+            "diagnostic:last-procedural-critique-failure",
+            JSON.stringify({
+              at: new Date().toISOString(),
+              detail: critique.detail.slice(0, 1500),
+            }),
+            { expirationTtl: 60 * 60 * 48 },
+          ).catch(() => undefined);
+        } else if (!critique.approved) {
+          const correction = applyProceduralCritiqueCorrections(
+            renderAnalysis,
+            faceStyle,
+            critique.critique,
+          );
+          await env.MCSKIN_KV.put(
+            "diagnostic:last-procedural-critique-rejection",
+            JSON.stringify({
+              at: new Date().toISOString(),
+              scores: {
+                identity: critique.critique.identityScore,
+                faceHair: critique.critique.faceHairScore,
+                outfit: critique.critique.outfitScore,
+                consistency: critique.critique.consistencyScore,
+                layer: critique.critique.layerScore,
+              },
+              defects: critique.critique.defects,
+              applied: correction.applied,
+            }),
+            { expirationTtl: 60 * 60 * 48 },
+          ).catch(() => undefined);
+          if (correction.applied.length > 0) {
+            const correctedAtlas = buildProceduralFallbackAtlas(
+              features,
+              correction.style,
+            );
+            if (correctedAtlas) {
+              const correctedInspection = inspectRenderedSkin(
+                renderSkinViews(correctedAtlas),
+              );
+              if (correctedInspection.ok) {
+                proceduralAtlas = correctedAtlas;
+                await env.MCSKIN_KV.put(
+                  "diagnostic:last-procedural-correction",
+                  JSON.stringify({
+                    at: new Date().toISOString(),
+                    mode: "analysis_grounded_style_reinforcement",
+                    applied: correction.applied,
+                  }),
+                  { expirationTtl: 60 * 60 * 48 },
+                ).catch(() => undefined);
+              } else {
+                await env.MCSKIN_KV.put(
+                  "diagnostic:last-procedural-correction-failure",
+                  JSON.stringify({
+                    at: new Date().toISOString(),
+                    problems: correctedInspection.problems,
+                    applied: correction.applied,
+                  }),
+                  { expirationTtl: 60 * 60 * 48 },
+                ).catch(() => undefined);
+              }
+            }
+          }
+        }
+      }
+    }
+    skinPngBase64 = proceduralAtlas
+      ? bytesToBase64(await encodePng(proceduralAtlas))
+      : await buildProceduralFallbackPng(features, faceStyle);
   }
 
   return {
@@ -355,10 +608,15 @@ export async function generateSkin(
 }
 
 /**
- * Build a centered head-to-waist crop from a tall portrait. Keeping the crop
- * as PNG avoids introducing another lossy JPEG generation before the focused
- * vision pass. Landscape and nearly-square photos already dedicate enough
- * pixels to the upper body, so they skip the extra paid call.
+ * Build a bounded head/upper-body crop for the focused identity pass.
+ *
+ * Tall portraits need the lower half removed so the face is not a tiny part
+ * of the model input. Large landscape/square portraits still benefit from a
+ * second pass whose prompt is dedicated to irises, facial proportions and
+ * hair geometry, so retain most of their frame instead of skipping them.
+ * Downscale the crop before PNG encoding: raw photographic PNGs can otherwise
+ * exceed MAX_IMAGE_CHARS and silently disable the most identity-critical
+ * stage on exactly the high-resolution photos that need it.
  */
 export async function createUpperBodyDetailCrop(
   imageDataUrl: string,
@@ -371,30 +629,48 @@ export async function createUpperBodyDetailCrop(
   }
   try {
     const source = await decodeImage(base64ToBytes(match[1]));
-    if (
-      source.width < 32 ||
-      source.height < 48 ||
-      source.height <= source.width * 1.15
-    ) {
+    if (source.width < 32 || source.height < 48) {
       return null;
     }
 
+    const tallPortrait = source.height > source.width * 1.15;
+    if (!tallPortrait && Math.max(source.width, source.height) < 320) {
+      // Unit-sized thumbnails and already-pixelated inputs cannot support a
+      // second identity read. Avoid spending a model request on upscaling.
+      return null;
+    }
     const cropWidth = Math.max(32, Math.round(source.width * 0.82));
-    const cropHeight = Math.max(48, Math.round(source.height * 0.56));
+    const cropHeight = Math.max(
+      48,
+      Math.round(source.height * (tallPortrait ? 0.56 : 0.92)),
+    );
     const startX = Math.max(0, Math.floor((source.width - cropWidth) / 2));
     const startY = 0;
-    const rgba = new Uint8Array(cropWidth * cropHeight * 4);
-    for (let y = 0; y < cropHeight; y++) {
-      const sourceStart = ((startY + y) * source.width + startX) * 4;
-      const targetStart = y * cropWidth * 4;
-      rgba.set(
-        source.rgba.subarray(sourceStart, sourceStart + cropWidth * 4),
-        targetStart,
+    const scale = Math.min(1, 512 / cropWidth, 512 / cropHeight);
+    const outputWidth = Math.max(32, Math.round(cropWidth * scale));
+    const outputHeight = Math.max(48, Math.round(cropHeight * scale));
+    const rgba = new Uint8Array(outputWidth * outputHeight * 4);
+    for (let y = 0; y < outputHeight; y++) {
+      const sourceY = Math.min(
+        source.height - 1,
+        startY + Math.floor(((y + 0.5) * cropHeight) / outputHeight),
       );
+      for (let x = 0; x < outputWidth; x++) {
+        const sourceX = Math.min(
+          source.width - 1,
+          startX + Math.floor(((x + 0.5) * cropWidth) / outputWidth),
+        );
+        const sourceOffset = (sourceY * source.width + sourceX) * 4;
+        const targetOffset = (y * outputWidth + x) * 4;
+        rgba.set(
+          source.rgba.subarray(sourceOffset, sourceOffset + 4),
+          targetOffset,
+        );
+      }
     }
     const encoded = await encodePng({
-      width: cropWidth,
-      height: cropHeight,
+      width: outputWidth,
+      height: outputHeight,
       rgba,
     });
     const dataUrl = `data:image/png;base64,${bytesToBase64(encoded)}`;
@@ -410,8 +686,8 @@ export async function createUpperBodyDetailCrop(
 
 /**
  * Merge only the portrait properties supported by the enlarged crop. The
- * crop cannot reliably establish long-hair endpoints, back construction, or
- * clothing, so those main-pass decisions remain untouched.
+ * crop can correct a visible hair endpoint against the jaw/shoulder line, but
+ * cannot establish back construction or clothing, so those remain untouched.
  */
 export function applyFocusedPortraitDetail(
   analysis: PhotoAnalysis,
@@ -440,6 +716,7 @@ export function applyFocusedPortraitDetail(
       eyebrowShape: detail.eyebrowShape,
       noseShape: detail.noseShape,
       mouthShape: detail.mouthShape,
+      mouthOpening: detail.mouthOpening,
       lipFullness: detail.lipFullness,
       lipColor: detail.lipColor,
       jawShape: detail.jawShape,
@@ -475,6 +752,7 @@ export function applyFocusedPortraitDetail(
       fringeOpening: detail.fringeOpening,
       hairTexture: detail.hairTexture,
       hairVolume: detail.hairVolume,
+      overallHairLength: detail.overallHairLength,
       hairPart: detail.hairPart,
       sideHairLength: detail.sideHairLength,
       sideHairShape: detail.sideHairShape,
@@ -497,6 +775,21 @@ export function applyFocusedPortraitDetail(
     };
     identityPrompt =
       `${identityPrompt} Preserve the focused ${hairDescription}, crown-to-temple, side-length and fringe geometry: ${detail.hairEvidence}.`.trim();
+  }
+
+  const clothingEvidence = detail.clothingEvidence?.trim() ?? "";
+  const clothingReliable =
+    detail.clothingConfidence !== undefined &&
+    detail.clothingConfidence !== "low" &&
+    /\b(?:graphic|badge|patch|marking|stripe|piping|trim|collar|cuff|knit|denim|athletic|texture)\b/i.test(
+      clothingEvidence,
+    );
+  if (clothingReliable) {
+    observed = {
+      ...observed,
+      clothing:
+        `${observed.clothing} Focused upper-body crop confirms ${clothingEvidence}.`.trim(),
+    };
   }
 
   return {
@@ -565,7 +858,7 @@ export function applyFocusedNeckDetail(
   };
 }
 
-function buildFaceStyle(
+export function buildFaceStyle(
   analysis: PhotoAnalysis,
   features: Record<string, unknown>,
 ): FaceStyle {
@@ -579,6 +872,7 @@ function buildFaceStyle(
     expression: String(raw.expression ?? DEFAULT_FACE_STYLE.expression),
     facialHair: String(raw.facialHair ?? DEFAULT_FACE_STYLE.facialHair),
     glasses: String(raw.glasses ?? DEFAULT_FACE_STYLE.glasses),
+    glassesScale: "normal",
     hairstyle: String(raw.hairstyle ?? DEFAULT_FACE_STYLE.hairstyle),
     hat: String(raw.hat ?? DEFAULT_FACE_STYLE.hat),
     skinTone: String(features.skinTone),
@@ -593,15 +887,18 @@ function buildFaceStyle(
     eyebrowShape: analysis.renderHints.eyebrowShape,
     noseShape: analysis.renderHints.noseShape,
     mouthShape: analysis.renderHints.mouthShape,
+    mouthOpening: analysis.renderHints.mouthOpening,
     lipFullness: analysis.renderHints.lipFullness,
     lipColor: analysis.renderHints.lipColor,
     jawShape: analysis.renderHints.jawShape,
+    matureFeatures: false,
     bangs: analysis.renderHints.bangs,
     bangsLength: analysis.renderHints.bangsLength,
     bangsDensity: analysis.renderHints.bangsDensity,
     fringeEdge: analysis.renderHints.fringeEdge,
     fringeOpening: analysis.renderHints.fringeOpening,
     hairTexture: analysis.renderHints.hairTexture,
+    hairStructure: "loose",
     hairVolume: analysis.renderHints.hairVolume,
     hairSilhouette: analysis.renderHints.hairSilhouette,
     hairBackShape: analysis.renderHints.hairBackShape,
@@ -619,7 +916,10 @@ function buildFaceStyle(
     hairAccessoryScale: analysis.renderHints.hairAccessoryScale,
     hairAccessorySide: analysis.renderHints.hairAccessorySide,
     hairAccessoryColor: analysis.renderHints.hairAccessoryColor,
+    earrings: raw.earrings === true ? "stud" : "none",
+    earringSide: "both",
     neckAccessory: analysis.renderHints.neckAccessory,
+    neckAccessoryPattern: "plain",
     bottomPattern: analysis.renderHints.bottomPattern,
     bottomAccent: analysis.renderHints.bottomAccent,
     legwear: analysis.renderHints.legwear,
@@ -642,6 +942,7 @@ function buildFaceStyle(
   completeVisibleUpperDetails(analysis, style);
   completeVisibleAccessoryDetails(analysis, style);
   completeInferredLowerDetails(analysis, style);
+  completeCanonicalIdentityDetails(analysis, style);
   return style;
 }
 
@@ -780,37 +1081,8 @@ async function buildProceduralFallbackPng(
   style: FaceStyle,
 ): Promise<string | null> {
   try {
-    const packed = packFrontViewToAtlas(
-      buildProceduralFrontView(features, style),
-      style,
-    );
-    if (!packed) return null;
-    const atlas = packed.atlas;
-    const verdict = validateAtlas(atlas);
-    if (!verdict.ok) {
-      console.log(
-        "procedural fallback validation failed:",
-        verdict.problems.join(" / "),
-      );
-      return null;
-    }
-    applyUvMask(atlas);
-    const finalVerdict = validateFinalAtlas(atlas);
-    if (!finalVerdict.ok) {
-      console.log(
-        "procedural fallback final validation failed:",
-        finalVerdict.problems.join(" / "),
-      );
-      return null;
-    }
-    const craftVerdict = validateAtlasCraft(atlas, style);
-    if (!craftVerdict.ok) {
-      console.log(
-        "procedural fallback craft quality validation failed:",
-        craftVerdict.problems.join(" / "),
-      );
-      return null;
-    }
+    const atlas = buildProceduralFallbackAtlas(features, style);
+    if (!atlas) return null;
     return bytesToBase64(await encodePng(atlas));
   } catch (error) {
     console.log(
@@ -821,13 +1093,60 @@ async function buildProceduralFallbackPng(
   }
 }
 
+/**
+ * Build the exact validated procedural atlas without encoding it. This keeps
+ * production fallback and offline visual-regression replays on one renderer,
+ * so a saved Gemini analysis can be rerendered without another model call.
+ */
+export function buildProceduralFallbackAtlas(
+  features: Record<string, unknown>,
+  style: FaceStyle,
+): RawImage | null {
+  const packed = packFrontViewToAtlas(
+    buildProceduralFrontView(features, style),
+    style,
+  );
+  if (!packed) return null;
+  const atlas = packed.atlas;
+  const verdict = validateAtlas(atlas);
+  if (!verdict.ok) {
+    console.log(
+      "procedural fallback validation failed:",
+      verdict.problems.join(" / "),
+    );
+    return null;
+  }
+  applyUvMask(atlas);
+  const finalVerdict = validateFinalAtlas(atlas);
+  if (!finalVerdict.ok) {
+    console.log(
+      "procedural fallback final validation failed:",
+      finalVerdict.problems.join(" / "),
+    );
+    return null;
+  }
+  const craftVerdict = validateAtlasCraft(atlas, style);
+  if (!craftVerdict.ok) {
+    console.log(
+      "procedural fallback craft quality validation failed:",
+      craftVerdict.problems.join(" / "),
+    );
+    return null;
+  }
+  return atlas;
+}
+
 /** FLUX 출력 → 64x64 atlas. 검증 실패 시 null (재시도 유도) */
 async function postprocess(
   imageBytes: Uint8Array,
   attempt: number,
   mode: GenerationStrategy,
   faceStyle: FaceStyle,
-): Promise<{ atlasBase64: string | null; failure?: string }> {
+): Promise<{
+  atlasBase64: string | null;
+  atlas?: RawImage;
+  failure?: string;
+}> {
   try {
     const decoded = await decodeImage(imageBytes);
     const packed = packFrontViewToAtlas(
@@ -897,7 +1216,7 @@ async function postprocess(
         failure: `craft quality validation failed: ${craftVerdict.problems.join(" / ")}`,
       };
     }
-    return { atlasBase64: bytesToBase64(await encodePng(atlas)) };
+    return { atlasBase64: bytesToBase64(await encodePng(atlas)), atlas };
   } catch (error) {
     console.log(
       `attempt ${attempt}: 후처리 오류 —`,
@@ -942,10 +1261,7 @@ type SkinUndertone = PhotoAnalysis["renderHints"]["skinUndertone"];
 // Preserve lightness while shifting only enough chroma to make undertone
 // readable across the three-to-five shade ramp of an 8x8 Minecraft face.
 // Neutral intentionally retains the historical palette for compatibility.
-const SKIN_TONES_BY_UNDERTONE: Record<
-  SkinUndertone,
-  Record<string, string>
-> = {
+const SKIN_TONES_BY_UNDERTONE: Record<SkinUndertone, Record<string, string>> = {
   neutral: SKIN_TONES,
   warm: {
     pale: "#f3d2b9",
@@ -982,7 +1298,7 @@ const HAIR_COLORS: Record<string, string> = {
   brown: "#5a3d28",
   // A neutral brown is a safer low-resolution base than the previous orange
   // swatch. Warm/copper hair is still represented by auburn and red.
-  "light-brown": "#806052",
+  "light-brown": "#96725d",
   blonde: "#d8b569",
   platinum: "#e9dcc0",
   red: "#a53c22",
@@ -1055,13 +1371,235 @@ function joinedAnalysisText(
     .replace(/[–—]/g, "-");
 }
 
+function recoverObservedHairColor(text: string): string | null {
+  const cues: ReadonlyArray<[RegExp, string]> = [
+    [/\b(?:platinum|platinum[- ]blonde)\b/, HAIR_COLORS.platinum],
+    [
+      /\b(?:blonde|blond|golden[- ]blonde|honey[- ]blonde)\b/,
+      HAIR_COLORS.blonde,
+    ],
+    [/\b(?:light[- ]brown|chestnut)\b/, HAIR_COLORS["light-brown"]],
+    [/\b(?:dark[- ]brown|deep[- ]brown)\b/, HAIR_COLORS["dark-brown"]],
+    [/\b(?:auburn|copper)\b/, HAIR_COLORS.auburn],
+    [/\b(?:red|ginger)\b/, HAIR_COLORS.red],
+    [/\b(?:gray|grey|silver|salt[- ]and[- ]pepper)\b/, HAIR_COLORS.gray],
+    [/\bwhite\b/, HAIR_COLORS.white],
+    [/\b(?:black|jet[- ]black)\b/, HAIR_COLORS.black],
+    [/\bbrown\b/, HAIR_COLORS.brown],
+  ];
+  return cues.find(([pattern]) => pattern.test(text))?.[1] ?? null;
+}
+
+function recoverObservedEyeColor(text: string): string | null {
+  const cues: ReadonlyArray<[string, string]> = [
+    ["dark[- ]brown", EYE_COLORS["dark-brown"]],
+    ["light[- ]brown|brown", EYE_COLORS.brown],
+    ["hazel", EYE_COLORS.hazel],
+    ["green", EYE_COLORS.green],
+    ["blue", EYE_COLORS.blue],
+    ["gr[ae]y", EYE_COLORS.gray],
+    ["black", EYE_COLORS.black],
+  ];
+  for (const [cue, color] of cues) {
+    const bridge = "(?:\\s+[a-z-]+){0,2}\\s+";
+    if (
+      new RegExp(
+        `\\b(?:${cue})${bridge}eyes?\\b|\\beyes?${bridge}(?:${cue})\\b`,
+      ).test(text)
+    ) {
+      return color;
+    }
+  }
+  return null;
+}
+
+const NAMED_CLOTHING_COLOR_CUES: ReadonlyArray<{
+  pattern: string;
+  hex: string;
+}> = [
+  { pattern: "(?:off[-\\s]?white|ivory|cream)", hex: "#e8dfd1" },
+  { pattern: "(?:charcoal|graphite)", hex: "#3f4145" },
+  { pattern: "(?:burgundy|maroon|wine[-\\s]?red)", hex: "#6e2638" },
+  { pattern: "(?:navy(?:[-\\s]+blue)?)", hex: CLOTHING_COLORS.navy },
+  {
+    pattern: "(?:sky[-\\s]?blue|light[-\\s]+blue)",
+    hex: CLOTHING_COLORS["sky-blue"],
+  },
+  {
+    pattern: "(?:dark[-\\s]+green|forest[-\\s]+green)",
+    hex: CLOTHING_COLORS["dark-green"],
+  },
+  {
+    pattern: "(?:light[-\\s]+gr[ae]y|silver[-\\s]+gr[ae]y)",
+    hex: CLOTHING_COLORS["light-gray"],
+  },
+  { pattern: "(?:black|jet[-\\s]+black)", hex: CLOTHING_COLORS.black },
+  { pattern: "(?:white)", hex: CLOTHING_COLORS.white },
+  { pattern: "(?:gr[ae]y)", hex: CLOTHING_COLORS.gray },
+  { pattern: "(?:red|crimson|scarlet)", hex: CLOTHING_COLORS.red },
+  { pattern: "(?:orange)", hex: CLOTHING_COLORS.orange },
+  { pattern: "(?:mustard|ochre)", hex: CLOTHING_COLORS.yellow },
+  { pattern: "(?:yellow|gold(?:en)?)", hex: CLOTHING_COLORS.yellow },
+  { pattern: "(?:olive)", hex: "#667047" },
+  { pattern: "(?:turquoise|aqua|cyan)", hex: "#42b8b0" },
+  { pattern: "(?:teal)", hex: "#2f7775" },
+  { pattern: "(?:green)", hex: CLOTHING_COLORS.green },
+  { pattern: "(?:blue)", hex: CLOTHING_COLORS.blue },
+  { pattern: "(?:purple|violet|lavender)", hex: CLOTHING_COLORS.purple },
+  { pattern: "(?:pink|rose)", hex: CLOTHING_COLORS.pink },
+  { pattern: "(?:brown)", hex: CLOTHING_COLORS.brown },
+  { pattern: "(?:beige|tan|camel)", hex: CLOTHING_COLORS.beige },
+  { pattern: "(?:khaki)", hex: CLOTHING_COLORS.khaki },
+];
+
+function recoverNamedColorNearItem(
+  text: string,
+  itemPattern: string,
+  maxWords = 7,
+): string | null {
+  let best: { distance: number; index: number; hex: string } | null = null;
+  const itemMatches = Array.from(
+    text.matchAll(new RegExp(`\\b(?:${itemPattern})\\b`, "gi")),
+  );
+  const allGarmentMatches = Array.from(
+    text.matchAll(
+      /\b(?:top|shirt|blouse|sweater|pullover|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey|bottoms?|skirt|skort|shorts|pants|trousers|jeans|culottes|socks?|stockings?|tights?|leg[- ]?warmers?|shoes?|boots?|loafers?|sneakers?|sandals?|mary[- ]?janes?|hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|hair[- ]?covering|glasses|spectacles|eyeglasses|frames|earrings?|ear[- ]?studs?|hoops?)\b/gi,
+    ),
+  );
+  const wordDistance = (
+    firstStart: number,
+    firstEnd: number,
+    secondStart: number,
+    secondEnd: number,
+  ): number | null => {
+    const between =
+      firstEnd <= secondStart
+        ? text.slice(firstEnd, secondStart)
+        : secondEnd <= firstStart
+          ? text.slice(secondEnd, firstStart)
+          : "";
+    if (/[,.!?;\n]/.test(between)) return null;
+    return (between.match(/[a-z0-9/-]+/gi) ?? []).length;
+  };
+  for (const cue of NAMED_CLOTHING_COLOR_CUES) {
+    const colorMatches = Array.from(
+      text.matchAll(new RegExp(`\\b${cue.pattern}\\b`, "gi")),
+    );
+    for (const color of colorMatches) {
+      const colorStart = color.index ?? 0;
+      const colorEnd = colorStart + color[0].length;
+      const nearestGarmentDistance = Math.min(
+        ...allGarmentMatches
+          .map((garment) =>
+            wordDistance(
+              colorStart,
+              colorEnd,
+              garment.index ?? 0,
+              (garment.index ?? 0) + garment[0].length,
+            ),
+          )
+          .filter((distance): distance is number => distance !== null),
+      );
+      for (const item of itemMatches) {
+        const itemStart = item.index ?? 0;
+        const itemEnd = itemStart + item[0].length;
+        const distance = wordDistance(colorStart, colorEnd, itemStart, itemEnd);
+        if (distance === null) continue;
+        if (distance > maxWords) continue;
+        // A colour belongs to its nearest named garment. This prevents "white
+        // socks" from whitening a preceding skirt and "cream blouse" from
+        // replacing the dominant blue jacket.
+        if (distance > nearestGarmentDistance) continue;
+        const candidate = {
+          distance,
+          index: Math.min(colorStart, itemStart),
+          hex: cue.hex,
+        };
+        if (
+          best === null ||
+          candidate.distance < best.distance ||
+          (candidate.distance === best.distance && candidate.index < best.index)
+        ) {
+          best = candidate;
+        }
+      }
+    }
+  }
+  return best?.hex ?? null;
+}
+
+function recoverNamedColorBeforeItem(
+  text: string,
+  itemPattern: string,
+  maxWords = 5,
+): string | null {
+  let best: { distance: number; index: number; hex: string } | null = null;
+  for (const cue of NAMED_CLOTHING_COLOR_CUES) {
+    const pattern = new RegExp(
+      "\\b(" +
+        cue.pattern +
+        ")((?:[\\s/-]+[a-z0-9]+){0," +
+        maxWords +
+        "})[\\s/-]+(?:" +
+        itemPattern +
+        ")\\b",
+      "gi",
+    );
+    for (const match of text.matchAll(pattern)) {
+      const bridge = match[2] ?? "";
+      if (/[,.!?;\n]/.test(bridge)) continue;
+      const distance = (bridge.match(/[a-z0-9/-]+/gi) ?? []).length;
+      const candidate = {
+        distance,
+        index: match.index ?? 0,
+        hex: cue.hex,
+      };
+      if (
+        best === null ||
+        candidate.distance < best.distance ||
+        (candidate.distance === best.distance && candidate.index < best.index)
+      ) {
+        best = candidate;
+      }
+    }
+  }
+  return best?.hex ?? null;
+}
+
+function extractNamedColors(text: string): string[] {
+  const matches: Array<{ index: number; hex: string }> = [];
+  for (const cue of NAMED_CLOTHING_COLOR_CUES) {
+    for (const match of text.matchAll(
+      new RegExp(`\\b${cue.pattern}\\b`, "gi"),
+    )) {
+      matches.push({ index: match.index ?? 0, hex: cue.hex });
+    }
+  }
+  matches.sort((a, b) => a.index - b.index);
+  return [...new Set(matches.map(({ hex }) => hex))];
+}
+
+function canonicalIdentityText(analysis: PhotoAnalysis): string {
+  return joinedAnalysisText([
+    analysis.canonicalIdentity.overallImpression,
+    analysis.canonicalIdentity.mustPreserve,
+    analysis.canonicalIdentity.features.flatMap((feature) => [
+      feature.feature,
+      feature.evidence,
+    ]),
+  ]);
+}
+
 function mentionsColorNearItem(
   text: string,
   colorPattern: string,
   itemPattern: string,
   maxWords = 6,
 ): boolean {
-  const bridge = `(?:\\s+[a-z0-9/-]+){0,${maxWords}}\\s+`;
+  // Gemini frequently emits adjective chains such as
+  // "large, round, thick-rimmed black glasses". Treat commas and hyphens as
+  // token boundaries so the descriptor remains associated with its item.
+  const bridge = `(?:[\\s,/-]+[a-z0-9]+){0,${maxWords}}[\\s,/-]+`;
   return new RegExp(
     `(?:${colorPattern})${bridge}(?:${itemPattern})\\b|\\b(?:${itemPattern})${bridge}(?:${colorPattern})`,
     "i",
@@ -1201,6 +1739,10 @@ export function normalizeAnalysisForRendering(
     /\beyes?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:small|compact|narrow)\b/.test(
       faceText,
     );
+  const explicitlySmilingEyeCrinkles =
+    /\b(?:eye[-\s]+crinkles?|crinkled[-\s]+eyes?|smiling[-\s]+eyes?|squinting[-\s]+eyes?)\b|\b(?:smile|laugh)[-\s]+lines?\b[^.!?;,]{0,36}\b(?:around|beside|at)\s+(?:the\s+)?eyes?\b/.test(
+      faceText,
+    );
   const explicitlyDownturnedEyes =
     /\b(?:slightly[-\s]+)?downturned(?:[-\s]+[a-z]+){0,3}[-\s]+eyes?\b|\beyes?\b.{0,42}\b(?:downturn|downturned|downward[-\s]+tilt)\b|\b(?:downturn|lower|drop)\b.{0,24}\bouter[-\s]+corners?\b/.test(
       faceText,
@@ -1223,10 +1765,26 @@ export function normalizeAnalysisForRendering(
     /\blips?\s+(?:are|appear|look)\s+(?:visibly\s+)?(?:thin|fine)\b/.test(
       faceText,
     );
+  const explicitlyVisibleTeeth =
+    /\b(?:visible|showing|exposed|bright|white)[-\s]+teeth\b|\btoothy\b|\b(?:open[-\s]+mouthed?|broad|big|wide)[-\s]+(?:grin|smile)\b/.test(
+      faceText,
+    );
+  const explicitlyClosedMouth =
+    /\b(?:closed[-\s]+mouth|closed[-\s]+lip|lips?\s+(?:meet|closed))\b|\b(?:soft|subtle|gentle)[-\s]+(?:closed[-\s]+)?smile\b/.test(
+      faceText,
+    );
 
   const explicitCenterPart =
     /\b(center|centre|middle)[-\s]+part(?:ed|ing)?\b/.test(hairText) ||
     /\bpart(?:ed|ing)?\s+(?:down\s+)?the\s+middle\b/.test(hairText);
+  const explicitViewerLeftPart =
+    /\bpart(?:ed|ing)?\b.{0,24}\bviewer(?:'s)?[-\s]+left\b|\bviewer(?:'s)?[-\s]+left\b.{0,24}\bpart(?:ed|ing)?\b/.test(
+      analysis.observed.hair.toLowerCase(),
+    );
+  const explicitViewerRightPart =
+    /\bpart(?:ed|ing)?\b.{0,24}\bviewer(?:'s)?[-\s]+right\b|\bviewer(?:'s)?[-\s]+right\b.{0,24}\bpart(?:ed|ing)?\b/.test(
+      analysis.observed.hair.toLowerCase(),
+    );
   const explicitCurtainBangs =
     /\bcurtain[-\s]+bangs?\b/.test(hairText) ||
     /\bcenter[-\s]+split[-\s]+bangs?\b/.test(hairText);
@@ -1293,6 +1851,39 @@ export function normalizeAnalysisForRendering(
                     )
                   ? "cropped"
                   : null;
+  const focusedHairText = /focused portrait crop confirms/i.test(
+    analysis.observed.hair,
+  )
+    ? analysis.observed.hair
+        .split(/focused portrait crop confirms/i)
+        .at(-1)
+        ?.toLowerCase() ?? ""
+    : "";
+  const focusedOverallHairLength:
+    | "cropped"
+    | "ear"
+    | "jaw"
+    | "shoulder"
+    | "chest"
+    | "waist"
+    | "hip"
+    | null = /\bhip[-\s]+length\b/.test(focusedHairText)
+    ? "hip"
+    : /\bwaist[-\s]+length\b/.test(focusedHairText)
+      ? "waist"
+      : /\b(?:chest|bust)[-\s]+length\b/.test(focusedHairText)
+        ? "chest"
+        : /\bshoulder[-\s]+length\b/.test(focusedHairText)
+          ? "shoulder"
+          : /\b(?:jaw|chin)[-\s]+length\b/.test(focusedHairText)
+            ? "jaw"
+            : /\bear[-\s]+length\b|\breaching approximately ear length\b/.test(
+                  focusedHairText,
+                )
+              ? "ear"
+              : /\b(?:cropped|buzzed|shaved)\b/.test(focusedHairText)
+                ? "cropped"
+                : null;
   const shoulderSideHair =
     /\b(?:shoulder[-\s]+length|to[-\s]+the[-\s]+shoulders?|over[-\s]+the[-\s]+shoulders?|past[-\s]+the[-\s]+shoulders?)\b/.test(
       hairEndpointText,
@@ -1307,14 +1898,37 @@ export function normalizeAnalysisForRendering(
     /\b(?:longer|shorter|fuller|thicker|asymmetric|asymmetrical)\b.{0,48}\b(?:viewer[-\s]+)?(?:left|right)\b/.test(
       hairText,
     );
+  const explicitlySpikyCrown = hairClauseMatches(
+    /\b(?:spiky|spiked|upward[-\s]+styled|styled[-\s]+upwards?|standing[-\s]+up|lifted[-\s]+spikes?)\b.{0,32}\b(?:hair|crown|top|style|silhouette)?\b|\b(?:hair|crown|top|style|silhouette)\b.{0,32}\b(?:spiky|spiked|styled[-\s]+upwards?|standing[-\s]+up)\b/,
+  );
+  const explicitlyTousledCrown = hairClauseMatches(
+    /\b(?:tousled|messy|ruffled|windswept|softly[-\s]+irregular)\b.{0,32}\b(?:hair|crown|top|texture|style|silhouette)\b|\b(?:hair|crown|top|texture|style|silhouette)\b.{0,32}\b(?:tousled|messy|ruffled|windswept|softly[-\s]+irregular)\b/,
+  );
+  // Restrict this override to the direct visual observation. Identity prose
+  // can retain stale wording after a focused crop corrects the fringe, and
+  // must not undo that higher-confidence structured result.
+  const explicitSideSweptFringe =
+    (!/focused portrait crop confirms/i.test(analysis.observed.hair) ||
+      renderHints.bangs === "side" ||
+      explicitlyTousledCrown) &&
+    /\bside[-\s]+swept\b.{0,24}\b(?:fringe|bangs?|hair)\b|\b(?:fringe|bangs?)\b.{0,24}\bside[-\s]+swept\b/.test(
+      analysis.observed.hair.toLowerCase(),
+    );
 
   if (explicitCenterPart) {
     renderHints.hairPart = "center";
+  } else if (explicitViewerLeftPart) {
+    renderHints.hairPart = "left";
+  } else if (explicitViewerRightPart) {
+    renderHints.hairPart = "right";
   }
   if (explicitlyLargeEyes) {
     renderHints.eyeSize = "large";
   } else if (explicitlySmallEyes) {
     renderHints.eyeSize = "small";
+  } else if (explicitlySmilingEyeCrinkles) {
+    renderHints.eyeSize = "small";
+    renderHints.eyeShape = "narrow";
   }
   if (explicitlyDownturnedEyes) {
     renderHints.eyeTilt = "downturned";
@@ -1330,6 +1944,11 @@ export function normalizeAnalysisForRendering(
   } else if (renderHints.mouthShape === "thin") {
     renderHints.lipFullness = "thin";
   }
+  if (explicitlyVisibleTeeth) {
+    renderHints.mouthOpening = "teeth_visible";
+  } else if (explicitlyClosedMouth) {
+    renderHints.mouthOpening = "closed";
+  }
   if (renderHints.hairAccessory !== "none") {
     if (explicitlyLargeHairAccessory) {
       renderHints.hairAccessoryScale = "large";
@@ -1337,7 +1956,17 @@ export function normalizeAnalysisForRendering(
       renderHints.hairAccessoryScale = "small";
     }
   }
-  if (explicitCurtainBangs) {
+  if (explicitSideSweptFringe) {
+    renderHints.bangs = "side";
+    if (explicitViewerLeftPart) renderHints.fringeOpening = "left";
+    if (explicitViewerRightPart) renderHints.fringeOpening = "right";
+    if (renderHints.bangsLength === "none") {
+      renderHints.bangsLength = "short";
+    }
+    if (renderHints.fringeEdge === "blunt") {
+      renderHints.fringeEdge = "staggered";
+    }
+  } else if (explicitCurtainBangs) {
     renderHints.bangs = "curtain";
     renderHints.fringeOpening = "center";
     renderHints.sideHairShape = "face_framing";
@@ -1386,7 +2015,12 @@ export function normalizeAnalysisForRendering(
       renderHints.overallHairLength = "chest";
     }
   }
-  if (explicitOverallHairLength) {
+  if (focusedOverallHairLength) {
+    // The enlarged crop exists specifically to resolve head-local geometry.
+    // Its explicit endpoint must not be overwritten by stale full-frame prose
+    // retained earlier in observed.hair for auditability.
+    renderHints.overallHairLength = focusedOverallHairLength;
+  } else if (explicitOverallHairLength) {
     renderHints.overallHairLength = explicitOverallHairLength;
   }
   const compactEnums =
@@ -1438,6 +2072,11 @@ export function normalizeAnalysisForRendering(
     renderHints.hairVolume = "flat";
   } else if (explicitlyFullHairVolume && !explicitlyLowHairVolume) {
     renderHints.hairVolume = "full";
+  }
+  if (explicitlySpikyCrown) {
+    renderHints.hairSilhouette = "spiky";
+  } else if (explicitlyTousledCrown && !explicitlyFlatCrown) {
+    renderHints.hairSilhouette = "tousled";
   }
   const roundedCompactFringe =
     renderHints.hairSilhouette === "flat" &&
@@ -1509,7 +2148,85 @@ export function normalizeAnalysisForRendering(
       renderHints.legwear = "socks";
     }
   } else {
-    const lowerDesign = analysis.inferred.lowerBodyDesign;
+    let lowerDesign = inferred.lowerBodyDesign;
+    const observedUpperText = joinedAnalysisText([
+      analysis.observed.clothing,
+      analysis.canonicalIdentity.overallImpression,
+      ...analysis.canonicalIdentity.mustPreserve,
+    ]);
+    const explicitlyAthleticUpper =
+      /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|top|jersey|jacket)|\bjersey\b/.test(
+        observedUpperText,
+      );
+    const inferredFormalLowerText = joinedAnalysisText([
+      inferred.lowerBody?.value,
+      inferred.lowerBody?.rationale,
+      lowerDesign?.rationale,
+      inferred.shoes?.value,
+      inferred.shoes?.rationale,
+    ]);
+    const conflictsWithObservedAthleticTop =
+      explicitlyAthleticUpper &&
+      Boolean(lowerDesign) &&
+      (lowerDesign?.shoeStyle === "dress_shoes" ||
+        /\b(?:tailored trousers?|formal (?:pants|trousers|footwear)|dress shoes?|polished leather)\b/.test(
+          inferredFormalLowerText,
+        ));
+
+    if (conflictsWithObservedAthleticTop && lowerDesign) {
+      const casualEvidence = joinedAnalysisText([
+        analysis.outfitPrompt,
+        analysis.inferred.lowerBody?.value,
+        analysis.fallbackFeatures.bottomType,
+      ]);
+      const bottomType = /\b(?:jeans?|denim)\b/.test(casualEvidence)
+        ? "jeans"
+        : /\bshorts?\b/.test(casualEvidence)
+          ? "shorts"
+          : "pants";
+      const completion = `Complete the unseen lower body with coordinated casual ${bottomType === "jeans" ? "jeans" : bottomType}, no unsupported formal trim, and sneakers.`;
+      lowerDesign = {
+        ...lowerDesign,
+        bottomType,
+        bottomPattern: "plain",
+        bottomAccent: "none",
+        legwear: "none",
+        legwearAsymmetry: "none",
+        thighAccessory: "none",
+        thighAccessorySide: "none",
+        shoeStyle: "sneakers",
+        rationale: completion,
+      };
+      renderHints.bottomPattern = "plain";
+      renderHints.bottomAccent = "none";
+      renderHints.legwear = "none";
+      renderHints.legwearAsymmetry = "none";
+      renderHints.thighAccessory = "none";
+      renderHints.thighAccessorySide = "none";
+      inferred = {
+        ...inferred,
+        lowerBody: {
+          value: `coordinated casual ${bottomType === "jeans" ? "jeans" : bottomType}`,
+          rationale: completion,
+        },
+        lowerBodyDesign: lowerDesign,
+        shoes: {
+          value: "casual sneakers",
+          rationale: completion,
+        },
+      };
+      const cleanedPrompt = analysis.outfitPrompt
+        .split(/(?<=[.!?])\s+/)
+        .filter(
+          (sentence) =>
+            !/\b(?:tailored trousers?|formal (?:pants|trousers|footwear)|dress shoes?|polished leather)\b/i.test(
+              sentence,
+            ),
+        )
+        .join(" ")
+        .trim();
+      outfitPrompt = `${cleanedPrompt} ${completion}`.trim();
+    }
     const completelyGenericLower =
       lowerDesign !== null &&
       lowerDesign !== undefined &&
@@ -1524,23 +2241,28 @@ export function normalizeAnalysisForRendering(
       renderHints.legwear === "none" &&
       renderHints.thighAccessory === "none";
 
-    if (completelyGenericLower) {
+    if (completelyGenericLower && lowerDesign) {
       const topType = analysis.fallbackFeatures.topType.toLowerCase();
-      const smartCasualTop =
-        ["shirt", "jacket", "dress"].includes(topType) ||
-        renderHints.outerGarment !== "none" ||
-        renderHints.neckAccessory !== "none";
+      const visibleUpperText = [
+        analysis.observed.clothing,
+        analysis.outfitPrompt,
+      ]
+        .join(" ")
+        .toLowerCase();
       const preppyTop =
         (renderHints.outerGarment === "cardigan" ||
           renderHints.outerGarment === "vest") &&
         (renderHints.neckAccessory === "bow" ||
           renderHints.neckAccessory === "collar");
       const tailoredTop =
-        topType === "shirt" ||
         topType === "jacket" ||
         renderHints.neckAccessory === "tie" ||
         renderHints.outerGarment === "open_jacket" ||
-        renderHints.outerGarment === "coat";
+        renderHints.outerGarment === "coat" ||
+        (topType === "shirt" &&
+          /\b(?:dress|formal|collared|button[-\s]+down|tailored)\b/.test(
+            visibleUpperText,
+          ));
 
       if (preppyTop) {
         // A cardigan/vest plus a visible bow or collar supplies substantially
@@ -1616,40 +2338,9 @@ export function normalizeAnalysisForRendering(
         return { ...analysis, inferred, renderHints, outfitPrompt };
       }
 
-      const groundedAccent =
-        topType === "sweater" ||
-        topType === "hoodie" ||
-        renderHints.garmentTexture === "knit" ||
-        renderHints.garmentTexture === "denim"
-          ? "cuffs"
-          : smartCasualTop
-            ? "belt"
-            : "side_stripe";
-      const accentLabel =
-        groundedAccent === "cuffs"
-          ? "cuffed hems"
-          : groundedAccent === "belt"
-            ? "a belt"
-            : "a side stripe";
-      const completionSentence = `Complete the unseen lower garment with ${accentLabel} as a readable low-resolution construction cue grounded in the visible top.`;
-
-      renderHints.bottomAccent = groundedAccent;
-      inferred = {
-        ...analysis.inferred,
-        lowerBody: analysis.inferred.lowerBody
-          ? {
-              ...analysis.inferred.lowerBody,
-              value: `${analysis.inferred.lowerBody.value} with ${accentLabel}`,
-              rationale: `${analysis.inferred.lowerBody.rationale} ${completionSentence}`,
-            }
-          : null,
-        lowerBodyDesign: {
-          ...lowerDesign,
-          bottomAccent: groundedAccent,
-          rationale: `${lowerDesign.rationale} ${completionSentence}`,
-        },
-      };
-      outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
+      // A plain casual top does not provide evidence for a new lower-body
+      // motif. Preserve the model's coherent garment/shoe completion without
+      // inventing stripes, ribbons, cuffs or belts on unseen surfaces.
     }
   }
 
@@ -1667,41 +2358,157 @@ export function refineFeatureColorsFromAnalysis(
   features: Record<string, unknown>,
 ): Record<string, unknown> {
   const refined = { ...features };
+  const canonicalText = canonicalIdentityText(analysis);
   const faceText = joinedAnalysisText([
     analysis.observed.face,
     analysis.identityPrompt,
+    canonicalText,
   ]);
+  const observedHairText = joinedAnalysisText([analysis.observed.hair]);
   const hairText = joinedAnalysisText([
     analysis.observed.hair,
+    analysis.observed.accessories,
     analysis.identityPrompt,
     analysis.observed.colorPalette,
+    canonicalText,
   ]);
   const topText = joinedAnalysisText([
     analysis.observed.clothing,
     analysis.outfitPrompt,
+    canonicalText,
   ]);
   const bottomText = joinedAnalysisText([
     analysis.observed.clothing,
     analysis.outfitPrompt,
     analysis.inferred.lowerBody?.value,
     analysis.inferred.lowerBody?.rationale,
+    canonicalText,
   ]);
   const shoesText = joinedAnalysisText([
     analysis.observed.clothing,
     analysis.outfitPrompt,
     analysis.inferred.shoes?.value,
     analysis.inferred.shoes?.rationale,
+    canonicalText,
   ]);
 
+  const topGarmentPattern =
+    "(?:top|shirt|blouse|sweater|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey)";
+  const dominantTopGarmentPattern =
+    "(?:jacket|coat|cardigan|hoodie|sweater|pullover|top|tunic|dress|jersey)";
+  const lowerGarmentPattern =
+    "(?:bottoms?|skirt|skort|shorts|pants|trousers|jeans|culottes)";
+  const shoePattern =
+    "(?:shoes?|boots?|loafers?|sneakers?|sandals?|mary[-\\s]+janes?)";
+  const headCoveringPattern =
+    "(?:hijab|head[-\\s]?scarf|head[-\\s]?wrap|turban|veil|kerchief|hair[-\\s]?covering)";
+
+  const outerGarmentText = relevantTextWindows(
+    [analysis.observed.clothing, analysis.outfitPrompt],
+    /\b(?:jacket|blazer|coat|cardigan|vest|waistcoat)\b/,
+    40,
+    28,
+  );
+  const recoveredOuterGarmentColor = outerGarmentText
+    ? (recoverNamedColorBeforeItem(
+        outerGarmentText,
+        "(?:jacket|blazer|coat|cardigan|vest|waistcoat)",
+        4,
+      ) ??
+      recoverNamedColorNearItem(
+        outerGarmentText,
+        "(?:jacket|blazer|coat|cardigan|vest|waistcoat)",
+        4,
+      ))
+    : null;
+  const recoveredTopColor =
+    recoveredOuterGarmentColor ??
+    recoverNamedColorBeforeItem(topText, dominantTopGarmentPattern, 5) ??
+    recoverNamedColorNearItem(topText, dominantTopGarmentPattern) ??
+    recoverNamedColorNearItem(topText, topGarmentPattern);
+  const recoveredInnerShirtColor = recoveredOuterGarmentColor
+    ? recoverNamedColorNearItem(
+        relevantTextWindows(
+          [analysis.observed.clothing, analysis.outfitPrompt],
+          /\b(?:shirt|blouse|collar)\b/,
+          32,
+          24,
+        ),
+        "(?:shirt|blouse|collar)",
+        4,
+      )
+    : null;
+  const denimBottomColor = new RegExp(
+    `\\b(?:dark[-\\s]+blue[-\\s]+|blue[-\\s]+)?denim[-\\s]+${lowerGarmentPattern}\\b`,
+    "i",
+  ).test(bottomText)
+    ? CLOTHING_COLORS.denim
+    : null;
+  const recoveredBottomColor =
+    denimBottomColor ??
+    recoverNamedColorBeforeItem(bottomText, lowerGarmentPattern, 5) ??
+    recoverNamedColorNearItem(bottomText, lowerGarmentPattern);
+  const recoveredShoesColor = recoverNamedColorNearItem(
+    shoesText,
+    shoePattern,
+    5,
+  );
+  const recoveredHeadCoveringColor = recoverNamedColorNearItem(
+    hairText,
+    headCoveringPattern,
+  );
+  if (recoveredTopColor) refined.topColor = recoveredTopColor;
+  if (recoveredInnerShirtColor)
+    refined.topAccentColor = recoveredInnerShirtColor;
+  if (recoveredBottomColor) refined.bottomColor = recoveredBottomColor;
+  if (recoveredShoesColor) refined.shoesColor = recoveredShoesColor;
+  if (recoveredHeadCoveringColor) refined.hatColor = recoveredHeadCoveringColor;
+  const darkNeutralPattern =
+    "(?:dark(?:[-\\s]+colou?red)?|charcoal|monochrome|near[-\\s]+black)";
   if (
+    !recoveredTopColor &&
+    mentionsColorNearItem(topText, darkNeutralPattern, topGarmentPattern, 6)
+  ) {
+    refined.topColor = "#474a50";
+  }
+  if (
+    !recoveredBottomColor &&
+    mentionsColorNearItem(
+      bottomText,
+      darkNeutralPattern,
+      lowerGarmentPattern,
+      6,
+    )
+  ) {
+    refined.bottomColor = "#2e343b";
+  }
+
+  if (
+    /\b(?:very[-\s]+dark|deep|deep[-\s]+brown|dark[-\s]+brown)[-\s]+skin(?:[-\s]*tone)?\b|\bdark[-\s]+skin(?:[-\s]*tone)?\b/.test(
+      faceText,
+    )
+  ) {
+    refined.skinTone = skinToneHex("dark", analysis.renderHints.skinUndertone);
+  } else if (
+    /\b(?:medium[-\s]+deep|brown)[-\s]+skin(?:[-\s]*tone)?\b/.test(faceText)
+  ) {
+    refined.skinTone = skinToneHex("brown", analysis.renderHints.skinUndertone);
+  } else if (/\btan[-\s]+skin(?:[-\s]*tone)?\b/.test(faceText)) {
+    refined.skinTone = skinToneHex("tan", analysis.renderHints.skinUndertone);
+  } else if (
+    /\bmedium[-\s]+skin(?:[-\s]*tone)?\b/.test(faceText) &&
+    !/\bmedium[-\s]+(?:to[-\s]+)?dark[-\s]+skin\b/.test(faceText)
+  ) {
+    refined.skinTone = skinToneHex(
+      "medium",
+      analysis.renderHints.skinUndertone,
+    );
+  } else if (
     /\b(?:very[-\s]+)?(?:pale|fair|porcelain)(?:[-\s]+skin(?:tone)?)?\b/.test(
       faceText,
     )
   ) {
-    refined.skinTone = skinToneHex(
-      "pale",
-      analysis.renderHints.skinUndertone,
-    );
+    refined.skinTone = skinToneHex("pale", analysis.renderHints.skinUndertone);
   } else if (
     /\blight(?:[-\s]+(?:warm|cool|neutral|pink|peach|golden|beige|olive))*[-\s]+skin(?:[-\s]*tone)?\b/.test(
       faceText,
@@ -1717,7 +2524,30 @@ export function refineFeatureColorsFromAnalysis(
         : skinToneHex("light", analysis.renderHints.skinUndertone);
   }
 
-  if (
+  const recoveredHairColor =
+    /\b(?:hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|hair covering)\b/.test(
+      observedHairText,
+    )
+      ? null
+      : recoverObservedHairColor(observedHairText);
+  if (recoveredHairColor) {
+    refined.hairColor = recoveredHairColor;
+  } else if (
+    /\b(?:black[- ]and[- ]white|black\s*&\s*white|grayscale|greyscale|monochrome)\b/.test(
+      joinedAnalysisText([
+        analysis.observed.face,
+        analysis.observed.colorPalette,
+      ]),
+    ) &&
+    /\b(?:hair|dreadlocks?|dread[- ]?locks?|locs|braids?|curls?)\b/.test(
+      observedHairText,
+    )
+  ) {
+    // A monochrome source does not justify inventing a warm brown hue. A
+    // neutral near-black preserves the photographed tonal relationship while
+    // remaining honest about unavailable chroma.
+    refined.hairColor = "#252525";
+  } else if (
     /\b(?:ash(?:y)?|taupe|mushroom|cool[-\s]+toned|muted|rose)[-\s]+brown\b|\bbronde\b/.test(
       hairText,
     )
@@ -1725,18 +2555,38 @@ export function refineFeatureColorsFromAnalysis(
     refined.hairColor = "#765b57";
   }
 
+  const recoveredEyeColor = [
+    joinedAnalysisText([analysis.observed.face]),
+    joinedAnalysisText([analysis.identityPrompt]),
+    joinedAnalysisText([
+      analysis.canonicalIdentity.overallImpression,
+      analysis.canonicalIdentity.mustPreserve,
+    ]),
+    joinedAnalysisText(
+      analysis.canonicalIdentity.features.flatMap((feature) => [
+        feature.feature,
+        feature.evidence,
+      ]),
+    ),
+  ]
+    .map(recoverObservedEyeColor)
+    .find((color): color is string => color !== null);
+  if (recoveredEyeColor) refined.eyeColor = recoveredEyeColor;
+
   const mutedPinkPattern =
     "(?:(?:dusty|muted|desaturated|smoky|soft|pale|pastel)[-\\s]+(?:rose|pink)|dusty[-\\s]+rose|mauve|old[-\\s]+rose|rose[-\\s]+beige|pink[-\\s]+beige|light[-\\s]+pink(?:\\s*\\/\\s*mauve)?)";
-  const topGarmentPattern =
-    "(?:top|shirt|blouse|sweater|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey)";
-  if (mentionsColorNearItem(topText, mutedPinkPattern, topGarmentPattern, 7)) {
+  const mutedTopColorMention = relevantClauseList(
+    [analysis.observed.clothing, analysis.outfitPrompt, canonicalText],
+    /\b(?:top|shirt|blouse|sweater|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey)\b/,
+  ).some((clause) =>
+    mentionsColorNearItem(clause, mutedPinkPattern, topGarmentPattern, 7),
+  );
+  if (mutedTopColorMention) {
     refined.topColor = "#b7929d";
   }
 
   const softBeigePattern =
     "(?:(?:light|soft|muted|pale|cream)[-\\s]+(?:beige|tan)|taupe[-\\s]+beige|beige\\s*\\/\\s*tan|tan\\s*\\/\\s*beige|beige[-\\s]+tan|tan[-\\s]+beige|beige|tan)";
-  const lowerGarmentPattern =
-    "(?:bottoms?|skirt|skort|shorts|pants|trousers|jeans|culottes)";
   const beigePatternedLower =
     mentionsColorNearItem(
       bottomText,
@@ -1752,8 +2602,6 @@ export function refineFeatureColorsFromAnalysis(
   }
 
   const creamPattern = "(?:cream|off[-\\s]+white|ivory)";
-  const shoePattern =
-    "(?:shoes?|boots?|loafers?|sneakers?|sandals?|mary[-\\s]+janes?)";
   if (mentionsColorNearItem(shoesText, creamPattern, shoePattern, 5)) {
     refined.shoesColor = "#e8dfd1";
   }
@@ -1917,29 +2765,12 @@ function completeInferredLowerDetails(
     style.legwearAsymmetry = "both";
     style.shoeStyle = "dress_shoes";
   } else if (structuredGenericLower) {
-    // Structured analysis can still collapse an unseen lower half into the most
-    // generic possible answer. Preserve its garment and shoe choices, but add a
-    // small construction cue grounded in the visible top so the 64x64 result
-    // does not read as an undifferentiated rectangle.
-    style.bottomAccent =
-      topType === "sweater" ||
-      topType === "hoodie" ||
-      style.bottomType === "jeans"
-        ? "cuffs"
-        : smartCasualTop
-          ? "belt"
-          : "side_stripe";
+    // Preserve the inferred plain construction. An unseen lower body does not
+    // justify adding a new decorative motif merely to increase pixel detail.
+    style.bottomAccent = "none";
   }
 
   const bottomType = style.bottomType ?? "pants";
-
-  if (!structuredLower && (style.bottomAccent ?? "none") === "none") {
-    style.bottomAccent = smartCasualTop
-      ? "belt"
-      : topType === "hoodie"
-        ? "cuffs"
-        : "side_stripe";
-  }
 
   if (
     (bottomType === "skirt" || bottomType === "shorts") &&
@@ -1995,6 +2826,37 @@ function completeVisibleUpperDetails(
     style.outerLayer = style.outerLayer === "none" ? "light" : style.outerLayer;
   }
 
+  if (
+    /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|jersey)|\bjersey\b/.test(
+      upperText,
+    )
+  ) {
+    style.topType = "jersey";
+    if (style.outerLayer === "none") style.outerLayer = "light";
+    const graphicPattern =
+      /\b(?:graphic|badge|emblem|crest|patch|logo|chest[-\s]+mark(?:ing)?)s?\b/;
+    style.topGraphic = graphicPattern.test(upperText);
+    if (style.topGraphic) {
+      style.topGraphicSide = /\bviewer[-\s]+left\b/.test(upperText)
+        ? "viewer_left"
+        : /\bviewer[-\s]+right\b/.test(upperText)
+          ? "viewer_right"
+          : "center";
+    }
+    const accentText = relevantTextWindows(
+      [analysis.observed.clothing, analysis.outfitPrompt],
+      /\b(?:accent|stripe|marking|trim|graphic|badge|emblem|crest|patch|logo)s?\b/,
+      30,
+      24,
+    );
+    style.topAccentColor =
+      recoverNamedColorNearItem(
+        accentText,
+        "(?:accent|stripe|marking|trim|graphic|badge|emblem|crest|patch|logo)s?",
+        5,
+      ) ?? style.topColor;
+  }
+
   if (/\b(knit|knitted|cable knit|sweater)\b/.test(upperText)) {
     style.garmentTexture = "knit";
     if (style.topType === "tshirt") style.topType = "sweater";
@@ -2014,6 +2876,26 @@ function completeVisibleUpperDetails(
     )
   ) {
     style.sleeveLength = "long";
+  }
+
+  const tieText = relevantTextWindows(
+    [
+      analysis.observed.clothing,
+      analysis.outfitPrompt,
+      analysis.identityPrompt,
+    ],
+    /\b(?:tie|necktie)\b/,
+    48,
+    28,
+  );
+  if (tieText) {
+    style.neckAccessory = "tie";
+    style.neckAccessoryColor =
+      recoverNamedColorNearItem(tieText, "(?:tie|necktie)", 4) ??
+      (/\bdark\b/.test(tieText) ? CLOTHING_COLORS.black : style.topAccentColor);
+    style.neckAccessoryPattern = /\b(?:striped|stripes)\b/.test(tieText)
+      ? "striped"
+      : "plain";
   }
 }
 
@@ -2166,12 +3048,14 @@ function completeVisibleAccessoryDetails(
   analysis: PhotoAnalysis,
   style: FaceStyle,
 ): void {
+  const canonicalText = canonicalIdentityText(analysis);
   const accessoryText = [
     analysis.observed.accessories,
     analysis.observed.hair,
     analysis.observed.clothing,
     analysis.outfitPrompt,
     analysis.identityPrompt,
+    canonicalText,
   ]
     .filter((value): value is string => typeof value === "string")
     .join(" ")
@@ -2181,6 +3065,7 @@ function completeVisibleAccessoryDetails(
     analysis.observed.hair,
     analysis.identityPrompt,
     analysis.outfitPrompt,
+    canonicalText,
   ]
     .filter((value): value is string => typeof value === "string")
     .join(" ")
@@ -2191,9 +3076,98 @@ function completeVisibleAccessoryDetails(
       analysis.observed.hair,
       analysis.identityPrompt,
       analysis.outfitPrompt,
+      canonicalText,
     ],
     /\b(flower|flowers|floral|hair bow|bow in hair|head bow|hair ribbon|ribbon in hair|head ribbon|hair clip|barrette|hairpin|pin in hair)\b/,
   );
+
+  const directlyObservedGlassesText = relevantTextWindows(
+    [analysis.observed.face, analysis.observed.accessories],
+    /\b(?:glasses|spectacles|eyeglasses|frames|coke[- ]bottles?)\b/,
+    64,
+    32,
+  );
+  const explicitlyNoGlasses =
+    !directlyObservedGlassesText &&
+    /\b(?:no|without|not wearing)\s+(?:any\s+)?(?:glasses|spectacles|eyeglasses|frames)\b/.test(
+      joinedAnalysisText([
+        analysis.negativePrompt,
+        analysis.observed.accessories,
+      ]),
+    );
+  if (explicitlyNoGlasses) {
+    style.glasses = "none";
+    style.glassesScale = "normal";
+  }
+  const glassesText =
+    directlyObservedGlassesText || style.glasses !== "none"
+      ? relevantClauses(
+          [
+            analysis.observed.face,
+            analysis.observed.accessories,
+            analysis.identityPrompt,
+            canonicalText,
+          ],
+          /\b(?:glasses|spectacles|eyeglasses|frames|coke[- ]bottles?)\b/,
+        )
+      : "";
+  if (glassesText) {
+    const glassesItemPattern =
+      "(?:glasses|spectacles|eyeglasses|frames|coke[-\\s]?bottles?)";
+    if (directlyObservedGlassesText) {
+      style.glasses = /\bsunglasses?\b/.test(directlyObservedGlassesText)
+        ? "sunglasses"
+        : /\b(?:round|circular|circle|oval|coke[- ]bottle)\b/.test(
+              directlyObservedGlassesText,
+            )
+          ? "round"
+          : "regular";
+      style.glassesScale =
+        mentionsColorNearItem(
+          directlyObservedGlassesText,
+          "(?:large|oversized|oversize|thick|heavy)",
+          glassesItemPattern,
+          4,
+        ) || /\bcoke[- ]bottle\b/.test(directlyObservedGlassesText)
+          ? "large"
+          : "normal";
+    }
+    style.glassesColor =
+      recoverNamedColorNearItem(
+        glassesText,
+        "(?:glasses|spectacles|eyeglasses|frames)",
+        5,
+      ) ?? style.glassesColor;
+  }
+
+  const earringText = relevantClauses(
+    [
+      analysis.observed.accessories,
+      analysis.observed.hair,
+      analysis.identityPrompt,
+      canonicalText,
+    ],
+    /\b(?:earrings?|ear studs?|hoops?|teardrops?|dangling|dangle|drop earrings?)\b/,
+  );
+  if (earringText) {
+    style.earrings = /\bteardrop\b/.test(earringText)
+      ? "teardrop"
+      : /\b(?:dangling|dangle|drop earrings?)\b/.test(earringText)
+        ? "drop"
+        : /\bhoops?\b/.test(earringText)
+          ? "hoop"
+          : "stud";
+    style.earringColor =
+      recoverNamedColorNearItem(
+        earringText,
+        "(?:earrings?|ear[-\\s]?studs?|hoops?|teardrops?|pendants?)",
+        5,
+      ) ?? style.earringColor;
+    const left = /\bviewer(?:'s)?[- ]left\b/.test(earringText);
+    const right = /\bviewer(?:'s)?[- ]right\b/.test(earringText);
+    style.earringSide =
+      left && !right ? "viewer_left" : right && !left ? "viewer_right" : "both";
+  }
 
   if ((style.hairAccessory ?? "none") === "none") {
     if (
@@ -2339,11 +3313,245 @@ function completeVisibleAccessoryDetails(
   }
 }
 
+/**
+ * The fallback enums are intentionally coarse and can contradict the richer
+ * observed/canonical prose. Resolve those conflicts last so high-salience
+ * identity cues survive even when the image generator is unavailable.
+ */
+function completeCanonicalIdentityDetails(
+  analysis: PhotoAnalysis,
+  style: FaceStyle,
+): void {
+  const canonicalText = canonicalIdentityText(analysis);
+  const headValues = [
+    analysis.observed.hair,
+    analysis.observed.accessories,
+    analysis.observed.clothing,
+    analysis.identityPrompt,
+    analysis.outfitPrompt,
+    canonicalText,
+  ];
+  const hairIdentityText = joinedAnalysisText(headValues);
+  if (
+    /\b(?:middle[-\s]+aged|mature|older|senior|elderly|wrinkles?|fine lines?|crow'?s feet)\b/.test(
+      hairIdentityText,
+    )
+  ) {
+    style.matureFeatures = true;
+  }
+  if (
+    /\b(?:angular|chiseled|chiselled|defined)[-\s]+(?:face|facial features?|jaw|jawline|cheekbones?)\b|\b(?:face|jaw|jawline|cheekbones?)\b[^.!?;,]{0,24}\b(?:angular|chiseled|chiselled|defined)\b/.test(
+      canonicalText,
+    )
+  ) {
+    style.faceShape = "angular";
+    style.jawShape = "square";
+  }
+  const longHairConstruction =
+    analysis.renderHints.hairBackShape === "long" ||
+    ["chest", "waist", "hip"].includes(
+      analysis.renderHints.overallHairLength ?? "",
+    ) ||
+    /\b(?:long|chest[- ]length|waist[- ]length|hip[- ]length)\b(?:\s+[a-z-]+){0,4}\s+hair\b|\bhair\b(?:\s+[a-z-]+){0,4}\s+\b(?:long|chest[- ]length|waist[- ]length|hip[- ]length)\b/.test(
+      hairIdentityText,
+    );
+  if (
+    longHairConstruction &&
+    !["bun", "ponytail", "twintails"].includes(style.hairstyle ?? "")
+  ) {
+    // The compact fallback enum is deliberately coarse and may still say
+    // "short" even after focused/canonical analysis confirms a continuous
+    // chest- or waist-length construction. Promote the actual compositor
+    // category as well as the render hints; otherwise the late short-hair
+    // clump pass can overwrite flowers, bows and long face-framing locks.
+    style.hairstyle = "long";
+  }
+  if (
+    style.hairTexture === "curly" &&
+    (style.hairVolume === "full" ||
+      /\b(?:voluminous|full|big|thick|abundant)\b[^.!?;,]{0,36}\b(?:curl|curly|curls|hair)\b|\b(?:curl|curly|curls)\b[^.!?;,]{0,36}\b(?:voluminous|full|big|thick|abundant)\b/.test(
+        hairIdentityText,
+      ))
+  ) {
+    style.hairSilhouette = "tousled";
+  }
+  if (
+    /\b(?:dreadlocks?|dread[- ]locks?|locs|locked hair)\b/.test(
+      hairIdentityText,
+    )
+  ) {
+    const explicitlyShort =
+      /\b(?:short|cropped|ear[- ]length|chin[- ]length)\b(?:\s+[a-z-]+){0,3}\s+\b(?:dreadlocks?|locs)\b|\b(?:dreadlocks?|locs)\b(?:\s+[a-z-]+){0,3}\s+\b(?:short|cropped|ear[- ]length|chin[- ]length)\b/.test(
+        hairIdentityText,
+      );
+    style.hairStructure = "locs";
+    style.hairstyle = explicitlyShort ? "medium" : "long";
+    style.hairTexture = "coily";
+    style.hairVolume = "full";
+    style.hairSilhouette = "tousled";
+    style.sideHairLength = explicitlyShort ? "jaw" : "shoulder";
+    style.hairBackShape = explicitlyShort ? "rounded" : "long";
+    style.overallHairLength = explicitlyShort ? "jaw" : "chest";
+  } else if (
+    /\b(?:box braids?|cornrows?|braided hair)\b/.test(hairIdentityText)
+  ) {
+    style.hairStructure = "braids";
+    style.hairTexture = "coily";
+  }
+  const headCoveringEvidence = relevantClauseList(
+    headValues,
+    /\b(?:hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|hair[- ]?covering|scarf[^.!?;,]{0,40}(?:head|hair)|(?:head|hair)[^.!?;,]{0,40}scarf)\b/,
+  ).filter(
+    (clause) =>
+      !/\b(?:no|not wearing|without|removed|bareheaded)\b[^.!?;,]{0,30}\b(?:hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|covering)\b/.test(
+        clause,
+      ),
+  );
+
+  if (headCoveringEvidence.length > 0) {
+    const headText = headCoveringEvidence.join(" ");
+    const itemPattern =
+      "(?:hijab|head[-\\s]?scarf|head[-\\s]?wrap|turban|veil|kerchief|hair[-\\s]?covering)";
+    const recoveredPrimary = recoverNamedColorNearItem(headText, itemPattern);
+    if (recoveredPrimary) style.hatColor = recoveredPrimary;
+    const primary = style.hatColor?.toLowerCase();
+    const recoveredPatternColor = recoverNamedColorNearItem(
+      headText,
+      "(?:paisley(?:[-\\s]+like)?|pattern|print|motif|ornament)",
+      5,
+    );
+    const recoveredAccentColor = recoverNamedColorNearItem(
+      headText,
+      "(?:accent|section|panel|block|patch)",
+      5,
+    );
+    const secondaryColor = extractNamedColors(headText).find(
+      (color) => color.toLowerCase() !== primary,
+    );
+    const accentEvidence = relevantClauses(
+      headValues,
+      /\b(?:accent|section|panel|block|patch)\b/,
+    );
+
+    style.hat = "headscarf";
+    style.earExposure = "covered";
+    style.headCoveringPatternColor = recoveredPatternColor ?? secondaryColor;
+    style.headCoveringAccentColor = recoveredAccentColor ?? undefined;
+    style.headCoveringAccentSide = /\bviewer(?:'s)?[- ]right\b/.test(
+      accentEvidence,
+    )
+      ? "viewer_right"
+      : /\bviewer(?:'s)?[- ]left\b/.test(accentEvidence)
+        ? "viewer_left"
+        : recoveredAccentColor
+          ? "center"
+          : undefined;
+    style.headCoveringPattern = /\bpaisley\b/.test(headText)
+      ? "paisley"
+      : /\b(?:floral|flowered|flower print)\b/.test(headText)
+        ? "floral"
+        : /\b(?:stripe|striped)\b/.test(headText)
+          ? "striped"
+          : /\b(?:geometric|diamond|chevron)\b/.test(headText)
+            ? "geometric"
+            : /\b(?:patterned|print|motif|ornamented|decorated)\b/.test(
+                  headText,
+                )
+              ? "patterned"
+              : "plain";
+
+    // A floral/patterned textile is not automatically a flower hair clip, and
+    // a head scarf is not the same structure as a neck scarf.
+    if (
+      style.hairAccessory === "flower" &&
+      !/\b(?:flower clip|flower pin|flower brooch|separate flower|3d flower)\b/.test(
+        headText,
+      )
+    ) {
+      style.hairAccessory = "none";
+    }
+    if (style.neckAccessory === "scarf") style.neckAccessory = "none";
+  }
+
+  const outfitText = joinedAnalysisText([
+    analysis.observed.clothing,
+    analysis.outfitPrompt,
+    analysis.identityPrompt,
+    analysis.inferred.upperBody?.value,
+    analysis.inferred.upperBody?.rationale,
+    analysis.inferred.lowerBody?.value,
+    analysis.inferred.lowerBody?.rationale,
+    canonicalText,
+  ]);
+
+  if (
+    /\b(?:maxi|ankle[- ]length|floor[- ]length|full[- ]length)\s+skirt\b/.test(
+      outfitText,
+    ) ||
+    /\b(?:long)\b(?:\s+[a-z-]+){0,3}\s+\bskirt\b/.test(outfitText) ||
+    /\bskirt\b(?:\s+[a-z-]+){0,3}\s+\b(?:ankle[- ]length|floor[- ]length|full[- ]length|long)\b/.test(
+      outfitText,
+    )
+  ) {
+    style.bottomType = "skirt";
+    style.bottomLength = "long";
+  } else if (/\b(?:midi|knee[- ]length)\s+skirt\b/.test(outfitText)) {
+    style.bottomType = "skirt";
+    style.bottomLength = "knee";
+  } else if (/\b(?:mini|short)\s+skirt\b/.test(outfitText)) {
+    style.bottomType = "skirt";
+    style.bottomLength = "short";
+  } else if (/\b(?:skirt|skort)\b/.test(outfitText)) {
+    style.bottomType = "skirt";
+  }
+
+  if (
+    /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|jersey)|\bjersey\b/.test(
+      outfitText,
+    )
+  )
+    style.topType = "jersey";
+  else if (/\b(?:tunic)\b/.test(outfitText)) style.topType = "tunic";
+  else if (/\b(?:hoodie)\b/.test(outfitText)) style.topType = "hoodie";
+  else if (/\b(?:sweater|pullover)\b/.test(outfitText))
+    style.topType = "sweater";
+  else if (/\b(?:blouse)\b/.test(outfitText)) style.topType = "blouse";
+  else if (/\b(?:shirt)\b/.test(outfitText)) style.topType = "shirt";
+
+  if (/\b(?:long[- ]sleeved?|long sleeves?)\b/.test(outfitText)) {
+    style.sleeveLength = "long";
+  }
+}
+
 function relevantClauses(
   values: Array<string | null | undefined>,
   relevant: RegExp,
 ): string {
   return relevantClauseList(values, relevant).join(" ");
+}
+
+function relevantTextWindows(
+  values: Array<string | null | undefined>,
+  relevant: RegExp,
+  before = 56,
+  after = 32,
+): string {
+  const flags = `${relevant.flags.replace(/g/g, "")}g`;
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .flatMap((value) => {
+      const text = value.toLowerCase();
+      return Array.from(text.matchAll(new RegExp(relevant.source, flags))).map(
+        (match) => {
+          const start = match.index ?? 0;
+          return text.slice(
+            Math.max(0, start - before),
+            Math.min(text.length, start + match[0].length + after),
+          );
+        },
+      );
+    })
+    .join(" ");
 }
 
 function relevantClauseList(

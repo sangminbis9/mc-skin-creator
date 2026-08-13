@@ -26,7 +26,7 @@ export function QuotaClosedPage({ quota, onBack }: QuotaClosedPageProps) {
         <p style={{ margin: 0, fontSize: 14, lineHeight: 1.9 }}>
           오늘의 AI 스킨 생성 수량이 모두 마감됐어요.
           <br />
-          무료 생성 한도는 매일 오전 9시에 다시 열려요.
+          무료 생성 한도는 아래 표시된 시각에 다시 열려요.
           <br />
           내일 다시 방문해 나만의 마크 스킨을 만들어보세요.
         </p>

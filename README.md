@@ -11,26 +11,28 @@ Java(Classic/Slim) / Bedrock용 PNG로 다운로드할 수 있습니다.
 
 ```
 [앱인토스 웹뷰 (React + TS + Vite)]
-  ├─ 사진 리사이즈/압축 (기기에서, 긴 변 448px — FLUX 입력 제한 512 미만)
+  ├─ 사진 리사이즈/압축 (기기에서, 긴 변 448px)
   ├─ 품질 체크 휴리스틱 (해상도/밝기/선명도)
   │
   ├─ POST /api/generate ──▶ [Cloudflare Worker]
-  │                           ├─ KV quota 확인 (Neurons/day 자체 제한)
-  │                           ├─ ① llama-4-scout 사진 분석 (analysis.ts)
-  │                           │    quality 게이트 + framing(face/upper_body/…)
-  │                           │    + observed/inferred 구분 + 저해상도 렌더 힌트
-  │                           ├─ ② FLUX.2 [klein] 4B 이미지 생성 (skinProvider.ts)
-  │                           │    사진+고정 포즈 가이드로 정면+뒷면 두 뷰 생성 (1024x512)
-  │                           ├─ ③ 결정적 pack (skinPack.ts)
-  │                           │    배경 분리 → 두 뷰 분할 → 부위 슬라이스 → 64x64 UV atlas
-  │                           │    얼굴 identity 보존 + 안 보이는 면 조립
-  │                           │    + 머리/의상/액세서리 overlay 볼륨
-  │                           ├─ ④ UV 검증 (skinPost.ts) — 실패 시 seed 바꿔 1회 재시도
+  │                           ├─ KV 기반 앱 사용량 확인
+  │                           ├─ ① Gemini 멀티모달 분석 + 확대 인물 재검사 (analysis.ts)
+  │                           │    canonical identity + observed/inferred + 렌더 힌트
+  │                           ├─ ② body/face/layer별 결정적 스킨 계획 (skinPlan.ts)
+  │                           ├─ ③ Gemini 이미지 생성 (skinProvider.ts)
+  │                           │    사진+고정 포즈 가이드로 정면/후면/측면 뷰 생성
+  │                           ├─ ④ 결정적 pack + UV/레이어 검증 (skinPack.ts, skinPost.ts)
+  │                           │    얼굴 identity 보존 + 보이지 않는 면의 일관된 완성
+  │                           ├─ ⑤ 6시점 소프트웨어 렌더 + 구조 검사 (skinRender.ts)
+  │                           ├─ ⑥ Gemini 닮음 비평 → 부위 한정 1회 수정
+  │                           │    (skinCritique.ts, skinCorrection.ts)
+  │                           ├─ 이미지 생성 불가 시 동일 분석으로 절차적 atlas 생성
+  │                           │    → 같은 6시점 비평 후 관찰 근거만 강화해 1회 재렌더
   │                           │    (사진은 요청 처리 후 즉시 폐기, 저장 안 함)
   │                           └─ KV 운영 지표 카운트
   │
   ├─ 응답의 skinPngBase64 → 64x64 캔버스 (skinDecode.ts)
-  │   └─ 이미지 생성 실패 시: 특징 JSON → 절차적 생성 fallback (skinFromFeatures.ts)
+  │   └─ 구버전 응답에 PNG가 없을 때만 클라이언트 절차적 생성 폴백
   ├─ three.js 3D 미리보기/페인터 + 2D 캔버스 에디터 (동기화)
   └─ Java Classic/Slim, Bedrock PNG export → 기기 저장
 ```
@@ -38,17 +40,25 @@ Java(Classic/Slim) / Bedrock용 PNG로 다운로드할 수 있습니다.
 핵심 설계: **관찰(observed)과 추론(inferred)을 구분합니다.** 분석 단계가 사진에
 보이는 특징과 보이지 않아 추론한 부분을 분리해 반환하고, framing별 정책(얼굴만 /
 상반신 / 전신)에 따라 보이는 의상은 보존하고 안 보이는 부분만 조화롭게 완성합니다.
-이미지 생성 모델은 UV atlas 배치를 지키지 못하므로(실측), FLUX에는 정면 캐릭터
-1장만 시키고 **UV 배치는 서버 코드가 결정적으로 보장**합니다(front_pack 전략).
+이미지 생성 모델은 UV atlas 배치를 직접 책임지지 않고 캐릭터 뷰만 생성합니다.
+**UV 배치는 서버 코드가 결정적으로 보장**합니다.
 생성이 두 번 실패하면 기존 절차적 생성기로 자동 fallback합니다.
 
+한 사람의 사진을 최대 5장까지 넣을 수 있습니다. 첫 사진은 주 구도/의상 근거이고,
+나머지는 같은 사람의 얼굴·머리·측면 단서를 보완합니다. 분석 결과는 3~8개의
+`mustPreserve` 특징과 중요도 1~5의 salience 목록을 만들고, 생성·비평·수정 단계가
+모두 그 우선순위를 공유합니다. 다섯 장 모두 최종 6면 비평에도 전달되며, 한 보조
+사진이 기본 사진과 나머지 사진의 안정적인 신원 단서에 명백히 어긋나면 그 사진의
+충돌 특징을 섞지 않고 기본 사진과 다수 일치 단서를 우선합니다.
+
+Java Slim 다운로드는 네 개의 팔 UV 영역을 Mojang 3픽셀 팔 배치로 변환합니다.
+변환 외 영역의 픽셀 보존, 미사용 셀 투명화, 실제 3픽셀 3D 형상 렌더링을 자동
+테스트로 검증합니다.
+
 - feature flag: `workers/wrangler.jsonc` — `IMAGE_GENERATION_ENABLED`("true"/"false"),
-  `IMAGE_GEN_STRATEGY`("front_view" 기본 / "direct_atlas" 실험용)
-- 이미지 모델: `IMAGE_MODEL_TIER` — `balanced`(Klein 4B) 또는
-  `quality`(Klein 9B, 비용 우선 확인). 기본은 `balanced`입니다.
-- 스타일 참고 스킨(선택): 로컬은 `workers/.dev.vars`의 `STYLE_REF_B64`,
-  운영은 KV `asset:style-ref-448` — 사용 권리가 확인된 이미지만 사용할 것.
-  없으면 참고 없이 동작합니다 (front_view 전략은 참고 이미지를 쓰지 않음).
+  `IMAGE_GEN_STRATEGY`("front_view" / "four_view", 현재 기본은 `four_view`)
+- 이미지 모델: `GEMINI_IMAGE_MODEL`, `GEMINI_IMAGE_QUALITY_MODEL`. 기본 모델의 할당량이 닫혔거나 모델을 사용할 수 없으면 `GEMINI_IMAGE_FALLBACK_MODEL`을 사용합니다.
+  `IMAGE_MODEL_TIER`로 사용할 모델을 선택합니다.
 
 ## 디렉터리 구조
 
@@ -65,7 +75,7 @@ src/
   styles/      pixel.css (픽셀 게임 디자인 시스템)
 workers/
   src/         index(라우팅), analysis(사진 분석), skinPrompt(프롬프트),
-               skinProvider(FLUX 호출), skinPack(정면 뷰→atlas),
+               gemini(Gemini REST API), skinProvider(이미지 생성), skinPack(캐릭터 뷰→atlas),
                skinPost(축소/마스크/검증), png(PNG/JPEG 코덱), uvLayout,
                generate(오케스트레이션), quota, analytics
   scripts/     build-assets.mjs (UV 가이드 자산 생성)
@@ -92,6 +102,7 @@ cd workers
 npm install
 npx wrangler login
 npx wrangler kv namespace create MCSKIN_KV   # 발급된 id를 wrangler.jsonc에 기입
+npx wrangler secret put GEMINI_API_KEY         # Gemini 키를 운영 secret으로 등록
 npm run dev                                   # 로컬: http://localhost:8787
 npm test                                      # 단위 테스트 (AI 호출 없음)
 npm run deploy                                # 배포
@@ -111,20 +122,22 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 | 변수 | 설명 |
 | --- | --- |
 | `VITE_API_BASE_URL` | Cloudflare Worker API 주소 (예: `https://mc-skin-creator-api.xxx.workers.dev`) |
+| `GEMINI_API_KEY` | Worker 전용 Gemini API 키. 로컬은 `workers/.dev.vars`, 운영은 Wrangler secret 사용 |
+| `VISION_MODEL` | 사진 분석 모델 (기본 `gemini-3.6-flash`) |
+| `GEMINI_IMAGE_MODEL` | 이미지 생성 모델 (기본 `gemini-3.1-flash-image`, 이미지 quota/결제 필요) |
+| `GEMINI_IMAGE_FALLBACK_MODEL` | 기본 이미지 모델의 할당량이 닫혔거나 모델을 사용할 수 없을 때만 시도하는 폴백 (기본 `gemini-3.1-flash-lite-image`) |
 
-`.env.example` 참고. Worker 쪽은 별도 시크릿 없이 바인딩(AI, KV)만 사용합니다.
+프런트는 `.env.example`, Worker secret 형식은 `workers/.dev.vars.example`을 참고하세요.
+`GEMINI_API_KEY`를 `VITE_` 변수나 `wrangler.jsonc`에 넣으면 클라이언트/저장소에 노출될 수 있습니다.
 
-## quota 정책
+## 사용량 정책
 
-- Cloudflare 무료 10,000 Neurons/day 중 `DAILY_BUDGET_RATIO`(기본 0.5 = 5,000)만 사용
-- 단계별 예상 비용 (`workers/src/quota.ts`, 공식 단가 기준 환산):
-  - 사진 분석 (llama-4-scout): ~170 Neurons
-  - 고품질 이미지 생성 (FLUX Klein 9B, 사진+포즈 가이드 + 1024x512 출력): ~1,460 Neurons
-  - 전신 사진은 보조 상체 분석을 포함해 정상 1회 약 1,800 Neurons → 프로젝트 예산 5,000 기준 하루 약 2회
-- 리셋: 00:00 UTC = **매일 오전 9시 KST** (Cloudflare 무료 리셋과 동일)
-- 계정 전체 사용량은 Worker 밖에서도 소비될 수 있어, 제공자 확인 전에는 "생성 가능 예상"으로 표시
-- 제공자가 소진을 응답하면 당일 회로를 즉시 닫고 이후 AI 호출 전에 차단
-- 실제 발생한 AI 비용은 성공/실패와 무관하게 집계 (무료 한도 보호가 목적)
+- KV 사용량 게이지는 앱 내부의 보수적 예상치이며 Gemini 결제/쿼터 화면을 대체하지 않습니다.
+- Gemini의 실제 가격·요청 한도는 선택한 모델과 Google AI 프로젝트 설정을 따릅니다.
+- 이미지 모델 quota가 0이어도 사진 분석과 검증된 절차적 스킨 fallback은 계속 동작합니다.
+- 일시적인 rate limit은 일일 소진과 구분하며 앱 전체 quota를 닫지 않습니다.
+- 일일 quota 차단은 Gemini 정책에 맞춰 **미국 Pacific 자정**에 리셋됩니다.
+- 실제 Gemini 한도와 비용은 Google AI Studio 또는 Google Cloud 콘솔에서 확인하세요.
 - 재생성 기능 없음 — 1회 생성 후 편집기로 수정
 
 ## 개인정보

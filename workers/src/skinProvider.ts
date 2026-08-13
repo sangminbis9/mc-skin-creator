@@ -1,30 +1,37 @@
 /**
- * 이미지 생성 provider 추상화.
- * 현재 구현은 Cloudflare Workers AI의 FLUX.2 [klein] 4B (멀티 레퍼런스 이미지 편집).
- * 모델 교체/외부 API 전환 시 이 인터페이스 뒤에서만 바꾼다.
+ * Image-generation provider abstraction.
+ * Gemini creates character-view sheets; server code still owns UV placement.
  */
 
-import { isWorkersAiQuotaError, type PhotoAnalysis } from "./analysis";
+import type { PhotoAnalysis } from "./analysis";
 import { buildFrontBackGuidePng } from "./assets/frontBackGuide";
 import { buildFourViewGuidePng } from "./assets/fourViewGuide";
+import {
+  geminiRetryAfterMs,
+  generateGeminiImage,
+  isGeminiModelUnavailable,
+  isGeminiQuotaError,
+  isGeminiTemporaryRateLimit,
+} from "./gemini";
 import { base64ToBytes, sniffImageSize } from "./png";
 import { buildFourViewPrompt, buildFrontViewPrompt } from "./skinPrompt";
+import type { SkinPlan } from "./skinPlan";
 import type { Env } from "./types";
 
-/** Image models produce character views; skinPack alone owns UV placement. */
 export type GenerationStrategy = "front_view" | "four_view";
 export type ImageModelTier = "balanced" | "quality";
 
 export interface SkinGenerationRequest {
   analysis: PhotoAnalysis;
+  skinPlan: SkinPlan;
   photoDataUrl: string;
+  /** Optional alternate photos of the same person, ordered by usefulness. */
+  referencePhotoDataUrls?: string[];
   seed: number;
   mode: GenerationStrategy;
-  /**
-   * A request-level override lets the pipeline fall back from the expensive
-   * quality model to the balanced model without rebuilding the Worker env.
-   */
   modelTier?: ImageModelTier;
+  /** A bounded, evidence-backed correction from the previous rendered atlas. */
+  correctionPrompt?: string;
 }
 
 export type SkinGenerationResult =
@@ -34,7 +41,6 @@ export type SkinGenerationResult =
       inputTiles: number;
       outputTiles: number;
     }
-  /** retryable: seed를 바꿔 재시도할 가치가 있는 실패 (moderation flag, 일시 오류 등) */
   | {
       ok: false;
       error: string;
@@ -42,28 +48,47 @@ export type SkinGenerationResult =
       quotaExceeded?: boolean;
       /** True when inference ran far enough that account capacity may be used. */
       capacityConsumed?: boolean;
+      retryAfterMs?: number;
     };
 
 export interface SkinGenerationProvider {
   generate(request: SkinGenerationRequest): Promise<SkinGenerationResult>;
 }
 
-const FLUX_MODEL_BALANCED = "@cf/black-forest-labs/flux-2-klein-4b";
-const FLUX_MODEL_QUALITY = "@cf/black-forest-labs/flux-2-klein-9b";
-/** FLUX 입력 이미지 제약: 512x512보다 작아야 한다 */
-const MAX_INPUT_EDGE = 511;
+const DEFAULT_GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image";
+const DEFAULT_GEMINI_IMAGE_FALLBACK_MODEL =
+  "gemini-3.1-flash-lite-image";
 const MIN_INPUT_EDGE = 64;
-/** front_view 출력 크기: 정면+뒷면 두 뷰가 나란히 (512x512 타일 2개 비용) */
-const FRONT_VIEW_WIDTH = 1024;
-const FRONT_VIEW_HEIGHT = 512;
+
+function uniqueModels(models: Array<string | undefined>): string[] {
+  return [...new Set(models.map((model) => model?.trim()).filter(Boolean))] as string[];
+}
+
+function imageModels(env: Env, tier: ImageModelTier): string[] {
+  const balanced = env.GEMINI_IMAGE_MODEL?.trim() || DEFAULT_GEMINI_IMAGE_MODEL;
+  const quality = env.GEMINI_IMAGE_QUALITY_MODEL?.trim() || balanced;
+  const fallback =
+    env.GEMINI_IMAGE_FALLBACK_MODEL?.trim() ||
+    DEFAULT_GEMINI_IMAGE_FALLBACK_MODEL;
+  return uniqueModels(
+    tier === "quality"
+      ? [quality, balanced, fallback]
+      : [balanced, fallback],
+  );
+}
+
+function canTryFallbackModel(error: unknown): boolean {
+  return (
+    (isGeminiQuotaError(error) && !isGeminiTemporaryRateLimit(error)) ||
+    isGeminiModelUnavailable(error)
+  );
+}
 
 function dataUrlToBytes(
   dataUrl: string,
 ): { bytes: Uint8Array; mime: string } | null {
   const match = /^data:(image\/[a-z+.-]+);base64,(.+)$/i.exec(dataUrl);
-  if (!match) {
-    return null;
-  }
+  if (!match) return null;
   try {
     return { bytes: base64ToBytes(match[2]), mime: match[1] };
   } catch {
@@ -71,7 +96,7 @@ function dataUrlToBytes(
   }
 }
 
-export class FluxKleinProvider implements SkinGenerationProvider {
+export class GeminiImageProvider implements SkinGenerationProvider {
   constructor(private readonly env: Env) {}
 
   async generate(
@@ -93,14 +118,6 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         retryable: false,
       };
     }
-    if (size.width > MAX_INPUT_EDGE || size.height > MAX_INPUT_EDGE) {
-      // 구버전 클라이언트(448 축소 이전)의 큰 사진 — 이미지 생성은 건너뛴다
-      return {
-        ok: false,
-        error: `사진이 FLUX 입력 제한 초과 (${size.width}x${size.height})`,
-        retryable: false,
-      };
-    }
     if (size.width < MIN_INPUT_EDGE || size.height < MIN_INPUT_EDGE) {
       return {
         ok: false,
@@ -108,89 +125,102 @@ export class FluxKleinProvider implements SkinGenerationProvider {
         retryable: false,
       };
     }
+    const references = (request.referencePhotoDataUrls || [])
+      .slice(0, 4)
+      .map(dataUrlToBytes)
+      .filter(
+        (image): image is { bytes: Uint8Array; mime: string } => image !== null,
+      )
+      .filter((image) => {
+        const imageSize = sniffImageSize(image.bytes);
+        return Boolean(
+          imageSize &&
+            imageSize.width >= MIN_INPUT_EDGE &&
+            imageSize.height >= MIN_INPUT_EDGE,
+        );
+      });
 
-    let prompt: string;
-    let images: Uint8Array[];
-    if (request.mode === "front_view") {
-      // image0=인물 정체성, image1=정면/뒷면 블록 포즈 구조 가이드.
-      // 가이드가 두 뷰의 크기·간격을 안정화하고, 배치는 서버 코드가 최종 보장한다.
-      prompt = buildFrontViewPrompt(request.analysis);
-      images = [photo.bytes, await buildFrontBackGuidePng()];
-    } else {
-      prompt = buildFourViewPrompt(request.analysis);
-      images = [photo.bytes, await buildFourViewGuidePng()];
+    let prompt =
+      request.mode === "front_view"
+        ? buildFrontViewPrompt(
+            request.analysis,
+            references.length,
+            request.skinPlan,
+          )
+        : buildFourViewPrompt(
+            request.analysis,
+            references.length,
+            request.skinPlan,
+          );
+    if (request.correctionPrompt?.trim()) {
+      prompt += `\n\nTARGETED CORRECTION PASS: Keep all correct identity and outfit decisions unchanged. Fix only these verified defects: ${request.correctionPrompt.trim()}`;
+    }
+    const guide =
+      request.mode === "front_view"
+        ? await buildFrontBackGuidePng()
+        : await buildFourViewGuidePng();
+    const modelTier =
+      request.modelTier ??
+      (this.env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced");
+    const models = imageModels(this.env, modelTier);
+    let lastError: unknown;
+    const attemptedModels: string[] = [];
+    for (const model of models) {
+      attemptedModels.push(model);
+      try {
+        const imageBytes = await generateGeminiImage(this.env, {
+          model,
+          prompt,
+          images: [
+            { bytes: photo.bytes, mimeType: photo.mime },
+            ...references.map((image) => ({
+              bytes: image.bytes,
+              mimeType: image.mime,
+            })),
+            { bytes: guide, mimeType: "image/png" },
+          ],
+          seed: request.seed,
+          // Four isolated views need a wide sheet. The two-view mode uses 16:9.
+          aspectRatio: request.mode === "four_view" ? "4:1" : "16:9",
+        });
+        return {
+          ok: true,
+          imageBytes,
+          inputTiles: 2 + references.length,
+          outputTiles: 2,
+        };
+      } catch (error) {
+        lastError = error;
+        if (
+          attemptedModels.length < models.length &&
+          canTryFallbackModel(error)
+        ) {
+          continue;
+        }
+        break;
+      }
     }
 
-    const width = FRONT_VIEW_WIDTH;
-    const height = FRONT_VIEW_HEIGHT;
-    const form = new FormData();
-    images.forEach((bytes, index) => {
-      const mime = bytes === photo.bytes ? photo.mime : "image/png";
-      form.append(`input_image_${index}`, new Blob([bytes], { type: mime }));
-    });
-    form.append("prompt", prompt);
-    form.append("width", String(width));
-    form.append("height", String(height));
-    form.append("seed", String(request.seed));
-
-    // FormData 직렬화 + multipart boundary가 포함된 Content-Type 확보
-    const formResponse = new Response(form);
-    const contentType = formResponse.headers.get("content-type");
-    if (!formResponse.body || !contentType) {
-      return { ok: false, error: "multipart 직렬화 실패", retryable: false };
-    }
-
-    let image: unknown;
-    try {
-      const modelTier =
-        request.modelTier ??
-        (this.env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced");
-      const model =
-        modelTier === "quality" ? FLUX_MODEL_QUALITY : FLUX_MODEL_BALANCED;
-      const result = (await this.env.AI.run(
-        model as never,
-        {
-          multipart: {
-            body: formResponse.body,
-            contentType,
-          },
-        } as never,
-      )) as { image?: unknown };
-      image = result?.image;
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      const quotaExceeded = isWorkersAiQuotaError(detail);
-      return {
-        ok: false,
-        error: `FLUX 호출 실패: ${detail}`,
-        // moderation flag 등은 seed/프롬프트가 달라지면 통과할 수 있다
-        retryable: !quotaExceeded,
-        ...(quotaExceeded ? { quotaExceeded: true } : {}),
-        ...(!quotaExceeded ? { capacityConsumed: true } : {}),
-      };
-    }
-    if (typeof image !== "string" || image.length === 0) {
-      return {
-        ok: false,
-        error: "FLUX 응답에 image가 없음",
-        retryable: true,
-        capacityConsumed: true,
-      };
-    }
-    try {
-      return {
-        ok: true,
-        imageBytes: base64ToBytes(image),
-        inputTiles: images.length,
-        outputTiles: Math.ceil((width * height) / (512 * 512)),
-      };
-    } catch {
-      return {
-        ok: false,
-        error: "FLUX image base64 디코드 실패",
-        retryable: true,
-        capacityConsumed: true,
-      };
-    }
+    const detail =
+      lastError instanceof Error ? lastError.message : String(lastError);
+    const temporaryRateLimit = isGeminiTemporaryRateLimit(lastError);
+    const quotaExceeded =
+      isGeminiQuotaError(lastError) && !temporaryRateLimit;
+    const attempts =
+      attemptedModels.length > 1
+        ? ` (models tried: ${attemptedModels.join(" -> ")})`
+        : "";
+    return {
+      ok: false,
+      error: `Gemini image generation failed${attempts}: ${detail}`,
+      retryable: temporaryRateLimit || !quotaExceeded,
+      ...(quotaExceeded ? { quotaExceeded: true } : {}),
+      ...(temporaryRateLimit
+        ? { retryAfterMs: geminiRetryAfterMs(lastError) }
+        : {}),
+      ...(!quotaExceeded && !temporaryRateLimit
+        ? { capacityConsumed: true }
+        : {}),
+    };
   }
 }

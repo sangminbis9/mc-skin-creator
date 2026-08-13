@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyFocusedNeckDetail,
   applyFocusedPortraitDetail,
+  buildFaceStyle,
   buildProceduralGenerationReference,
   createUpperBodyDetailCrop,
+  fallbackFeaturesToHex,
   generateSkin,
   normalizeAnalysisForRendering,
+  refineFeatureColorsFromAnalysis,
 } from "../src/generate";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
 import { DEFAULT_FACE_STYLE } from "../src/skinPack";
@@ -77,6 +80,7 @@ function focusedPortraitDetail() {
     eyebrowThickness: "thin" as const,
     noseShape: "straight" as const,
     mouthShape: "thin" as const,
+    mouthOpening: "closed" as const,
     lipFullness: "thin" as const,
     lipColor: "berry" as const,
     jawShape: "soft" as const,
@@ -88,6 +92,7 @@ function focusedPortraitDetail() {
     fringeOpening: "none" as const,
     hairTexture: "straight" as const,
     hairVolume: "normal" as const,
+    overallHairLength: "ear" as const,
     hairPart: "none" as const,
     sideHairLength: "short" as const,
     sideHairShape: "ear_hugging" as const,
@@ -104,17 +109,23 @@ function focusedPortraitDetail() {
 function providerOf(results: SkinGenerationResult[]): SkinGenerationProvider & {
   calls: number;
   modelTiers: ImageModelTier[];
+  seeds: number[];
   photoDataUrls: string[];
+  correctionPrompts: string[];
 } {
   const provider = {
     calls: 0,
     modelTiers: [] as ImageModelTier[],
+    seeds: [] as number[],
     photoDataUrls: [] as string[],
+    correctionPrompts: [] as string[],
     async generate(
       request: SkinGenerationRequest,
     ): Promise<SkinGenerationResult> {
       provider.modelTiers.push(request.modelTier ?? "balanced");
+      provider.seeds.push(request.seed);
       provider.photoDataUrls.push(request.photoDataUrl);
+      provider.correctionPrompts.push(request.correctionPrompt ?? "");
       return results[Math.min(provider.calls++, results.length - 1)];
     },
   };
@@ -138,6 +149,29 @@ describe("generateSkin", () => {
     expect(decoded.width).toBe(66);
     expect(decoded.height).toBe(67);
     expect(await createUpperBodyDetailCrop(await photoDataUrl())).toBeNull();
+  });
+
+  it("bounds a large landscape portrait for the focused identity pass", async () => {
+    const width = 640;
+    const height = 400;
+    const rgba = new Uint8Array(width * height * 4);
+    for (let pixel = 0; pixel < width * height; pixel++) {
+      rgba.set([182, 128, 96, 255], pixel * 4);
+    }
+    const encoded = await encodePng({ width, height, rgba });
+    const crop = await createUpperBodyDetailCrop(
+      `data:image/png;base64,${bytesToBase64(encoded)}`,
+    );
+    expect(crop).not.toBeNull();
+    expect((crop as string).length).toBeLessThan(1_500_000);
+    const decoded = await decodePng(
+      Uint8Array.from(atob((crop as string).split(",")[1]), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    expect(decoded.width).toBeLessThanOrEqual(512);
+    expect(decoded.height).toBeLessThanOrEqual(512);
+    expect(decoded.width).toBeGreaterThan(decoded.height);
   });
 
   it("builds an opaque sub-512px anonymized reference for moderated retries", async () => {
@@ -220,6 +254,26 @@ describe("generateSkin", () => {
     );
   });
 
+  it("keeps the primary analysis when the optional portrait pass exhausts quota", async () => {
+    const main = makeAnalysis();
+    const env = makeEnv(main, false);
+    env.AI.run = vi
+      .fn()
+      .mockResolvedValueOnce({ response: main })
+      .mockRejectedValueOnce(
+        new Error(
+          "4006: you have used up your daily free allocation of 10,000 neurons",
+        ),
+      ) as unknown as Env["AI"]["run"];
+
+    const result = await generateSkin(env, await portraitPhotoDataUrl());
+
+    expect(env.AI.run).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe(200);
+    expect(result.body.generationMode).toBe("procedural_fallback");
+    expect(result.body.skinPngBase64).toBeTruthy();
+  });
+
   it("merges reliable portrait details without rewriting outfit or unseen hair", () => {
     const base = makeAnalysis();
     const main = makeAnalysis({
@@ -280,6 +334,27 @@ describe("generateSkin", () => {
     expect(merged.observed.clothing).toBe(main.observed.clothing);
     expect(merged.outfitPrompt).toBe(main.outfitPrompt);
     expect(merged.inferred).toBe(main.inferred);
+  });
+
+  it("adds only confident visible garment micro-details from the focused crop", () => {
+    const main = makeAnalysis();
+    const detailed = applyFocusedPortraitDetail(main, {
+      ...focusedPortraitDetail(),
+      clothingConfidence: "high",
+      clothingEvidence:
+        "a small blue-and-yellow rectangular badge on the viewer-right chest and narrow white shoulder stripes",
+    });
+    const uncertain = applyFocusedPortraitDetail(main, {
+      ...focusedPortraitDetail(),
+      clothingConfidence: "low",
+      clothingEvidence: "possibly a small graphic",
+    });
+
+    expect(detailed.observed.clothing).toContain(
+      "small blue-and-yellow rectangular badge",
+    );
+    expect(detailed.observed.clothing).toContain("white shoulder stripes");
+    expect(uncertain.observed.clothing).toBe(main.observed.clothing);
   });
 
   it("keeps each low-confidence portrait group unchanged", () => {
@@ -352,12 +427,27 @@ describe("generateSkin", () => {
         },
       }),
     );
+    const smilingEyeCrinkles = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face: "A round mature face with a wide toothy smile and visible laugh lines around the eyes and mouth.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          eyeShape: "almond",
+          eyeSize: "average",
+        },
+      }),
+    );
 
     expect(large.renderHints.eyeSize).toBe("large");
     expect(small.renderHints.eyeSize).toBe("small");
     expect(small.renderHints.lipFullness).toBe("thin");
     expect(compactFullLips.renderHints.mouthShape).toBe("small");
     expect(compactFullLips.renderHints.lipFullness).toBe("full");
+    expect(smilingEyeCrinkles.renderHints.eyeSize).toBe("small");
+    expect(smilingEyeCrinkles.renderHints.eyeShape).toBe("narrow");
   });
 
   it("recovers a slight eye-corner downturn and a described flower cluster from prose", () => {
@@ -384,6 +474,76 @@ describe("generateSkin", () => {
 
     expect(normalized.renderHints.eyeTilt).toBe("downturned");
     expect(normalized.renderHints.hairAccessoryScale).toBe("large");
+  });
+
+  it("promotes explicitly upward-spiked hair over a generic tousled enum", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "Short light-brown hair styled upwards in a spiky fashion with visible lifted tips.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairSilhouette: "tousled",
+          hairVolume: "full",
+          bangs: "none",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.hairSilhouette).toBe("spiky");
+  });
+
+  it("recovers a tousled crown and side-swept fringe from specific prose", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "Short slightly tousled black hair parted on the viewer's left with a side-swept fringe.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          bangs: "straight",
+          bangsLength: "none",
+          fringeEdge: "blunt",
+          hairSilhouette: "rounded",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.bangs).toBe("side");
+    expect(normalized.renderHints.bangsLength).toBe("short");
+    expect(normalized.renderHints.fringeEdge).toBe("staggered");
+    expect(normalized.renderHints.hairPart).toBe("left");
+    expect(normalized.renderHints.fringeOpening).toBe("left");
+    expect(normalized.renderHints.hairSilhouette).toBe("tousled");
+  });
+
+  it("keeps a focused jaw-length correction over stale shoulder-length prose", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "Voluminous curly blonde hair described as shoulder-length. Focused portrait crop confirms blonde hair; the curls are jaw-length and end above the physical shoulder seam.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          hairTexture: "curly",
+          hairVolume: "full",
+          hairBackShape: "rounded",
+          overallHairLength: "shoulder",
+          sideHairLength: "jaw",
+          sideHairShape: "face_framing",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.overallHairLength).toBe("jaw");
+    expect(normalized.renderHints.sideHairLength).toBe("jaw");
   });
 
   it("preserves chest, waist and hip hair endpoints instead of collapsing all long hair to shoulder length", () => {
@@ -655,7 +815,7 @@ describe("generateSkin", () => {
     expect(normalized.renderHints.legwearAsymmetry).toBe("left");
   });
 
-  it("adds a top-grounded construction cue when unseen lower-body analysis is completely generic", () => {
+  it("does not invent a motif when unseen lower-body analysis is completely generic", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(
       makeAnalysis({
@@ -700,13 +860,12 @@ describe("generateSkin", () => {
       }),
     );
 
-    expect(normalized.renderHints.bottomAccent).toBe("cuffs");
-    expect(normalized.inferred.lowerBodyDesign?.bottomAccent).toBe("cuffs");
-    expect(normalized.inferred.lowerBodyDesign?.rationale).toContain(
+    expect(normalized.renderHints.bottomAccent).toBe("none");
+    expect(normalized.inferred.lowerBodyDesign?.bottomAccent).toBe("none");
+    expect(normalized.inferred.lowerBodyDesign?.rationale).not.toContain(
       "readable low-resolution construction cue",
     );
-    expect(normalized.inferred.lowerBody?.value).toContain("cuffed hems");
-    expect(normalized.outfitPrompt).toContain("cuffed hems");
+    expect(normalized.outfitPrompt).not.toContain("cuffed hems");
   });
 
   it("expands a generic unseen lower half into a complete preppy design from cardigan and bow cues", () => {
@@ -723,7 +882,8 @@ describe("generateSkin", () => {
         },
         observed: {
           ...base.observed,
-          clothing: "soft knit cardigan over a blouse with a prominent neck bow",
+          clothing:
+            "soft knit cardigan over a blouse with a prominent neck bow",
         },
         inferred: {
           ...base.inferred,
@@ -896,14 +1056,660 @@ describe("generateSkin", () => {
     );
     const body = CLASSIC_LAYOUT.body.overlay.front;
     const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
-    const skirtHem =
-      ((body.y + body.h - 1) * ATLAS_SIZE + body.x + 3) * 4 + 3;
+    const skirtHem = ((body.y + body.h - 1) * ATLAS_SIZE + body.x + 3) * 4 + 3;
     const shoeStrap =
       ((rightLeg.y + rightLeg.h - 2) * ATLAS_SIZE + rightLeg.x + 1) * 4 + 3;
 
     expect(atlas.rgba[skirtHem]).toBe(255);
     expect(atlas.rgba[shoeStrap]).toBe(255);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("lets canonical head-covering and outfit evidence override contradictory fallback enums", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "Hair is fully covered by a cream and brown patterned hijab with a pink accent section on viewer-right.",
+        accessories:
+          "A patterned headscarf closely frames the face; the pink accent is on viewer-right.",
+        clothing: "Black long-sleeved top with a long black skirt.",
+        colorPalette: ["cream", "brown", "black"],
+      },
+      canonicalIdentity: {
+        overallImpression:
+          "Round face framed by a patterned cream and brown hijab with a viewer-right pink accent, plus a monochrome black outfit.",
+        mustPreserve: [
+          "patterned hijab framing the entire head",
+          "pink accent section on viewer-right",
+          "round face visible through the scarf opening",
+          "black long-sleeved top",
+          "long black skirt",
+        ],
+        features: [
+          {
+            feature: "cream and brown patterned hijab",
+            category: "accessory",
+            priority: 5,
+            confidence: "high",
+            evidence:
+              "cloth covers the crown, sides, back and shoulders with a pink viewer-right accent",
+            targetRegions: ["head.front", "head.overlay", "torso.overlay"],
+          },
+          ...base.canonicalIdentity.features.slice(1, 3),
+          {
+            feature: "long monochrome black outfit",
+            category: "outfit",
+            priority: 4,
+            confidence: "high",
+            evidence: "black top and full-length skirt",
+            targetRegions: ["torso.front", "leg.left", "leg.right"],
+          },
+        ],
+      },
+      identityPrompt:
+        "Keep the patterned hijab tightly framing the round face and retain its pink viewer-right accent.",
+      outfitPrompt: "Black long-sleeved top and full-length black skirt.",
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        hat: "none",
+        hatColor: "red",
+        hairstyle: "short",
+        topType: "tshirt",
+        topColor: "blue",
+        sleeveLength: "short",
+        bottomType: "shorts",
+        bottomColor: "denim",
+      },
+    });
+    const features = refineFeatureColorsFromAnalysis(
+      analysis,
+      fallbackFeaturesToHex(analysis.fallbackFeatures),
+    );
+    const style = buildFaceStyle(analysis, features);
+
+    expect(features).toMatchObject({
+      hatColor: "#7a543a",
+      topColor: "#22201e",
+      bottomColor: "#22201e",
+    });
+    expect(style).toMatchObject({
+      hat: "headscarf",
+      headCoveringPattern: "patterned",
+      headCoveringPatternColor: "#e8dfd1",
+      headCoveringAccentColor: "#e58bb6",
+      headCoveringAccentSide: "viewer_right",
+      earExposure: "covered",
+      sleeveLength: "long",
+      bottomType: "skirt",
+      bottomLength: "long",
+    });
+
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+    const atlas = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const headFront = CLASSIC_LAYOUT.head.overlay.front;
+    const headBack = CLASSIC_LAYOUT.head.overlay.back;
+    const bodyBack = CLASSIC_LAYOUT.body.overlay.back;
+    const bodyFront = CLASSIC_LAYOUT.body.base.front;
+    const legFront = CLASSIC_LAYOUT.rightLeg.base.front;
+    const alphaAt = (rect: { x: number; y: number }, x: number, y: number) =>
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
+    const redAt = (rect: { x: number; y: number }, x: number, y: number) =>
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4];
+
+    expect(alphaAt(headFront, 0, 4)).toBe(255);
+    expect(alphaAt(headFront, 3, 4)).toBe(0);
+    expect(redAt(headFront, 7, 4)).toBeGreaterThan(150);
+    expect(alphaAt(headBack, 4, 4)).toBe(255);
+    expect(alphaAt(bodyBack, 3, 0)).toBe(255);
+    expect(redAt(bodyFront, 3, 3)).toBeLessThan(80);
+    expect(redAt(legFront, 1, 7)).toBeLessThan(80);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("recovers colored drop earrings from canonical prose even with empty fallback enums", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "short brown hair tucked behind both ears",
+        accessories: "matching turquoise teardrop earrings on both ears",
+      },
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        mustPreserve: [
+          "short brown hair tucked behind both ears",
+          "turquoise teardrop earrings on both ears",
+          "round face and warm skin tone",
+          "mustard knit top",
+        ],
+        features: [
+          {
+            feature: "turquoise teardrop earrings",
+            category: "accessory",
+            priority: 5,
+            confidence: "high",
+            evidence: "matching long turquoise drops below both ears",
+            targetRegions: ["head.front", "head.overlay"],
+          },
+          ...base.canonicalIdentity.features.slice(0, 3),
+        ],
+      },
+      identityPrompt:
+        "Short brown hair tucked behind both ears reveals matching turquoise teardrop earrings around a round face.",
+      fallbackFeatures: {} as never,
+    });
+
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+    expect(result.success).toBe(true);
+    const atlas = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const face = CLASSIC_LAYOUT.head.overlay.front;
+    const pixel = (x: number, y: number) => {
+      const offset = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
+      return atlas.rgba.slice(offset, offset + 4);
+    };
+    const leftDrop = pixel(0, 7);
+    const rightDrop = pixel(7, 7);
+
+    for (const drop of [leftDrop, rightDrop]) {
+      expect(drop[3]).toBe(255);
+      expect(drop[1]).toBeGreaterThan(drop[0]);
+      expect(drop[2]).toBeGreaterThan(drop[0]);
+    }
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("recovers oversized round glasses and a deliberately plain dark outfit", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        face: "light skin in a high-contrast black and white portrait",
+        hair: "voluminous long locs, center-parted and falling to the chest",
+        accessories: "large, round, thick-rimmed black glasses",
+        clothing: "simple dark-colored top",
+        colorPalette: ["black", "white", "dark"],
+      },
+      inferred: {
+        ...base.inferred,
+        lowerBody: {
+          value: "plain dark pants",
+          rationale: "an understated monochrome outfit without decoration",
+        },
+        lowerBodyDesign: {
+          bottomType: "pants",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+          thighAccessory: "none",
+          thighAccessorySide: "none",
+          shoeStyle: "sneakers",
+          rationale: "plain dark pants keep the outfit simple and unadorned",
+        },
+      },
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        mustPreserve: [
+          "large round coke-bottle glasses",
+          "thick black circular frames",
+          "voluminous long black locs falling to the chest",
+          "simple dark top",
+          "plain dark pants without a stripe",
+        ],
+        features: [
+          {
+            feature: "large round coke-bottle glasses",
+            category: "accessory",
+            priority: 5,
+            confidence: "high",
+            evidence: "thick circular black frames dominate the face",
+            targetRegions: ["head.front", "head.overlay"],
+          },
+          ...base.canonicalIdentity.features.slice(0, 3),
+        ],
+      },
+      identityPrompt:
+        "Large round coke-bottle glasses with thick black circular frames dominate the face beneath voluminous long black locs falling to the chest.",
+      outfitPrompt:
+        "An understated simple dark-colored top with plain dark pants and no side stripe.",
+      fallbackFeatures: {} as never,
+    });
+
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+    expect(result.success).toBe(true);
+    expect(result.body.features).toMatchObject({
+      hairColor: "#252525",
+      topColor: "#474a50",
+      bottomColor: "#2e343b",
+    });
+    const style = buildFaceStyle(analysis, {
+      eyeColor: "#4a3728",
+      glassesColor: "#22201e",
+      skinTone: "#e8b98f",
+      hairColor: "#252525",
+      hatColor: "#9e2f36",
+      topColor: "#474a50",
+      topAccentColor: "#f2f2f2",
+      bottomColor: "#2e343b",
+      shoesColor: "#f2f2f2",
+    });
+    expect(style).toMatchObject({
+      glasses: "round",
+      glassesScale: "large",
+      hairStructure: "locs",
+      hairstyle: "long",
+      hairTexture: "coily",
+      hairVolume: "full",
+      overallHairLength: "chest",
+    });
+    const atlas = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const glasses = CLASSIC_LAYOUT.head.overlay.front;
+    const rearLocs = CLASSIC_LAYOUT.head.overlay.back;
+    const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const alphaAt = (rect: { x: number; y: number }, x: number, y: number) =>
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
+    const glassesHighlight = ((glasses.y + 2) * ATLAS_SIZE + glasses.x + 1) * 4;
+
+    expect(alphaAt(glasses, 1, 4)).toBe(255);
+    expect(alphaAt(glasses, 2, 4)).toBe(0);
+    expect(alphaAt(glasses, 3, 4)).toBe(255);
+    expect(
+      Math.max(...atlas.rgba.slice(glassesHighlight, glassesHighlight + 3)),
+    ).toBeLessThan(130);
+    expect(alphaAt(rearLocs, 0, 4)).toBe(255);
+    expect(alphaAt(rearLocs, 2, 4)).toBe(0);
+    expect(alphaAt(rearLocs, 3, 4)).toBe(255);
+    expect(alphaAt(rightLeg, 0, 4)).toBe(0);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("recovers explicit blonde hair and blue eyes from rich observed prose", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        face: "Fair warm skin with clearly visible blue eyes.",
+        hair: "Voluminous shoulder-length curly blonde hair.",
+        accessories: "A simple beaded bracelet on the wrist.",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        hairColor: "dark-brown",
+        eyeColor: "dark-brown",
+        hairstyle: "curly",
+        glasses: "regular",
+      },
+      negativePrompt: "no glasses, no hat",
+      renderHints: {
+        ...base.renderHints,
+        hairTexture: "curly",
+        hairVolume: "full",
+        hairSilhouette: "rounded",
+        overallHairLength: "shoulder",
+        sideHairLength: "shoulder",
+      },
+    });
+    const features = refineFeatureColorsFromAnalysis(
+      analysis,
+      fallbackFeaturesToHex(analysis.fallbackFeatures),
+    );
+
+    expect(features).toMatchObject({
+      hairColor: "#d8b569",
+      eyeColor: "#4a7fae",
+    });
+    expect(buildFaceStyle(analysis, features)).toMatchObject({
+      glasses: "none",
+      hairSilhouette: "tousled",
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+    expect(result.success).toBe(true);
+    const atlas = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const rightProfile = CLASSIC_LAYOUT.head.overlay.right;
+    const templeAperture =
+      ((rightProfile.y + 2) * ATLAS_SIZE + rightProfile.x + 6) * 4 + 3;
+    expect(atlas.rgba[templeAperture]).toBe(0);
+    const baseProfile = CLASSIC_LAYOUT.head.base.right;
+    const cheekOffset =
+      ((baseProfile.y + 4) * ATLAS_SIZE + baseProfile.x + 4) * 4;
+    const cheek = Array.from(atlas.rgba.slice(cheekOffset, cheekOffset + 3));
+    const colorDistance = (actual: number[], expected: number[]) =>
+      actual.reduce(
+        (total, channel, index) =>
+          total + Math.abs(channel - (expected[index] ?? 0)),
+        0,
+      );
+    expect(colorDistance(cheek, [232, 185, 143])).toBeLessThan(
+      colorDistance(cheek, [216, 181, 105]),
+    );
+    const rearHair = CLASSIC_LAYOUT.head.base.back;
+    const rearHairColors = new Set<string>();
+    for (let y = 0; y < 6; y++) {
+      for (let x = 0; x < rearHair.w; x++) {
+        const offset = ((rearHair.y + y) * ATLAS_SIZE + rearHair.x + x) * 4;
+        rearHairColors.add(
+          Array.from(atlas.rgba.slice(offset, offset + 3)).join(","),
+        );
+      }
+    }
+    expect(rearHairColors.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it("recovers a black formal jacket, white collar and striped dark tie", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        face: "Angular fair face with blue eyes.",
+        hair: "Short light brown hair with a tousled, spiky crown.",
+        accessories: "None visible.",
+        clothing:
+          "A white collared dress shirt under a black suit jacket with a dark striped necktie.",
+      },
+      renderHints: {
+        ...base.renderHints,
+        faceShape: "oval",
+        jawShape: "rounded",
+        bangs: "none",
+        bangsLength: "none",
+        hairSilhouette: "tousled",
+        outerLayer: "heavy",
+        outerGarment: "open_jacket",
+        neckAccessory: "tie",
+      },
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        overallImpression:
+          "A clean-cut person with a distinctive angular face, blue eyes and short spiky light brown hair in a formal suit.",
+        mustPreserve: [
+          "distinctive angular face",
+          "blue eyes",
+          "short spiky light brown hair",
+          "formal black suit",
+        ],
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        hairColor: "dark-brown",
+        eyeColor: "dark-brown",
+        glasses: "none",
+        topType: "jacket",
+        topColor: "blue",
+      },
+    });
+    const features = refineFeatureColorsFromAnalysis(
+      analysis,
+      fallbackFeaturesToHex(analysis.fallbackFeatures),
+    );
+    const style = buildFaceStyle(analysis, features);
+
+    expect(features).toMatchObject({
+      hairColor: "#96725d",
+      eyeColor: "#4a7fae",
+      topColor: "#22201e",
+      topAccentColor: "#f2f2f2",
+    });
+    expect(style).toMatchObject({
+      faceShape: "angular",
+      jawShape: "square",
+      outerGarment: "open_jacket",
+      neckAccessory: "tie",
+      neckAccessoryColor: "#22201e",
+      neckAccessoryPattern: "striped",
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+    expect(result.success).toBe(true);
+    const atlas = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const head = CLASSIC_LAYOUT.head.overlay.front;
+    const torso = CLASSIC_LAYOUT.body.overlay.front;
+    const alphaAt = (rect: { x: number; y: number }, x: number, y: number) =>
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
+    const tieStripe = ((torso.y + 2) * ATLAS_SIZE + torso.x + 3) * 4;
+
+    expect(alphaAt(head, 3, 2)).toBe(0);
+    expect(alphaAt(torso, 2, 0)).toBe(255);
+    expect(atlas.rgba[tieStripe]).toBeGreaterThan(45);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("recovers British light grey cable-knit sweater wording", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        clothing:
+          "Light grey cable-knit crewneck sweater and blue denim jeans.",
+      },
+      outfitPrompt:
+        "A light grey cable-knit sweater with blue denim jeans and casual sneakers.",
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        overallImpression:
+          "A person in a light grey cable-knit sweater and blue denim jeans.",
+        mustPreserve: ["light grey cable-knit sweater", "blue denim jeans"],
+        features: [
+          {
+            feature: "light grey cable-knit sweater",
+            category: "outfit",
+            priority: 5,
+            confidence: "high",
+            evidence: "The light grey cable pattern is clearly visible.",
+            targetRegions: ["torso.front", "torso.overlay"],
+          },
+        ],
+      },
+      inferred: {
+        ...base.inferred,
+        lowerBody: {
+          value: "blue denim jeans",
+          rationale: "directly visible blue denim fabric",
+        },
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topType: "sweater",
+        topColor: "blue",
+        bottomType: "jeans",
+        bottomColor: "denim",
+      },
+    });
+
+    expect(
+      refineFeatureColorsFromAnalysis(
+        analysis,
+        fallbackFeaturesToHex(analysis.fallbackFeatures),
+      ),
+    ).toMatchObject({
+      topColor: "#c9c9c9",
+      bottomColor: "#3b5a80",
+    });
+  });
+
+  it("turns an athletic red shirt and friendly smile into raised readable cues", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        face: "Medium-tan warm skin with a broad friendly smile.",
+        hair: "Short straight black hair with sparse side-swept bangs.",
+        clothing:
+          "A bright red short-sleeved athletic-style shirt with subtle textured fabric, gold accent markings on the shoulders, and a small blue and gold rectangular badge on the viewer-left chest.",
+      },
+      outfitPrompt:
+        "A bright red short-sleeved athletic-style shirt with gold shoulder accents and a small blue and gold viewer-left chest badge, dark blue jeans and white sneakers.",
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        overallImpression:
+          "A middle-aged person with a warm, friendly expression, short black hair and a bright athletic shirt.",
+        mustPreserve: [
+          "middle-aged friendly face",
+          "wide smile",
+          "short black hair",
+          "bright red athletic shirt",
+        ],
+      },
+      renderHints: {
+        ...base.renderHints,
+        mouthShape: "wide",
+        outerLayer: "light",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        expression: "smile",
+        glasses: "none",
+        topType: "shirt",
+        topColor: "blue",
+      },
+    });
+    const result = await generateSkin(
+      makeEnv(analysis, false),
+      await photoDataUrl(),
+    );
+    expect(result.success).toBe(true);
+    expect(result.body.analysis?.inferred.lowerBodyDesign?.shoeStyle).not.toBe(
+      "dress_shoes",
+    );
+    expect(result.body.analysis?.renderHints.bottomAccent).toBe("none");
+    const features = refineFeatureColorsFromAnalysis(
+      analysis,
+      fallbackFeaturesToHex(analysis.fallbackFeatures),
+    );
+    expect(buildFaceStyle(analysis, features)).toMatchObject({
+      topType: "jersey",
+      topAccentColor: "#e3c14d",
+      topGraphic: true,
+      topGraphicSide: "viewer_left",
+      matureFeatures: true,
+    });
+    const atlas = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const hairOverlay = CLASSIC_LAYOUT.head.overlay.front;
+    const torsoBase = CLASSIC_LAYOUT.body.base.front;
+    const torso = CLASSIC_LAYOUT.body.overlay.front;
+    const smile = ((face.y + 6) * ATLAS_SIZE + face.x + 3) * 4;
+    const jerseyHem = ((torso.y + torso.h - 1) * ATLAS_SIZE + torso.x + 2) * 4;
+
+    expect(atlas.rgba[smile]).toBeGreaterThan(190);
+    expect(atlas.rgba[smile + 1]).toBeGreaterThan(170);
+    expect(atlas.rgba[jerseyHem + 3]).toBe(255);
+    const hairGlint =
+      ((hairOverlay.y + 2) * ATLAS_SIZE + hairOverlay.x + 1) * 4;
+    expect(atlas.rgba[hairGlint]).toBeGreaterThan(70);
+    const shoulderAccent = (torso.y * ATLAS_SIZE + torso.x + 1) * 4;
+    expect(atlas.rgba[shoulderAccent]).toBeGreaterThan(150);
+    expect(atlas.rgba[shoulderAccent + 1]).toBeGreaterThan(120);
+    const chestBadge = ((torso.y + 3) * ATLAS_SIZE + torso.x + 1) * 4;
+    expect(atlas.rgba[chestBadge + 3]).toBe(255);
+    expect(atlas.rgba[chestBadge]).toBeGreaterThan(150);
+    expect(atlas.rgba[chestBadge + 1]).toBeGreaterThan(120);
+    const jerseyColors = new Set<string>();
+    for (let y = 2; y < torsoBase.h - 1; y++) {
+      for (let x = 1; x < torsoBase.w - 1; x++) {
+        const offset = ((torsoBase.y + y) * ATLAS_SIZE + torsoBase.x + x) * 4;
+        jerseyColors.add(
+          Array.from(atlas.rgba.slice(offset, offset + 3)).join(","),
+        );
+      }
+    }
+    expect(jerseyColors.size).toBeGreaterThanOrEqual(5);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("keeps a gentle closed smile distinct from an exposed tooth row", async () => {
+    const base = makeAnalysis();
+    const analysisFor = (mouthOpening: "closed" | "teeth_visible") =>
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face:
+            mouthOpening === "closed"
+              ? "A mature oval face with a soft closed-mouth smile."
+              : "A mature round face with a broad smile showing visible teeth.",
+        },
+        renderHints: {
+          ...base.renderHints,
+          mouthShape: "wide",
+          mouthOpening,
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          glasses: "none",
+          expression: "smile",
+        },
+      });
+    const [closedResult, teethResult] = await Promise.all(
+      [analysisFor("closed"), analysisFor("teeth_visible")].map(
+        async (analysis) =>
+          generateSkin(makeEnv(analysis, false), await photoDataUrl()),
+      ),
+    );
+    const decodeResult = async (
+      result: Awaited<ReturnType<typeof generateSkin>>,
+    ) =>
+      decodePng(
+        Uint8Array.from(
+          atob(result.body.skinPngBase64 as string),
+          (character) => character.charCodeAt(0),
+        ),
+      );
+    const [closed, teeth] = await Promise.all([
+      decodeResult(closedResult),
+      decodeResult(teethResult),
+    ]);
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const center = ((face.y + 6) * ATLAS_SIZE + face.x + 3) * 4;
+    const grinLeft = ((face.y + 6) * ATLAS_SIZE + face.x + 3) * 4;
+    const grinRight = ((face.y + 6) * ATLAS_SIZE + face.x + 4) * 4;
+    const raisedCorner = ((face.y + 5) * ATLAS_SIZE + face.x + 2) * 4;
+    expect(teeth.rgba[center]).toBeGreaterThan(closed.rgba[center] + 35);
+    expect(teeth.rgba[center + 1]).toBeGreaterThan(
+      closed.rgba[center + 1] + 55,
+    );
+    expect(teeth.rgba[grinLeft]).toBeGreaterThan(200);
+    expect(teeth.rgba[grinRight]).toBeGreaterThan(180);
+    expect(teeth.rgba[raisedCorner]).toBeLessThan(teeth.rgba[grinLeft]);
+    expect(validateFinalAtlas(closed).ok).toBe(true);
+    expect(validateFinalAtlas(teeth).ok).toBe(true);
   });
 
   it("does not overwrite a concrete inferred lower-body design", () => {
@@ -933,6 +1739,63 @@ describe("generateSkin", () => {
 
     expect(normalized.renderHints.bottomAccent).toBe("belt");
     expect(normalized.inferred.lowerBodyDesign?.bottomAccent).toBe("belt");
+  });
+
+  it("rejects formal hidden-lower inference that conflicts with an observed athletic shirt", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        visibleRegions: {
+          ...base.visibleRegions,
+          lowerBody: false,
+          feet: false,
+        },
+        observed: {
+          ...base.observed,
+          clothing: "A bright red short-sleeved athletic-style shirt.",
+        },
+        canonicalIdentity: {
+          ...base.canonicalIdentity,
+          overallImpression: "A friendly person in a red athletic shirt.",
+          mustPreserve: ["bright red athletic shirt"],
+        },
+        inferred: {
+          ...base.inferred,
+          lowerBody: {
+            value: "coordinated tailored trousers with a belt",
+            rationale: "Formal trousers were inferred from a generic shirt.",
+          },
+          lowerBodyDesign: {
+            bottomType: "pants",
+            bottomPattern: "plain",
+            bottomAccent: "belt",
+            legwear: "none",
+            legwearAsymmetry: "none",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
+            shoeStyle: "dress_shoes",
+            rationale: "Tailored trousers and polished leather dress shoes.",
+          },
+          shoes: {
+            value: "polished leather dress shoes",
+            rationale: "A formal completion.",
+          },
+        },
+        outfitPrompt:
+          "A red athletic shirt with dark blue denim jeans and white sneakers. Complete the unseen lower body with tailored trousers and polished leather dress shoes.",
+      }),
+    );
+
+    expect(normalized.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "jeans",
+      bottomPattern: "plain",
+      bottomAccent: "none",
+      shoeStyle: "sneakers",
+    });
+    expect(normalized.inferred.shoes?.value).toBe("casual sneakers");
+    expect(normalized.outfitPrompt).toContain("denim jeans and white sneakers");
+    expect(normalized.outfitPrompt).not.toContain("tailored trousers");
+    expect(normalized.outfitPrompt).not.toContain("polished leather");
   });
 
   it("preserves muted portrait colours instead of collapsing them to vivid fallback swatches", async () => {
@@ -982,7 +1845,7 @@ describe("generateSkin", () => {
     expect(result.status).toBe(200);
     expect(result.body.features).toMatchObject({
       skinTone: "#f2d6c0",
-      hairColor: "#806052",
+      hairColor: "#96725d",
       topColor: "#b7929d",
       bottomColor: "#cbb8a3",
       shoesColor: "#e8dfd1",
@@ -1253,7 +2116,7 @@ describe("generateSkin", () => {
     expect(result.status).toBe(200);
     expect(result.body.features).toMatchObject({
       skinTone: "#f2d6c0",
-      hairColor: "#806052",
+      hairColor: "#96725d",
       topColor: "#b7929d",
       bottomColor: "#cbb8a3",
       shoesColor: "#e8dfd1",
@@ -1522,6 +2385,10 @@ describe("generateSkin", () => {
     ]);
     const result = await generateSkin(env, await photoDataUrl(), provider);
     expect(provider.calls).toBe(2);
+    expect(provider.seeds[0]).toBeGreaterThanOrEqual(0);
+    expect(provider.seeds[0]).toBeLessThanOrEqual(2_147_483_647);
+    expect(provider.seeds[1]).toBeLessThanOrEqual(2_147_483_647);
+    expect(provider.seeds[1]).not.toBe(provider.seeds[0]);
     expect(result.body.generationMode).toBe("image");
     expect(result.neuronsSpent).toBe(170 + 45 + 66);
   });
@@ -1897,6 +2764,142 @@ describe("generateSkin", () => {
     expect(result.neuronsSpent).toBe(236);
   });
 
+  it("six-view Gemini critique targets only rejected UV regions on the bounded retry", async () => {
+    const env = makeEnv(makeAnalysis());
+    env.GEMINI_API_KEY = "test-key";
+    env.IMAGE_CRITIQUE_ENABLED = "true";
+    const rejectedCritique = {
+      identityScore: 61,
+      faceHairScore: 58,
+      outfitScore: 82,
+      consistencyScore: 80,
+      layerScore: 72,
+      defects: [
+        {
+          category: "face_hair",
+          severity: "major",
+          feature: "side-swept fringe",
+          evidence: "rendered fringe is centered",
+          targetRegions: ["head.front", "head.overlay"],
+          correction: "move only the fringe opening left",
+        },
+      ],
+    };
+    const approvedCritique = {
+      identityScore: 91,
+      faceHairScore: 88,
+      outfitScore: 84,
+      consistencyScore: 86,
+      layerScore: 76,
+      defects: [],
+    };
+    const responses = [makeAnalysis(), rejectedCritique, approvedCritique];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: JSON.stringify(responses.shift()) }],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    const provider = providerOf([
+      await goodFluxOutput(),
+      await goodFluxOutput(),
+    ]);
+    try {
+      const result = await generateSkin(env, await photoDataUrl(), provider);
+      expect(result.body.generationMode).toBe("image");
+      expect(provider.calls).toBe(2);
+      expect(provider.correctionPrompts[0]).toBe("");
+      expect(provider.correctionPrompts[1]).toContain(
+        "head.front+head.overlay",
+      );
+      expect(provider.correctionPrompts[1]).toContain(
+        "move only the fringe opening left",
+      );
+      expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
+        "diagnostic:last-targeted-correction",
+        expect.stringContaining('"mode":"targeted_uv_merge"'),
+        { expirationTtl: 60 * 60 * 48 },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("critiques and safely reinforces the procedural atlas when image generation is unavailable", async () => {
+    const analysis = makeAnalysis({
+      observed: {
+        ...makeAnalysis().observed,
+        hair: "Full curly brown hair with a visibly layered crown.",
+      },
+      renderHints: {
+        ...makeAnalysis().renderHints,
+        hairTexture: "curly",
+        hairVolume: "full",
+        hairSilhouette: "tousled",
+      },
+    });
+    const env = makeEnv(analysis, false);
+    env.GEMINI_API_KEY = "test-key";
+    env.IMAGE_CRITIQUE_ENABLED = "true";
+    const rejectedCritique = {
+      identityScore: 62,
+      faceHairScore: 58,
+      outfitScore: 82,
+      consistencyScore: 80,
+      layerScore: 68,
+      defects: [
+        {
+          category: "face_hair",
+          severity: "major",
+          feature: "curly hair depth",
+          evidence: "The rendered curls read as a flat helmet.",
+          targetRegions: ["head.front", "head.overlay"],
+          correction: "Reinforce observed curl depth without changing length.",
+        },
+      ],
+    };
+    const responses = [analysis, rejectedCritique];
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: JSON.stringify(responses.shift()) }],
+            },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await generateSkin(env, await photoDataUrl());
+      expect(result.body.generationMode).toBe("procedural_fallback");
+      expect(result.body.skinPngBase64).toBeTruthy();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.neuronsSpent).toBeGreaterThan(170);
+      expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
+        "diagnostic:last-procedural-correction",
+        expect.stringContaining("analysis_grounded_style_reinforcement"),
+        { expirationTtl: 60 * 60 * 48 },
+      );
+      expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
+        "diagnostic:last-procedural-critique-rejection",
+        expect.stringContaining("head.hair:analysis_geometry+contrast"),
+        { expirationTtl: 60 * 60 * 48 },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("feature flag가 꺼져 있으면 provider를 호출하지 않는다", async () => {
     const env = makeEnv(makeAnalysis(), false);
     const provider = providerOf([await goodFluxOutput()]);
@@ -1938,10 +2941,10 @@ describe("generateSkin", () => {
     const result = await generateSkin(env, await photoDataUrl());
     expect(result.status).toBe(502);
     expect(result.body.errorCode).toBe("ai_failed");
-    expect(result.neuronsSpent).toBe(2 * 170);
+    expect(result.neuronsSpent).toBe(4 * 170);
     expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
       "diagnostic:last-analysis-failure",
-      expect.stringContaining('"attempts":2'),
+      expect.stringContaining('"attempts":4'),
       { expirationTtl: 60 * 60 * 48 },
     );
   });

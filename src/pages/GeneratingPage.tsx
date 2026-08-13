@@ -29,6 +29,7 @@ export interface GenerationSuccess {
 interface GeneratingPageProps {
   photoDataUrl: string;
   analysisPhotoDataUrl: string;
+  referencePhotoDataUrls?: string[];
   onDone: (result: GenerationSuccess) => void;
   onFail: (failure: GenerationFailure) => void;
   onQuotaClosed: (quota: QuotaStatus | null) => void;
@@ -53,6 +54,7 @@ const PHOTO_FAIL_MESSAGES: Record<string, string> = {
 export function GeneratingPage({
   photoDataUrl,
   analysisPhotoDataUrl,
+  referencePhotoDataUrls = [],
   onDone,
   onFail,
   onQuotaClosed,
@@ -88,6 +90,7 @@ export function GeneratingPage({
         const response = await requestSkinGeneration(
           photoDataUrl,
           analysisPhotoDataUrl,
+          referencePhotoDataUrls,
         );
         if (cancelled) {
           return;
@@ -142,6 +145,13 @@ export function GeneratingPage({
             });
             return;
           }
+          if (error.code === "rate_limited") {
+            onFail({
+              kind: "ai",
+              message: "AI 요청이 잠시 몰렸어요. 잠시 후 다시 시도해 주세요.",
+            });
+            return;
+          }
           onFail({
             kind: "ai",
             message: `${error.message}${
@@ -160,7 +170,7 @@ export function GeneratingPage({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photoDataUrl, analysisPhotoDataUrl]);
+  }, [photoDataUrl, analysisPhotoDataUrl, referencePhotoDataUrls]);
 
   return (
     <div className="px-screen">

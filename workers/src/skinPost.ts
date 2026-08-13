@@ -328,6 +328,7 @@ export interface AtlasCraftStyle {
   bangsLength?: string;
   fringeOpening?: string;
   hairstyle?: string;
+  hat?: string;
   sideHairLength?: string;
   sideHairShape?: string;
   hairAccessory?: string;
@@ -498,10 +499,12 @@ export function validateAtlasCraft(
   const metrics = measureAtlasCraft(atlas);
   const value = (candidate: string | undefined) => candidate ?? "none";
   const has = (candidate: string | undefined) => value(candidate) !== "none";
-  const longSideHair = ["cheek", "jaw", "shoulder"].includes(
-    value(style.sideHairLength),
-  );
-  const styledHair = !["none", "bald", "buzz"].includes(value(style.hairstyle));
+  const headScarf = style.hat === "headscarf";
+  const longSideHair =
+    !headScarf &&
+    ["cheek", "jaw", "shoulder"].includes(value(style.sideHairLength));
+  const styledHair =
+    !headScarf && !["none", "bald", "buzz"].includes(value(style.hairstyle));
   // FaceStyle always supplies these fields in the live pipeline. Keeping
   // identity and cross-part hairstyle checks opt-in lets external reference
   // atlases use the general craft metrics without assuming our landmarks.
@@ -511,6 +514,7 @@ export function validateAtlasCraft(
     style.mouthShape !== undefined;
   const richStyle =
     style.outerLayer === "heavy" ||
+    headScarf ||
     styledHair ||
     longSideHair ||
     has(style.hairAccessory) ||
@@ -538,7 +542,10 @@ export function validateAtlasCraft(
     problems.push(
       `too few shaded outer-layer faces (${metrics.shadedOverlayFaces})`,
     );
-  if (metrics.solidOverlayFaces > 0)
+  // A wrapped head covering legitimately occupies the crown, back and both
+  // side faces as one continuous cloth shell. Other styles must keep every
+  // overlay face sparse so accidental opaque template cubes are still caught.
+  if (metrics.solidOverlayFaces > (headScarf ? 4 : 0))
     problems.push(
       `solid outer-layer shells found (${metrics.solidOverlayFaces})`,
     );
@@ -767,12 +774,26 @@ export function validateAtlasCraft(
     const skinBucket = [...skinBuckets.values()].sort(
       (first, second) => second.count - first.count,
     )[0];
+    // Estimate complexion from stable central cheek/nose anchors. A modal
+    // colour bucket can accidentally choose the two matching lower-iris or
+    // hair pixels when deliberate face shading makes every skin pixel a
+    // slightly different tone, causing one real eye to be rejected.
+    const skinAnchors = [
+      [3, 4],
+      [4, 4],
+      [3, 5],
+      [4, 5],
+      [1, 6],
+      [6, 6],
+    ] as const;
+    const medianChannel = (channel: number) => {
+      const values = skinAnchors
+        .map(([x, y]) => atlas.rgba[offsetAt(face, x, y) + channel])
+        .sort((first, second) => first - second);
+      return (values[2] + values[3]) / 2;
+    };
     const skin: [number, number, number] = skinBucket
-      ? [
-          skinBucket.r / skinBucket.count,
-          skinBucket.g / skinBucket.count,
-          skinBucket.b / skinBucket.count,
-        ]
+      ? [medianChannel(0), medianChannel(1), medianChannel(2)]
       : [0, 0, 0];
     const distanceFromSkin = (x: number, y: number) => {
       const offset = offsetAt(face, x, y);
@@ -794,8 +815,7 @@ export function validateAtlasCraft(
       const irisVisible =
         style.glasses !== "none" ||
         (atlas.rgba[irisOffset + 3] === 0 &&
-          (atlas.rgba[outerOffset + 3] === 0 ||
-            intentionalCurtainOverlap));
+          (atlas.rgba[outerOffset + 3] === 0 || intentionalCurtainOverlap));
       if (irisVisible && distanceFromSkin(inner, 4) >= 45) readableEyes++;
     }
     if (readableEyes < 2)

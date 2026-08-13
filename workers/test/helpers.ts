@@ -40,6 +40,50 @@ export function makeAnalysis(
         rationale: "casual outfit pairs with simple sneakers",
       },
     },
+    canonicalIdentity: {
+      overallImpression:
+        "Round warm face, short side-swept black hair and thin silver glasses.",
+      mustPreserve: [
+        "round face and warm skin tone",
+        "short side-swept black fringe",
+        "thin silver glasses",
+        "mustard knit over white collar",
+      ],
+      features: [
+        {
+          feature: "short side-swept black fringe",
+          category: "hair",
+          priority: 5,
+          confidence: "high",
+          evidence: "clear dark fringe crossing the forehead",
+          targetRegions: ["head.front", "head.overlay"],
+        },
+        {
+          feature: "thin silver glasses",
+          category: "accessory",
+          priority: 5,
+          confidence: "high",
+          evidence: "thin bright frames around both eyes",
+          targetRegions: ["head.front", "head.overlay"],
+        },
+        {
+          feature: "round face with warm skin",
+          category: "face",
+          priority: 4,
+          confidence: "high",
+          evidence: "rounded jaw and warm visible complexion",
+          targetRegions: ["head.front", "head.side"],
+        },
+        {
+          feature: "mustard knit and white collar",
+          category: "outfit",
+          priority: 3,
+          confidence: "high",
+          evidence: "contrasting knit top and collar are visible",
+          targetRegions: ["torso.front", "torso.overlay"],
+        },
+      ],
+    },
     renderHints: {
       skinUndertone: "neutral",
       faceShape: "round",
@@ -51,6 +95,7 @@ export function makeAnalysis(
       eyebrowShape: "arched",
       noseShape: "rounded",
       mouthShape: "wide",
+      mouthOpening: "teeth_visible",
       lipFullness: "average",
       lipColor: "natural",
       jawShape: "rounded",
