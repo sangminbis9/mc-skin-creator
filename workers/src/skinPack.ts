@@ -70,6 +70,8 @@ export interface FaceStyle {
   hairTexture?: "straight" | "wavy" | "curly" | "coily";
   /** Extra deterministic contrast requested by a rendered-view critique. */
   hairDepthBoost?: boolean;
+  /** Extra low-res facial landmark contrast requested by a likeness critique. */
+  faceContrastBoost?: boolean;
   hairStructure?: "loose" | "locs" | "braids";
   hairVolume?: "flat" | "normal" | "full";
   hairSilhouette?: "rounded" | "flat" | "swept" | "tousled" | "spiky";
@@ -821,6 +823,7 @@ function composeFace(
   };
   const hair = (x: number, y: number, shade = 1) =>
     put(face, x, y, shadeRgb(hairPixel(hairColor, x, y, 0.07), shade));
+  const faceContrastBoost = style.faceContrastBoost === true;
 
   // 1) 피부 바탕: 얼굴형에 따른 가장자리/턱 명암만 적용한다.
   for (let y = 0; y < 8; y++) {
@@ -926,15 +929,21 @@ function composeFace(
   }
 
   // 3) 눈썹·눈·코·입: 1픽셀 검은 사각형으로 끝나지 않도록 작은 색 군집을 만든다.
-  const browColor = shadeRgb(hairColor, 0.8);
+  const browColor = shadeRgb(hairColor, faceContrastBoost ? 0.68 : 0.8);
   const eyeBase = hexToRgb(style.eyeColor, [74, 55, 40]);
   const irisLightness = style.irisLightness ?? "medium";
   const eye =
     irisLightness === "dark"
-      ? shadeRgb(eyeBase, 0.72)
+      ? shadeRgb(eyeBase, faceContrastBoost ? 0.6 : 0.72)
       : irisLightness === "light"
-        ? mixRgb(shadeRgb(eyeBase, 1.18), [232, 220, 194], 0.12)
-        : eyeBase;
+        ? mixRgb(
+            shadeRgb(eyeBase, faceContrastBoost ? 1.1 : 1.18),
+            [232, 220, 194],
+            faceContrastBoost ? 0.08 : 0.12,
+          )
+        : faceContrastBoost
+          ? shadeRgb(eyeBase, 0.84)
+          : eyeBase;
   const eyePairs =
     style.eyeSpacing === "wide"
       ? ([
@@ -1085,7 +1094,7 @@ function composeFace(
     put(face, rightInner, 2, browAccent);
   }
 
-  const skinShadow = shadeRgb(skinColor, 0.82);
+  const skinShadow = shadeRgb(skinColor, faceContrastBoost ? 0.72 : 0.82);
   // A whole overlay pixel is the smallest possible catchlight at 8x8. Mixing
   // it too far toward white hid the dark iris underneath, so generated faces
   // looked blank in the 3D preview. Keep the overlay visibly eye-coloured.
@@ -1118,7 +1127,7 @@ function composeFace(
         ? 4
         : 3;
   const noseBridge = mixRgb(skinColor, [255, 238, 224], 0.24);
-  const noseSide = shadeRgb(skinColor, 0.9);
+  const noseSide = shadeRgb(skinColor, faceContrastBoost ? 0.82 : 0.9);
 
   if (style.glasses === "none") {
     for (const [outer, inner] of eyePairs) {
@@ -1182,7 +1191,7 @@ function composeFace(
     lipColor === "natural"
       ? mixRgb(shadeRgb(skinColor, 0.62), lipPigment.natural, 0.5)
       : mixRgb(shadeRgb(skinColor, 0.7), lipPigment[lipColor], 0.72);
-  const mouthColor =
+  const unboostedMouthColor =
     style.expression === "smile"
       ? mixRgb(baseMouthColor, [196, 92, 104], 0.5)
       : lipFullness === "full"
@@ -1190,6 +1199,9 @@ function composeFace(
         : lipFullness === "thin"
           ? mixRgb(baseMouthColor, skinColor, 0.24)
           : baseMouthColor;
+  const mouthColor = faceContrastBoost
+    ? shadeRgb(unboostedMouthColor, 0.88)
+    : unboostedMouthColor;
   const mouthDark = shadeRgb(
     mouthColor,
     style.expression === "serious" ? 0.76 : 0.88,

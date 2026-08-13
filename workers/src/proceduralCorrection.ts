@@ -115,11 +115,12 @@ export function applyProceduralCritiqueCorrections(
     critique.defects.some((defect) => {
       if (defect.severity === "minor") return false;
       const text = `${defect.feature} ${defect.evidence} ${defect.correction}`.toLowerCase();
-      return /\b(?:face|eyes?|brows?|nose|mouth|smile|teeth|jaw(?![-\s]+length)(?:line| shape)?|expression|wrinkle|mature|skin tone)\b/.test(
+      return /\b(?:face|facial|likeness|identity|eyes?|brows?|nose|mouth|smile|teeth|jaw(?![-\s]+length)(?:line| shape)?|expression|wrinkle|mature|skin tone)\b/.test(
         text,
       );
     });
   if (faceTargeted) {
+    style.faceContrastBoost = true;
     Object.assign(style, {
       faceShape: analysis.renderHints.faceShape,
       eyeShape: analysis.renderHints.eyeShape,
@@ -138,7 +139,7 @@ export function applyProceduralCritiqueCorrections(
     if (/\b(?:mature|older|senior|wrinkle|smile lines?|crow'?s feet)\b/.test(observedText)) {
       style.matureFeatures = true;
     }
-    applied.push("head.face:analysis_geometry");
+    applied.push("head.face:analysis_geometry+contrast");
   }
 
   const outfitTargeted =

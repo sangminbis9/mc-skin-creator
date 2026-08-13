@@ -3,6 +3,7 @@ import {
   applyFocusedNeckDetail,
   applyFocusedPortraitDetail,
   buildFaceStyle,
+  buildProceduralFallbackAtlas,
   buildProceduralGenerationReference,
   createUpperBodyDetailCrop,
   fallbackFeaturesToHex,
@@ -2858,6 +2859,100 @@ describe("generateSkin", () => {
         expect.stringContaining('"mode":"targeted_uv_merge"'),
         { expirationTtl: 60 * 60 * 48 },
       );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("applies a rejected facial-likeness critique as stronger final face pixels", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        face: "Oval face with large downturned almond eyes, a straight nose and full closed lips.",
+      },
+      renderHints: {
+        ...base.renderHints,
+        faceShape: "oval",
+        eyeShape: "almond",
+        eyeSize: "large",
+        eyeTilt: "downturned",
+        noseShape: "straight",
+        mouthShape: "full",
+        mouthOpening: "closed",
+        lipFullness: "full",
+        jawShape: "pointed",
+      },
+    });
+    const env = makeEnv(analysis, false);
+    env.GEMINI_API_KEY = "test-key";
+    env.IMAGE_CRITIQUE_ENABLED = "true";
+    const responses = [
+      analysis,
+      {
+        identityScore: 60,
+        faceHairScore: 57,
+        outfitScore: 82,
+        consistencyScore: 84,
+        layerScore: 72,
+        defects: [
+          {
+            category: "identity",
+            severity: "major",
+            feature: "facial likeness",
+            evidence: "The eyes, nose and mouth are too generic and faint.",
+            targetRegions: ["head.front"],
+            correction: "Strengthen only the analyzed facial landmarks.",
+          },
+        ],
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: JSON.stringify(responses.shift()) }],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    try {
+      const normalized = normalizeAnalysisForRendering(analysis);
+      const features = refineFeatureColorsFromAnalysis(
+        normalized,
+        fallbackFeaturesToHex(
+          normalized.fallbackFeatures,
+          normalized.renderHints.skinUndertone,
+        ),
+      );
+      const baseline = buildProceduralFallbackAtlas(
+        features,
+        buildFaceStyle(normalized, features),
+      )!;
+      const result = await generateSkin(env, await photoDataUrl());
+      const corrected = await decodePng(
+        Uint8Array.from(atob(result.body.skinPngBase64!), (character) =>
+          character.charCodeAt(0),
+        ),
+      );
+      const face = CLASSIC_LAYOUT.head.base.front;
+      const red = (atlas: typeof corrected, x: number, y: number) =>
+        atlas.rgba[((face.y + y) * ATLAS_SIZE + face.x + x) * 4];
+
+      expect(red(corrected, 2, 4)).toBeLessThan(red(baseline, 2, 4));
+      expect(red(corrected, 3, 5)).toBeLessThan(red(baseline, 3, 5));
+      expect(red(corrected, 3, 6)).toBeLessThan(red(baseline, 3, 6));
+      expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
+        "diagnostic:last-procedural-critique-rejection",
+        expect.stringContaining("head.face:analysis_geometry+contrast"),
+        { expirationTtl: 60 * 60 * 48 },
+      );
+      expect(validateFinalAtlas(corrected).ok).toBe(true);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -3826,6 +3826,51 @@ describe("packFrontViewToAtlas", () => {
     );
   });
 
+  it("faceContrastBoost strengthens analyzed landmarks without recoloring the complexion", () => {
+    const shared: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "short",
+      bangs: "none",
+      glasses: "none",
+      eyeShape: "almond",
+      eyeSize: "average",
+      eyeSpacing: "average",
+      eyebrowShape: "straight",
+      noseShape: "straight",
+      mouthShape: "full",
+      lipFullness: "full",
+      skinTone: "#d9a17f",
+    };
+    const normal = packFrontViewToAtlas(makeFrontView(), shared)!.atlas;
+    const boosted = packFrontViewToAtlas(makeFrontView(), {
+      ...shared,
+      faceContrastBoost: true,
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+
+    expect(redAt(boosted, face, 2, 4)).toBeLessThan(
+      redAt(normal, face, 2, 4),
+    );
+    expect(redAt(boosted, face, 1, 3)).toBeLessThan(
+      redAt(normal, face, 1, 3),
+    );
+    expect(redAt(boosted, face, 3, 5)).toBeLessThan(
+      redAt(normal, face, 3, 5),
+    );
+    expect(redAt(boosted, face, 3, 6)).toBeLessThan(
+      redAt(normal, face, 3, 6),
+    );
+    expect(rgbaAt(boosted, face, 4, 4)).toEqual(
+      rgbaAt(normal, face, 4, 4),
+    );
+    for (const x of [1, 2, 5, 6]) {
+      expect(alphaAt(boosted, overlay, x, 4)).toBe(0);
+    }
+    applyUvMask(boosted);
+    expect(validateFinalAtlas(boosted).ok).toBe(true);
+  });
+
   it("eyeSize preserves small, average and large eye apertures as distinct pixel clusters", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,

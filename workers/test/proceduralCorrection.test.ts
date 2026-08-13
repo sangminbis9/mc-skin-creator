@@ -114,6 +114,53 @@ describe("procedural critique correction", () => {
     ]);
   });
 
+  it("turns a major generic-face critique into a real landmark contrast correction", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      renderHints: {
+        ...base.renderHints,
+        faceShape: "oval",
+        eyeShape: "almond",
+        eyeSize: "large",
+        eyeTilt: "downturned",
+        noseShape: "straight",
+        mouthShape: "full",
+        lipFullness: "full",
+        jawShape: "pointed",
+      },
+    });
+    const result = applyProceduralCritiqueCorrections(
+      analysis,
+      { ...DEFAULT_FACE_STYLE, faceContrastBoost: false },
+      critique([
+        {
+          category: "identity",
+          severity: "major",
+          feature: "facial likeness",
+          evidence: "The eyes, nose and mouth read as a generic face.",
+          targetRegions: ["head.front"],
+          correction:
+            "Strengthen the analyzed eye shape and facial landmark contrast.",
+        },
+      ]),
+    );
+
+    expect(result.style).toMatchObject({
+      faceShape: "oval",
+      eyeShape: "almond",
+      eyeSize: "large",
+      eyeTilt: "downturned",
+      noseShape: "straight",
+      mouthShape: "full",
+      lipFullness: "full",
+      jawShape: "pointed",
+      faceContrastBoost: true,
+    });
+    expect(result.applied).toEqual([
+      "head.face:analysis_geometry+contrast",
+    ]);
+  });
+
   it("ignores minor feedback and unsupported requested motifs", () => {
     const result = applyProceduralCritiqueCorrections(
       makeAnalysis(),
