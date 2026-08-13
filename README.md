@@ -138,7 +138,7 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 - 이미지 모델 quota가 0이어도 사진 분석과 검증된 절차적 스킨 fallback은 계속 동작합니다.
 - Gemini가 실행 위치나 Gateway 인증을 거부하면 구조화 사진 분석·비평은 Workers AI로 전환되고, 이미지 생성 실패는 검증된 절차적 UV 렌더러가 처리합니다.
 - 일시적인 rate limit은 일일 소진과 구분하며 앱 전체 quota를 닫지 않습니다.
-- 일일 quota 차단은 Gemini 정책에 맞춰 **미국 Pacific 자정**에 리셋됩니다.
+- 일일 quota 차단은 Workers AI 무료 할당량 정책에 맞춰 **UTC 자정**에 리셋됩니다.
 - 실제 Gemini 한도와 비용은 Google AI Studio 또는 Google Cloud 콘솔에서 확인하세요.
 - 재생성 기능 없음 — 1회 생성 후 편집기로 수정
 

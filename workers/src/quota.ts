@@ -3,7 +3,8 @@
  * 기존 API/저장 키 호환성을 위해 단위 이름은 Neurons를 유지하지만, 현재 값은
  * Gemini 토큰 및 이미지 호출을 비교 가능한 상대 사용량으로 환산한 추정치다.
  * DAILY_BUDGET_RATIO는 사용률 표시용 분모이며 생성 요청을 미리 차단하지 않는다.
- * Gemini 일일 요청 한도는 공식 정책대로 미국 Pacific 자정에 리셋된다.
+ * Cloudflare Workers AI 무료 Neuron 할당량은 공식 정책대로 UTC 자정에
+ * 리셋된다. 이 Worker의 로컬 관측치와 회로 차단기도 같은 경계에 맞춘다.
  *
  * KV 카운터는 실제 Google 프로젝트 한도와 다를 수 있다. 따라서 Gemini가
  * 필수 분석 모델의 실제 quota exhaustion을 반환한 뒤에만 당일 회로를 닫는다.
@@ -134,70 +135,15 @@ export function dailyLimitNeurons(env: Env): number {
   return Math.floor(CLOUDFLARE_FREE_NEURONS_PER_DAY * safe);
 }
 
-const PROVIDER_TIME_ZONE = "America/Los_Angeles";
-
-function providerDateParts(now: Date): {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-} {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: PROVIDER_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(now);
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value);
-  return {
-    year: value("year"),
-    month: value("month"),
-    day: value("day"),
-    hour: value("hour"),
-    minute: value("minute"),
-    second: value("second"),
-  };
-}
-
-/** 오늘 날짜 키 (Gemini 제공자 기준: America/Los_Angeles). */
+/** 오늘 날짜 키 (Cloudflare Workers AI 제공자 기준: UTC). */
 export function dayKey(now = new Date()): string {
-  const { year, month, day } = providerDateParts(now);
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return now.toISOString().slice(0, 10);
 }
 
 function nextResetIso(now = new Date()): string {
-  const current = providerDateParts(now);
-  const nextCalendar = new Date(
-    Date.UTC(current.year, current.month - 1, current.day + 1),
-  );
-  const desired = Date.UTC(
-    nextCalendar.getUTCFullYear(),
-    nextCalendar.getUTCMonth(),
-    nextCalendar.getUTCDate(),
-  );
-  // Pacific midnight is 07:00Z or 08:00Z. Iterate against Intl so DST
-  // transitions are handled without hard-coding either offset.
-  let guess = desired + 8 * 60 * 60 * 1000;
-  for (let iteration = 0; iteration < 3; iteration++) {
-    const seen = providerDateParts(new Date(guess));
-    const seenAsUtc = Date.UTC(
-      seen.year,
-      seen.month - 1,
-      seen.day,
-      seen.hour,
-      seen.minute,
-      seen.second,
-    );
-    guess += desired - seenAsUtc;
-  }
-  return new Date(guess).toISOString();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+  ).toISOString();
 }
 
 async function getUsedNeurons(env: Env, now = new Date()): Promise<number> {

@@ -1,4 +1,4 @@
-/** Gemini quota 리셋 시각 표시용 문자열 (사용자 로컬 시간대). */
+/** Workers AI quota 리셋 시각 표시용 문자열 (사용자 로컬 시간대). */
 export function formatResetTime(resetAtIso: string): string {
   const date = new Date(resetAtIso);
   if (Number.isNaN(date.getTime())) {

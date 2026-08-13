@@ -30,7 +30,7 @@ function quotaEnv() {
 describe("provider quota circuit breaker", () => {
   const today = new Date("2026-07-15T12:00:00.000Z");
 
-  it("reports local capacity before the provider closes the Pacific day", async () => {
+  it("reports local capacity before the provider closes the UTC day", async () => {
     const { env } = quotaEnv();
     const status = await getQuotaStatus(env, today);
     expect(status.level).toBe("available");
@@ -101,7 +101,7 @@ describe("provider quota circuit breaker", () => {
     expect(visionNeuronsFromUsage({ response: {} }, 170)).toBe(170);
   });
 
-  it("closes immediately after provider exhaustion and reopens next Pacific day", async () => {
+  it("closes immediately after provider exhaustion and reopens next UTC day", async () => {
     const { env, values } = quotaEnv();
     await markProviderQuotaExhausted(env, today);
 
@@ -109,20 +109,18 @@ describe("provider quota circuit breaker", () => {
     expect(await getQuotaStatus(env, today)).toEqual({
       level: "closed",
       remainingGenerations: 0,
-      resetAtIso: "2026-07-16T07:00:00.000Z",
+      resetAtIso: "2026-07-16T00:00:00.000Z",
       usedRatio: 1,
       capacityBasis: "provider_reported_closed",
     });
     expect(
-      await getQuotaStatus(env, new Date("2026-07-16T07:00:01.000Z")),
+      await getQuotaStatus(env, new Date("2026-07-16T00:00:01.000Z")),
     ).toMatchObject({ level: "available" });
   });
 
   it("keeps local neuron accounting alongside the provider breaker", async () => {
     const { env, values } = quotaEnv();
     await commitNeurons(env, 236);
-    expect(values.get(`quota:${dayKey()}`)).toBe(
-      "236",
-    );
+    expect(values.get(`quota:${dayKey()}`)).toBe("236");
   });
 });
