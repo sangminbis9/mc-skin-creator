@@ -624,6 +624,37 @@ function reconcileOverlaySeams(
   }
 }
 
+/**
+ * Garment completion can replace edge rows after hidden top/bottom faces were
+ * initially filled from an earlier sample. Re-author those perimeters from
+ * the four visible vertical faces after final shading. Leg bottoms remain the
+ * deliberately darker shoe soles; all top faces and the other undersides no
+ * longer flash stale shirt/pants colours during rotation.
+ */
+function reconcileBaseHorizontalSeams(atlas: RawImage): void {
+  for (const part of ALL_PARTS) {
+    const horizontalSeams = getBoxUvSeams(
+      CLASSIC_LAYOUT[part].base,
+    ).horizontal;
+    const authoredSeams =
+      part === "rightLeg" || part === "leftLeg"
+        ? horizontalSeams.slice(0, 4)
+        : horizontalSeams;
+    for (const seam of authoredSeams) {
+      for (let index = 0; index < seam.primary.length; index++) {
+        const source = seam.primary[index];
+        const target = seam.adjacent[index];
+        const sourceOffset = (source.y * ATLAS_SIZE + source.x) * 4;
+        const targetOffset = (target.y * ATLAS_SIZE + target.x) * 4;
+        for (let channel = 0; channel < 4; channel++) {
+          atlas.rgba[targetOffset + channel] =
+            atlas.rgba[sourceOffset + channel];
+        }
+      }
+    }
+  }
+}
+
 function averageAtlasRect(
   atlas: RawImage,
   rect: Rect,
@@ -8187,6 +8218,7 @@ export function packFrontViewToAtlas(
     composeGlassesOverlay(atlas, faceStyle);
   }
   applyShading(atlas);
+  reconcileBaseHorizontalSeams(atlas);
   // Reconcile last so directional face shading cannot reopen a color break at
   // a physically shared edge. Only seam-edge pixels are affected.
   reconcileOverlaySeams(atlas, faceStyle, hairColor);

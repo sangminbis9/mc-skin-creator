@@ -6,7 +6,11 @@ import {
   packFrontViewToAtlas,
   type FaceStyle,
 } from "../src/skinPack";
-import { applyUvMask, validateFinalAtlas } from "../src/skinPost";
+import {
+  applyUvMask,
+  measureAtlasCraft,
+  validateFinalAtlas,
+} from "../src/skinPost";
 import { ATLAS_SIZE, CLASSIC_LAYOUT, getBoxUvSeams } from "../src/uvLayout";
 
 import { makeFourViewSheet, makeFrontBackView, makeFrontView } from "./helpers";
@@ -3075,6 +3079,19 @@ describe("packFrontViewToAtlas", () => {
       }
 
       expect(opaqueOverlayPixels).toBeGreaterThan(80);
+      const craft = measureAtlasCraft(atlas);
+      for (const part of [
+        "body",
+        "rightArm",
+        "leftArm",
+        "rightLeg",
+        "leftLeg",
+      ] as const) {
+        expect(
+          craft.baseHorizontalSeamColorDistanceByPart[part],
+          `${part} top/bottom base seams must retain a coherent palette`,
+        ).toBeLessThanOrEqual(80);
+      }
       applyUvMask(atlas);
       expect(validateFinalAtlas(atlas).ok).toBe(true);
     },
