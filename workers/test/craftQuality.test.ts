@@ -545,9 +545,9 @@ describe("handcrafted atlas quality metrics", () => {
     const source = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
     const outerCorner =
-      ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 1) * 4;
+      ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 6) * 4;
     const iris =
-      ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 2) * 4;
+      ((faceOverlay.y + 4) * ATLAS_SIZE + faceOverlay.x + 5) * 4;
 
     expect(source.rgba[outerCorner + 3]).toBe(255);
     expect(source.rgba[iris + 3]).toBe(0);

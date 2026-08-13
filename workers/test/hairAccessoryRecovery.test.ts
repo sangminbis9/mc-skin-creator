@@ -383,7 +383,8 @@ describe("hair accessory recovery", () => {
     const flowerPetal = offset(head.overlay.front, 0, 2);
     const flowerLeaf = offset(head.overlay.front, 2, 0);
     const templeLeaf = offset(head.overlay.front, 0, 4);
-    const curtainCorner = offset(head.overlay.front, 1, 4);
+    // Viewer-left root part sends the heavy curtain lock toward viewer-right.
+    const curtainCorner = offset(head.overlay.front, 6, 4);
     expect(decoded.rgba[flowerPetal]).toBeGreaterThan(
       decoded.rgba[flowerPetal + 1],
     );

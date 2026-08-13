@@ -1028,7 +1028,7 @@ describe("packFrontViewToAtlas", () => {
   });
 
   it("eye-length curtain bangs overlap only the parted-side eye corner while preserving both irises", () => {
-    const makeCurtain = (hairPart: "left" | "right") =>
+    const makeCurtain = (hairPart: "left" | "center" | "right") =>
       packFrontViewToAtlas(makeFrontView(), {
         ...DEFAULT_FACE_STYLE,
         hairstyle: "long",
@@ -1045,20 +1045,28 @@ describe("packFrontViewToAtlas", () => {
         glasses: "none",
       })!.atlas;
     const leftPart = makeCurtain("left");
+    const centerPart = makeCurtain("center");
     const rightPart = makeCurtain("right");
     const face = CLASSIC_LAYOUT.head.base.front;
     const overlay = CLASSIC_LAYOUT.head.overlay.front;
 
-    // The heavy curtain lock is directional and mirrors with the analysed
-    // part instead of creating the same symmetric face for every portrait.
-    expect(alphaAt(leftPart, overlay, 1, 4)).toBe(255);
-    expect(alphaAt(leftPart, overlay, 6, 4)).toBe(0);
-    expect(alphaAt(rightPart, overlay, 1, 4)).toBe(0);
-    expect(alphaAt(rightPart, overlay, 6, 4)).toBe(255);
+    // The root part is the scalp-side cue, so each heavy curtain falls away
+    // from it. A centred part deliberately retains two balanced eye-length
+    // locks instead of borrowing either side-part silhouette.
+    expect(alphaAt(leftPart, overlay, 1, 4)).toBe(0);
+    expect(alphaAt(leftPart, overlay, 6, 4)).toBe(255);
+    expect(alphaAt(rightPart, overlay, 1, 4)).toBe(255);
+    expect(alphaAt(rightPart, overlay, 6, 4)).toBe(0);
+    expect(alphaAt(centerPart, overlay, 1, 4)).toBe(255);
+    expect(alphaAt(centerPart, overlay, 6, 4)).toBe(255);
+    expect(alphaAt(leftPart, overlay, 1, 3)).toBe(0);
+    expect(alphaAt(leftPart, overlay, 6, 3)).toBe(255);
+    expect(alphaAt(rightPart, overlay, 1, 3)).toBe(255);
+    expect(alphaAt(rightPart, overlay, 6, 3)).toBe(0);
 
     // Only the outer sclera/corner may be overlapped. Both dark iris anchors
     // remain visible on the inner head cube for identity and quality gates.
-    for (const atlas of [leftPart, rightPart]) {
+    for (const atlas of [leftPart, centerPart, rightPart]) {
       for (const irisX of [2, 5]) {
         expect(alphaAt(atlas, overlay, irisX, 4)).toBe(0);
       }
@@ -1095,12 +1103,12 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const overlay = CLASSIC_LAYOUT.head.overlay.front;
     const templeLeaf = rgbaAt(atlas, overlay, 0, 4);
-    const curtainEyeCorner = rgbaAt(atlas, overlay, 1, 4);
+    const curtainEyeCorner = rgbaAt(atlas, overlay, 6, 4);
 
     expect(templeLeaf[1]).toBeGreaterThan(templeLeaf[0]);
     expect(curtainEyeCorner[0]).toBeGreaterThan(curtainEyeCorner[1]);
-    expect(alphaAt(atlas, overlay, 1, 4)).toBe(255);
-    expect(alphaAt(atlas, overlay, 2, 4)).toBe(0);
+    expect(alphaAt(atlas, overlay, 6, 4)).toBe(255);
+    expect(alphaAt(atlas, overlay, 5, 4)).toBe(0);
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);

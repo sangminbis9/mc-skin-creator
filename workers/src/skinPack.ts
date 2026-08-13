@@ -1698,9 +1698,9 @@ function preserveFaceReadability(
     // A side part keeps only its heavier side; a centred/unspecified curtain
     // naturally frames both outer corners.
     if (style.hairPart === "left") {
-      curtainOuterCorners.add(eyePairs[0][0]);
-    } else if (style.hairPart === "right") {
       curtainOuterCorners.add(eyePairs[1][0]);
+    } else if (style.hairPart === "right") {
+      curtainOuterCorners.add(eyePairs[0][0]);
     } else {
       curtainOuterCorners.add(eyePairs[0][0]);
       curtainOuterCorners.add(eyePairs[1][0]);
@@ -3844,6 +3844,11 @@ function composeHair(
     bangsDensity !== "dense";
   const partedStraightFringe =
     style.bangs === "straight" && hairPart !== "none";
+  // hairPart is the visible root/scalp side. A curtain lock normally falls
+  // away from that root, so the heavier low strand occupies the opposite
+  // viewer side. Centre/hidden roots retain two balanced curtains.
+  const curtainHeavySide =
+    hairPart === "right" ? "left" : hairPart === "left" ? "right" : "both";
   if (style.bangs === "straight") {
     for (const x of splitCenterFringe
       ? [0, 1, 2, 5, 6, 7]
@@ -3873,13 +3878,40 @@ function composeHair(
     for (const x of [0, 1, 2]) paintBang(px(x), 3, 0.72);
     wrapTemple(2, mirror ? 0.78 : 1, mirror ? 1 : 0.78);
   } else if (style.bangs === "curtain") {
-    for (const x of [0, 1, 2, 5, 6, 7]) paintBang(x, 1);
-    for (const x of [0, 1, 6, 7]) paintBang(x, 2, 0.88);
+    // Rebuild these rows rather than layering more pixels over composeFace's
+    // symmetric placeholder. Otherwise a correctly analysed side part still
+    // rendered as the same centred fringe for every portrait.
+    for (let y = 1; y <= 3; y++) {
+      for (let x = 0; x < over.front.w; x++) clearPixel(over.front, x, y);
+    }
+    for (const x of [0, 1, 2])
+      paintBang(x, 1, curtainHeavySide === "left" ? 1.04 : 0.9);
+    for (const x of [5, 6, 7])
+      paintBang(x, 1, curtainHeavySide === "right" ? 1.04 : 0.9);
+    for (const x of [0, 1]) paintBang(x, 2, 0.84);
+    for (const x of [6, 7]) paintBang(x, 2, 0.8);
+    if (curtainHeavySide === "left" || curtainHeavySide === "both")
+      paintBang(2, 2, 0.92);
+    if (curtainHeavySide === "right" || curtainHeavySide === "both")
+      paintBang(5, 2, 0.9);
     for (const x of [0, 7]) paintBang(x, 3, 0.74);
-    putColor(over.front, 3, 1, partAccent);
-    putColor(over.front, 4, 1, partShadow);
-    wrapTemple(2);
-    wrapTemple(3, 0.78, 0.78);
+    if (hairPart === "center" || hairPart === "none") {
+      putColor(over.front, 3, 1, partAccent);
+      putColor(over.front, 4, 1, partShadow);
+    } else {
+      const rootX = hairPart === "left" ? 3 : 4;
+      putColor(over.front, rootX, 1, partShadow);
+    }
+    wrapTemple(
+      2,
+      curtainHeavySide === "left" ? 1 : 0.82,
+      curtainHeavySide === "right" ? 1 : 0.82,
+    );
+    wrapTemple(
+      3,
+      curtainHeavySide === "left" ? 0.78 : 0.64,
+      curtainHeavySide === "right" ? 0.78 : 0.64,
+    );
   } else if (style.bangs === "wispy") {
     for (const x of [1, 3, 5, 7]) paintBang(x, 1, 1.06);
     for (const x of [2, 5]) paintBang(x, 2, 0.9);
@@ -3925,11 +3957,23 @@ function composeHair(
       }
       wrapTemple(3, mirror ? 0.68 : 0.9, mirror ? 0.9 : 0.68);
     } else if (style.bangs === "curtain") {
-      for (const x of [0, 1, 6, 7]) paintBang(x, 3, 0.66);
+      paintBang(0, 3, 0.62);
+      paintBang(7, 3, 0.6);
+      if (curtainHeavySide === "left" || curtainHeavySide === "both")
+        paintBang(1, 3, 0.7);
+      if (curtainHeavySide === "right" || curtainHeavySide === "both")
+        paintBang(6, 3, 0.68);
       if (bangsLength === "eye") {
-        for (const x of [1, 6]) paintBang(x, 4, 0.56);
+        if (curtainHeavySide === "left" || curtainHeavySide === "both")
+          paintBang(1, 4, 0.56);
+        if (curtainHeavySide === "right" || curtainHeavySide === "both")
+          paintBang(6, 4, 0.54);
       }
-      wrapTemple(3, 0.7, 0.7);
+      wrapTemple(
+        3,
+        curtainHeavySide === "left" ? 0.74 : 0.6,
+        curtainHeavySide === "right" ? 0.74 : 0.6,
+      );
     } else if (style.bangs === "wispy") {
       for (const x of [1, 4, 7]) paintBang(x, 3, 0.62);
       if (bangsLength === "eye") {
