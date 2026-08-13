@@ -786,6 +786,36 @@ describe("generateSkin", () => {
     expect(normalized.renderHints.sideHairShape).toBe("face_framing");
   });
 
+  it("recovers explicitly flared jaw-side hair from prose when the compact enum says tapered", () => {
+    const base = makeAnalysis();
+    const normalized = normalizeAnalysisForRendering(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          hair: "Long wavy brown back hair with side layers that fan out around the jaw on both sides.",
+        },
+        identityPrompt:
+          "Long wavy hair with winged side locks around both ears and jaw.",
+        renderHints: {
+          ...base.renderHints,
+          hairBackShape: "long",
+          overallHairLength: "chest",
+          sideHairLength: "short",
+          sideHairShape: "tapered",
+          sideHairAsymmetry: "none",
+        },
+        fallbackFeatures: {
+          ...base.fallbackFeatures,
+          hairstyle: "long",
+        },
+      }),
+    );
+
+    expect(normalized.renderHints.sideHairShape).toBe("flared");
+    expect(normalized.renderHints.sideHairLength).toBe("jaw");
+    expect(normalized.renderHints.sideHairAsymmetry).toBe("none");
+  });
+
   it("preserves visible slouchy leg-warmer construction over sock height", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(

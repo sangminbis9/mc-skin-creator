@@ -2425,6 +2425,51 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("long flared hair keeps a bilateral profile window and uses the outer layer for cheek volume", () => {
+    const makeLongShape = (sideHairShape: "face_framing" | "flared") =>
+      packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        bangs: "curtain",
+        bangsLength: "brow",
+        hairTexture: "wavy",
+        hairVolume: "full",
+        hairSilhouette: "tousled",
+        hairBackShape: "long",
+        sideHairLength: "shoulder",
+        sideHairShape,
+        earExposure: "partial",
+      })!.atlas;
+    const flared = makeLongShape("flared");
+    const faceFraming = makeLongShape("face_framing");
+    const head = CLASSIC_LAYOUT.head;
+
+    // The inner cube exposes the cheek/ear profile on both sides instead of
+    // becoming an opaque 8x8 hair wall.
+    expect(redAt(flared, head.base.right, 4, 4)).toBeGreaterThan(
+      redAt(flared, head.base.right, 1, 4) + 50,
+    );
+    expect(redAt(flared, head.base.left, 3, 4)).toBeGreaterThan(
+      redAt(flared, head.base.left, 6, 4) + 50,
+    );
+
+    // Flared hair expands through the raised mid-profile before tapering at
+    // the jaw. It remains distinct from the narrower face-framing rails.
+    expect(alphaAt(flared, head.overlay.right, 3, 2)).toBe(255);
+    expect(alphaAt(flared, head.overlay.left, 4, 2)).toBe(255);
+    expect(alphaAt(faceFraming, head.overlay.right, 3, 2)).toBe(0);
+    expect(alphaAt(faceFraming, head.overlay.left, 4, 2)).toBe(0);
+    for (const rect of [head.overlay.right, head.overlay.left]) {
+      expect(alphaAt(flared, rect, 3, 4)).toBe(0);
+      expect(alphaAt(flared, rect, 4, 4)).toBe(0);
+      expect(alphaAt(flared, rect, 0, 7)).toBe(255);
+      expect(alphaAt(flared, rect, 7, 7)).toBe(255);
+    }
+
+    applyUvMask(flared);
+    expect(validateFinalAtlas(flared).ok).toBe(true);
+  });
+
   it("wavy face-framing side layers taper as connected staggered locks instead of a rectangular frame", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,

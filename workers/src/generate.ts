@@ -1804,6 +1804,9 @@ export function normalizeAnalysisForRendering(
       hairText,
     ) ||
     explicitCurtainBangs;
+  const explicitlyFlaredSideHair = hairClauseMatches(
+    /\b(?:side(?:[-\s]+(?:hair|locks?|layers?))?|temples?|ears?)\b.{0,44}\b(?:flare(?:s|d)?|fan(?:s|ned)?[-\s]+out|push(?:es|ed)?[-\s]+outward|puff(?:s|ed)?[-\s]+outward|winged)\b|\b(?:flare(?:s|d)?|fan(?:s|ned)?[-\s]+out|push(?:es|ed)?[-\s]+outward|puff(?:s|ed)?[-\s]+outward|winged)\b.{0,44}\b(?:side(?:[-\s]+(?:hair|locks?|layers?))?|temples?|ears?)\b/,
+  );
   const longHair =
     hairClauseMatches(
       /\blong\b(?:(?!\b(?:face|jaw|nose|neck)\b)[\s\S]){0,48}\b(?:hair|locks?|strands?|tresses)\b|\b(?:hair|locks?|strands?|tresses)\b.{0,32}\b(?:long|past[-\s]+the[-\s]+shoulders?)\b|\b(?:chest|waist|hip)[-\s]+length\b|\bmid[-\s]+back\b/,
@@ -1996,6 +1999,19 @@ export function normalizeAnalysisForRendering(
       // visible long silhouette.
       renderHints.sideHairLength = "shoulder";
     } else if (
+      longHair &&
+      (renderHints.sideHairLength === "none" ||
+        renderHints.sideHairLength === "short")
+    ) {
+      renderHints.sideHairLength = shoulderSideHair ? "shoulder" : "jaw";
+    }
+  } else if (explicitlyFlaredSideHair) {
+    // Structured vision occasionally reduces an outward, winged side
+    // silhouette to the nearest generic tapered enum. Recover the explicit
+    // profile evidence so the compositor uses the raised cheek/jaw lobe
+    // instead of collapsing the sides against the inner cube.
+    renderHints.sideHairShape = "flared";
+    if (
       longHair &&
       (renderHints.sideHairLength === "none" ||
         renderHints.sideHairLength === "short")

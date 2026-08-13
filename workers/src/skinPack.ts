@@ -2084,7 +2084,10 @@ function composeHair(
         true,
       );
     }
-  } else if (s === "long" && sideHairShape === "face_framing") {
+  } else if (
+    s === "long" &&
+    (sideHairShape === "face_framing" || sideHairShape === "flared")
+  ) {
     const paintLongSideRow = (
       rect: Rect,
       y: number,
@@ -2101,18 +2104,27 @@ function composeHair(
         }
       }
     };
-    // Long face-framing hair still exposes a cheek/profile window on the
-    // inner head cube. Filling all 8x8 side pixels produces a rectangular
-    // helmet that no sparse second-layer silhouette can correct.
+    // Long face-framing or flared hair still exposes a cheek/profile window
+    // on the inner head cube. Filling all 8x8 side pixels produces a
+    // rectangular helmet that no sparse second-layer silhouette can correct.
     fill(base.right, 0, 0, 8, 3);
     fill(base.left, 0, 0, 8, 3);
-    const rightRows = [
-      [0, 1, 2, 3, 7],
-      [0, 1, 2, 7],
-      [0, 1, 2, 7],
-      [0, 1, 7],
-      [0, 1, 7],
-    ] as const;
+    const rightRows =
+      sideHairShape === "flared"
+        ? ([
+            [0, 1, 2, 6, 7],
+            [0, 1, 2, 6, 7],
+            [0, 1, 2, 6, 7],
+            [0, 1, 7],
+            [0, 7],
+          ] as const)
+        : ([
+            [0, 1, 2, 3, 7],
+            [0, 1, 2, 7],
+            [0, 1, 2, 7],
+            [0, 1, 7],
+            [0, 1, 7],
+          ] as const);
     for (let row = 0; row < rightRows.length; row++) {
       const y = row + 3;
       const rightXs = rightRows[row];
@@ -4064,6 +4076,17 @@ function composeHair(
               [0, 7],
               [0, 7],
             ]
+        : sideHairShape === "flared"
+          ? [
+              [1, 2, 5, 6],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 3, 4, 5, 6, 7],
+              [0, 1, 2, 3, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 2, 5, 6, 7],
+              [0, 1, 6, 7],
+              [0, 7],
+            ]
         : Array.from({ length: 8 }, (_, y) =>
             y === 0
               ? [0, 1, 2, 5, 6, 7]
@@ -4071,7 +4094,7 @@ function composeHair(
                 ? [0, 1, 3, 4, 6, 7]
                 : [0, 1, y % 2 === 0 ? 2 : 5, 6, 7],
           );
-    if (sideHairShape === "face_framing") {
+    if (sideHairShape === "face_framing" || sideHairShape === "flared") {
       // Earlier detail passes intentionally leave holes for texture. On an
       // exact profile those holes became alternating isolated pixels, so
       // complete the intended rails before applying the sparse silhouette.
