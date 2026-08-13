@@ -4904,6 +4904,7 @@ function composeHair(
 
   if (
     s === "short" &&
+    !roundedFringeCut &&
     hairSilhouette !== "spiky" &&
     hairSilhouette !== "tousled"
   ) {

@@ -1677,7 +1677,6 @@ describe("generateSkin", () => {
       ),
     );
     const face = CLASSIC_LAYOUT.head.base.front;
-    const hairOverlay = CLASSIC_LAYOUT.head.overlay.front;
     const torsoBase = CLASSIC_LAYOUT.body.base.front;
     const torso = CLASSIC_LAYOUT.body.overlay.front;
     const smile = ((face.y + 6) * ATLAS_SIZE + face.x + 3) * 4;
@@ -1686,9 +1685,27 @@ describe("generateSkin", () => {
     expect(atlas.rgba[smile]).toBeGreaterThan(190);
     expect(atlas.rgba[smile + 1]).toBeGreaterThan(170);
     expect(atlas.rgba[jerseyHem + 3]).toBe(255);
-    const hairGlint =
-      ((hairOverlay.y + 2) * ATLAS_SIZE + hairOverlay.x + 1) * 4;
-    expect(atlas.rgba[hairGlint]).toBeGreaterThan(70);
+    const raisedHairReds: number[] = [];
+    for (const rect of [
+      CLASSIC_LAYOUT.head.overlay.top,
+      CLASSIC_LAYOUT.head.overlay.front,
+      CLASSIC_LAYOUT.head.overlay.right,
+      CLASSIC_LAYOUT.head.overlay.left,
+      CLASSIC_LAYOUT.head.overlay.back,
+    ]) {
+      for (let y = 0; y < rect.h; y++) {
+        for (let x = 0; x < rect.w; x++) {
+          const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+          if (atlas.rgba[offset + 3] === 255)
+            raisedHairReds.push(atlas.rgba[offset]);
+        }
+      }
+    }
+    expect(Math.max(...raisedHairReds)).toBeGreaterThanOrEqual(70);
+    expect(Math.max(...raisedHairReds)).toBeLessThan(165);
+    expect(
+      Math.max(...raisedHairReds) - Math.min(...raisedHairReds),
+    ).toBeGreaterThanOrEqual(20);
     const shoulderAccent = (torso.y * ATLAS_SIZE + torso.x + 1) * 4;
     expect(atlas.rgba[shoulderAccent]).toBeGreaterThan(150);
     expect(atlas.rgba[shoulderAccent + 1]).toBeGreaterThan(120);

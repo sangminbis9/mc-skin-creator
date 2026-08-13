@@ -1535,6 +1535,28 @@ describe("packFrontViewToAtlas", () => {
     expect(crownHighlight).toBeGreaterThanOrEqual(36);
     expect(crownHighlight - darkCrown).toBeGreaterThanOrEqual(25);
     expect(crownHighlight).toBeLessThan(96);
+    expect(rgbaAt(atlas, head.overlay.top, 2, 1)).toEqual(
+      rgbaAt(atlas, head.overlay.top, 3, 1),
+    );
+    const raisedHairRedValues = [
+      head.overlay.top,
+      head.overlay.front,
+      head.overlay.right,
+      head.overlay.left,
+      head.overlay.back,
+    ].flatMap((rect) =>
+      Array.from({ length: rect.w * rect.h }, (_, index) => {
+        const x = index % rect.w;
+        const y = Math.floor(index / rect.w);
+        return alphaAt(atlas, rect, x, y) === 255
+          ? redAt(atlas, rect, x, y)
+          : 0;
+      }),
+    );
+    // The rounded-cut pass already supplies deliberate low-contrast clusters.
+    // A later generic short-hair glint used to overwrite them with isolated
+    // grey pixels (R≈110 for #101010), making black hair look checkerboarded.
+    expect(Math.max(...raisedHairRedValues)).toBeLessThan(80);
     expect(redAt(atlas, head.overlay.right, 6, 2)).not.toBe(
       redAt(atlas, head.overlay.right, 7, 2),
     );
