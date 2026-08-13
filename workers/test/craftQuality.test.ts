@@ -24,6 +24,16 @@ function opaquePixelsIn(
   return count;
 }
 
+function channelAt(
+  atlas: { rgba: Uint8Array },
+  rect: { x: number; y: number },
+  x: number,
+  y: number,
+  channel: 0 | 1 | 2 | 3,
+): number {
+  return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + channel];
+}
+
 describe("handcrafted atlas quality metrics", () => {
   it("keeps the rich procedural reference style in the handcrafted skin quality range", async () => {
     const reference = await decodePng(
@@ -99,6 +109,27 @@ describe("handcrafted atlas quality metrics", () => {
     ).toBeLessThanOrEqual(30);
     expect(opaquePixelsIn(procedural, proceduralHead.back)).toBeLessThanOrEqual(
       28,
+    );
+    const proceduralBody = CLASSIC_LAYOUT.body;
+    expect(
+      opaquePixelsIn(procedural, proceduralBody.overlay.back),
+    ).toBeLessThanOrEqual(55);
+    expect(channelAt(procedural, proceduralBody.overlay.back, 4, 2, 3)).toBe(
+      0,
+    );
+    expect(channelAt(procedural, proceduralBody.overlay.back, 3, 7, 3)).toBe(
+      255,
+    );
+    // The continuous rear-hair mass belongs on the base layer. Its central
+    // brown value must replace the pink cardigan beneath, while the sparse
+    // outer pixels above provide only strand highlights and volume.
+    expect(
+      channelAt(procedural, proceduralBody.base.back, 4, 4, 0),
+    ).toBeLessThan(125);
+    expect(
+      channelAt(procedural, proceduralBody.base.back, 4, 4, 0),
+    ).toBeGreaterThan(
+      channelAt(procedural, proceduralBody.base.back, 4, 4, 1) + 15,
     );
     // The final seam pass adds only the perimeter of the hidden underside;
     // keep enough room for that connected hem without allowing solid faces.

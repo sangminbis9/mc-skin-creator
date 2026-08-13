@@ -2809,6 +2809,7 @@ function composeHair(
     }
     if (torsoHairRows > 0) {
       const bodyOver = CLASSIC_LAYOUT.body.overlay;
+      const bodyBase = CLASSIC_LAYOUT.body.base;
       const bodyHair = (rect: Rect, x: number, y: number, shade = 1) =>
         shadeRgb(hairVolumePixel(hairColor, rect.x + x, rect.y + y), shade);
       const torsoStrandLight = mixRgb(
@@ -2935,18 +2936,32 @@ function composeHair(
         putColor(bodyOver.left, 3, 8, torsoStrandDark);
       }
 
-      const longBackRows = [
+      const longBackBaseRows = [
         [0, 1, 2, 3, 4, 5, 6, 7],
         [0, 1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6],
-        [1, 2, 3, 4, 5, 6, 7],
-        [0, 1, 2, 3, 4, 5, 6],
-        [1, 2, 3, 4, 5, 6, 7],
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [0, 1, 2, 3, 4, 5, 6, 7],
         [0, 1, 2, 3, 4, 5, 6, 7],
         [1, 2, 3, 4, 5, 6],
-        [1, 2, 3, 5, 6],
-        [2, 3, 5],
+        [1, 2, 3, 4, 5, 6],
         [2, 3, 4, 5],
+        [3, 4],
+      ] as const;
+      const longBackOuterRows = [
+        [0, 1, 6, 7],
+        [2],
+        [3],
+        [2],
+        [2],
+        [4],
+        [1],
+        [3, 4],
+        [2, 4],
+        [2, 5],
+        [3],
         [3, 4],
       ] as const;
       const compactBackRows = [
@@ -2959,8 +2974,43 @@ function composeHair(
         [0, 3, 4, 7],
         [0, 3, 4, 7],
       ] as const;
+      if (hairBackShape === "long") {
+        // A handcrafted long-hair back uses the torso base for the continuous
+        // mass and reserves the raised layer for sparse shade ribbons. The
+        // previous nearly opaque (95/96 px) outer face hid both the base and
+        // cardigan construction, reading as a flat floating slab in rear and
+        // three-quarter views.
+        for (let y = 0; y < Math.min(torsoHairRows, bodyBase.back.h); y++) {
+          for (let x = 0; x < bodyOver.back.w; x++)
+            clearPixel(bodyOver.back, x, y);
+          for (const x of longBackBaseRows[y] ?? []) {
+            const edge = x === 0 || x === bodyBase.back.w - 1;
+            const highlight = x === 2 || x === 5;
+            const shade =
+              y >= 10
+                ? highlight
+                  ? 0.78
+                  : 0.68
+                : y >= 8
+                  ? highlight
+                    ? 0.86
+                    : 0.74
+                  : edge
+                    ? 0.78
+                    : highlight
+                      ? 0.96
+                      : 0.86;
+            putColor(
+              bodyBase.back,
+              x,
+              y,
+              bodyHair(bodyBase.back, x, y, shade),
+            );
+          }
+        }
+      }
       const backRows = (
-        hairBackShape === "long" ? longBackRows : compactBackRows
+        hairBackShape === "long" ? longBackOuterRows : compactBackRows
       ).slice(0, torsoHairRows);
       for (let y = 0; y < backRows.length; y++) {
         for (const x of backRows[y]) {
