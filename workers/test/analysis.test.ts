@@ -260,6 +260,10 @@ describe("runPortraitDetailAnalysis", () => {
     const detail = {
       faceConfidence: "high",
       hairConfidence: "high",
+      crownConfidence: "high",
+      fringeConfidence: "high",
+      sideHairConfidence: "high",
+      hairEndpointConfidence: "high",
       skinTone: "light",
       skinUndertone: "neutral",
       eyeColor: "dark-brown",
@@ -337,6 +341,10 @@ describe("runPortraitDetailAnalysis", () => {
     const detail = {
       faceConfidence: "high",
       hairConfidence: "high",
+      crownConfidence: "high",
+      fringeConfidence: "high",
+      sideHairConfidence: "high",
+      hairEndpointConfidence: "high",
       skinTone: "light",
       skinUndertone: "neutral",
       eyeColor: "blue",
@@ -398,6 +406,10 @@ describe("runPortraitDetailAnalysis", () => {
       "It is not the lower edge of the fringe",
     );
     expect(PORTRAIT_DETAIL_PROMPT).toContain("crown to temple to sideburn/ear");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("crownConfidence");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("fringeConfidence");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("sideHairConfidence");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("hairEndpointConfidence low");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("central knot with paired loops");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("teeth_visible");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("low neckConfidence");

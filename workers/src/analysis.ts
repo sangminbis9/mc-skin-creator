@@ -1821,6 +1821,10 @@ export type NeckDetailCallResult =
 export interface PortraitDetailAnalysis {
   faceConfidence: "low" | "medium" | "high";
   hairConfidence: "low" | "medium" | "high";
+  crownConfidence: "low" | "medium" | "high";
+  fringeConfidence: "low" | "medium" | "high";
+  sideHairConfidence: "low" | "medium" | "high";
+  hairEndpointConfidence: "low" | "medium" | "high";
   clothingConfidence?: "low" | "medium" | "high";
   skinTone: "pale" | "light" | "medium" | "tan" | "brown" | "dark";
   skinUndertone: "warm" | "cool" | "neutral";
@@ -1905,12 +1909,15 @@ Face:
 - Use low confidence when resolution, occlusion, pose, or lighting cannot support a correction.
 
 Hair:
+- Report separate crownConfidence, fringeConfidence, sideHairConfidence and hairEndpointConfidence. A clear crown does not make an occluded ear/side profile or a lock cut off by the crop reliable. Use low for each uncertain subgroup even when overall hairConfidence is medium/high.
 - Classify the dominant root hair color separately from highlights, reflections and background spill.
 - hairSilhouette is the OUTER crown and temple contour. It is not the lower edge of the fringe. Straight or blunt bangs can still sit under a rounded crown.
 - hairVolume is independent from length and silhouette: flat for sleek/low-volume hair close to the head, normal for ordinary lift, and full only when the hair visibly expands away from the scalp. Do not call all long hair full.
 - Classify overallHairLength from the lowest substantial visible lock relative to the ear, jaw, neck and physical shoulder seam. Correct for head tilt and slanted shoulders by mentally rotating the head upright and comparing each lock with its same-side anatomical landmarks; do not use raw screen y-position. Curly hair that flares widely around the head but ends above the shoulder is ear- or jaw-length, not shoulder-length. Use shoulder only when multiple substantial locks visibly touch or overlap the shoulder seam.
+- Set hairEndpointConfidence low when the lowest substantial locks leave the crop, disappear behind clothing/body, or their endpoint is otherwise not directly visible. In that case classify the nearest visible length conservatively but expect the full-frame analysis to retain ownership of overallHairLength.
 - A short two-block, bowl-like or ear-length cut with a domed top and tapered/ear-hugging sides is rounded unless the crown itself is visibly flat, boxy or close-cropped.
 - Trace continuity from crown to temple to sideburn/ear on both sides. sideHairShape describes that contour; earExposure describes the visible ear opening rather than hair length.
+- Set sideHairConfidence low when either relevant temple/ear contour is hidden by pose, hand, accessory, crop boundary or dense overlapping locks. Do not report structural sideHairAsymmetry merely because head rotation foreshortens one side.
 - Measure bangsLength from the lowest substantial front-fringe tips against the upper forehead, eyebrow line and eye aperture. A short overall haircut can still have brow- or eye-length bangs; never reuse overallHairLength for bangsLength.
 - Classify fringe density, edge and opening from the visible construction, not isolated highlight strands. A few narrow gaps between dense blunt tips do not make the fringe short or sparse.
 - Set hairPart only when a visible scalp/root line or coherent root direction proves it. Do not turn a gap between bang tips, a highlight, or a shadow channel into a center part; use none when dense fringe hides the roots.
@@ -1934,6 +1941,16 @@ const PORTRAIT_DETAIL_SCHEMA = {
   properties: {
     faceConfidence: { type: "string", enum: ["low", "medium", "high"] },
     hairConfidence: { type: "string", enum: ["low", "medium", "high"] },
+    crownConfidence: { type: "string", enum: ["low", "medium", "high"] },
+    fringeConfidence: { type: "string", enum: ["low", "medium", "high"] },
+    sideHairConfidence: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+    },
+    hairEndpointConfidence: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+    },
     clothingConfidence: {
       type: "string",
       enum: ["low", "medium", "high"],
@@ -2085,6 +2102,10 @@ const PORTRAIT_DETAIL_SCHEMA = {
   required: [
     "faceConfidence",
     "hairConfidence",
+    "crownConfidence",
+    "fringeConfidence",
+    "sideHairConfidence",
+    "hairEndpointConfidence",
     "skinTone",
     "skinUndertone",
     "eyeColor",
@@ -2296,7 +2317,10 @@ async function runPortraitDetailWithModel(
       schemaName: "minecraft_skin_portrait_detail",
       schemaDescription:
         "Focused face and visible hair classification from an enlarged portrait crop",
-      maxOutputTokens: 620,
+      // The four subgroup confidence fields prevent broad hair overwrites.
+      // Leave enough structured-output headroom so their addition cannot turn
+      // an otherwise valid portrait pass into a truncated JSON response.
+      maxOutputTokens: 760,
     });
     const neuronsSpent = visionNeuronsFromUsage(
       result,
@@ -2326,6 +2350,10 @@ async function runPortraitDetailWithModel(
     > = {
       faceConfidence: ["low", "medium", "high"],
       hairConfidence: ["low", "medium", "high"],
+      crownConfidence: ["low", "medium", "high"],
+      fringeConfidence: ["low", "medium", "high"],
+      sideHairConfidence: ["low", "medium", "high"],
+      hairEndpointConfidence: ["low", "medium", "high"],
       skinTone: ["pale", "light", "medium", "tan", "brown", "dark"],
       skinUndertone: ["warm", "cool", "neutral"],
       eyeColor: [

@@ -67,6 +67,10 @@ function focusedPortraitDetail() {
   return {
     faceConfidence: "high" as const,
     hairConfidence: "high" as const,
+    crownConfidence: "high" as const,
+    fringeConfidence: "high" as const,
+    sideHairConfidence: "high" as const,
+    hairEndpointConfidence: "high" as const,
     skinTone: "light" as const,
     skinUndertone: "cool" as const,
     eyeColor: "dark-brown" as const,
@@ -308,7 +312,8 @@ describe("generateSkin", () => {
 
     const merged = applyFocusedPortraitDetail(main, focusedPortraitDetail());
 
-    expect(merged.renderHints).toMatchObject({
+    const normalized = normalizeAnalysisForRendering(merged);
+    expect(normalized.renderHints).toMatchObject({
       skinUndertone: "cool",
       faceShape: "oval",
       eyeSize: "small",
@@ -335,6 +340,118 @@ describe("generateSkin", () => {
     expect(merged.observed.clothing).toBe(main.observed.clothing);
     expect(merged.outfitPrompt).toBe(main.outfitPrompt);
     expect(merged.inferred).toBe(main.inferred);
+  });
+
+  it("keeps full-frame side hair and length when the focused crop only resolves crown and fringe", () => {
+    const base = makeAnalysis();
+    const main = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "waist-length wavy hair with shoulder face-framing locks; the viewer-left lock is visibly longer and fuller",
+      },
+      renderHints: {
+        ...base.renderHints,
+        bangs: "curtain",
+        bangsLength: "eye",
+        hairTexture: "wavy",
+        hairVolume: "full",
+        hairSilhouette: "rounded",
+        hairBackShape: "long",
+        overallHairLength: "waist",
+        hairPart: "center",
+        sideHairLength: "shoulder",
+        sideHairShape: "face_framing",
+        sideHairAsymmetry: "left",
+        earExposure: "covered",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        hairstyle: "long",
+      },
+    });
+    const merged = applyFocusedPortraitDetail(main, {
+      ...focusedPortraitDetail(),
+      crownConfidence: "high",
+      fringeConfidence: "high",
+      sideHairConfidence: "low",
+      hairEndpointConfidence: "low",
+      hairSilhouette: "tousled",
+      hairTexture: "wavy",
+      hairVolume: "normal",
+      hairPart: "right",
+      bangs: "side",
+      bangsLength: "brow",
+      sideHairLength: "short",
+      sideHairShape: "tapered",
+      sideHairAsymmetry: "none",
+      earExposure: "visible",
+      overallHairLength: "ear",
+      hairEvidence:
+        "The crown and fringe are clear, but the side locks and lower endpoint leave the crop.",
+    });
+
+    const normalized = normalizeAnalysisForRendering(merged);
+    expect(normalized.renderHints).toMatchObject({
+      hairSilhouette: "tousled",
+      hairTexture: "wavy",
+      hairVolume: "normal",
+      hairPart: "right",
+      bangs: "side",
+      bangsLength: "brow",
+      hairBackShape: "long",
+      overallHairLength: "waist",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+      sideHairAsymmetry: "left",
+      earExposure: "covered",
+    });
+    expect(normalized.observed.hair).not.toContain("ear-length lowest");
+    expect(normalized.identityPrompt).not.toContain("short tapered side hair");
+  });
+
+  it("accepts a focused side-profile correction without replacing an unseen endpoint", () => {
+    const base = makeAnalysis();
+    const main = makeAnalysis({
+      renderHints: {
+        ...base.renderHints,
+        bangs: "straight",
+        bangsLength: "brow",
+        hairSilhouette: "rounded",
+        hairBackShape: "long",
+        overallHairLength: "chest",
+        sideHairLength: "short",
+        sideHairShape: "tapered",
+        sideHairAsymmetry: "none",
+        earExposure: "visible",
+      },
+    });
+    const merged = applyFocusedPortraitDetail(main, {
+      ...focusedPortraitDetail(),
+      crownConfidence: "low",
+      fringeConfidence: "low",
+      sideHairConfidence: "high",
+      hairEndpointConfidence: "low",
+      hairSilhouette: "flat",
+      bangs: "none",
+      bangsLength: "none",
+      sideHairLength: "jaw",
+      sideHairShape: "face_framing",
+      sideHairAsymmetry: "right",
+      earExposure: "partial",
+      overallHairLength: "ear",
+    });
+
+    expect(merged.renderHints).toMatchObject({
+      bangs: "straight",
+      bangsLength: "brow",
+      hairSilhouette: "rounded",
+      hairBackShape: "long",
+      overallHairLength: "chest",
+      sideHairLength: "jaw",
+      sideHairShape: "face_framing",
+      sideHairAsymmetry: "right",
+      earExposure: "partial",
+    });
   });
 
   it("adds only confident visible garment micro-details from the focused crop", () => {

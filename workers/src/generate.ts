@@ -706,9 +706,10 @@ export async function createUpperBodyDetailCrop(
 }
 
 /**
- * Merge only the portrait properties supported by the enlarged crop. The
- * crop can correct a visible hair endpoint against the jaw/shoulder line, but
- * cannot establish back construction or clothing, so those remain untouched.
+ * Merge only the portrait properties supported by the enlarged crop. Hair
+ * subgroups have separate confidence because a crop can show the crown and
+ * fringe clearly while cutting off the side profile or lowest endpoint. The
+ * crop cannot establish back construction, so that remains untouched.
  */
 export function applyFocusedPortraitDetail(
   analysis: PhotoAnalysis,
@@ -716,6 +717,12 @@ export function applyFocusedPortraitDetail(
 ): PhotoAnalysis {
   const faceReliable = detail.faceConfidence !== "low";
   const hairReliable = detail.hairConfidence !== "low";
+  const crownReliable = hairReliable && detail.crownConfidence !== "low";
+  const fringeReliable = hairReliable && detail.fringeConfidence !== "low";
+  const sideHairReliable =
+    hairReliable && detail.sideHairConfidence !== "low";
+  const hairEndpointReliable =
+    hairReliable && detail.hairEndpointConfidence !== "low";
   if (!faceReliable && !hairReliable) {
     return analysis;
   }
@@ -764,30 +771,70 @@ export function applyFocusedPortraitDetail(
   }
 
   if (hairReliable) {
-    Object.assign(renderHints, {
-      bangs: detail.bangs,
-      bangsLength: detail.bangsLength,
-      hairSilhouette: detail.hairSilhouette,
-      bangsDensity: detail.bangsDensity,
-      fringeEdge: detail.fringeEdge,
-      fringeOpening: detail.fringeOpening,
-      hairTexture: detail.hairTexture,
-      hairVolume: detail.hairVolume,
-      overallHairLength: detail.overallHairLength,
-      hairPart: detail.hairPart,
-      sideHairLength: detail.sideHairLength,
-      sideHairShape: detail.sideHairShape,
-      sideHairAsymmetry: detail.sideHairAsymmetry,
-      earExposure: detail.earExposure,
-    });
+    if (crownReliable) {
+      Object.assign(renderHints, {
+        hairSilhouette: detail.hairSilhouette,
+        hairTexture: detail.hairTexture,
+        hairVolume: detail.hairVolume,
+        hairPart: detail.hairPart,
+      });
+    }
+    if (fringeReliable) {
+      Object.assign(renderHints, {
+        bangs: detail.bangs,
+        bangsLength: detail.bangsLength,
+        bangsDensity: detail.bangsDensity,
+        fringeEdge: detail.fringeEdge,
+        fringeOpening: detail.fringeOpening,
+      });
+    }
+    if (sideHairReliable) {
+      Object.assign(renderHints, {
+        sideHairLength: detail.sideHairLength,
+        sideHairShape: detail.sideHairShape,
+        sideHairAsymmetry: detail.sideHairAsymmetry,
+        earExposure: detail.earExposure,
+      });
+    }
+    if (hairEndpointReliable) {
+      Object.assign(renderHints, {
+        overallHairLength: detail.overallHairLength,
+      });
+    }
     fallbackFeatures = {
       ...fallbackFeatures,
       hairColor: detail.hairColor,
     };
     const hairDescription = `${detail.hairColor.replace("-", " ")} hair`;
+    const reliableHairGeometry = [
+      crownReliable
+        ? `${detail.hairVolume} ${detail.hairTexture} ${detail.hairSilhouette} crown with ${detail.hairPart} root parting`
+        : null,
+      fringeReliable
+        ? `${detail.bangsDensity} ${detail.bangsLength} ${detail.bangs} bangs with a ${detail.fringeEdge} edge and ${detail.fringeOpening} opening`
+        : null,
+      sideHairReliable
+        ? `${detail.sideHairLength} ${detail.sideHairShape} side hair with ${detail.sideHairAsymmetry} viewer-side asymmetry and ${detail.earExposure} ear exposure`
+        : null,
+      hairEndpointReliable
+        ? `${detail.overallHairLength}-length lowest substantial hair endpoint`
+        : null,
+    ].filter((value): value is string => value !== null);
+    const allHairGeometryReliable =
+      crownReliable &&
+      fringeReliable &&
+      sideHairReliable &&
+      hairEndpointReliable;
+    const focusedHairConfirmation = [
+      hairDescription,
+      ...reliableHairGeometry,
+    ].join(", ");
+    const focusedHairEvidence = allHairGeometryReliable
+      ? `; ${detail.hairEvidence}`
+      : "";
     observed = {
       ...observed,
-      hair: `${observed.hair} Focused portrait crop confirms ${hairDescription}; ${detail.hairEvidence}.`.trim(),
+      hair: `${observed.hair} Focused portrait crop confirms ${focusedHairConfirmation}${focusedHairEvidence}.`.trim(),
       colorPalette: observed.colorPalette.some(
         (value) => value.toLowerCase() === hairDescription,
       )
@@ -795,7 +842,7 @@ export function applyFocusedPortraitDetail(
         : [...observed.colorPalette, hairDescription],
     };
     identityPrompt =
-      `${identityPrompt} Preserve the focused ${hairDescription}, crown-to-temple, side-length and fringe geometry: ${detail.hairEvidence}.`.trim();
+      `${identityPrompt} Preserve only the focused hair groups supported by the crop: ${focusedHairConfirmation}${focusedHairEvidence}.`.trim();
   }
 
   const clothingEvidence = detail.clothingEvidence?.trim() ?? "";
