@@ -2704,12 +2704,16 @@ describe("generateSkin", () => {
 
   it("stops image retries and reports shared quota exhaustion", async () => {
     const env = makeEnv(makeAnalysis());
+    env.IMAGE_CRITIQUE_ENABLED = "true";
     const provider = providerOf([
       {
         ok: false,
         error: "4006: daily free allocation of 10,000 neurons used up",
-        retryable: false,
+        // Defensive case: some provider/gateway responses include a retry
+        // delay even though the account-wide daily allocation is exhausted.
+        retryable: true,
         quotaExceeded: true,
+        retryAfterMs: 30_000,
       },
     ]);
 
@@ -2719,6 +2723,65 @@ describe("generateSkin", () => {
     expect(result.status).toBe(200);
     expect(result.body.generationMode).toBe("procedural_fallback");
     expect(result.providerQuotaExhausted).toBe(true);
+    // One structured analysis only: no delayed image retry and no doomed
+    // procedural critique after the provider has reported shared exhaustion.
+    expect(env.AI.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a structurally valid image when only the optional critique exhausts quota", async () => {
+    const analysis = makeAnalysis();
+    const env = makeEnv(analysis);
+    env.AI = undefined;
+    env.GEMINI_API_KEY = "test-key";
+    env.VISION_FALLBACK_MODEL = "gemini-test-fallback";
+    env.IMAGE_CRITIQUE_ENABLED = "true";
+    const analysisResponse = Response.json({
+      candidates: [
+        {
+          content: {
+            parts: [{ text: JSON.stringify(analysis) }],
+          },
+        },
+      ],
+    });
+    const quotaResponse = () =>
+      Response.json(
+        {
+          error: {
+            code: 429,
+            status: "RESOURCE_EXHAUSTED",
+            message: "daily free allocation exhausted",
+          },
+        },
+        { status: 429 },
+      );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(analysisResponse)
+      .mockImplementation(async () => quotaResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = providerOf([await goodFluxOutput()]);
+
+    try {
+      const result = await generateSkin(env, await photoDataUrl(), provider);
+
+      expect(result.status).toBe(200);
+      expect(result.body.generationMode).toBe("image");
+      expect(result.body.skinPngBase64).toBeTruthy();
+      expect(result.providerQuotaExhausted).toBe(true);
+      expect(provider.calls).toBe(1);
+      // One analysis call plus the two configured critique models. Crucially,
+      // there is no second image generation or procedural critique pass.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const decoded = await decodePng(
+        Uint8Array.from(atob(result.body.skinPngBase64!), (character) =>
+          character.charCodeAt(0),
+        ),
+      );
+      expect(validateFinalAtlas(decoded).ok).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("procedural fallback preserves rich hair, cardigan, plaid and asymmetric legwear hints", async () => {

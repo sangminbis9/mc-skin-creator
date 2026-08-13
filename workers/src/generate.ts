@@ -307,6 +307,14 @@ export async function generateSkin(
           }),
           { expirationTtl: 60 * 60 * 48 },
         ).catch(() => undefined);
+        if (generated.quotaExceeded) {
+          // A provider can occasionally label a daily/account quota response
+          // as retryable as well as quota-exceeded. Quota does not recover
+          // inside this request, so waiting and spending another generation
+          // attempt only delays the deterministic atlas that is already
+          // available from the validated portrait analysis.
+          break;
+        }
         if (
           generated.retryable &&
           generationReferenceDataUrl === imageDataUrl &&
@@ -435,7 +443,15 @@ export async function generateSkin(
           );
           spent += critique.neuronsSpent;
           if (!critique.ok) {
-            if (critique.quotaExceeded) providerQuotaExhausted = true;
+            if (critique.quotaExceeded) {
+              providerQuotaExhausted = true;
+              // The candidate has already passed PNG, UV, craft and rendered
+              // six-view validation. A quota-only critique failure is not
+              // evidence that the candidate is bad, so preserve it instead
+              // of discarding it and invoking another expensive generation.
+              skinPngBase64 = candidateBase64;
+              generationMode = "image";
+            }
             correctionPrompt =
               "Reinforce the ranked canonical identity, exact face/hair silhouette, outfit color blocks, connected side/back surfaces and deliberate outer-layer details.";
             await env.MCSKIN_KV.put(
@@ -447,6 +463,7 @@ export async function generateSkin(
               }),
               { expirationTtl: 60 * 60 * 48 },
             ).catch(() => undefined);
+            if (skinPngBase64 !== null) break;
             continue;
           }
           if (!critique.approved) {
@@ -501,7 +518,11 @@ export async function generateSkin(
 
   if (skinPngBase64 === null) {
     let proceduralAtlas = buildProceduralFallbackAtlas(features, faceStyle);
-    if (proceduralAtlas && env.IMAGE_CRITIQUE_ENABLED === "true") {
+    if (
+      proceduralAtlas &&
+      env.IMAGE_CRITIQUE_ENABLED === "true" &&
+      !providerQuotaExhausted
+    ) {
       const renderedViews = renderSkinViews(proceduralAtlas);
       const renderedInspection = inspectRenderedSkin(renderedViews);
       if (renderedInspection.ok) {
