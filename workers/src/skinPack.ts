@@ -2840,37 +2840,53 @@ function composeHair(
           y >= 10 ? 0.72 : y >= 8 ? 0.76 : y >= 6 ? 0.82 : 0.96;
         const leftX = leftFrontPath[y];
         const rightX = rightFrontPath[y];
+        // The continuous lock mass belongs to the inner cube. Keeping the
+        // whole path on the enlarged layer made two long locks look like
+        // rigid brown columns hovering in front of the cardigan. The outer
+        // cube below now carries only separated highlights, bends and tips.
         putColor(
-          bodyOver.front,
+          bodyBase.front,
           leftX,
           y,
-          bodyHair(bodyOver.front, leftX, y, taperShade),
+          bodyHair(bodyBase.front, leftX, y, taperShade),
         );
         putColor(
-          bodyOver.front,
+          bodyBase.front,
           rightX,
           y,
-          bodyHair(bodyOver.front, rightX, y, taperShade * 0.98),
+          bodyHair(bodyBase.front, rightX, y, taperShade * 0.98),
         );
 
-        // Each lock is two pixels wide only near the shoulder. Lower rows
-        // alternate one-pixel turns and short highlight clusters so the hair
-        // reads as tapered waves rather than two rigid torso columns.
-        if (y <= 3 || (y <= 6 && y % 3 === 0)) {
-          const leftInner = Math.min(bodyOver.front.w - 1, leftX + 1);
+        // The inner mass is two pixels wide for only the first three shoulder
+        // rows, then immediately narrows. Volume lower down is expressed by
+        // the sparse outer-layer clusters rather than a second solid rail.
+        if (y <= 2) {
+          const leftInner = Math.min(bodyBase.front.w - 1, leftX + 1);
           const rightInner = Math.max(0, rightX - 1);
           putColor(
-            bodyOver.front,
+            bodyBase.front,
             leftInner,
             y,
-            bodyHair(bodyOver.front, leftInner, y, taperShade * 0.78),
+            bodyHair(bodyBase.front, leftInner, y, taperShade * 0.78),
           );
           putColor(
-            bodyOver.front,
+            bodyBase.front,
             rightInner,
             y,
-            bodyHair(bodyOver.front, rightInner, y, taperShade * 0.78),
+            bodyHair(bodyBase.front, rightInner, y, taperShade * 0.78),
           );
+        }
+
+        // Turn any edge-reaching base strand onto the physically adjacent
+        // profile face. This keeps the thinner mass continuous without asking
+        // the outer-layer seam reconciler to inflate it again.
+        if (leftX === 0) {
+          const edge = readColor(bodyBase.front, 0, y);
+          if (edge) putColor(bodyBase.right, bodyBase.right.w - 1, y, edge);
+        }
+        if (rightX === bodyBase.front.w - 1) {
+          const edge = readColor(bodyBase.front, rightX, y);
+          if (edge) putColor(bodyBase.left, 0, y, edge);
         }
       }
       for (const [x, y, color] of (
@@ -2908,18 +2924,18 @@ function composeHair(
         const shade = y >= 10 ? 0.7 : y >= 8 ? 0.74 : y >= 6 ? 0.78 : 0.86;
         for (const x of leftSideRows[y]) {
           putColor(
-            bodyOver.right,
+            bodyBase.right,
             x,
             y,
-            bodyHair(bodyOver.right, x, y, x === 0 ? shade : shade * 0.84),
+            bodyHair(bodyBase.right, x, y, x === 0 ? shade : shade * 0.84),
           );
-          const mirroredX = bodyOver.left.w - 1 - x;
+          const mirroredX = bodyBase.left.w - 1 - x;
           putColor(
-            bodyOver.left,
+            bodyBase.left,
             mirroredX,
             y,
             bodyHair(
-              bodyOver.left,
+              bodyBase.left,
               mirroredX,
               y,
               x === 0 ? shade * 0.98 : shade * 0.82,
@@ -2982,9 +2998,10 @@ function composeHair(
         // 8x8 rectangle. Every successive row still overlaps the previous one,
         // preserving one continuous rear flow into the two-pixel tip.
         for (let y = 0; y < Math.min(torsoHairRows, bodyBase.back.h); y++) {
+          const baseRow: readonly number[] = longBackBaseRows[y] ?? [];
           for (let x = 0; x < bodyOver.back.w; x++)
             clearPixel(bodyOver.back, x, y);
-          for (const x of longBackBaseRows[y] ?? []) {
+          for (const x of baseRow) {
             const edge = x === 0 || x === bodyBase.back.w - 1;
             const highlight = x === 2 || x === 5;
             const shade =
@@ -3007,6 +3024,15 @@ function composeHair(
               y,
               bodyHair(bodyBase.back, x, y, shade),
             );
+          }
+          if (baseRow.includes(0)) {
+            const edge = readColor(bodyBase.back, 0, y);
+            if (edge)
+              putColor(bodyBase.left, bodyBase.left.w - 1, y, edge);
+          }
+          if (baseRow.includes(bodyBase.back.w - 1)) {
+            const edge = readColor(bodyBase.back, bodyBase.back.w - 1, y);
+            if (edge) putColor(bodyBase.right, 0, y, edge);
           }
         }
       }
@@ -4313,8 +4339,11 @@ function composeHair(
 
     if (style.sideHairLength === "shoulder") {
       const body = CLASSIC_LAYOUT.body.overlay;
+      const bodyBase = CLASSIC_LAYOUT.body.base;
       const bodyFrontX = shorterSide === "left" ? 0 : body.front.w - 3;
       const bodySide = shorterSide === "left" ? body.right : body.left;
+      const bodyBaseSide =
+        shorterSide === "left" ? bodyBase.right : bodyBase.left;
       const bodyBackX = shorterSide === "left" ? body.back.w - 3 : 0;
       const arm =
         shorterSide === "left"
@@ -4331,6 +4360,16 @@ function composeHair(
         const frontInnerX =
           shorterSide === "left" ? bodyFrontX + 1 : bodyFrontX;
         restoreRect(body.front, frontInnerX, 5, 2, body.front.h - 5);
+        // The connected face-framing mass now lives on the base cube. Trim
+        // all three lower front columns on the shorter viewer side, while the
+        // separate rear base mass remains bilateral.
+        restoreRect(
+          bodyBase.front,
+          bodyFrontX,
+          5,
+          3,
+          bodyBase.front.h - 5,
+        );
 
         if (shorterSide === "left") {
           restoreRect(
@@ -4340,6 +4379,15 @@ function composeHair(
             Math.max(0, bodySide.w - 1),
             bodySide.h - 5,
           );
+          // Keep x=0 as the rear-hair rail and remove the shortened front
+          // lock from the rest of the side face.
+          restoreRect(
+            bodyBaseSide,
+            1,
+            5,
+            Math.max(0, bodyBaseSide.w - 1),
+            bodyBaseSide.h - 5,
+          );
         } else {
           restoreRect(
             bodySide,
@@ -4347,6 +4395,13 @@ function composeHair(
             5,
             Math.max(0, bodySide.w - 1),
             bodySide.h - 5,
+          );
+          restoreRect(
+            bodyBaseSide,
+            0,
+            5,
+            Math.max(0, bodyBaseSide.w - 1),
+            bodyBaseSide.h - 5,
           );
         }
 
@@ -4359,6 +4414,20 @@ function composeHair(
         restoreRect(body.front, bodyFrontX, 3, 3, body.front.h - 3);
         restoreRect(bodySide, 0, 3, bodySide.w, bodySide.h - 3);
         restoreRect(body.back, bodyBackX, 3, 3, body.back.h - 3);
+        restoreRect(
+          bodyBase.front,
+          bodyFrontX,
+          3,
+          3,
+          bodyBase.front.h - 3,
+        );
+        restoreRect(
+          bodyBaseSide,
+          0,
+          3,
+          bodyBaseSide.w,
+          bodyBaseSide.h - 3,
+        );
         for (const rect of [arm.front, arm.back, arm.right, arm.left]) {
           restoreRect(rect, 0, 3, rect.w, rect.h - 3);
         }

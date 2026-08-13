@@ -2863,7 +2863,9 @@ describe("generateSkin", () => {
     const flower = ((head.y + 2) * ATLAS_SIZE + head.x + 1) * 4;
     const leftEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 2) * 4;
     const rightEyeWindow = ((head.y + 4) * ATLAS_SIZE + head.x + 5) * 4;
-    const hairDrape = ((body.y + 5) * ATLAS_SIZE + body.x) * 4;
+    // The continuous shoulder lock belongs to the opaque base layer; the
+    // second layer is reserved for sparse flyaways, bends and highlights.
+    const hairDrape = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x) * 4;
     const cardiganPanel = ((bodyBase.y + 5) * ATLAS_SIZE + bodyBase.x + 1) * 4;
     const cardiganCenter = ((body.y + 5) * ATLAS_SIZE + body.x + 3) * 4;
     const plaidDark = (plaidLeg.y * ATLAS_SIZE + plaidLeg.x + 1) * 4;
@@ -2879,6 +2881,7 @@ describe("generateSkin", () => {
     expect(decoded.rgba[leftEyeWindow + 3]).toBe(0);
     expect(decoded.rgba[rightEyeWindow + 3]).toBe(0);
     expect(decoded.rgba[hairDrape + 3]).toBe(255);
+    expect(decoded.rgba[hairDrape]).toBeLessThan(decoded.rgba[cardiganPanel]);
     expect(decoded.rgba[cardiganPanel + 3]).toBe(255);
     expect(decoded.rgba[cardiganCenter + 3]).toBe(0);
     expect(decoded.rgba[plaidDark + 3]).toBe(255);

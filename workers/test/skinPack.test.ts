@@ -11,7 +11,12 @@ import {
   measureAtlasCraft,
   validateFinalAtlas,
 } from "../src/skinPost";
-import { ATLAS_SIZE, CLASSIC_LAYOUT, getBoxUvSeams } from "../src/uvLayout";
+import {
+  ATLAS_SIZE,
+  CLASSIC_LAYOUT,
+  getBoxUvSeams,
+  type Rect,
+} from "../src/uvLayout";
 
 import { makeFourViewSheet, makeFrontBackView, makeFrontView } from "./helpers";
 
@@ -971,6 +976,7 @@ describe("packFrontViewToAtlas", () => {
       packFrontViewToAtlas(makeFrontView(), {
         ...DEFAULT_FACE_STYLE,
         hairstyle: "long",
+        hairColor: "#765b57",
         bangs: "curtain",
         bangsLength: "brow",
         hairTexture,
@@ -2070,19 +2076,34 @@ describe("packFrontViewToAtlas", () => {
     const chest = makeLength("chest");
     const waist = makeLength("waist");
     const hip = makeLength("hip");
-    const body = CLASSIC_LAYOUT.body.overlay;
+    const body = CLASSIC_LAYOUT.body;
     const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay;
     const leftLeg = CLASSIC_LAYOUT.leftLeg.overlay;
 
-    expect(alphaAt(shoulder, body.front, 1, 3)).toBe(255);
-    expect(alphaAt(shoulder, body.front, 0, 6)).toBe(0);
-    expect(alphaAt(chest, body.front, 1, 7)).toBe(255);
-    expect(alphaAt(chest, body.front, 1, 9)).toBe(0);
-    expect(alphaAt(waist, body.front, 2, 11)).toBe(255);
-    expect(alphaAt(waist, body.front, 5, 11)).toBe(255);
-    expect(alphaAt(waist, body.front, 3, 11)).toBe(0);
-    expect(alphaAt(waist, body.front, 4, 11)).toBe(0);
-    expect(alphaAt(waist, body.back, 4, 11)).toBe(255);
+    const hairDistance = (
+      atlas: RawImage,
+      rect: Rect,
+      x: number,
+      y: number,
+    ) => {
+      const [red, green, blue] = rgbaAt(atlas, rect, x, y);
+      return (
+        Math.abs(red - 0x76) +
+        Math.abs(green - 0x5b) +
+        Math.abs(blue - 0x57)
+      );
+    };
+    expect(hairDistance(shoulder, body.base.front, 1, 3)).toBeLessThan(90);
+    expect(alphaAt(shoulder, body.overlay.front, 0, 6)).toBe(0);
+    expect(hairDistance(chest, body.base.front, 1, 7)).toBeLessThan(90);
+    expect(alphaAt(chest, body.overlay.front, 1, 9)).toBe(0);
+    expect(hairDistance(waist, body.base.front, 2, 11)).toBeLessThan(135);
+    expect(hairDistance(waist, body.base.front, 5, 11)).toBeLessThan(135);
+    expect(hairDistance(waist, body.base.front, 3, 11)).toBeGreaterThan(90);
+    expect(hairDistance(waist, body.base.front, 4, 11)).toBeGreaterThan(90);
+    // Rear tips receive both back-face and taper shading, so preserve hue
+    // rather than requiring the brighter front-lock distance.
+    expect(hairDistance(waist, body.base.back, 4, 11)).toBeLessThan(180);
     expect(alphaAt(waist, rightLeg.back, 2, 3)).toBe(0);
     expect(alphaAt(waist, leftLeg.back, 1, 3)).toBe(0);
     expect(alphaAt(hip, rightLeg.back, 2, 3)).toBe(255);
@@ -2095,12 +2116,13 @@ describe("packFrontViewToAtlas", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
+      hairColor: "#765b57",
       bangs: "curtain",
       hairTexture: "wavy",
       hairBackShape: "long",
       sideHairLength: "shoulder",
     })!.atlas;
-    const body = CLASSIC_LAYOUT.body.overlay;
+    const body = CLASSIC_LAYOUT.body;
     const head = CLASSIC_LAYOUT.head.overlay;
     const rightArm = CLASSIC_LAYOUT.rightArm.overlay;
     const leftArm = CLASSIC_LAYOUT.leftArm.overlay;
@@ -2115,50 +2137,59 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, head.left, 6, 2)).toBeGreaterThan(
       redAt(atlas, head.left, 4, 7),
     );
-    expect(alphaAt(atlas, body.front, 0, 6)).toBe(255);
-    expect(alphaAt(atlas, body.front, 7, 6)).toBe(255);
-    expect(alphaAt(atlas, body.front, 1, 7)).toBe(255);
-    expect(alphaAt(atlas, body.front, 6, 7)).toBe(255);
-    expect(alphaAt(atlas, body.front, 2, 8)).toBe(255);
-    expect(alphaAt(atlas, body.front, 5, 8)).toBe(255);
-    expect(alphaAt(atlas, body.right, 1, 5)).toBe(255);
-    expect(alphaAt(atlas, body.left, 2, 5)).toBe(255);
-    expect(alphaAt(atlas, body.right, 0, 7)).toBe(255);
-    expect(alphaAt(atlas, body.left, body.left.w - 1, 7)).toBe(255);
-    expect(alphaAt(atlas, body.top, 0, body.top.h - 1)).toBe(255);
-    expect(alphaAt(atlas, body.top, 7, body.top.h - 1)).toBe(255);
-    expect(alphaAt(atlas, body.top, 1, body.top.h - 1)).toBe(255);
-    expect(alphaAt(atlas, body.back, 3, 7)).toBe(255);
-    expect(alphaAt(atlas, body.back, 4, 7)).toBe(255);
-    expect(redAt(atlas, body.front, 0, 6)).not.toBe(
-      redAt(atlas, body.front, 3, 6),
+    expect(redAt(atlas, body.base.front, 0, 6)).not.toBe(
+      redAt(atlas, body.base.front, 3, 6),
     );
-    expect(alphaAt(atlas, body.front, 1, 2)).toBe(255);
-    expect(alphaAt(atlas, body.front, 1, 5)).toBe(0);
-    expect(alphaAt(atlas, body.front, 7, 6)).toBe(255);
-    expect(redAt(atlas, body.front, 1, 2)).toBeGreaterThan(
-      redAt(atlas, body.front, 2, 8),
+    for (const [x, y] of [
+      [0, 6],
+      [7, 6],
+      [1, 7],
+      [6, 7],
+      [2, 8],
+      [5, 8],
+    ] as const) {
+      expect(redAt(atlas, body.base.front, x, y)).toBeLessThan(150);
+    }
+    expect(alphaAt(atlas, body.overlay.front, 1, 5)).toBe(0);
+    expect(alphaAt(atlas, body.overlay.front, 1, 6)).toBe(255);
+    expect(alphaAt(atlas, body.overlay.front, 2, 8)).toBe(255);
+    expect(alphaAt(atlas, body.overlay.front, 5, 9)).toBe(255);
+    expect(redAt(atlas, body.base.front, 1, 2)).toBeGreaterThan(
+      redAt(atlas, body.base.front, 2, 8),
     );
     expect(
-      Math.abs(redAt(atlas, body.front, 6, 2) - redAt(atlas, body.front, 5, 8)),
+      Math.abs(
+        redAt(atlas, body.base.front, 6, 2) -
+          redAt(atlas, body.base.front, 5, 8),
+      ),
     ).toBeLessThan(20);
-    expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
-    expect(alphaAt(atlas, body.left, 2, 3)).toBe(255);
-    expect(alphaAt(atlas, body.left, 2, 4)).toBe(255);
-    expect(rgbaAt(atlas, body.right, body.right.w - 1, 2)).toEqual(
-      rgbaAt(atlas, body.front, 0, 2),
+    expect(alphaAt(atlas, body.overlay.right, 1, 3)).toBe(255);
+    expect(alphaAt(atlas, body.overlay.left, 2, 3)).toBe(255);
+    expect(alphaAt(atlas, body.overlay.left, 2, 4)).toBe(255);
+    expect(rgbaAt(atlas, body.overlay.right, body.overlay.right.w - 1, 3)).toEqual(
+      rgbaAt(atlas, body.overlay.front, 0, 3),
     );
-    expect(rgbaAt(atlas, body.left, 0, 4)).toEqual(
-      rgbaAt(atlas, body.front, body.front.w - 1, 4),
+    expect(rgbaAt(atlas, body.overlay.left, 0, 4)).toEqual(
+      rgbaAt(
+        atlas,
+        body.overlay.front,
+        body.overlay.front.w - 1,
+        4,
+      ),
     );
-    expect(rgbaAt(atlas, body.right, 0, 1)).toEqual(
-      rgbaAt(atlas, body.back, body.back.w - 1, 1),
+    expect(rgbaAt(atlas, body.overlay.right, 0, 1)).toEqual(
+      rgbaAt(atlas, body.overlay.back, body.overlay.back.w - 1, 1),
     );
-    expect(rgbaAt(atlas, body.left, body.left.w - 1, 1)).toEqual(
-      rgbaAt(atlas, body.back, 0, 1),
-    );
-    expect(redAt(atlas, body.back, 2, 4)).toBeGreaterThan(
-      redAt(atlas, body.back, 4, 7),
+    expect(
+      rgbaAt(
+        atlas,
+        body.overlay.left,
+        body.overlay.left.w - 1,
+        1,
+      ),
+    ).toEqual(rgbaAt(atlas, body.overlay.back, 0, 1));
+    expect(redAt(atlas, body.base.back, 2, 4)).toBeGreaterThan(
+      redAt(atlas, body.base.back, 4, 7),
     );
     expect(alphaAt(atlas, rightArm.front, 0, 5)).toBe(255);
     expect(alphaAt(atlas, rightArm.front, rightArm.front.w - 1, 1)).toBe(255);
@@ -2174,15 +2205,25 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, leftArm.front, leftArm.front.w - 1, 0)).toBeGreaterThan(
       redAt(atlas, leftArm.front, leftArm.front.w - 1, 5),
     );
+    const sideHairDistance = (rect: Rect, x: number, y: number) => {
+      const [red, green, blue] = rgbaAt(atlas, rect, x, y);
+      return (
+        Math.abs(red - 0x6f) +
+        Math.abs(green - 0x4c) +
+        Math.abs(blue - 0x45)
+      );
+    };
     for (let y = 0; y < 10; y++) {
-      const rightRow = [0, 1].filter(
-        (x) => alphaAt(atlas, body.right, x, y) === 255,
+      const rightDistance = Math.min(
+        ...[0, 1].map((x) => sideHairDistance(body.base.right, x, y)),
       );
-      const leftRow = [body.left.w - 2, body.left.w - 1].filter(
-        (x) => alphaAt(atlas, body.left, x, y) === 255,
+      const leftDistance = Math.min(
+        ...[body.base.left.w - 2, body.base.left.w - 1].map((x) =>
+          sideHairDistance(body.base.left, x, y),
+        ),
       );
-      expect(rightRow.length).toBeGreaterThanOrEqual(1);
-      expect(leftRow.length).toBeGreaterThanOrEqual(1);
+      expect(rightDistance).toBeLessThan(130);
+      expect(leftDistance).toBeLessThan(130);
     }
   });
 
@@ -2205,21 +2246,36 @@ describe("packFrontViewToAtlas", () => {
       })!.atlas;
     const straight = makeTexture("straight");
     const wavy = makeTexture("wavy");
-    const front = CLASSIC_LAYOUT.body.overlay.front;
+    const baseFront = CLASSIC_LAYOUT.body.base.front;
+    const overFront = CLASSIC_LAYOUT.body.overlay.front;
+    const hairDistance = (atlas: RawImage, x: number, y: number) => {
+      const [red, green, blue] = rgbaAt(atlas, baseFront, x, y);
+      return (
+        Math.abs(red - 0x76) +
+        Math.abs(green - 0x5b) +
+        Math.abs(blue - 0x57)
+      );
+    };
 
-    expect(alphaAt(straight, front, 1, 4)).toBe(255);
-    expect(alphaAt(straight, front, 6, 4)).toBe(255);
+    expect(hairDistance(straight, 1, 4)).toBeLessThan(90);
+    expect(hairDistance(straight, 6, 4)).toBeLessThan(90);
 
-    expect(alphaAt(wavy, front, 1, 4)).toBe(255);
-    expect(alphaAt(wavy, front, 6, 4)).toBe(0);
-    expect(alphaAt(wavy, front, 7, 4)).toBe(255);
-    expect(rgbaAt(wavy, front, 1, 4)).not.toEqual(rgbaAt(wavy, front, 7, 4));
+    expect(hairDistance(wavy, 1, 4)).toBeLessThan(90);
+    expect(hairDistance(wavy, 6, 4)).toBeGreaterThan(90);
+    expect(hairDistance(wavy, 7, 4)).toBeLessThan(90);
+    expect(rgbaAt(wavy, baseFront, 1, 4)).not.toEqual(
+      rgbaAt(wavy, baseFront, 7, 4),
+    );
     // Tapered waist-length locks should retain their brown hue instead of
     // collapsing into near-black vertical rods against pale garments.
-    expect(redAt(wavy, front, 2, 11)).toBeGreaterThan(50);
-    expect(redAt(wavy, front, 5, 11)).toBeGreaterThan(50);
-    expect(alphaAt(wavy, front, 3, 11)).toBe(0);
-    expect(alphaAt(wavy, front, 4, 11)).toBe(0);
+    expect(hairDistance(wavy, 2, 11)).toBeLessThan(135);
+    expect(hairDistance(wavy, 5, 11)).toBeLessThan(135);
+    expect(hairDistance(wavy, 3, 11)).toBeGreaterThan(90);
+    expect(hairDistance(wavy, 4, 11)).toBeGreaterThan(90);
+    expect(alphaAt(wavy, overFront, 2, 10)).toBe(255);
+    expect(alphaAt(wavy, overFront, 5, 11)).toBe(255);
+    expect(alphaAt(wavy, overFront, 3, 11)).toBe(0);
+    expect(alphaAt(wavy, overFront, 4, 11)).toBe(0);
   });
 
   it("shoulder hair drapes down arm side faces without checkerboard gaps", () => {
@@ -2339,6 +2395,7 @@ describe("packFrontViewToAtlas", () => {
       packFrontViewToAtlas(makeFrontView(), {
         ...DEFAULT_FACE_STYLE,
         hairstyle: "long",
+        hairColor: "#765b57",
         bangs: "curtain",
         hairTexture: "wavy",
         hairBackShape: "rounded",
@@ -2350,22 +2407,55 @@ describe("packFrontViewToAtlas", () => {
     const leftLonger = makeAsymmetric("left");
     const rightLonger = makeAsymmetric("right");
     const head = CLASSIC_LAYOUT.head.overlay;
-    const body = CLASSIC_LAYOUT.body.overlay;
+    const body = CLASSIC_LAYOUT.body;
+    const hairDistance = (
+      atlas: RawImage,
+      rect: Rect,
+      x: number,
+      y: number,
+    ) => {
+      const [red, green, blue] = rgbaAt(atlas, rect, x, y);
+      return (
+        Math.abs(red - 0x76) +
+        Math.abs(green - 0x5b) +
+        Math.abs(blue - 0x57)
+      );
+    };
 
     // Viewer-left maps to the head/body right UV face and front x=0 edge.
     expect(alphaAt(leftLonger, head.right, 3, 7)).toBe(255);
     expect(alphaAt(leftLonger, head.left, 3, 7)).toBe(0);
-    expect(alphaAt(leftLonger, body.front, 0, 6)).toBe(255);
-    expect(alphaAt(leftLonger, body.front, 7, 6)).toBe(0);
-    expect(alphaAt(leftLonger, body.right, 0, 6)).toBe(255);
-    expect(alphaAt(leftLonger, body.left, body.left.w - 1, 6)).toBe(0);
+    expect(hairDistance(leftLonger, body.base.front, 0, 6)).toBeLessThan(130);
+    expect(hairDistance(leftLonger, body.base.front, 7, 6)).toBeGreaterThan(
+      130,
+    );
+    expect(hairDistance(leftLonger, body.base.right, 0, 6)).toBeLessThan(130);
+    expect(
+      hairDistance(
+        leftLonger,
+        body.base.left,
+        body.base.left.w - 1,
+        6,
+      ),
+    ).toBeGreaterThan(130);
 
     expect(alphaAt(rightLonger, head.right, 3, 7)).toBe(0);
     expect(alphaAt(rightLonger, head.left, 3, 7)).toBe(255);
-    expect(alphaAt(rightLonger, body.front, 0, 6)).toBe(0);
-    expect(alphaAt(rightLonger, body.front, 7, 6)).toBe(255);
-    expect(alphaAt(rightLonger, body.right, 0, 6)).toBe(0);
-    expect(alphaAt(rightLonger, body.left, body.left.w - 1, 6)).toBe(255);
+    expect(hairDistance(rightLonger, body.base.front, 0, 6)).toBeGreaterThan(
+      130,
+    );
+    expect(hairDistance(rightLonger, body.base.front, 7, 6)).toBeLessThan(130);
+    expect(hairDistance(rightLonger, body.base.right, 0, 6)).toBeGreaterThan(
+      130,
+    );
+    expect(
+      hairDistance(
+        rightLonger,
+        body.base.left,
+        body.base.left.w - 1,
+        6,
+      ),
+    ).toBeLessThan(130);
 
     applyUvMask(leftLonger);
     applyUvMask(rightLonger);
@@ -2378,6 +2468,7 @@ describe("packFrontViewToAtlas", () => {
       packFrontViewToAtlas(makeFrontView(), {
         ...DEFAULT_FACE_STYLE,
         hairstyle: "long",
+        hairColor: "#765b57",
         bangs: "curtain",
         hairTexture: "wavy",
         hairBackShape: "long",
@@ -2388,31 +2479,31 @@ describe("packFrontViewToAtlas", () => {
       })!.atlas;
     const leftLonger = makeAsymmetric("left");
     const rightLonger = makeAsymmetric("right");
-    const body = CLASSIC_LAYOUT.body.overlay;
+    const body = CLASSIC_LAYOUT.body;
     const rightArm = CLASSIC_LAYOUT.rightArm.overlay;
     const leftArm = CLASSIC_LAYOUT.leftArm.overlay;
 
     // Long back hair still reaches both shoulders, while the shorter side
     // loses its inner/lower pixels and bottom arm tip.
-    expect(alphaAt(leftLonger, body.front, 0, 6)).toBe(255);
-    expect(alphaAt(leftLonger, body.front, 7, 6)).toBe(255);
-    expect(alphaAt(leftLonger, body.front, 6, 6)).toBe(0);
-    expect(alphaAt(leftLonger, body.right, 0, 6)).toBe(255);
-    expect(alphaAt(leftLonger, body.left, body.left.w - 1, 6)).toBe(255);
-    expect(alphaAt(leftLonger, body.left, body.left.w - 2, 6)).toBe(0);
-    expect(alphaAt(leftLonger, body.back, 0, 6)).toBe(255);
-    expect(alphaAt(leftLonger, body.back, 1, 6)).toBe(0);
+    expect(redAt(leftLonger, body.base.front, 0, 6)).toBeLessThan(150);
+    expect(redAt(leftLonger, body.base.front, 7, 6)).toBeGreaterThan(150);
+    expect(redAt(leftLonger, body.base.back, 1, 6)).toBeLessThan(150);
+    expect(redAt(leftLonger, body.base.back, 6, 6)).toBeLessThan(150);
+    expect(redAt(leftLonger, body.base.right, 0, 6)).toBeLessThan(150);
+    expect(
+      redAt(leftLonger, body.base.left, body.base.left.w - 1, 6),
+    ).toBeLessThan(150);
     expect(alphaAt(leftLonger, rightArm.front, 0, 5)).toBe(255);
     expect(alphaAt(leftLonger, leftArm.front, leftArm.front.w - 1, 5)).toBe(0);
 
-    expect(alphaAt(rightLonger, body.front, 0, 6)).toBe(255);
-    expect(alphaAt(rightLonger, body.front, 7, 6)).toBe(255);
-    expect(alphaAt(rightLonger, body.front, 1, 6)).toBe(0);
-    expect(alphaAt(rightLonger, body.right, 0, 6)).toBe(255);
-    expect(alphaAt(rightLonger, body.left, body.left.w - 1, 6)).toBe(255);
-    expect(alphaAt(rightLonger, body.right, 1, 6)).toBe(0);
-    expect(alphaAt(rightLonger, body.back, 7, 6)).toBe(255);
-    expect(alphaAt(rightLonger, body.back, 6, 6)).toBe(0);
+    expect(redAt(rightLonger, body.base.front, 0, 6)).toBeGreaterThan(150);
+    expect(redAt(rightLonger, body.base.front, 7, 6)).toBeLessThan(150);
+    expect(redAt(rightLonger, body.base.back, 1, 6)).toBeLessThan(150);
+    expect(redAt(rightLonger, body.base.back, 6, 6)).toBeLessThan(150);
+    expect(redAt(rightLonger, body.base.right, 0, 6)).toBeLessThan(150);
+    expect(
+      redAt(rightLonger, body.base.left, body.base.left.w - 1, 6),
+    ).toBeLessThan(150);
     expect(alphaAt(rightLonger, rightArm.front, 0, 5)).toBe(0);
     expect(alphaAt(rightLonger, leftArm.front, leftArm.front.w - 1, 5)).toBe(
       255,
@@ -2438,15 +2529,29 @@ describe("packFrontViewToAtlas", () => {
       hairAccessoryColor: "pink",
     })!.atlas;
     const head = CLASSIC_LAYOUT.head.overlay;
-    const body = CLASSIC_LAYOUT.body.overlay;
+    const body = CLASSIC_LAYOUT.body;
     const arm = CLASSIC_LAYOUT.rightArm.overlay;
 
-    expect(alphaAt(atlas, body.front, 1, 7)).toBe(255);
-    expect(alphaAt(atlas, body.front, 1, 1)).toBe(255);
-    expect(alphaAt(atlas, body.right, 0, 1)).toBe(255);
-    expect(alphaAt(atlas, body.right, 1, 3)).toBe(255);
-    expect(alphaAt(atlas, body.top, 0, body.top.h - 1)).toBe(255);
-    expect(alphaAt(atlas, body.top, 1, body.top.h - 1)).toBe(255);
+    expect(redAt(atlas, body.base.front, 1, 7)).toBeLessThan(150);
+    expect(alphaAt(atlas, body.overlay.front, 1, 1)).toBe(255);
+    expect(alphaAt(atlas, body.overlay.right, 0, 1)).toBe(255);
+    expect(alphaAt(atlas, body.overlay.right, 1, 3)).toBe(255);
+    expect(
+      alphaAt(
+        atlas,
+        body.overlay.top,
+        0,
+        body.overlay.top.h - 1,
+      ),
+    ).toBe(255);
+    expect(
+      alphaAt(
+        atlas,
+        body.overlay.top,
+        1,
+        body.overlay.top.h - 1,
+      ),
+    ).toBe(255);
     expect(alphaAt(atlas, arm.front, 0, 1)).toBe(255);
     expect(alphaAt(atlas, arm.right, 1, 2)).toBe(255);
     expect(alphaAt(atlas, arm.top, 0, 1)).toBe(255);
@@ -2458,8 +2563,9 @@ describe("packFrontViewToAtlas", () => {
     );
     // Its leaf/petal colours must not leak onto the cardigan shoulder.
     for (const [rect, x, y] of [
-      [body.front, 1, 1],
-      [body.right, 1, 3],
+      [body.base.front, 1, 7],
+      [body.overlay.front, 1, 1],
+      [body.overlay.right, 1, 3],
       [arm.front, 0, 1],
       [arm.right, 1, 2],
     ] as const) {

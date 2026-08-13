@@ -401,7 +401,9 @@ describe("hair accessory recovery", () => {
       expect(decoded.rgba[offset(head.base.front, irisX, 4) + 3]).toBe(255);
     }
 
-    const bowWing = offset(body.overlay.front, 1, 2);
+    // Long shoulder hair occupies the outer corners, so the bow keeps its
+    // readable inner wings while the continuous locks remain on the base.
+    const bowWing = offset(body.overlay.front, 2, 2);
     const bowTail = offset(body.overlay.front, 3, 6);
     const cardiganFabric = offset(body.base.front, 3, 7);
     expect(decoded.rgba[bowWing + 3]).toBe(255);
@@ -410,8 +412,8 @@ describe("hair accessory recovery", () => {
       decoded.rgba[cardiganFabric + 1] + 20,
     );
 
-    const plaidDark = offset(body.overlay.front, 1, body.overlay.front.h - 3);
-    const plaidLight = offset(body.overlay.front, 2, body.overlay.front.h - 3);
+    const plaidDark = offset(body.overlay.front, 2, body.overlay.front.h - 4);
+    const plaidLight = offset(body.overlay.front, 0, body.overlay.front.h - 4);
     const leftWarmer = offset(leftLeg, 1, 4);
     const rightThighBow = offset(rightLeg, 3, 2);
     const rightBareLowerLeg = offset(rightLeg, 0, 5);
