@@ -2645,6 +2645,56 @@ function composeHair(
   const overallHairLength = resolveOverallHairLength(style);
   const torsoHairRows = hairBodyRows(style);
   if (
+    sideHairShape === "face_framing" &&
+    (sideHairLength === "cheek" ||
+      sideHairLength === "jaw" ||
+      sideHairLength === "shoulder")
+  ) {
+    const lastBaseLockRow =
+      sideHairLength === "cheek" ? 4 : sideHairLength === "jaw" ? 6 : 7;
+    const heavyViewerSide =
+      hairPart === "right" ? "left" : hairPart === "left" ? "right" : "both";
+    const baseLockColor = (seed: number, y: number, shade: number) =>
+      shadeRgb(hairVolumePixel(hairColor, seed, base.front.y + y), shade);
+
+    // A long style needs mass on the inner cube as well as raised strands.
+    // Leaving the base face skin-coloured from x=1..6 made the exact front
+    // view read as the same wide square face for every portrait, even when
+    // the analysis specified an oval/pointed face framed by long curtain
+    // locks. Two connected temple columns narrow the cheek silhouette while
+    // preserving the iris anchors at x=2 and x=5. They taper back to one edge
+    // pixel at the jaw so the result is not another rectangular hair frame.
+    for (let y = 3; y <= lastBaseLockRow; y++) {
+      const leftEdge = baseLockColor(3109 + y, y, y >= 6 ? 0.72 : 0.88);
+      const rightEdge = baseLockColor(3527 + y, y, y >= 6 ? 0.68 : 0.84);
+      putColor(base.front, 0, y, leftEdge);
+      putColor(base.right, base.right.w - 1, y, leftEdge);
+      putColor(base.front, base.front.w - 1, y, rightEdge);
+      putColor(base.left, 0, y, rightEdge);
+
+      const sharedCheekMass = y <= 5;
+      const leftHeavyTaper =
+        y === 6 &&
+        sideHairLength !== "cheek" &&
+        (heavyViewerSide === "left" || heavyViewerSide === "both");
+      const rightHeavyTaper =
+        y === 6 &&
+        sideHairLength !== "cheek" &&
+        (heavyViewerSide === "right" || heavyViewerSide === "both");
+      if (sharedCheekMass || leftHeavyTaper) {
+        putColor(base.front, 1, y, shadeRgb(leftEdge, y >= 5 ? 0.82 : 0.94));
+      }
+      if (sharedCheekMass || rightHeavyTaper) {
+        putColor(
+          base.front,
+          base.front.w - 2,
+          y,
+          shadeRgb(rightEdge, y >= 5 ? 0.8 : 0.92),
+        );
+      }
+    }
+  }
+  if (
     sideHairLength === "cheek" ||
     sideHairLength === "jaw" ||
     sideHairLength === "shoulder"

@@ -1110,6 +1110,8 @@ describe("packFrontViewToAtlas", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
       hairstyle: "long",
+      hairColor: "#745249",
+      skinTone: "#efd0c7",
       faceShape: "oval",
       jawShape: "soft",
       eyeShape: "round",
@@ -1124,7 +1126,46 @@ describe("packFrontViewToAtlas", () => {
       hairAccessory: "flower",
       hairAccessorySide: "left",
     })!.atlas;
-    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    const head = CLASSIC_LAYOUT.head;
+    const base = head.base.front;
+    const overlay = head.overlay.front;
+
+    // The inner cube carries a connected face-framing mass. It narrows the
+    // cheeks without covering either iris. The neighbouring profile seam
+    // stays in the same hair-colour family while retaining its face-specific
+    // lighting shade.
+    for (const y of [3, 4, 5]) {
+      expect(redAt(atlas, base, 1, y)).toBeLessThan(redAt(atlas, base, 3, y));
+      expect(redAt(atlas, base, 6, y)).toBeLessThan(redAt(atlas, base, 4, y));
+    }
+    const rgbDistance = (left: number[], right: number[]) =>
+      Math.abs(left[0] - right[0]) +
+      Math.abs(left[1] - right[1]) +
+      Math.abs(left[2] - right[2]);
+    for (const y of [3, 4, 5, 6, 7]) {
+      expect(
+        rgbDistance(
+          rgbaAt(atlas, base, 0, y),
+          rgbaAt(atlas, head.base.right, head.base.right.w - 1, y),
+        ),
+      ).toBeLessThanOrEqual(48);
+      expect(
+        rgbDistance(
+          rgbaAt(atlas, base, base.w - 1, y),
+          rgbaAt(atlas, head.base.left, 0, y),
+        ),
+      ).toBeLessThanOrEqual(48);
+    }
+    for (const irisX of [2, 5]) {
+      expect(redAt(atlas, base, irisX, 4)).toBeLessThan(80);
+      expect(alphaAt(atlas, overlay, irisX, 4)).toBe(0);
+    }
+    expect(redAt(atlas, base, 1, 7)).toBeGreaterThan(
+      redAt(atlas, base, 1, 5),
+    );
+    expect(redAt(atlas, base, 6, 7)).toBeGreaterThan(
+      redAt(atlas, base, 6, 5),
+    );
 
     for (const y of [5, 6]) {
       expect(alphaAt(atlas, overlay, 1, y)).toBe(0);
@@ -1146,6 +1187,45 @@ describe("packFrontViewToAtlas", () => {
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
+
+  it.each([
+    ["cheek", "left", 4],
+    ["jaw", "right", 6],
+    ["shoulder", "none", 7],
+  ] as const)(
+    "%s face-framing base locks preserve the eyes and end at their analysed length",
+    (sideHairLength, hairPart, lastRow) => {
+      const atlas = packFrontViewToAtlas(makeFrontView(), {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "long",
+        hairColor: "#745249",
+        skinTone: "#efd0c7",
+        bangs: "curtain",
+        bangsLength: "eye",
+        hairTexture: "wavy",
+        hairPart,
+        sideHairLength,
+        sideHairShape: "face_framing",
+        glasses: "none",
+      })!.atlas;
+      const base = CLASSIC_LAYOUT.head.base.front;
+      const overlay = CLASSIC_LAYOUT.head.overlay.front;
+
+      for (const irisX of [2, 5]) {
+        expect(redAt(atlas, base, irisX, 4)).toBeLessThan(80);
+        expect(alphaAt(atlas, overlay, irisX, 4)).toBe(0);
+      }
+      expect(redAt(atlas, base, 0, lastRow)).toBeLessThan(130);
+      expect(redAt(atlas, base, 7, lastRow)).toBeLessThan(130);
+      if (lastRow < 7) {
+        expect(redAt(atlas, base, 1, lastRow + 1)).toBeGreaterThan(150);
+        expect(redAt(atlas, base, 6, lastRow + 1)).toBeGreaterThan(150);
+      }
+
+      applyUvMask(atlas);
+      expect(validateFinalAtlas(atlas).ok).toBe(true);
+    },
+  );
 
   it("face-framing hair preserves broad, soft and pointed jaw widths on the outer layer", () => {
     const makeJaw = (
