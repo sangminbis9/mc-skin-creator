@@ -2486,6 +2486,26 @@ export function normalizeAnalysisForRendering(
           /\b(?:dress|formal|collared|button[-\s]+down|tailored)\b/.test(
             visibleUpperText,
           ));
+      const athleticTop =
+        /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|top|jersey|jacket)|\bjersey\b/.test(
+          visibleUpperText,
+        );
+      const hoodieTop = topType === "hoodie" || /\bhoodie\b/.test(visibleUpperText);
+      const knitTop =
+        topType === "sweater" ||
+        renderHints.garmentTexture === "knit" ||
+        /\b(?:knit|knitted|sweater|pullover)\b/.test(visibleUpperText);
+      const inferredLowerDetailText = joinedAnalysisText([
+        inferred.lowerBody?.value,
+        inferred.lowerBody?.rationale,
+        lowerDesign.rationale,
+        inferred.shoes?.value,
+        inferred.shoes?.rationale,
+      ]);
+      const hasConcreteLowerDetail =
+        /\b(?:denim|jeans?|chinos?|cargo|joggers?|track|tailored|pleated|plaid|skorts?|skirts?|shorts?|slim[-\s]*fit|wide[-\s]*leg|cuffs?|belt|stripes?|ribbons?|socks?|stockings?|leg[-\s]*warmers?|thigh[-\s]*highs?|low[-\s]*top|high[-\s]*top|mary[-\s]*janes?|loafers?|boots?|sandals?|leather|canvas)\b/.test(
+          inferredLowerDetailText,
+        );
 
       if (preppyTop) {
         // A cardigan/vest plus a visible bow or collar supplies substantially
@@ -2555,6 +2575,64 @@ export function normalizeAnalysisForRendering(
           shoes: {
             value: "polished leather dress shoes",
             rationale: `${analysis.inferred.shoes?.rationale ?? "The structured upper outfit calls for formal footwear."} ${completionSentence}`,
+          },
+        };
+        outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
+        return { ...analysis, inferred, renderHints, outfitPrompt };
+      }
+
+      if (!hasConcreteLowerDetail && (athleticTop || hoodieTop || knitTop)) {
+        const bottomType = knitTop && !athleticTop && !hoodieTop ? "jeans" : "pants";
+        const bottomAccent = athleticTop
+          ? "side_stripe"
+          : hoodieTop
+            ? "cuffs"
+            : "belt";
+        const legwear = knitTop && !athleticTop && !hoodieTop ? "socks" : "none";
+        const bottomDescription = athleticTop
+          ? "dark track pants with a readable side stripe"
+          : hoodieTop
+            ? "coordinated jogger pants with visible ankle cuffs"
+            : "dark blue denim jeans with a readable belt";
+        const shoeDescription = athleticTop
+          ? "clean white low-top sneakers"
+          : "clean off-white low-top sneakers";
+        const legwearDescription = legwear === "socks" ? ", paired socks" : "";
+        const upperCue = athleticTop
+          ? "athletic top"
+          : hoodieTop
+            ? "hoodie"
+            : "knit sweater";
+        const completionSentence = `Replace the vague unseen lower-body default with ${bottomDescription}${legwearDescription} and ${shoeDescription}, grounded in the visible ${upperCue}.`;
+
+        renderHints.bottomPattern = "plain";
+        renderHints.bottomAccent = bottomAccent;
+        renderHints.legwear = legwear;
+        renderHints.legwearAsymmetry = legwear === "none" ? "none" : "both";
+        if (legwear !== "none") renderHints.legwearColor = "white";
+        renderHints.thighAccessory = "none";
+        renderHints.thighAccessorySide = "none";
+        inferred = {
+          ...analysis.inferred,
+          lowerBody: {
+            value: `${bottomDescription}${legwearDescription}`,
+            rationale: completionSentence,
+          },
+          lowerBodyDesign: {
+            ...lowerDesign,
+            bottomType,
+            bottomPattern: "plain",
+            bottomAccent,
+            legwear,
+            legwearAsymmetry: legwear === "none" ? "none" : "both",
+            thighAccessory: "none",
+            thighAccessorySide: "none",
+            shoeStyle: "sneakers",
+            rationale: completionSentence,
+          },
+          shoes: {
+            value: shoeDescription,
+            rationale: completionSentence,
           },
         };
         outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;

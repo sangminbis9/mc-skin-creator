@@ -1,6 +1,9 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { generateSkin } from "../src/generate";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
+import { buildSkinViewMontage, renderSkinViews } from "../src/skinRender";
 import type {
   SkinGenerationProvider,
   SkinGenerationResult,
@@ -726,5 +729,101 @@ describe("inferred lower-body completion", () => {
     );
     expect(trouserChannels[1]).toBeLessThan(trouserChannels[0] + 25);
     expect(shoeChannels[2]).toBeLessThan(shoeChannels[0] + 25);
+  });
+
+  it("renders a vague knit completion as jeans, belt, socks and constructed sneakers", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      visibleRegions: {
+        ...base.visibleRegions,
+        lowerBody: false,
+        feet: false,
+      },
+      observed: {
+        ...base.observed,
+        clothing: "soft charcoal cable-knit crewneck sweater",
+      },
+      inferred: {
+        ...base.inferred,
+        lowerBody: {
+          value: "matching simple lower-body clothing",
+          rationale: "the lower body is outside the frame",
+        },
+        lowerBodyDesign: {
+          bottomType: "pants",
+          bottomPattern: "plain",
+          bottomAccent: "none",
+          legwear: "none",
+          legwearAsymmetry: "none",
+          thighAccessory: "none",
+          thighAccessorySide: "none",
+          shoeStyle: "sneakers",
+          rationale: "generic safe completion",
+        },
+        shoes: {
+          value: "simple sneakers",
+          rationale: "generic safe completion",
+        },
+      },
+      renderHints: {
+        ...base.renderHints,
+        garmentTexture: "knit",
+        outerGarment: "none",
+        neckAccessory: "none",
+        bottomPattern: "plain",
+        bottomAccent: "none",
+        legwear: "none",
+        legwearAsymmetry: "none",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topType: "sweater",
+        bottomType: "pants",
+      },
+      outfitPrompt: "A soft charcoal cable-knit crewneck sweater.",
+    });
+    const result = await generateSkin(
+      { ...makeEnv(analysis), IMAGE_GENERATION_ENABLED: "false" },
+      await photoDataUrl(),
+    );
+
+    expect(result.body.generationMode).toBe("procedural_fallback");
+    expect(result.body.analysis?.inferred.lowerBodyDesign).toMatchObject({
+      bottomType: "jeans",
+      bottomAccent: "belt",
+      legwear: "socks",
+      legwearAsymmetry: "both",
+      shoeStyle: "sneakers",
+    });
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    const body = CLASSIC_LAYOUT.body.overlay.front;
+    const leg = CLASSIC_LAYOUT.rightLeg.overlay;
+    const belt =
+      ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 3) * 4 + 3;
+    const sockRib = ((leg.front.y + 7) * ATLAS_SIZE + leg.front.x + 1) * 4 + 3;
+    const shoeLace =
+      ((leg.front.y + leg.front.h - 3) * ATLAS_SIZE + leg.front.x + 1) * 4 +
+      3;
+    const sideSole =
+      ((leg.right.y + leg.right.h - 1) * ATLAS_SIZE + leg.right.x + 3) * 4 +
+      3;
+
+    expect(decoded.rgba[belt]).toBe(255);
+    expect(decoded.rgba[sockRib]).toBe(255);
+    expect(decoded.rgba[shoeLace]).toBe(255);
+    expect(decoded.rgba[sideSole]).toBe(255);
+
+    const artifactDir = process.env.CRAFT_ARTIFACT_DIR?.trim();
+    if (artifactDir) {
+      await mkdir(artifactDir, { recursive: true });
+      await writeFile(
+        join(artifactDir, "vague-knit-lower-six-view.png"),
+        await encodePng(buildSkinViewMontage(renderSkinViews(decoded))),
+      );
+    }
   });
 });

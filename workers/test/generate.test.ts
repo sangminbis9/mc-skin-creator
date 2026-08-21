@@ -1016,6 +1016,120 @@ describe("generateSkin", () => {
     expect(normalized.outfitPrompt).not.toContain("cuffed hems");
   });
 
+  it.each([
+    {
+      name: "knit sweater",
+      clothing: "soft charcoal cable-knit sweater",
+      topType: "sweater",
+      garmentTexture: "knit",
+      bottomType: "jeans",
+      bottomAccent: "belt",
+      legwear: "socks",
+      legwearAsymmetry: "both",
+      promptCue: "dark blue denim jeans",
+    },
+    {
+      name: "athletic jersey",
+      clothing: "bright red athletic jersey",
+      topType: "shirt",
+      garmentTexture: "plain",
+      bottomType: "pants",
+      bottomAccent: "side_stripe",
+      legwear: "none",
+      legwearAsymmetry: "none",
+      promptCue: "dark track pants",
+    },
+    {
+      name: "casual hoodie",
+      clothing: "oversized forest green hoodie",
+      topType: "hoodie",
+      garmentTexture: "plain",
+      bottomType: "pants",
+      bottomAccent: "cuffs",
+      legwear: "none",
+      legwearAsymmetry: "none",
+      promptCue: "jogger pants",
+    },
+  ] as const)(
+    "replaces vague unseen lower-body defaults for a $name",
+    ({
+      clothing,
+      topType,
+      garmentTexture,
+      bottomType,
+      bottomAccent,
+      legwear,
+      legwearAsymmetry,
+      promptCue,
+    }) => {
+      const base = makeAnalysis();
+      const normalized = normalizeAnalysisForRendering(
+        makeAnalysis({
+          visibleRegions: {
+            ...base.visibleRegions,
+            lowerBody: false,
+            feet: false,
+          },
+          observed: { ...base.observed, clothing },
+          inferred: {
+            ...base.inferred,
+            lowerBody: {
+              value: "matching simple lower-body clothing",
+              rationale: "the lower body is outside the frame",
+            },
+            lowerBodyDesign: {
+              bottomType: "pants",
+              bottomPattern: "plain",
+              bottomAccent: "none",
+              legwear: "none",
+              legwearAsymmetry: "none",
+              thighAccessory: "none",
+              thighAccessorySide: "none",
+              shoeStyle: "sneakers",
+              rationale: "generic safe completion",
+            },
+            shoes: {
+              value: "simple sneakers",
+              rationale: "generic safe completion",
+            },
+          },
+          renderHints: {
+            ...base.renderHints,
+            garmentTexture,
+            outerGarment: "none",
+            neckAccessory: "none",
+            bottomPattern: "plain",
+            bottomAccent: "none",
+            legwear: "none",
+            legwearAsymmetry: "none",
+          },
+          fallbackFeatures: {
+            ...base.fallbackFeatures,
+            topType,
+            bottomType: "pants",
+          },
+          outfitPrompt: `Visible ${clothing}.`,
+        }),
+      );
+
+      expect(normalized.inferred.lowerBodyDesign).toMatchObject({
+        bottomType,
+        bottomPattern: "plain",
+        bottomAccent,
+        legwear,
+        legwearAsymmetry,
+        shoeStyle: "sneakers",
+      });
+      expect(normalized.renderHints).toMatchObject({
+        bottomAccent,
+        legwear,
+        legwearAsymmetry,
+      });
+      expect(normalized.outfitPrompt).toContain(promptCue);
+      expect(normalized.outfitPrompt).toContain("low-top sneakers");
+    },
+  );
+
   it("expands a generic unseen lower half into a complete preppy design from cardigan and bow cues", () => {
     const base = makeAnalysis();
     const normalized = normalizeAnalysisForRendering(
