@@ -130,7 +130,7 @@ describe("handcrafted atlas quality metrics", () => {
     expect(opaquePixelsIn(reference, referenceHead.left)).toBe(18);
     expect(opaquePixelsIn(reference, referenceHead.back)).toBe(24);
     expect(opaquePixelsIn(procedural, proceduralHead.top)).toBeLessThanOrEqual(
-      30,
+      22,
     );
     expect(
       opaquePixelsIn(procedural, proceduralHead.front),

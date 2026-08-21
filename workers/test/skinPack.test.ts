@@ -1517,6 +1517,54 @@ describe("packFrontViewToAtlas", () => {
     }
   });
 
+  it("long rounded hair uses sparse crown roots connected across every top seam", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "long",
+      hairColor: "#6f4c45",
+      bangs: "curtain",
+      bangsLength: "eye",
+      hairTexture: "wavy",
+      hairVolume: "full",
+      hairSilhouette: "rounded",
+      hairBackShape: "long",
+      hairPart: "center",
+      sideHairLength: "shoulder",
+      sideHairShape: "face_framing",
+      hairAccessory: "none",
+    })!.atlas;
+    const over = CLASSIC_LAYOUT.head.overlay;
+    const opaqueTop = Array.from({ length: 64 }, (_, index) =>
+      alphaAt(atlas, over.top, index % 8, Math.floor(index / 8)),
+    ).filter((alpha) => alpha === 255).length;
+
+    // The base crown owns the complete mass. The expanded cube contains only
+    // seam roots plus two interior highlight clusters, not a second helmet.
+    expect(opaqueTop).toBeLessThanOrEqual(18);
+    expect(opaqueTop).toBeGreaterThanOrEqual(14);
+
+    const expectSame = (
+      first: Rect,
+      firstX: number,
+      firstY: number,
+      second: Rect,
+      secondX: number,
+      secondY: number,
+    ) => {
+      expect(rgbaAt(atlas, first, firstX, firstY)).toEqual(
+        rgbaAt(atlas, second, secondX, secondY),
+      );
+    };
+    for (let x = 0; x < 8; x++) {
+      expectSame(over.front, x, 0, over.top, x, 7);
+      expectSame(over.back, x, 0, over.top, 7 - x, 0);
+      expectSame(over.right, x, 0, over.top, 0, x);
+      expectSame(over.left, x, 0, over.top, 7, 7 - x);
+    }
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("raised hair volume groups adjacent pixels into authored shade clusters", () => {
     const hair: [number, number, number] = [92, 62, 48];
     expect(hairVolumePixel(hair, 40, 4)).toEqual(hairVolumePixel(hair, 41, 4));

@@ -5417,6 +5417,147 @@ function composeHair(
     putColor(base.front, 6, 0, spikeLight);
   }
 
+  if (
+    s === "long" &&
+    hairSilhouette === "rounded" &&
+    style.hairStructure !== "locs" &&
+    style.hairTexture !== "curly" &&
+    style.hairTexture !== "coily"
+  ) {
+    // Long hair already has a complete base crown and connected base side /
+    // rear mass. Keeping most of the expanded top face opaque adds no useful
+    // information and reads as a second square helmet. Hand-authored skins
+    // instead use a few raised roots and interior highlight clusters. Retain
+    // non-hair accessory colours (flowers, leaves, clips and ribbons), while
+    // reducing only hair-coloured pixels and pairing every edge root with the
+    // physically adjacent face.
+    const distance = (a: Rgb, b: Rgb) =>
+      Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    const accessoryTopPoints = new Set<string>();
+    const accessoryFrontTopXs = new Set<number>();
+    const accessoryMirror = style.hairAccessorySide === "right";
+    const accessoryX = (x: number) => (accessoryMirror ? 7 - x : x);
+    const preserveAccessoryPoint = (x: number, y: number) =>
+      accessoryTopPoints.add(`${accessoryX(x)},${y}`);
+    if (accessory === "flower") {
+      if (style.hairAccessorySide === "center") {
+        if (style.hairAccessoryScale === "small") {
+          accessoryTopPoints.add("3,5");
+        } else {
+          for (const point of [
+            "3,4",
+            "2,5",
+            "3,5",
+            "4,5",
+            "2,6",
+            "3,6",
+            "4,6",
+          ])
+            accessoryTopPoints.add(point);
+          if (style.hairAccessoryScale === "large")
+            accessoryTopPoints.add("5,5");
+        }
+      } else if (style.hairAccessoryScale === "small") {
+        preserveAccessoryPoint(2, 5);
+      } else {
+        preserveAccessoryPoint(2, 4);
+        preserveAccessoryPoint(2, 5);
+        preserveAccessoryPoint(3, 6);
+        if (style.hairAccessoryScale === "large")
+          preserveAccessoryPoint(1, 3);
+        if (style.hairAccessoryScale === "large")
+          accessoryFrontTopXs.add(accessoryX(2));
+      }
+    } else if (accessory === "bow" || accessory === "ribbon") {
+      if (style.hairAccessorySide === "center")
+        accessoryTopPoints.add("3,6");
+      else preserveAccessoryPoint(1, 6);
+    }
+    const isHairPixel = (rect: Rect, x: number, y: number) => {
+      const current = readColor(rect, x, y);
+      return Boolean(current && distance(current, hairColor) <= 165);
+    };
+    const clearHairPixel = (rect: Rect, x: number, y: number) => {
+      if (isHairPixel(rect, x, y)) clearPixel(rect, x, y);
+    };
+    const rootLight = mixRgb(hairColor, strandLight, 0.48);
+    const rootMid = mixRgb(hairColor, strandMid, 0.62);
+    const paintRoot = (
+      topX: number,
+      topY: number,
+      face: Rect,
+      faceX: number,
+      shade: number,
+    ) => {
+      const topCurrent = readColor(over.top, topX, topY);
+      const topAccessory =
+        topCurrent !== null && distance(topCurrent, hairColor) > 165;
+      const color = topAccessory
+        ? topCurrent
+        : shadeRgb((topX + topY) % 2 === 0 ? rootLight : rootMid, shade);
+      putColor(over.top, topX, topY, color);
+      const faceCurrent = readColor(face, faceX, 0);
+      if (!faceCurrent || distance(faceCurrent, hairColor) <= 165) {
+        putColor(face, faceX, 0, color);
+      }
+    };
+
+    const frontRoots = new Set([1, 3, 4, 6]);
+    const backRoots = new Set(
+      style.hairVolume === "full" ? [1, 2, 3, 4, 5, 6] : [1, 2, 5, 6],
+    );
+    const sideRoots = new Set([2, 5]);
+    const interiorRoots = new Set(
+      style.hairVolume === "flat"
+        ? ["3,2", "4,3", "2,5", "5,5"]
+        : style.hairVolume === "full"
+          ? ["3,3", "4,4"]
+          : ["1,2", "5,3", "4,4", "3,5"],
+    );
+    for (let y = 0; y < over.top.h; y++) {
+      for (let x = 0; x < over.top.w; x++) {
+        const edgeRoot =
+          (y === 7 && frontRoots.has(x)) ||
+          (y === 0 && backRoots.has(7 - x)) ||
+          (x === 0 && sideRoots.has(y)) ||
+          (x === 7 && sideRoots.has(7 - y));
+        if (
+          !edgeRoot &&
+          !interiorRoots.has(`${x},${y}`) &&
+          !accessoryTopPoints.has(`${x},${y}`)
+        ) {
+          clearHairPixel(over.top, x, y);
+        }
+      }
+    }
+    for (let x = 0; x < 8; x++) {
+      if (!frontRoots.has(x) && !accessoryFrontTopXs.has(x))
+        clearHairPixel(over.front, x, 0);
+      if (!backRoots.has(x)) clearHairPixel(over.back, x, 0);
+      if (!sideRoots.has(x)) {
+        clearHairPixel(over.right, x, 0);
+        clearHairPixel(over.left, x, 0);
+      }
+    }
+    for (const x of frontRoots) {
+      paintRoot(x, 7, over.front, x, 1);
+    }
+    for (const x of backRoots) {
+      paintRoot(7 - x, 0, over.back, x, 0.76);
+    }
+    for (const x of sideRoots) {
+      paintRoot(0, x, over.right, x, 0.82);
+      paintRoot(7, 7 - x, over.left, x, 0.88);
+    }
+    for (const point of interiorRoots) {
+      const [x, y] = point.split(",").map(Number);
+      const current = readColor(over.top, x, y);
+      if (!current || distance(current, hairColor) <= 165) {
+        putColor(over.top, x, y, (x + y) % 2 === 0 ? rootLight : rootMid);
+      }
+    }
+  }
+
   if (style.hairDepthBoost === true) {
     // A rendered-view critique may find that correct geometry still reads as
     // a flat colour mass. Strengthen only pixels that are chromatically closer
