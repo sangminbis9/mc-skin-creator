@@ -47,6 +47,8 @@ export type SkinGenerationResult =
       inputTiles: number;
       outputTiles: number;
       provider?: "gemini" | "workers_ai";
+      /** Effective sheet layout when a provider simplifies a recovery pass. */
+      mode?: GenerationStrategy;
       /** Exact local-meter estimate when the provider has a different cost model. */
       neuronsSpent?: number;
     }
@@ -305,6 +307,8 @@ export class GeminiImageProvider implements SkinGenerationProvider {
  * UV packing, seam repair and six-view validation.
  */
 export class WorkersAiImageProvider implements SkinGenerationProvider {
+  private attempts = 0;
+
   constructor(private readonly env: Env) {}
 
   async generate(
@@ -339,6 +343,15 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
     let submitted = false;
     let attemptedInputTiles = 0;
     try {
+      // Klein 4B can occasionally duplicate the front figure in a dense
+      // four-view sheet. Preserve the richer first attempt, then simplify a
+      // second call to front+back so the deterministic packer receives a real
+      // rear view instead of discarding another otherwise useful generation.
+      const effectiveMode: GenerationStrategy =
+        request.mode === "four_view" && this.attempts > 0
+          ? "front_view"
+          : request.mode;
+      this.attempts += 1;
       // FLUX.2 supports at most four inputs. Keep the primary photo first and
       // the pose guide last, leaving two slots for compatible identity refs.
       const referencePhotos = (request.referencePhotoDataUrls || [])
@@ -349,7 +362,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
             image !== null,
         );
       const guide =
-        request.mode === "front_view"
+        effectiveMode === "front_view"
           ? await buildFrontBackGuidePng()
           : await buildFourViewGuidePng();
       const images = await Promise.all([
@@ -359,7 +372,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
       ]);
       attemptedInputTiles = images.length;
       let prompt =
-        request.mode === "front_view"
+        effectiveMode === "front_view"
           ? buildFrontViewPrompt(
               request.analysis,
               referencePhotos.length,
@@ -376,8 +389,8 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
 
       const form = new FormData();
       form.append("prompt", prompt);
-      form.append("width", request.mode === "four_view" ? "1024" : "768");
-      form.append("height", request.mode === "four_view" ? "256" : "432");
+      form.append("width", effectiveMode === "four_view" ? "1024" : "768");
+      form.append("height", effectiveMode === "four_view" ? "256" : "432");
       form.append("guidance", "4");
       form.append("seed", String(request.seed));
       images.forEach((image, index) => {
@@ -417,6 +430,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         inputTiles,
         outputTiles,
         provider: "workers_ai",
+        mode: effectiveMode,
         neuronsSpent: imageGenerationNeurons(
           this.env,
           inputTiles,
@@ -529,7 +543,11 @@ export class ResilientImageProvider implements SkinGenerationProvider {
             }
           : { provider: "gemini", skipped: true },
         fallback: fallback.ok
-          ? { provider: fallback.provider ?? "workers_ai", ok: true }
+          ? {
+              provider: fallback.provider ?? "workers_ai",
+              ok: true,
+              mode: fallback.mode,
+            }
           : {
               provider: "workers_ai",
               ok: false,

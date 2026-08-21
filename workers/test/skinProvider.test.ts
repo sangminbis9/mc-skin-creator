@@ -203,6 +203,7 @@ describe("Workers AI image recovery", () => {
       inputTiles: 4,
       outputTiles: 2,
       provider: "workers_ai",
+      mode: "four_view",
     });
     expect(result.neuronsSpent).toBeGreaterThan(0);
     expect(capturedModel).toBe("@cf/black-forest-labs/flux-2-klein-4b");
@@ -304,7 +305,11 @@ describe("Workers AI image recovery", () => {
       capacityConsumed: true,
     });
     expect(first.neuronsSpent).toBeGreaterThan(0);
-    expect(second.ok).toBe(true);
+    expect(second).toMatchObject({
+      ok: true,
+      provider: "workers_ai",
+      mode: "front_view",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(aiRun).toHaveBeenCalledTimes(2);
   });

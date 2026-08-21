@@ -2719,6 +2719,34 @@ describe("generateSkin", () => {
     expect(result.neuronsSpent).toBe(236);
   });
 
+  it("accepts a provider-declared front/back recovery sheet under four-view configuration", async () => {
+    const env = makeEnv(makeAnalysis(), true, "four_view");
+    const frontBackPng = await encodePng(makeFrontBackView());
+    const provider = providerOf([
+      {
+        ok: true,
+        imageBytes: frontBackPng,
+        inputTiles: 2,
+        outputTiles: 2,
+        provider: "workers_ai",
+        mode: "front_view",
+      },
+    ]);
+
+    const result = await generateSkin(env, await photoDataUrl(), provider);
+
+    expect(result.status).toBe(200);
+    expect(result.body.generationMode).toBe("image");
+    expect(result.body.generationProvider).toBe("workers_ai");
+    expect(provider.calls).toBe(1);
+    const decoded = await decodePng(
+      Uint8Array.from(atob(result.body.skinPngBase64 as string), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
+    expect(validateFinalAtlas(decoded).ok).toBe(true);
+  });
+
   it("front_view preserves visible cardigan, hair flower and neck bow from observed text when render hints miss them", async () => {
     const base = makeAnalysis();
     const env = makeEnv(

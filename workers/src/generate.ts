@@ -365,10 +365,11 @@ export async function generateSkin(
           generated.outputTiles,
           modelTier,
         );
+      const generatedMode = generated.mode ?? mode;
       const processed = await postprocess(
         generated.imageBytes,
         attempt,
-        mode,
+        generatedMode,
         faceStyle,
       );
       if (processed.atlasBase64 && processed.atlas) {
@@ -514,7 +515,7 @@ export async function generateSkin(
           JSON.stringify({
             at: new Date().toISOString(),
             attempt: attempt + 1,
-            mode,
+            mode: generatedMode,
             detail: processed.failure.slice(0, 1500),
           }),
           { expirationTtl: 60 * 60 * 48 },
