@@ -3915,6 +3915,17 @@ function composeHair(
   // viewer side. Centre/hidden roots retain two balanced curtains.
   const curtainHeavySide =
     hairPart === "right" ? "left" : hairPart === "left" ? "right" : "both";
+  // The sampled/generated front overlay can already contain an opaque generic
+  // fringe. Painting selected analysed tips on top does not remove those old
+  // pixels, so intended staggered gaps collapse back into two solid rows and
+  // read as a bowl cut. Rebuild the complete visible fringe zone from the
+  // structured portrait hints. Hair accessories are composed later and side
+  // locks/seams are restored by their dedicated passes below.
+  if (style.bangs !== "none") {
+    for (let y = 1; y <= 4; y++) {
+      for (let x = 0; x < over.front.w; x++) clearPixel(over.front, x, y);
+    }
+  }
   if (style.bangs === "straight") {
     for (const x of splitCenterFringe
       ? [0, 1, 2, 5, 6, 7]
@@ -3944,12 +3955,6 @@ function composeHair(
     for (const x of [0, 1, 2]) paintBang(px(x), 3, 0.72);
     wrapTemple(2, mirror ? 0.78 : 1, mirror ? 1 : 0.78);
   } else if (style.bangs === "curtain") {
-    // Rebuild these rows rather than layering more pixels over composeFace's
-    // symmetric placeholder. Otherwise a correctly analysed side part still
-    // rendered as the same centred fringe for every portrait.
-    for (let y = 1; y <= 3; y++) {
-      for (let x = 0; x < over.front.w; x++) clearPixel(over.front, x, y);
-    }
     for (const x of [0, 1, 2])
       paintBang(x, 1, curtainHeavySide === "left" ? 1.04 : 0.9);
     for (const x of [5, 6, 7])

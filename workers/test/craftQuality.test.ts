@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildProceduralFallbackAtlas } from "../src/generate";
 import { decodePng, encodePng } from "../src/png";
-import { measureAtlasCraft, validateAtlasCraft } from "../src/skinPost";
+import {
+  measureAtlasCraft,
+  validateAtlasCraft,
+  validateFinalAtlas,
+} from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
 import { buildSkinViewMontage, renderSkinViews } from "../src/skinRender";
 import { REFERENCE_SKIN_BASE64 } from "./fixtures/referenceSkin";
@@ -39,6 +43,58 @@ function channelAt(
 }
 
 describe("handcrafted atlas quality metrics", () => {
+  it("rebuilds procedural dense short fringes with real staggered gaps", () => {
+    const atlas = buildProceduralFallbackAtlas(
+      {
+        skinTone: "#f2d6c0",
+        hairColor: "#1b1b1b",
+        eyeColor: "#4a3728",
+        topColor: "#474a50",
+        topAccentColor: "#f2f2f2",
+        bottomColor: "#333339",
+        shoesColor: "#22201e",
+      },
+      {
+        ...DEFAULT_FACE_STYLE,
+        hairstyle: "short",
+        hairColor: "#1b1b1b",
+        bangs: "straight",
+        bangsLength: "brow",
+        bangsDensity: "dense",
+        fringeEdge: "blunt",
+        fringeOpening: "center",
+        hairTexture: "straight",
+        hairVolume: "normal",
+        hairSilhouette: "rounded",
+        hairBackShape: "tapered",
+        hairPart: "left",
+        sideHairLength: "short",
+        sideHairShape: "ear_hugging",
+        earExposure: "partial",
+        hairAccessory: "none",
+      },
+    )!;
+    const front = CLASSIC_LAYOUT.head.overlay.front;
+    const right = CLASSIC_LAYOUT.head.overlay.right;
+    const left = CLASSIC_LAYOUT.head.overlay.left;
+
+    for (const x of [0, 1, 3, 4, 6, 7]) {
+      expect(channelAt(atlas, front, x, 3, 3)).toBe(255);
+    }
+    for (const x of [2, 5]) {
+      expect(channelAt(atlas, front, x, 3, 3)).toBe(0);
+    }
+    for (let y = 0; y < 8; y++) {
+      expect(channelAt(atlas, front, 0, y, 3)).toBe(
+        channelAt(atlas, right, 7, y, 3),
+      );
+      expect(channelAt(atlas, front, 7, y, 3)).toBe(
+        channelAt(atlas, left, 0, y, 3),
+      );
+    }
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("keeps the rich procedural reference style in the handcrafted skin quality range", async () => {
     const reference = await decodePng(
       Uint8Array.from(atob(REFERENCE_SKIN_BASE64), (character) =>
