@@ -40,7 +40,10 @@ import {
   type ImageModelTier,
   type SkinGenerationProvider,
 } from "./skinProvider";
-import { runSkinCritique } from "./skinCritique";
+import {
+  isActionableCritiqueDefect,
+  runSkinCritique,
+} from "./skinCritique";
 import { mergeTargetedAtlas } from "./skinCorrection";
 import { applyProceduralCritiqueCorrections } from "./proceduralCorrection";
 import { buildSkinPlan, type SkinPlan } from "./skinPlan";
@@ -479,7 +482,8 @@ export async function generateSkin(
               critique.correctionPrompt ||
               "Improve the highest-priority likeness cues and cross-view consistency without changing correct details.";
             const actionableDefects = critique.critique.defects.filter(
-              (defect) => defect.severity !== "minor",
+              (defect) =>
+                isActionableCritiqueDefect(critique.critique, defect),
             );
             correctionRegions = [
               ...new Set(
@@ -504,6 +508,23 @@ export async function generateSkin(
               }),
               { expirationTtl: 60 * 60 * 48 },
             ).catch(() => undefined);
+            if (
+              configuredTier === "quality" &&
+              generated.provider === "workers_ai" &&
+              modelTier === "balanced" &&
+              attempt === attemptPlan.length - 1 &&
+              attemptPlan.length < 3 &&
+              correctionRegions.length > 0
+            ) {
+              // A moderated 9B call can consume the first quality slot before
+              // producing any candidate. If the anonymous 4B recovery then
+              // reaches a valid atlas but fails visual critique, retain its
+              // verified base and allow one inexpensive, region-bounded 4B
+              // correction instead of discarding all generated detail. The
+              // procedural identity reference remains active, so the private
+              // source photo is not sent again.
+              attemptPlan.push("balanced");
+            }
             continue;
           }
         }

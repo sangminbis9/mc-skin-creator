@@ -3000,6 +3000,98 @@ describe("generateSkin", () => {
     expect(result.neuronsSpent).toBe(170 + 1_460 + 66);
   });
 
+  it("uses one bounded 4B correction after moderation consumed the 9B slot", async () => {
+    const analysis = makeAnalysis();
+    const env = makeEnv(analysis);
+    env.GEMINI_API_KEY = "test-key";
+    env.IMAGE_MODEL_TIER = "quality";
+    env.IMAGE_CRITIQUE_ENABLED = "true";
+    const rejectedCritique = {
+      identityScore: 6,
+      faceHairScore: 7,
+      outfitScore: 8,
+      consistencyScore: 4,
+      layerScore: 8,
+      defects: [
+        {
+          category: "face_hair",
+          severity: "minor",
+          feature: "fringe and side-hair continuity",
+          evidence: "The side locks do not follow the photographed fringe.",
+          targetRegions: ["head.overlay"],
+          correction: "Reconnect the analyzed fringe and side locks only.",
+        },
+      ],
+    };
+    const approvedCritique = {
+      identityScore: 90,
+      faceHairScore: 86,
+      outfitScore: 82,
+      consistencyScore: 84,
+      layerScore: 78,
+      defects: [],
+    };
+    const responses = [analysis, rejectedCritique, approvedCritique];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: JSON.stringify(responses.shift()) }],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    const provider = providerOf([
+      {
+        ok: false,
+        error: "Workers AI image generation failed: 3030: output flagged",
+        retryable: true,
+        provider: "workers_ai",
+        capacityConsumed: true,
+        neuronsSpent: 1_460,
+      },
+      {
+        ...(await goodFluxOutput()),
+        provider: "workers_ai",
+        mode: "front_view",
+      },
+      {
+        ...(await goodFluxOutput()),
+        provider: "workers_ai",
+        mode: "front_view",
+      },
+    ]);
+
+    try {
+      const sourcePhoto = await photoDataUrl();
+      const result = await generateSkin(env, sourcePhoto, provider);
+
+      expect(provider.calls).toBe(3);
+      expect(provider.modelTiers).toEqual(["quality", "balanced", "balanced"]);
+      expect(provider.photoDataUrls[0]).toBe(sourcePhoto);
+      expect(provider.photoDataUrls[1]).not.toBe(sourcePhoto);
+      expect(provider.photoDataUrls[2]).toBe(provider.photoDataUrls[1]);
+      expect(provider.correctionPrompts[2]).toContain("head.overlay");
+      expect(provider.correctionPrompts[2]).toContain(
+        "Reconnect the analyzed fringe and side locks only",
+      );
+      expect(result.body.generationMode).toBe("image");
+      expect(result.body.generationProvider).toBe("workers_ai");
+      expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
+        "diagnostic:last-targeted-correction",
+        expect.stringContaining('"head.overlay.front"'),
+        { expirationTtl: 60 * 60 * 48 },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("stops image retries and reports shared quota exhaustion", async () => {
     const env = makeEnv(makeAnalysis());
     env.IMAGE_CRITIQUE_ENABLED = "true";
