@@ -19,7 +19,7 @@ Java(Classic/Slim) / Bedrock용 PNG로 다운로드할 수 있습니다.
   │                           ├─ ① Gemini 멀티모달 분석 + 확대 인물 재검사 (analysis.ts)
   │                           │    canonical identity + observed/inferred + 렌더 힌트
   │                           ├─ ② body/face/layer별 결정적 스킨 계획 (skinPlan.ts)
-  │                           ├─ ③ Gemini 이미지 생성 (skinProvider.ts)
+  │                           ├─ ③ Gemini 이미지 생성 → Workers AI 복구 (skinProvider.ts)
   │                           │    사진+고정 포즈 가이드로 정면/후면/측면 뷰 생성
   │                           ├─ ④ 결정적 pack + UV/레이어 검증 (skinPack.ts, skinPost.ts)
   │                           │    얼굴 identity 보존 + 보이지 않는 면의 일관된 완성
@@ -127,6 +127,8 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 | `VISION_MODEL` | 사진 분석 모델 (기본 `gemini-3.6-flash`) |
 | `GEMINI_IMAGE_MODEL` | 이미지 생성 모델 (기본 `gemini-3.1-flash-image`, 이미지 quota/결제 필요) |
 | `GEMINI_IMAGE_FALLBACK_MODEL` | 기본 이미지 모델의 할당량이 닫혔거나 모델을 사용할 수 없을 때만 시도하는 폴백 (기본 `gemini-3.1-flash-lite-image`) |
+| `WORKERS_IMAGE_MODEL` | Gemini 이미지 생성 실패 시 사용하는 Cloudflare 이미지 편집 모델 (기본 `@cf/black-forest-labs/flux-2-klein-4b`) |
+| `WORKERS_IMAGE_FALLBACK_ENABLED` | `false`일 때만 Workers AI 이미지 복구를 끔 (기본 활성) |
 
 프런트는 `.env.example`, Worker secret 형식은 `workers/.dev.vars.example`을 참고하세요.
 `GEMINI_API_KEY`를 `VITE_` 변수나 `wrangler.jsonc`에 넣으면 클라이언트/저장소에 노출될 수 있습니다.
@@ -135,8 +137,8 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 
 - KV 사용량 게이지는 앱 내부의 보수적 예상치이며 Gemini 결제/쿼터 화면을 대체하지 않습니다.
 - Gemini의 실제 가격·요청 한도는 선택한 모델과 Google AI 프로젝트 설정을 따릅니다.
-- 이미지 모델 quota가 0이어도 사진 분석과 검증된 절차적 스킨 fallback은 계속 동작합니다.
-- Gemini가 실행 위치나 Gateway 인증을 거부하면 구조화 사진 분석·비평은 Workers AI로 전환되고, 이미지 생성 실패는 검증된 절차적 UV 렌더러가 처리합니다.
+- Gemini 이미지 quota가 닫히거나 생성 호출이 실패하면 Workers AI FLUX.2 klein 4B로 한 번 더 생성하고, 두 공급자가 모두 실패해도 검증된 절차적 스킨 fallback은 계속 동작합니다.
+- Gemini가 실행 위치나 Gateway 인증을 거부하면 구조화 사진 분석·비평도 Workers AI로 전환됩니다.
 - 일시적인 rate limit은 일일 소진과 구분하며 앱 전체 quota를 닫지 않습니다.
 - 일일 quota 차단은 Workers AI 무료 할당량 정책에 맞춰 **UTC 자정**에 리셋됩니다.
 - 실제 Gemini 한도와 비용은 Google AI Studio 또는 Google Cloud 콘솔에서 확인하세요.

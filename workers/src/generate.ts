@@ -3,7 +3,7 @@
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
  *
  * 1) Gemini 멀티모달 분석 + 확대 인물 재검사
- * 2) Gemini가 고정 포즈 캐릭터 시트를 생성하고 코드가 64×64 UV atlas로 조립
+ * 2) Gemini 또는 Workers AI가 고정 포즈 시트를 생성하고 코드가 64×64 UV atlas로 조립
  * 3) 6시점 렌더/구조 검사와 Gemini 닮음 비평 뒤 부위 한정 1회 수정
  * 4) 이미지 모델이 불가하면 같은 분석으로 서버에서 검증된 절차적 atlas 생성
  */
@@ -35,7 +35,7 @@ import {
   validateFinalAtlas,
 } from "./skinPost";
 import {
-  GeminiImageProvider,
+  ResilientImageProvider,
   type GenerationStrategy,
   type ImageModelTier,
   type SkinGenerationProvider,
@@ -79,6 +79,7 @@ export interface GenerateResult {
     analysis?: AnalysisSummary;
     skinPngBase64?: string;
     generationMode?: GenerationMode;
+    generationProvider?: "gemini" | "workers_ai";
     error?: string;
     errorCode?: string;
   };
@@ -92,7 +93,7 @@ export interface GenerateResult {
 export async function generateSkin(
   env: Env,
   imageDataUrl: string,
-  provider: SkinGenerationProvider = new GeminiImageProvider(env),
+  provider: SkinGenerationProvider = new ResilientImageProvider(env),
   analysisImageDataUrl: string = imageDataUrl,
   referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResult> {
@@ -248,16 +249,16 @@ export async function generateSkin(
   // ---------- 2) 이미지 생성 (feature flag) ----------
   let skinPngBase64: string | null = null;
   let generationMode: GenerationMode = "procedural_fallback";
+  let generationProvider: "gemini" | "workers_ai" | undefined;
   let providerQuotaExhausted = false;
   if (env.IMAGE_GENERATION_ENABLED === "true") {
     const mode: GenerationStrategy =
       env.IMAGE_GEN_STRATEGY === "four_view" ? "four_view" : "front_view";
     // 얼굴 구조적 합성용 특징 (색은 hex로 매핑된 값, 나머지는 분류값 그대로)
     const baseSeed = Math.floor(Math.random() * (GEMINI_MAX_SEED + 1));
-    // Start with Klein 9B for detail. If that sheet fails structural
-    // post-processing, spend only a cheap 4B call on the recovery attempt.
-    // Repeating the same expensive model tended to reproduce the same layout
-    // defect while exhausting the daily account allocation.
+    // Start with the configured quality tier. If that sheet fails structural
+    // post-processing, use the balanced recovery tier; the default resilient
+    // provider may independently move a failed Gemini call to Workers AI.
     const configuredTier: ImageModelTier =
       env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced";
     const attemptPlan: ImageModelTier[] =
@@ -286,7 +287,9 @@ export async function generateSkin(
         ...(correctionPrompt ? { correctionPrompt } : {}),
       });
       if (!generated.ok) {
-        if (generated.capacityConsumed) {
+        if (generated.neuronsSpent !== undefined) {
+          spent += generated.neuronsSpent;
+        } else if (generated.capacityConsumed) {
           spent += imageGenerationNeurons(env, 2, 2, modelTier);
         }
         if (generated.quotaExceeded) {
@@ -354,12 +357,14 @@ export async function generateSkin(
         }
         continue;
       }
-      spent += imageGenerationNeurons(
-        env,
-        generated.inputTiles,
-        generated.outputTiles,
-        modelTier,
-      );
+      spent +=
+        generated.neuronsSpent ??
+        imageGenerationNeurons(
+          env,
+          generated.inputTiles,
+          generated.outputTiles,
+          modelTier,
+        );
       const processed = await postprocess(
         generated.imageBytes,
         attempt,
@@ -451,6 +456,7 @@ export async function generateSkin(
               // of discarding it and invoking another expensive generation.
               skinPngBase64 = candidateBase64;
               generationMode = "image";
+              generationProvider = generated.provider;
             }
             correctionPrompt =
               "Reinforce the ranked canonical identity, exact face/hair silhouette, outfit color blocks, connected side/back surfaces and deliberate outer-layer details.";
@@ -501,6 +507,7 @@ export async function generateSkin(
         }
         skinPngBase64 = candidateBase64;
         generationMode = "image";
+        generationProvider = generated.provider;
       } else if (processed.failure) {
         await env.MCSKIN_KV.put(
           "diagnostic:last-image-postprocess-failure",
@@ -621,6 +628,7 @@ export async function generateSkin(
       analysis: summary,
       ...(skinPngBase64 ? { skinPngBase64 } : {}),
       generationMode,
+      ...(generationProvider ? { generationProvider } : {}),
     },
     neuronsSpent: spent,
     success: true,

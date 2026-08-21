@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bytesToBase64, encodePng } from "../src/png";
+import { bytesToBase64, encodePng, sniffImageSize } from "../src/png";
 import { buildSkinPlan } from "../src/skinPlan";
-import { GeminiImageProvider } from "../src/skinProvider";
+import {
+  GeminiImageProvider,
+  ResilientImageProvider,
+  WorkersAiImageProvider,
+} from "../src/skinProvider";
 import type { Env } from "../src/types";
 import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
 
@@ -159,5 +163,204 @@ describe("GeminiImageProvider model fallback", () => {
     expect(body.input[4].text).toContain(
       "Use image 3 strictly as the composition guide",
     );
+  });
+});
+
+describe("Workers AI image recovery", () => {
+  it("sends the primary portrait, compatible references and pose guide as multipart inputs", async () => {
+    const base = await request();
+    const output = await encodePng(makeSyntheticAtlas(7));
+    let capturedModel = "";
+    let capturedForm: FormData | null = null;
+    const ai = {
+      run: vi.fn(async (model: string, input: unknown) => {
+        capturedModel = model;
+        const multipart = (input as {
+          multipart: { body: ReadableStream; contentType: string };
+        }).multipart;
+        capturedForm = await new Response(multipart.body, {
+          headers: { "content-type": multipart.contentType },
+        }).formData();
+        return { image: bytesToBase64(output) };
+      }),
+    } as unknown as Ai;
+
+    const result = await new WorkersAiImageProvider({
+      ...env,
+      AI: ai,
+      WORKERS_IMAGE_MODEL: "@cf/black-forest-labs/flux-2-klein-4b",
+    }).generate({
+      ...base,
+      referencePhotoDataUrls: [
+        base.photoDataUrl,
+        base.photoDataUrl,
+        base.photoDataUrl,
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      inputTiles: 4,
+      outputTiles: 2,
+      provider: "workers_ai",
+    });
+    expect(result.neuronsSpent).toBeGreaterThan(0);
+    expect(capturedModel).toBe("@cf/black-forest-labs/flux-2-klein-4b");
+    expect(capturedForm).not.toBeNull();
+    expect(capturedForm?.get("width")).toBe("1024");
+    expect(capturedForm?.get("height")).toBe("256");
+    expect(capturedForm?.get("seed")).toBe("11");
+    expect(capturedForm?.get("input_image_0")).toBeInstanceOf(File);
+    expect(capturedForm?.get("input_image_1")).toBeInstanceOf(File);
+    expect(capturedForm?.get("input_image_2")).toBeInstanceOf(File);
+    expect(capturedForm?.get("input_image_3")).toBeInstanceOf(File);
+    expect(capturedForm?.get("input_image_4")).toBeNull();
+    expect(String(capturedForm?.get("prompt"))).toContain(
+      "Images 0-2 are intended to show the same person",
+    );
+    expect(String(capturedForm?.get("prompt"))).toContain(
+      "Use image 3 strictly as the composition guide",
+    );
+  });
+
+  it("uses Workers AI when Gemini reports exhausted image quota", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json(
+        {
+          error: {
+            message: "Image quota is unavailable for this project.",
+            status: "RESOURCE_EXHAUSTED",
+            details: [
+              {
+                violations: [
+                  { quotaId: "GenerateRequestsPerDay", quotaValue: "0" },
+                ],
+              },
+            ],
+          },
+        },
+        { status: 429 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const output = await encodePng(makeSyntheticAtlas(9));
+    const aiRun = vi.fn(async () => ({ image: bytesToBase64(output) }));
+    const result = await new ResilientImageProvider({
+      ...env,
+      AI: { run: aiRun } as unknown as Ai,
+      GEMINI_IMAGE_FALLBACK_MODEL: "gemini-3.1-flash-image",
+      WORKERS_IMAGE_FALLBACK_ENABLED: "true",
+    }).generate(await request());
+
+    expect(result).toMatchObject({ ok: true, provider: "workers_ai" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(aiRun).toHaveBeenCalledTimes(1);
+    expect(result.neuronsSpent).toBeGreaterThan(0);
+  });
+
+  it("remembers exhausted Gemini quota while retrying temporary Workers AI capacity", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json(
+        {
+          error: {
+            message: "Image quota is unavailable for this project.",
+            status: "RESOURCE_EXHAUSTED",
+            details: [
+              {
+                violations: [
+                  { quotaId: "GenerateRequestsPerDay", quotaValue: "0" },
+                ],
+              },
+            ],
+          },
+        },
+        { status: 429 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const output = await encodePng(makeSyntheticAtlas(12));
+    const aiRun = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("3040 out of capacity"))
+      .mockResolvedValueOnce({ image: bytesToBase64(output) });
+    const provider = new ResilientImageProvider({
+      ...env,
+      AI: { run: aiRun } as unknown as Ai,
+      GEMINI_IMAGE_FALLBACK_MODEL: "gemini-3.1-flash-image",
+      WORKERS_IMAGE_FALLBACK_ENABLED: "true",
+    });
+    const generationRequest = await request();
+
+    const first = await provider.generate(generationRequest);
+    const second = await provider.generate({
+      ...generationRequest,
+      seed: generationRequest.seed + 1,
+    });
+
+    expect(first).toMatchObject({
+      ok: false,
+      retryable: true,
+      quotaExceeded: false,
+      capacityConsumed: true,
+    });
+    expect(first.neuronsSpent).toBeGreaterThan(0);
+    expect(second.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(aiRun).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not send malformed or undersized input to the fallback provider", async () => {
+    const aiRun = vi.fn();
+    const base = await request();
+    const result = await new WorkersAiImageProvider({
+      ...env,
+      AI: { run: aiRun } as unknown as Ai,
+    }).generate({
+      ...base,
+      photoDataUrl: "data:image/png;base64,AQID",
+    });
+
+    expect(result).toMatchObject({ ok: false, retryable: false });
+    expect(aiRun).not.toHaveBeenCalled();
+  });
+
+  it("downscales a tall portrait below the Workers AI 512px input limit", async () => {
+    const width = 640;
+    const height = 960;
+    const rgba = new Uint8Array(width * height * 4);
+    for (let i = 0; i < width * height; i++) {
+      rgba[i * 4] = 132;
+      rgba[i * 4 + 1] = 104;
+      rgba[i * 4 + 2] = 92;
+      rgba[i * 4 + 3] = 255;
+    }
+    const portrait = await encodePng({ width, height, rgba });
+    const output = await encodePng(makeSyntheticAtlas(15));
+    let primaryInputSize: { width: number; height: number } | null = null;
+    const aiRun = vi.fn(async (_model: string, input: unknown) => {
+      const multipart = (input as {
+        multipart: { body: ReadableStream; contentType: string };
+      }).multipart;
+      const form = await new Response(multipart.body, {
+        headers: { "content-type": multipart.contentType },
+      }).formData();
+      const image = form.get("input_image_0");
+      expect(image).toBeInstanceOf(File);
+      primaryInputSize = sniffImageSize(
+        new Uint8Array(await (image as File).arrayBuffer()),
+      );
+      return { image: bytesToBase64(output) };
+    });
+    const base = await request();
+    const result = await new WorkersAiImageProvider({
+      ...env,
+      AI: { run: aiRun } as unknown as Ai,
+    }).generate({
+      ...base,
+      photoDataUrl: `data:image/png;base64,${bytesToBase64(portrait)}`,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(primaryInputSize).toEqual({ width: 299, height: 448 });
   });
 });

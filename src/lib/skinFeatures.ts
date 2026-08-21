@@ -68,6 +68,8 @@ export interface GenerateResponse {
   /** AI가 직접 생성한 64x64 스킨 PNG (base64). 없으면 features로 절차 생성 */
   skinPngBase64?: string;
   generationMode?: GenerationMode;
+  /** 이미지 모드에서 실제로 채택된 생성 공급자 (운영 진단용). */
+  generationProvider?: "gemini" | "workers_ai";
   /** observed/inferred 구분이 담긴 분석 요약 (디버깅/투명성용) */
   analysis?: unknown;
   error?: string;

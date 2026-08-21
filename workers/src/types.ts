@@ -22,6 +22,10 @@ interface EnvOverrides {
   GEMINI_IMAGE_QUALITY_MODEL?: string;
   /** Lower-cost image model tried only when a configured model is unavailable or has no quota. */
   GEMINI_IMAGE_FALLBACK_MODEL?: string;
+  /** Cloudflare-native image editor used only after Gemini image generation fails. */
+  WORKERS_IMAGE_MODEL?: string;
+  /** Set to "false" to disable the Workers AI image-generation recovery path. */
+  WORKERS_IMAGE_FALLBACK_ENABLED?: string;
   /** "true"일 때만 Gemini 이미지 생성 사용 (아니면 절차적 fallback만) */
   IMAGE_GENERATION_ENABLED?: string;
   /** "front_view" | "four_view" — UV atlas는 항상 코드가 조립한다. */

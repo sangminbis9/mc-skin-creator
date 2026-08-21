@@ -23,6 +23,10 @@
     "GEMINI_IMAGE_QUALITY_MODEL": "gemini-3.1-flash-image",
     // Used only when the configured image model is unavailable or has no quota.
     "GEMINI_IMAGE_FALLBACK_MODEL": "gemini-3.1-flash-lite-image",
+    // Dedicated-account recovery when Gemini image generation is unavailable.
+    // The server still validates and repacks the generated four-view sheet.
+    "WORKERS_IMAGE_MODEL": "@cf/black-forest-labs/flux-2-klein-4b",
+    "WORKERS_IMAGE_FALLBACK_ENABLED": "true",
     // Gemini 스킨 이미지 생성 feature flag — "true"가 아니면 절차적 fallback만 사용
     "IMAGE_GENERATION_ENABLED": "true",
     // 정확한 UV 배치는 서버 packer가 보장한다. direct atlas는 모델이 좌표를 어겨 사용하지 않는다.

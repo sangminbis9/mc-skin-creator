@@ -2672,12 +2672,19 @@ describe("generateSkin", () => {
     const env = makeEnv(makeAnalysis(), true, "front_view");
     const frontPng = await encodePng(makeFrontBackView());
     const provider = providerOf([
-      { ok: true, imageBytes: frontPng, inputTiles: 2, outputTiles: 2 },
+      {
+        ok: true,
+        imageBytes: frontPng,
+        inputTiles: 2,
+        outputTiles: 2,
+        provider: "workers_ai",
+      },
     ]);
     const result = await generateSkin(env, await photoDataUrl(), provider);
 
     expect(result.status).toBe(200);
     expect(result.body.generationMode).toBe("image");
+    expect(result.body.generationProvider).toBe("workers_ai");
     expect(result.body.analysis?.renderHints).toEqual(
       makeAnalysis().renderHints,
     );
