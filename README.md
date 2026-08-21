@@ -128,6 +128,7 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 | `GEMINI_IMAGE_MODEL` | 이미지 생성 모델 (기본 `gemini-3.1-flash-image`, 이미지 quota/결제 필요) |
 | `GEMINI_IMAGE_FALLBACK_MODEL` | 기본 이미지 모델의 할당량이 닫혔거나 모델을 사용할 수 없을 때만 시도하는 폴백 (기본 `gemini-3.1-flash-lite-image`) |
 | `WORKERS_IMAGE_MODEL` | Gemini 이미지 생성 실패 시 사용하는 Cloudflare 이미지 편집 모델 (기본 `@cf/black-forest-labs/flux-2-klein-4b`) |
+| `WORKERS_IMAGE_QUALITY_MODEL` | 첫 Cloudflare 복구 시 사용하는 고품질 모델 (기본 `@cf/black-forest-labs/flux-2-klein-9b`) |
 | `WORKERS_IMAGE_FALLBACK_ENABLED` | `false`일 때만 Workers AI 이미지 복구를 끔 (기본 활성) |
 
 프런트는 `.env.example`, Worker secret 형식은 `workers/.dev.vars.example`을 참고하세요.

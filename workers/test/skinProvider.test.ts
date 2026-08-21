@@ -259,6 +259,30 @@ describe("Workers AI image recovery", () => {
     expect(result.neuronsSpent).toBeGreaterThan(0);
   });
 
+  it("selects Klein 9B for the quality recovery tier and meters its higher cost", async () => {
+    const output = await encodePng(makeSyntheticAtlas(10));
+    let capturedModel = "";
+    const aiRun = vi.fn(async (model: string) => {
+      capturedModel = model;
+      return { image: bytesToBase64(output) };
+    });
+    const result = await new WorkersAiImageProvider({
+      ...env,
+      AI: { run: aiRun } as unknown as Ai,
+      WORKERS_IMAGE_MODEL: "@cf/black-forest-labs/flux-2-klein-4b",
+      WORKERS_IMAGE_QUALITY_MODEL:
+        "@cf/black-forest-labs/flux-2-klein-9b",
+    }).generate({ ...(await request()), modelTier: "quality" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "workers_ai",
+      mode: "four_view",
+    });
+    expect(capturedModel).toBe("@cf/black-forest-labs/flux-2-klein-9b");
+    expect(result.neuronsSpent).toBeGreaterThan(1_300);
+  });
+
   it("remembers exhausted Gemini quota while retrying temporary Workers AI capacity", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json(

@@ -26,6 +26,7 @@
     // Dedicated-account recovery when Gemini image generation is unavailable.
     // The server still validates and repacks the generated four-view sheet.
     "WORKERS_IMAGE_MODEL": "@cf/black-forest-labs/flux-2-klein-4b",
+    "WORKERS_IMAGE_QUALITY_MODEL": "@cf/black-forest-labs/flux-2-klein-9b",
     "WORKERS_IMAGE_FALLBACK_ENABLED": "true",
     // Gemini 스킨 이미지 생성 feature flag — "true"가 아니면 절차적 fallback만 사용
     "IMAGE_GENERATION_ENABLED": "true",

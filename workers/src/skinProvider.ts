@@ -72,6 +72,8 @@ const DEFAULT_GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image";
 const DEFAULT_GEMINI_IMAGE_FALLBACK_MODEL =
   "gemini-3.1-flash-lite-image";
 const DEFAULT_WORKERS_IMAGE_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
+const DEFAULT_WORKERS_IMAGE_QUALITY_MODEL =
+  "@cf/black-forest-labs/flux-2-klein-9b";
 const MIN_INPUT_EDGE = 64;
 const WORKERS_IMAGE_MAX_EDGE = 448;
 
@@ -168,6 +170,37 @@ function isWorkersQuotaError(error: unknown): boolean {
 function isWorkersTemporaryError(error: unknown): boolean {
   return /(?:\b3040\b|out of capacity|rate limit|too many requests|\b429\b|temporar|timeout)/i.test(
     errorText(error),
+  );
+}
+
+function workersImageNeurons(
+  env: Env,
+  model: string,
+  images: Array<{ bytes: Uint8Array }>,
+  outputWidth: number,
+  outputHeight: number,
+): number {
+  if (/flux-2-klein-9b$/i.test(model)) {
+    const inputMegapixels = images.reduce((sum, image) => {
+      const size = sniffImageSize(image.bytes);
+      return sum + (size ? (size.width * size.height) / 1_000_000 : 0.25);
+    }, 0);
+    const outputMegapixels = (outputWidth * outputHeight) / 1_000_000;
+    // 9B bills the first output MP as one block, then smaller increments.
+    return Math.ceil(
+      1363.64 +
+        Math.max(0, outputMegapixels - 1) * 181.82 +
+        inputMegapixels * 181.82,
+    );
+  }
+  const inputTiles = images.length;
+  const outputTiles =
+    Math.ceil(outputWidth / 512) * Math.ceil(outputHeight / 512);
+  return imageGenerationNeurons(
+    env,
+    inputTiles,
+    outputTiles,
+    "balanced",
   );
 }
 
@@ -342,6 +375,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
 
     let submitted = false;
     let attemptedInputTiles = 0;
+    let attemptedNeurons = 0;
     try {
       // Klein 4B can occasionally duplicate the front figure in a dense
       // four-view sheet. Preserve the richer first attempt, then simplify a
@@ -389,8 +423,10 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
 
       const form = new FormData();
       form.append("prompt", prompt);
-      form.append("width", effectiveMode === "four_view" ? "1024" : "768");
-      form.append("height", effectiveMode === "four_view" ? "256" : "432");
+      const outputWidth = effectiveMode === "four_view" ? 1024 : 768;
+      const outputHeight = effectiveMode === "four_view" ? 256 : 432;
+      form.append("width", String(outputWidth));
+      form.append("height", String(outputHeight));
       form.append("guidance", "4");
       form.append("seed", String(request.seed));
       images.forEach((image, index) => {
@@ -406,8 +442,21 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
       if (!serialized.body || !contentType) {
         throw new Error("Workers AI multipart 요청을 직렬화하지 못함");
       }
+      const modelTier =
+        request.modelTier ??
+        (this.env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced");
       const model =
-        this.env.WORKERS_IMAGE_MODEL?.trim() || DEFAULT_WORKERS_IMAGE_MODEL;
+        modelTier === "quality"
+          ? this.env.WORKERS_IMAGE_QUALITY_MODEL?.trim() ||
+            DEFAULT_WORKERS_IMAGE_QUALITY_MODEL
+          : this.env.WORKERS_IMAGE_MODEL?.trim() || DEFAULT_WORKERS_IMAGE_MODEL;
+      attemptedNeurons = workersImageNeurons(
+        this.env,
+        model,
+        images,
+        outputWidth,
+        outputHeight,
+      );
       submitted = true;
       const response = (await this.env.AI.run(model as never, {
         multipart: {
@@ -431,12 +480,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         outputTiles,
         provider: "workers_ai",
         mode: effectiveMode,
-        neuronsSpent: imageGenerationNeurons(
-          this.env,
-          inputTiles,
-          outputTiles,
-          "balanced",
-        ),
+        neuronsSpent: attemptedNeurons,
       };
     } catch (error) {
       const quotaExceeded = isWorkersQuotaError(error);
@@ -450,12 +494,14 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         ...(capacityConsumed ? { capacityConsumed: true } : {}),
         ...(capacityConsumed
           ? {
-              neuronsSpent: imageGenerationNeurons(
-                this.env,
-                Math.max(1, attemptedInputTiles),
-                2,
-                "balanced",
-              ),
+              neuronsSpent:
+                attemptedNeurons ||
+                imageGenerationNeurons(
+                  this.env,
+                  Math.max(1, attemptedInputTiles),
+                  2,
+                  "balanced",
+                ),
             }
           : {}),
       };
