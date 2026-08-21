@@ -1035,7 +1035,13 @@ function composeFace(
   const eyeTilt = style.eyeTilt ?? "level";
   const eyeSize = style.eyeSize ?? "average";
   for (const [outer, inner] of eyePairs) {
-    const outerBrowY = eyeTilt === "upturned" ? 2 : 3;
+    // Narrow eyes already form a one-row dark line at y=4. Keeping a thick
+    // brow directly above on y=3 merges both features into a 2x2 black block
+    // at preview scale. Lift this brow to y=2 and leave one skin row between
+    // it and the eye; other eye shapes retain the closer natural placement.
+    const outerBrowY =
+      style.eyeShape === "narrow" || eyeTilt === "upturned" ? 2 : 3;
+    const innerBrowY = style.eyeShape === "narrow" ? 2 : 3;
     put(
       face,
       outer,
@@ -1049,7 +1055,7 @@ function composeFace(
     put(
       face,
       inner,
-      3,
+      innerBrowY,
       browStronglyOccludedByFringe
         ? mixRgb(brow, skinColor, 0.9)
         : browOccludedByFringe
@@ -1212,8 +1218,8 @@ function composeFace(
         put(overlay, outer, 4, mixRgb(eyeCorner, skinColor, 0.16));
         put(overlay, outer, 5, lowerEye);
       } else if (style.eyeShape === "narrow") {
-        put(overlay, outer, 3, eyelid);
-        put(overlay, inner, 3, shadeRgb(eyelid, 0.86));
+        // Keep the raised detail on the actual one-row eye, not the brow-gap
+        // row. A second raised row turns a narrow eye into square goggles.
         put(overlay, inner, 4, shadeRgb(eye, 0.82));
         put(overlay, outer, 4, eyeCorner);
       } else {
@@ -1654,17 +1660,41 @@ function composeFace(
  * Keep the two base-layer irises visible after hair and accessories have been
  * composed onto the larger head overlay cube. At 8x8, one opaque hair pixel
  * over an iris removes the entire eye in the 3D viewer; colour contrast alone
- * cannot recover it. Glasses are excluded because their visible frame
- * intentionally occupies the eye row; bangs keep their surrounding pixels.
+ * cannot recover it. Prescription glasses keep explicit transparent lens
+ * windows after hair composition; sunglasses intentionally remain opaque.
+ * Bangs keep their surrounding pixels.
  */
 function preserveFaceReadability(
   atlas: RawImage,
   style: FaceStyle,
   hairColor: Rgb,
 ): void {
-  if (style.glasses !== "none") return;
-
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
+  const clearOverlayPixel = (x: number, y: number) => {
+    const d = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
+    atlas.rgba[d] = 0;
+    atlas.rgba[d + 1] = 0;
+    atlas.rgba[d + 2] = 0;
+    atlas.rgba[d + 3] = 0;
+  };
+
+  if (style.glasses !== "none") {
+    if (style.glasses !== "sunglasses") {
+      if (style.glasses === "round") {
+        for (const x of [2, 5]) {
+          clearOverlayPixel(x, 3);
+          clearOverlayPixel(x, 4);
+        }
+      } else {
+        for (const x of [1, 6]) {
+          clearOverlayPixel(x, 4);
+          clearOverlayPixel(x, 5);
+        }
+      }
+    }
+    return;
+  }
+
   const eyePairs =
     style.eyeSpacing === "wide"
       ? ([
@@ -1680,14 +1710,6 @@ function preserveFaceReadability(
             [1, 2],
             [6, 5],
           ] as const);
-
-  const clearOverlayPixel = (x: number, y: number) => {
-    const d = ((overlay.y + y) * ATLAS_SIZE + overlay.x + x) * 4;
-    atlas.rgba[d] = 0;
-    atlas.rgba[d + 1] = 0;
-    atlas.rgba[d + 2] = 0;
-    atlas.rgba[d + 3] = 0;
-  };
 
   // Reveal both the sclera/corner and the iris. Clearing only the iris pixel
   // left an opaque, near-black outer-layer corner beside it; at normal preview
@@ -1846,44 +1868,46 @@ function composeGlassesOverlay(atlas: RawImage, style: FaceStyle): void {
     // frames are reasserted after hair/headwear: clearing the two-pixel lens
     // window prevents an older hair pixel from hiding the eye underneath.
     if (!lens) {
-      clear(overlay, x0 + 1, 3);
+      if (style.glasses === "round") clear(overlay, x0 + 1, 3);
       clear(overlay, x0 + 1, 4);
+      if (style.glasses !== "round") clear(overlay, x0 + 1, 5);
     }
     if (style.glasses === "round") {
       const outerSide = x0 < 4 ? x0 : x0 + 2;
       const innerSide = x0 < 4 ? x0 + 2 : x0;
-      put(overlay, x0 + 1, 2, rimHighlight);
-      // One diagonal corner on each row turns the sparse six-pixel outline
-      // into a readable oval at preview scale without covering the iris.
-      put(overlay, x0 < 4 ? x0 : x0 + 2, 2, rimHighlight);
+      // A compact open-centre U/oval preserves a two-pixel lens window and
+      // the analysed fringe opening behind it. The former filled top-centre
+      // cell could be mistaken for hair and close a left/right parting.
       put(overlay, outerSide, 3, rimHighlight);
       put(overlay, innerSide, 3, rim);
       put(overlay, outerSide, 4, rimHighlight);
       put(overlay, innerSide, 4, rim);
       put(overlay, x0 + 1, 5, rim);
-      put(overlay, x0 < 4 ? x0 + 2 : x0, 5, rim);
     } else {
-      for (let x = x0; x < x0 + 3; x++) {
-        put(overlay, x, 2, rim);
-        put(overlay, x, 5, rim);
-      }
-      put(overlay, x0, 3, rim);
-      put(overlay, x0 + 2, 3, rim);
+      // A 3x4 rectangular outline consumes twenty of the 64 face pixels and
+      // reads as a black mask once side hair occupies x=0/x=7. Use a compact
+      // 3x3 frame: a complete brow bar, open lens centre, and two lower
+      // corners. The base iris remains visible through (x0+1, y=4).
+      for (let x = x0; x < x0 + 3; x++) put(overlay, x, 3, rim);
       put(overlay, x0, 4, rim);
       put(overlay, x0 + 2, 4, rim);
+      put(overlay, x0, 5, rim);
+      put(overlay, x0 + 2, 5, rim);
     }
     if (lens) {
       put(overlay, x0 + 1, 3, lens);
       put(overlay, x0 + 1, 4, lens);
     }
   }
-  put(overlay, 3, 3, rim);
-  put(overlay, 4, 3, rim);
-  if (style.glassesScale === "large") put(overlay, 3, 3, rimHighlight);
-  put(CLASSIC_LAYOUT.head.overlay.right, 7, 3, rim);
-  put(CLASSIC_LAYOUT.head.overlay.right, 6, 3, rim);
-  put(CLASSIC_LAYOUT.head.overlay.left, 0, 3, rim);
-  put(CLASSIC_LAYOUT.head.overlay.left, 1, 3, rim);
+  const bridgeY = style.glasses === "round" ? 4 : 3;
+  put(overlay, 3, bridgeY, rim);
+  put(overlay, 4, bridgeY, rim);
+  if (style.glassesScale === "large")
+    put(overlay, 3, bridgeY, rimHighlight);
+  put(CLASSIC_LAYOUT.head.overlay.right, 7, bridgeY, rim);
+  put(CLASSIC_LAYOUT.head.overlay.right, 6, bridgeY, rim);
+  put(CLASSIC_LAYOUT.head.overlay.left, 0, bridgeY, rim);
+  put(CLASSIC_LAYOUT.head.overlay.left, 1, bridgeY, rim);
   if (style.glassesScale === "large") {
     put(CLASSIC_LAYOUT.head.overlay.right, 7, 4, rimHighlight);
     put(CLASSIC_LAYOUT.head.overlay.right, 6, 4, rim);
@@ -8669,6 +8693,13 @@ export function packFrontViewToAtlas(
   resetPortraitFaceOverlay(atlas);
   composeGlassesOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);
+  // With no fringe in front of the face, prescription frames physically sit
+  // above the hair/temple layer. Coily and full-volume passes otherwise erase
+  // the entire frame even though the analysis explicitly detected glasses.
+  // Fringed styles keep the earlier ordering so hair may naturally overlap.
+  if (faceStyle.glasses !== "none" && faceStyle.bangs === "none") {
+    composeGlassesOverlay(atlas, faceStyle);
+  }
   preserveFaceReadability(atlas, faceStyle, hairColor);
   composeHat(atlas, hatColor, faceStyle);
   // Large statement frames are a primary identity cue. Reassert them after

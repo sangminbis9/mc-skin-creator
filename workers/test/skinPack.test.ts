@@ -4329,6 +4329,30 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("narrow eyes keep a skin gap below thick brows instead of forming goggles", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "buzz",
+      bangs: "none",
+      eyeShape: "narrow",
+      eyeSize: "small",
+      eyeSpacing: "close",
+      eyebrowShape: "straight",
+      eyebrowThickness: "thick",
+      glasses: "none",
+    })!.atlas;
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const raised = CLASSIC_LAYOUT.head.overlay.front;
+
+    for (const x of [1, 2, 4, 5]) {
+      expect(redAt(atlas, face, x, 2)).toBeLessThan(redAt(atlas, face, x, 3));
+      expect(redAt(atlas, face, x, 3)).toBeGreaterThan(
+        redAt(atlas, face, x, 4) + 10,
+      );
+      expect(alphaAt(atlas, raised, x, 3)).toBe(0);
+    }
+  });
+
   it("faceContrastBoost strengthens analyzed landmarks without recoloring the complexion", () => {
     const shared: FaceStyle = {
       ...DEFAULT_FACE_STYLE,
@@ -5039,8 +5063,46 @@ describe("packFrontViewToAtlas", () => {
 
     expect(rgbaAt(atlas, raisedFace, 2, 4)).toEqual([48, 44, 42, 255]);
     expect(rgbaAt(atlas, raisedFace, 3, 3)).toEqual([48, 44, 42, 255]);
+    expect(rgbaAt(atlas, raisedFace, 1, 2)).not.toEqual([48, 44, 42, 255]);
+    expect(alphaAt(atlas, raisedFace, 1, 4)).toBe(0);
+    expect(alphaAt(atlas, raisedFace, 1, 5)).toBe(0);
     expect(alphaAt(atlas, raisedFace, 3, 6)).toBe(0);
     expect(alphaAt(atlas, raisedFace, 3, 7)).toBe(0);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("coily hair without bangs preserves round frames and transparent lenses", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "afro",
+      hairTexture: "coily",
+      hairVolume: "full",
+      bangs: "none",
+      glasses: "round",
+      glassesColor: "#302c2a",
+    })!.atlas;
+    const raised = CLASSIC_LAYOUT.head.overlay;
+
+    for (const [x, y] of [
+      [1, 3],
+      [3, 3],
+      [1, 4],
+      [3, 4],
+      [4, 4],
+      [6, 4],
+      [4, 3],
+      [6, 3],
+      [2, 5],
+      [5, 5],
+    ] as const) {
+      expect(alphaAt(atlas, raised.front, x, y), `frame ${x},${y}`).toBe(255);
+    }
+    for (const x of [2, 5]) {
+      expect(alphaAt(atlas, raised.front, x, 3)).toBe(0);
+      expect(alphaAt(atlas, raised.front, x, 4)).toBe(0);
+    }
+    expect(alphaAt(atlas, raised.right, 7, 4)).toBe(255);
+    expect(alphaAt(atlas, raised.left, 0, 4)).toBe(255);
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
