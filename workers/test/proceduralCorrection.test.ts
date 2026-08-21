@@ -114,6 +114,69 @@ describe("procedural critique correction", () => {
     ]);
   });
 
+  it("restores an observed pendant and low-score minor hair geometry", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      observed: {
+        ...base.observed,
+        hair: "Short straight black hair with a rounded crown and brow fringe.",
+        accessories: "A thin silver chain with a small round pendant.",
+      },
+      renderHints: {
+        ...base.renderHints,
+        hairTexture: "straight",
+        hairSilhouette: "rounded",
+        sideHairLength: "short",
+        sideHairShape: "ear_hugging",
+        necklace: "silver",
+      },
+    });
+    const result = applyProceduralCritiqueCorrections(
+      analysis,
+      {
+        ...DEFAULT_FACE_STYLE,
+        hairSilhouette: "flat",
+        necklace: "none",
+      },
+      {
+        identityScore: 60,
+        faceHairScore: 70,
+        outfitScore: 50,
+        consistencyScore: 70,
+        layerScore: 70,
+        defects: [
+          {
+            category: "face_hair",
+            severity: "minor",
+            feature: "hair texture and side locks",
+            evidence: "The raised hair reads flatter than the photo.",
+            targetRegions: ["head.overlay"],
+            correction: "Restore the analyzed fringe and side-hair depth.",
+          },
+          {
+            category: "outfit",
+            severity: "major",
+            feature: "silver pendant necklace",
+            evidence: "The observed silver pendant is missing.",
+            targetRegions: ["torso.front"],
+            correction: "Restore the silver chain and pendant.",
+          },
+        ],
+      },
+    );
+
+    expect(result.style).toMatchObject({
+      hairTexture: "straight",
+      hairSilhouette: "rounded",
+      sideHairLength: "short",
+      sideHairShape: "ear_hugging",
+      hairDepthBoost: true,
+      necklace: "silver",
+    });
+    expect(result.applied).toContain("head.hair:analysis_geometry+contrast");
+    expect(result.applied).toContain("torso.front:observed_necklace");
+  });
+
   it("turns a major generic-face critique into a real landmark contrast correction", () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({

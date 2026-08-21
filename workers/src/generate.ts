@@ -3195,13 +3195,24 @@ function completeVisibleUpperDetails(
     style.garmentTexture = "patterned";
   }
 
-  if (/\bshort[-\s]+sleeve(?:d|s)?\b/.test(upperText)) {
+  const explicitShortSleeves =
+    /\b(?:short[-\s]+sleeve(?:d|s)?|sleeveless|tank(?:[-\s]+top)?)\b/.test(
+      upperText,
+    );
+  if (explicitShortSleeves) {
     style.sleeveLength = "short";
   } else if (
     /\b(?:long[-\s]+sleeve(?:d|s)?|sleeved cardigan|sleeved jacket)\b/.test(
       upperText,
-    )
+    ) ||
+    ["sweater", "hoodie", "jacket"].includes(style.topType ?? "") ||
+    ["cardigan", "open_jacket", "coat"].includes(style.outerGarment ?? "")
   ) {
+    // Vision models often identify the garment correctly but leave the
+    // coarse fallback at its legacy short-sleeve default. A conventional
+    // sweater/hoodie/jacket construction is long-sleeved unless the observed
+    // prose explicitly says otherwise; this also preserves visible cuffs in
+    // upper-body portraits where the wrists fall near the crop edge.
     style.sleeveLength = "long";
   }
 

@@ -1,6 +1,9 @@
 import type { PhotoAnalysis } from "./analysis";
 import type { FaceStyle } from "./skinPack";
-import type { SkinCritique } from "./skinCritique";
+import {
+  isActionableCritiqueDefect,
+  type SkinCritique,
+} from "./skinCritique";
 
 export interface ProceduralStyleCorrection {
   style: FaceStyle;
@@ -9,7 +12,7 @@ export interface ProceduralStyleCorrection {
 
 function joinedDefectText(critique: SkinCritique): string {
   return critique.defects
-    .filter((defect) => defect.severity !== "minor")
+    .filter((defect) => isActionableCritiqueDefect(critique, defect))
     .map(
       (defect) =>
         `${defect.feature} ${defect.evidence} ${defect.correction}`,
@@ -20,7 +23,7 @@ function joinedDefectText(critique: SkinCritique): string {
 
 function hasTarget(critique: SkinCritique, pattern: RegExp): boolean {
   return critique.defects
-    .filter((defect) => defect.severity !== "minor")
+    .filter((defect) => isActionableCritiqueDefect(critique, defect))
     .some((defect) =>
       defect.targetRegions.some((region) => pattern.test(region.toLowerCase())),
     );
@@ -65,7 +68,7 @@ export function applyProceduralCritiqueCorrections(
     hasTarget(critique, /(?:^|\.)head(?:\.|$)/) ||
     critique.defects.some(
       (defect) =>
-        defect.severity !== "minor" &&
+        isActionableCritiqueDefect(critique, defect) &&
         (defect.category === "face_hair" || defect.category === "identity"),
     );
   const hairTargeted =
@@ -113,7 +116,7 @@ export function applyProceduralCritiqueCorrections(
   const faceTargeted =
     headTargeted &&
     critique.defects.some((defect) => {
-      if (defect.severity === "minor") return false;
+      if (!isActionableCritiqueDefect(critique, defect)) return false;
       const text = `${defect.feature} ${defect.evidence} ${defect.correction}`.toLowerCase();
       return /\b(?:face|facial|likeness|identity|eyes?|brows?|nose|mouth|smile|teeth|jaw(?![-\s]+length)(?:line| shape)?|expression|wrinkle|mature|skin tone)\b/.test(
         text,
@@ -146,7 +149,7 @@ export function applyProceduralCritiqueCorrections(
     hasTarget(critique, /(?:torso|body|arm|leg)/) ||
     critique.defects.some(
       (defect) =>
-        defect.severity !== "minor" &&
+        isActionableCritiqueDefect(critique, defect) &&
         (defect.category === "outfit" || defect.category === "overlay"),
     );
   if (outfitTargeted) {
@@ -173,6 +176,29 @@ export function applyProceduralCritiqueCorrections(
         ? "striped"
         : "plain";
       applied.push("torso.front:observed_tie");
+    }
+    if (
+      /\b(?:necklace|chain|pendant)\b/.test(defectText) &&
+      /\b(?:necklace|chain|pendant)\b/.test(observedText)
+    ) {
+      const analyzed = analysis.renderHints.necklace ?? "none";
+      const observed = /\b(?:silver|sterling)\b[^.!?;,]{0,32}\b(?:necklace|chain|pendant)\b|\b(?:necklace|chain|pendant)\b[^.!?;,]{0,32}\b(?:silver|sterling)\b/.test(
+        observedText,
+      )
+        ? "silver"
+        : /\bgold(?:en)?\b[^.!?;,]{0,32}\b(?:necklace|chain|pendant)\b|\b(?:necklace|chain|pendant)\b[^.!?;,]{0,32}\bgold(?:en)?\b/.test(
+              observedText,
+            )
+          ? "gold"
+          : /\b(?:black|dark)\b[^.!?;,]{0,32}\b(?:necklace|chain|pendant)\b|\b(?:necklace|chain|pendant)\b[^.!?;,]{0,32}\b(?:black|dark)\b/.test(
+                observedText,
+              )
+            ? "dark"
+            : "none";
+      if (analyzed !== "none" || observed !== "none") {
+        style.necklace = analyzed !== "none" ? analyzed : observed;
+        applied.push("torso.front:observed_necklace");
+      }
     }
   }
 

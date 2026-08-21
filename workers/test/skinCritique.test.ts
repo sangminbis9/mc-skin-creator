@@ -19,6 +19,7 @@ describe("Gemini rendered-skin critique", () => {
           "transparent/non-transparent outer-layer steps",
         );
         expect(prompt).toContain("8x12 torso");
+        expect(prompt).toContain("0-100 scale, never a 0-10 scale");
         expect(prompt).toContain("Machine-measured atlas facts");
         expect(prompt).toContain("head outer layer:");
         expect(prompt).toContain("opaque RGB colors");
@@ -206,6 +207,60 @@ describe("Gemini rendered-skin critique", () => {
     expect(result.ok && result.correctionPrompt).toContain(
       "head.front+head.overlay",
     );
+  });
+
+  it("normalizes fallback 0-10 scores and keeps low-score minor hair feedback actionable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      identityScore: 6,
+                      faceHairScore: 7,
+                      outfitScore: 8,
+                      consistencyScore: 4,
+                      layerScore: 8,
+                      defects: [
+                        {
+                          category: "face_hair",
+                          severity: "minor",
+                          feature: "side hair texture",
+                          evidence: "the temple locks look flatter than the photo",
+                          targetRegions: ["head.overlay"],
+                          correction:
+                            "restore the analyzed fringe and side-lock depth",
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await runSkinCritique(
+      { GEMINI_API_KEY: "test" } as Env,
+      makeAnalysis(),
+      ["data:image/png;base64,AQID"],
+      "data:image/png;base64,BAUG",
+    );
+
+    expect(result.ok && result.critique).toMatchObject({
+      identityScore: 60,
+      faceHairScore: 70,
+      outfitScore: 80,
+      consistencyScore: 40,
+      layerScore: 80,
+    });
+    expect(result.ok && result.correctionPrompt).toContain("head.overlay");
   });
 
   it("falls back to a separate critique model when the primary quota is exhausted", async () => {

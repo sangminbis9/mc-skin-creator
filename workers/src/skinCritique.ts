@@ -172,14 +172,39 @@ function validateCritique(raw: Record<string, unknown>): SkinCritique | null {
       ),
     });
   }
+  // Some fallback vision models follow an implicit 0-10 convention even
+  // though the response schema says 0-100. Treat an all-<=10 score set as a
+  // coherent 10-point answer and normalize it before applying the quality
+  // gate. Without this, a reasonable 7/10 face/hair result is logged as 7%
+  // and minor, actionable defects are discarded as if the review were
+  // internally contradictory.
+  const scale = Object.values(scores).every((value) => (value ?? 100) <= 10)
+    ? 10
+    : 1;
   return {
-    identityScore: scores.identityScore!,
-    faceHairScore: scores.faceHairScore!,
-    outfitScore: scores.outfitScore!,
-    consistencyScore: scores.consistencyScore!,
-    layerScore: scores.layerScore!,
+    identityScore: scores.identityScore! * scale,
+    faceHairScore: scores.faceHairScore! * scale,
+    outfitScore: scores.outfitScore! * scale,
+    consistencyScore: scores.consistencyScore! * scale,
+    layerScore: scores.layerScore! * scale,
     defects,
   };
+}
+
+export function isActionableCritiqueDefect(
+  critique: SkinCritique,
+  defect: SkinCritiqueDefect,
+): boolean {
+  if (defect.severity !== "minor") return true;
+  if (
+    defect.category === "identity" ||
+    defect.category === "face_hair"
+  ) {
+    return critique.identityScore < 78 || critique.faceHairScore < 75;
+  }
+  if (defect.category === "outfit") return critique.outfitScore < 70;
+  if (defect.category === "overlay") return critique.layerScore < 65;
+  return critique.consistencyScore < 75;
 }
 
 function atlasRegionStats(atlas: RawImage, rects: Rect[]): string {
@@ -247,7 +272,7 @@ Minecraft constraint calibration:
 - The overlay is expanded by only 0.35 Minecraft texture pixels in these renders. Use the enlarged head and upper-body rows to distinguish it from the base before claiming that the second layer is unused.
 - At an 8x12 torso, cable knit is represented by repeating alternating light/dark ribs or zigzags on base and overlay. Judge whether that readable construction exists; do not require photoreal woven cables.
 
-Score identity and face/hair against the photos, outfit fidelity, cross-view physical consistency, and meaningful second-layer depth. Penalize generic faces, wrong fringe/part/silhouette, missing accessories, incorrect color blocks, repeated or mirrored views, disconnected seams, hollow shells, random noise and blank surfaces. Report only visible, actionable defects that are achievable within the standard Minecraft skin format. targetRegions must use Minecraft regions such as head.front, head.overlay, torso.front, torso.back, arm.left, arm.right, leg.left or leg.right. Keep corrections narrow and preserve already-correct features.`;
+Score identity and face/hair against the photos, outfit fidelity, cross-view physical consistency, and meaningful second-layer depth. Every score MUST be an integer on a 0-100 scale, never a 0-10 scale. Penalize generic faces, wrong fringe/part/silhouette, missing accessories, incorrect color blocks, repeated or mirrored views, disconnected seams, hollow shells, random noise and blank surfaces. Report only visible, actionable defects that are achievable within the standard Minecraft skin format. targetRegions must use Minecraft regions such as head.front, head.overlay, torso.front, torso.back, arm.left, arm.right, leg.left or leg.right. Keep corrections narrow and preserve already-correct features.`;
   const models = [
     env.VISION_MODEL?.trim() || "gemini-3.6-flash",
     env.VISION_FALLBACK_MODEL?.trim(),
@@ -294,7 +319,7 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
         critique.consistencyScore >= 75 &&
         critique.layerScore >= 65;
       const correctionPrompt = critique.defects
-        .filter((defect) => defect.severity !== "minor")
+        .filter((defect) => isActionableCritiqueDefect(critique, defect))
         .slice(0, 4)
         .map(
           (defect) =>

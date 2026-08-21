@@ -3327,6 +3327,46 @@ describe("generateSkin", () => {
     expect(decoded.rgba[shoeStrap + 3]).toBe(255);
   });
 
+  it("infers conventional long sleeves for a photographed sweater unless short sleeves are explicit", () => {
+    const base = makeAnalysis();
+    const sweater = makeAnalysis({
+      observed: {
+        ...base.observed,
+        clothing: "A charcoal cable-knit crewneck sweater.",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topType: "sweater",
+        sleeveLength: "short",
+      },
+    });
+    const shortSleeveSweater = makeAnalysis({
+      observed: {
+        ...base.observed,
+        clothing: "A charcoal short-sleeve knit sweater.",
+      },
+      fallbackFeatures: {
+        ...base.fallbackFeatures,
+        topType: "sweater",
+        sleeveLength: "long",
+      },
+    });
+
+    const sweaterFeatures = refineFeatureColorsFromAnalysis(
+      sweater,
+      fallbackFeaturesToHex(sweater.fallbackFeatures),
+    );
+    const shortFeatures = refineFeatureColorsFromAnalysis(
+      shortSleeveSweater,
+      fallbackFeaturesToHex(shortSleeveSweater.fallbackFeatures),
+    );
+
+    expect(buildFaceStyle(sweater, sweaterFeatures).sleeveLength).toBe("long");
+    expect(
+      buildFaceStyle(shortSleeveSweater, shortFeatures).sleeveLength,
+    ).toBe("short");
+  });
+
   it("재시도 불가 오류(입력 크기 등)는 즉시 fallback한다", async () => {
     const env = makeEnv(makeAnalysis());
     const provider = providerOf([
