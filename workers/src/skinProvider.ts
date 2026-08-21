@@ -453,7 +453,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
 export class ResilientImageProvider implements SkinGenerationProvider {
   private readonly gemini: GeminiImageProvider;
   private readonly workers: WorkersAiImageProvider;
-  private geminiQuotaExhausted = false;
+  private geminiUnavailable = false;
 
   constructor(private readonly env: Env) {
     this.gemini = new GeminiImageProvider(env);
@@ -464,14 +464,21 @@ export class ResilientImageProvider implements SkinGenerationProvider {
     request: SkinGenerationRequest,
   ): Promise<SkinGenerationResult> {
     const fallbackEnabled =
-      this.env.WORKERS_IMAGE_FALLBACK_ENABLED !== "false" && Boolean(this.env.AI);
-    if (this.geminiQuotaExhausted && fallbackEnabled) {
-      return this.workers.generate(request);
+      this.env.WORKERS_IMAGE_FALLBACK_ENABLED !== "false";
+    if (this.geminiUnavailable && fallbackEnabled) {
+      const fallback = await this.workers.generate(request);
+      await this.recordFallback(undefined, fallback);
+      return fallback;
     }
 
     const primary = await this.gemini.generate(request);
     if (primary.ok) return primary;
-    if (primary.quotaExceeded) this.geminiQuotaExhausted = true;
+    if (
+      primary.quotaExceeded ||
+      /(?:HTTP 401|unauthori[sz]ed|invalid (?:api )?key)/i.test(primary.error)
+    ) {
+      this.geminiUnavailable = true;
+    }
     const validButProviderFailed =
       primary.retryable ||
       primary.quotaExceeded === true ||
@@ -485,6 +492,7 @@ export class ResilientImageProvider implements SkinGenerationProvider {
       ? imageGenerationNeurons(this.env, 2, 2, tier)
       : 0;
     const fallback = await this.workers.generate(request);
+    await this.recordFallback(primary, fallback);
     const totalNeurons = primaryNeurons + (fallback.neuronsSpent ?? 0);
     if (fallback.ok) {
       return {
@@ -502,5 +510,35 @@ export class ResilientImageProvider implements SkinGenerationProvider {
         primary.capacityConsumed === true || fallback.capacityConsumed === true,
       neuronsSpent: totalNeurons,
     };
+  }
+
+  private async recordFallback(
+    primary: Extract<SkinGenerationResult, { ok: false }> | undefined,
+    fallback: SkinGenerationResult,
+  ): Promise<void> {
+    if (!this.env.MCSKIN_KV) return;
+    await this.env.MCSKIN_KV.put(
+      "diagnostic:last-image-provider-chain",
+      JSON.stringify({
+        at: new Date().toISOString(),
+        primary: primary
+          ? {
+              provider: "gemini",
+              detail: primary.error.slice(0, 500),
+              quotaExceeded: primary.quotaExceeded === true,
+            }
+          : { provider: "gemini", skipped: true },
+        fallback: fallback.ok
+          ? { provider: fallback.provider ?? "workers_ai", ok: true }
+          : {
+              provider: "workers_ai",
+              ok: false,
+              detail: fallback.error.slice(0, 500),
+              retryable: fallback.retryable,
+              quotaExceeded: fallback.quotaExceeded === true,
+            },
+      }),
+      { expirationTtl: 60 * 60 * 48 },
+    ).catch(() => undefined);
   }
 }
