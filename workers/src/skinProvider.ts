@@ -56,6 +56,7 @@ export type SkinGenerationResult =
       ok: false;
       error: string;
       retryable: boolean;
+      provider?: "gemini" | "workers_ai";
       quotaExceeded?: boolean;
       /** True when inference ran far enough that account capacity may be used. */
       capacityConsumed?: boolean;
@@ -168,7 +169,7 @@ function isWorkersQuotaError(error: unknown): boolean {
 }
 
 function isWorkersTemporaryError(error: unknown): boolean {
-  return /(?:\b3040\b|out of capacity|rate limit|too many requests|\b429\b|temporar|timeout)/i.test(
+  return /(?:\b3030\b|flagged|moderation|\b3040\b|out of capacity|rate limit|too many requests|\b429\b|temporar|timeout)/i.test(
     errorText(error),
   );
 }
@@ -216,6 +217,7 @@ export class GeminiImageProvider implements SkinGenerationProvider {
         ok: false,
         error: "사진 data URL을 해석하지 못함",
         retryable: false,
+        provider: "gemini",
       };
     }
     const size = sniffImageSize(photo.bytes);
@@ -224,6 +226,7 @@ export class GeminiImageProvider implements SkinGenerationProvider {
         ok: false,
         error: "사진 크기를 판별하지 못함 (PNG/JPEG 아님)",
         retryable: false,
+        provider: "gemini",
       };
     }
     if (size.width < MIN_INPUT_EDGE || size.height < MIN_INPUT_EDGE) {
@@ -231,6 +234,7 @@ export class GeminiImageProvider implements SkinGenerationProvider {
         ok: false,
         error: `사진이 너무 작음 (${size.width}x${size.height})`,
         retryable: false,
+        provider: "gemini",
       };
     }
     const references = (request.referencePhotoDataUrls || [])
@@ -323,6 +327,7 @@ export class GeminiImageProvider implements SkinGenerationProvider {
       ok: false,
       error: `Gemini image generation failed${attempts}: ${detail}`,
       retryable: temporaryRateLimit || !quotaExceeded,
+      provider: "gemini",
       ...(quotaExceeded ? { quotaExceeded: true } : {}),
       ...(temporaryRateLimit
         ? { retryAfterMs: geminiRetryAfterMs(lastError) }
@@ -352,6 +357,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         ok: false,
         error: "Workers AI binding이 설정되지 않음",
         retryable: false,
+        provider: "workers_ai",
       };
     }
     const photo = dataUrlToBytes(request.photoDataUrl);
@@ -360,6 +366,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         ok: false,
         error: "사진 data URL을 해석하지 못함",
         retryable: false,
+        provider: "workers_ai",
       };
     }
     const size = sniffImageSize(photo.bytes);
@@ -370,6 +377,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
           ? `사진이 너무 작음 (${size.width}x${size.height})`
           : "사진 크기를 판별하지 못함 (PNG/JPEG 아님)",
         retryable: false,
+        provider: "workers_ai",
       };
     }
 
@@ -490,6 +498,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         ok: false,
         error: `Workers AI image generation failed: ${errorText(error)}`,
         retryable,
+        provider: "workers_ai",
         ...(quotaExceeded ? { quotaExceeded: true } : {}),
         ...(capacityConsumed ? { capacityConsumed: true } : {}),
         ...(capacityConsumed

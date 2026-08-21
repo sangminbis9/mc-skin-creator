@@ -2968,6 +2968,38 @@ describe("generateSkin", () => {
     expect(result.neuronsSpent).toBe(170 + 1_460 + 1_460 + 66);
   });
 
+  it("Workers moderation switches from 9B to an anonymized 4B recovery", async () => {
+    const env = makeEnv(makeAnalysis());
+    env.IMAGE_MODEL_TIER = "quality";
+    const provider = providerOf([
+      {
+        ok: false,
+        error: "Workers AI image generation failed: 3030: output flagged",
+        retryable: true,
+        provider: "workers_ai",
+        capacityConsumed: true,
+        neuronsSpent: 1_460,
+      },
+      {
+        ...(await goodFluxOutput()),
+        provider: "workers_ai",
+        mode: "front_view",
+      },
+    ]);
+
+    const sourcePhoto = await photoDataUrl();
+    const result = await generateSkin(env, sourcePhoto, provider);
+
+    expect(provider.calls).toBe(2);
+    expect(provider.modelTiers).toEqual(["quality", "balanced"]);
+    expect(provider.photoDataUrls[0]).toBe(sourcePhoto);
+    expect(provider.photoDataUrls[1]).not.toBe(sourcePhoto);
+    expect(provider.photoDataUrls[1]).toMatch(/^data:image\/png;base64,/);
+    expect(result.body.generationMode).toBe("image");
+    expect(result.body.generationProvider).toBe("workers_ai");
+    expect(result.neuronsSpent).toBe(170 + 1_460 + 66);
+  });
+
   it("stops image retries and reports shared quota exhaustion", async () => {
     const env = makeEnv(makeAnalysis());
     env.IMAGE_CRITIQUE_ENABLED = "true";

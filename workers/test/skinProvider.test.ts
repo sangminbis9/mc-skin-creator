@@ -283,6 +283,28 @@ describe("Workers AI image recovery", () => {
     expect(result.neuronsSpent).toBeGreaterThan(1_300);
   });
 
+  it("marks Workers AI moderation failures as retryable consumed capacity", async () => {
+    const aiRun = vi.fn(async () => {
+      throw new Error(
+        "3030: Your output has been flagged. Please choose another prompt / input image combination",
+      );
+    });
+    const result = await new WorkersAiImageProvider({
+      ...env,
+      AI: { run: aiRun } as unknown as Ai,
+      WORKERS_IMAGE_QUALITY_MODEL:
+        "@cf/black-forest-labs/flux-2-klein-9b",
+    }).generate({ ...(await request()), modelTier: "quality" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      provider: "workers_ai",
+      retryable: true,
+      capacityConsumed: true,
+    });
+    expect(result.neuronsSpent).toBeGreaterThan(1_300);
+  });
+
   it("remembers exhausted Gemini quota while retrying temporary Workers AI capacity", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json(

@@ -346,6 +346,7 @@ export async function generateSkin(
         if (
           configuredTier === "quality" &&
           modelTier === "quality" &&
+          generated.provider !== "workers_ai" &&
           generated.capacityConsumed &&
           attempt === 0
         ) {
