@@ -36,6 +36,8 @@ interface EnvOverrides {
   IMAGE_MODEL_TIER?: string;
   /** Run six-view Gemini likeness critique before accepting an image atlas. */
   IMAGE_CRITIQUE_ENABLED?: string;
+  /** Compare generated and deterministic heads against the focused source crop. */
+  HEAD_CANDIDATE_SELECTION_ENABLED?: string;
   /** Gemini 로컬 상대 사용량 표시 분모 비율 (0~1, 기본 0.5; 공급자 한도와 별개) */
   DAILY_BUDGET_RATIO?: string;
 }

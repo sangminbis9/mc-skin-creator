@@ -36,6 +36,8 @@
     "IMAGE_MODEL_TIER": "quality",
     // 코드 검증 뒤 여섯 시점 렌더를 Gemini가 닮음/연속성/레이어 기준으로 재검토한다.
     "IMAGE_CRITIQUE_ENABLED": "true",
+    // Structural validity is not likeness: rank generated vs deterministic heads.
+    "HEAD_CANDIDATE_SELECTION_ENABLED": "true",
     // 기존 앱 quota 게이지의 로컬 사용량 분모. Gemini 청구 한도와는 별개다.
     "DAILY_BUDGET_RATIO": "1.0",
   },

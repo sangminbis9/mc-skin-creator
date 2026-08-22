@@ -23,6 +23,10 @@ function saliencePolicy(analysis: PhotoAnalysis): string {
   return `Canonical identity: ${analysis.canonicalIdentity.overallImpression}. Preserve in strict priority order: ${ranked}. If pixel space conflicts, protect higher-priority cues first.`;
 }
 
+function likenessPriorityPolicy(): string {
+  return "PRIORITY ORDER: (1) same-person identity, (2) hair silhouette and P5 identity features, (3) visible outfit fidelity, (4) valid Minecraft construction, (5) shading and decorative detail. Do not beautify or redesign the person. Do not make the face more generic or conventionally attractive. Preserve visible asymmetry, unusual face width, forehead/hairline/fringe proportions, eye placement, glasses footprint and mouth placement even when a more polished alternative seems aesthetically preferable.";
+}
+
 /** 스타일 참고 이미지 유무에 따른 레퍼런스 인덱스 배치 */
 export interface ReferenceLayout {
   /** true면 image0=스타일, image1=인물, image2=UV 가이드. false면 image0=인물, image1=UV 가이드 */
@@ -80,6 +84,7 @@ export function buildFrontViewPrompt(
     .filter((value): value is string => Boolean(value))
     .join("; ");
   const lines = [
+    likenessPriorityPolicy(),
     `Use image ${guideIndex} strictly as the composition and pose guide: replace both guide figures with two views of the SAME blocky pixel-art character, preserving their exact left/right placement, gap, scale, straight pose and proportions.`,
     "On the left render the FRONT view. On the right render the true BACK view seen from behind, including the back of the head, inferred hair, garment construction and shoes. Never draw a second front view.",
     "Minecraft proportions: large cubic head (about a quarter of total height), rectangular torso, straight blocky arms and legs.",
@@ -138,6 +143,7 @@ export function buildFourViewPrompt(
     .filter((value): value is string => Boolean(value))
     .join("; ");
   const lines = [
+    likenessPriorityPolicy(),
     `Use image ${guideIndex} strictly as the composition guide. Replace its four guide figures with four orthographic views of the SAME blocky pixel-art character, preserving exact placement, scale, straight pose and spacing.`,
     "Left-to-right order is mandatory: FRONT view, true BACK view, character LEFT PROFILE, character RIGHT PROFILE. The two profile views must be genuine opposite sides, not repeated front or back views.",
     "Keep all four figures completely separated on one solid very light gray background. Draw exactly four figures and nothing else.",
@@ -180,6 +186,7 @@ export function buildSkinPrompt(
   const uvRef = layout.hasStyleRef ? "Image 2" : "Image 1";
 
   const lines: string[] = [
+    likenessPriorityPolicy(),
     // 레이아웃 지시를 맨 앞에 — diffusion 모델은 프롬프트 앞부분을 가장 강하게 따른다.
     `Repaint ${uvRef} — a Minecraft Java 64x64 classic skin UV texture atlas — keeping every rectangle in exactly the same position and size, but replacing the flat placeholder colors with pixel-art textures for a blocky video game character.`,
     "The output must be a flat UV texture atlas with the identical layout structure: disjoint rectangles for each cube face of head, torso, arms and legs, on a plain dark background.",

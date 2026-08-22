@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { generateSkin } from "../src/generate";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
 import { buildSkinViewMontage, renderSkinViews } from "../src/skinRender";
+import { validateFinalAtlas } from "../src/skinPost";
 import type {
   SkinGenerationProvider,
   SkinGenerationResult,
@@ -731,7 +732,7 @@ describe("inferred lower-body completion", () => {
     expect(shoeChannels[2]).toBeLessThan(shoeChannels[0] + 25);
   });
 
-  it("renders a vague knit completion as jeans, belt, socks and constructed sneakers", async () => {
+  it("renders a vague knit completion with minimum invention", async () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({
       visibleRegions: {
@@ -789,10 +790,10 @@ describe("inferred lower-body completion", () => {
 
     expect(result.body.generationMode).toBe("procedural_fallback");
     expect(result.body.analysis?.inferred.lowerBodyDesign).toMatchObject({
-      bottomType: "jeans",
-      bottomAccent: "belt",
-      legwear: "socks",
-      legwearAsymmetry: "both",
+      bottomType: "pants",
+      bottomAccent: "none",
+      legwear: "none",
+      legwearAsymmetry: "none",
       shoeStyle: "sneakers",
     });
     const decoded = await decodePng(
@@ -800,22 +801,7 @@ describe("inferred lower-body completion", () => {
         character.charCodeAt(0),
       ),
     );
-    const body = CLASSIC_LAYOUT.body.overlay.front;
-    const leg = CLASSIC_LAYOUT.rightLeg.overlay;
-    const belt =
-      ((body.y + body.h - 3) * ATLAS_SIZE + body.x + 3) * 4 + 3;
-    const sockRib = ((leg.front.y + 7) * ATLAS_SIZE + leg.front.x + 1) * 4 + 3;
-    const shoeLace =
-      ((leg.front.y + leg.front.h - 3) * ATLAS_SIZE + leg.front.x + 1) * 4 +
-      3;
-    const sideSole =
-      ((leg.right.y + leg.right.h - 1) * ATLAS_SIZE + leg.right.x + 3) * 4 +
-      3;
-
-    expect(decoded.rgba[belt]).toBe(255);
-    expect(decoded.rgba[sockRib]).toBe(255);
-    expect(decoded.rgba[shoeLace]).toBe(255);
-    expect(decoded.rgba[sideSole]).toBe(255);
+    expect(validateFinalAtlas(decoded).ok).toBe(true);
 
     const artifactDir = process.env.CRAFT_ARTIFACT_DIR?.trim();
     if (artifactDir) {

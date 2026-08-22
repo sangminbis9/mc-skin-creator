@@ -277,6 +277,46 @@ export function renderSkinViews(
   );
 }
 
+/** Nearest-neighbour head crop used for likeness ranking and eval artifacts. */
+export function extractRenderedHeadView(
+  view: RenderedSkinView,
+  outputSize = 96,
+): RawImage {
+  const sourceSize = Math.floor(view.image.width / 3);
+  const sourceX = Math.floor((view.image.width - sourceSize) / 2);
+  const sourceY = Math.max(0, Math.floor(view.image.height / 12));
+  const rgba = new Uint8Array(outputSize * outputSize * 4);
+  for (let y = 0; y < outputSize; y++) {
+    const sampleY = Math.min(view.image.height - 1, sourceY + Math.floor((y * sourceSize) / outputSize));
+    for (let x = 0; x < outputSize; x++) {
+      const sampleX = Math.min(view.image.width - 1, sourceX + Math.floor((x * sourceSize) / outputSize));
+      const sourceOffset = (sampleY * view.image.width + sampleX) * 4;
+      const targetOffset = (y * outputSize + x) * 4;
+      rgba.set(view.image.rgba.subarray(sourceOffset, sourceOffset + 4), targetOffset);
+    }
+  }
+  return { width: outputSize, height: outputSize, rgba };
+}
+
+/** Front, front-left 3/4 and front-right 3/4 under identical geometry. */
+export function buildHeadViewMontage(views: RenderedSkinView[]): RawImage {
+  const selected = ["front", "front_left_three_quarter", "front_right_three_quarter"].map((name) => {
+    const view = views.find((candidate) => candidate.name === name);
+    if (!view) throw new Error(`Missing rendered head view: ${name}`);
+    return extractRenderedHeadView(view);
+  });
+  const size = selected[0].width;
+  const rgba = new Uint8Array(size * 3 * size * 4);
+  selected.forEach((source, index) => {
+    for (let y = 0; y < size; y++) {
+      const sourceStart = y * size * 4;
+      const targetStart = (y * size * 3 + index * size) * 4;
+      rgba.set(source.rgba.subarray(sourceStart, sourceStart + size * 4), targetStart);
+    }
+  });
+  return { width: size * 3, height: size, rgba };
+}
+
 export function buildSkinViewMontage(views: RenderedSkinView[]): RawImage {
   if (views.length !== 6) throw new Error("Six rendered views are required");
   const tileWidth = views[0].image.width;

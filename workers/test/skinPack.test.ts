@@ -9,6 +9,7 @@ import {
 import {
   applyUvMask,
   measureAtlasCraft,
+  validateAtlasCraft,
   validateFinalAtlas,
 } from "../src/skinPost";
 import {
@@ -1653,6 +1654,38 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("keeps wide-set irises readable while long side hair owns the outer eye seams", () => {
+    const style: FaceStyle = {
+      ...DEFAULT_FACE_STYLE,
+      skinTone: "#efd0c7",
+      eyeColor: "#6b4a2f",
+      irisLightness: "light",
+      eyeShape: "narrow",
+      eyeSpacing: "wide",
+      hairstyle: "long",
+      bangs: "none",
+      hairTexture: "wavy",
+      hairBackShape: "long",
+      overallHairLength: "chest",
+      hairPart: "center",
+      sideHairLength: "jaw",
+      sideHairShape: "tapered",
+      earrings: "stud",
+      earringSide: "both",
+    };
+    const atlas = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
+    applyUvMask(atlas);
+    const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
+
+    // The edge pixels continue the long side-hair seam. The inner iris
+    // anchors remain transparent and therefore readable on the base cube.
+    expect(alphaAt(atlas, faceOverlay, 0, 4)).toBe(255);
+    expect(alphaAt(atlas, faceOverlay, 7, 4)).toBe(255);
+    expect(alphaAt(atlas, faceOverlay, 1, 4)).toBe(0);
+    expect(alphaAt(atlas, faceOverlay, 6, 4)).toBe(0);
+    expect(validateAtlasCraft(atlas, style).ok).toBe(true);
+  });
+
   it("rounded short hair uses connected crown and temple shade clusters", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -2417,23 +2450,17 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, body.base.back, 2, 4)).toBeGreaterThan(
       redAt(atlas, body.base.back, 4, 7),
     );
-    expect(
-      alphaAt(atlas, rightArm.front, rightArm.front.w - 1, 5),
-    ).toBe(255);
+    expect(alphaAt(atlas, rightArm.front, rightArm.front.w - 1, 5)).toBe(255);
     expect(alphaAt(atlas, rightArm.front, rightArm.front.w - 1, 1)).toBe(255);
     expect(alphaAt(atlas, rightArm.right, 1, 3)).toBe(255);
-    expect(
-      alphaAt(atlas, rightArm.top, rightArm.top.w - 1, 1),
-    ).toBe(255);
+    expect(alphaAt(atlas, rightArm.top, rightArm.top.w - 1, 1)).toBe(255);
     expect(alphaAt(atlas, leftArm.front, 0, 5)).toBe(255);
     expect(alphaAt(atlas, leftArm.front, 0, 1)).toBe(255);
     expect(alphaAt(atlas, leftArm.left, 1, 3)).toBe(255);
     expect(alphaAt(atlas, leftArm.top, 0, 1)).toBe(255);
     expect(
       redAt(atlas, rightArm.front, rightArm.front.w - 1, 0),
-    ).toBeGreaterThan(
-      redAt(atlas, rightArm.front, rightArm.front.w - 1, 5),
-    );
+    ).toBeGreaterThan(redAt(atlas, rightArm.front, rightArm.front.w - 1, 5));
     expect(redAt(atlas, leftArm.front, 0, 0)).toBeGreaterThan(
       redAt(atlas, leftArm.front, 0, 5),
     );
@@ -2733,9 +2760,9 @@ describe("packFrontViewToAtlas", () => {
     expect(
       redAt(leftLonger, body.base.left, body.base.left.w - 1, 6),
     ).toBeLessThan(150);
-    expect(
-      alphaAt(leftLonger, rightArm.front, rightArm.front.w - 1, 5),
-    ).toBe(255);
+    expect(alphaAt(leftLonger, rightArm.front, rightArm.front.w - 1, 5)).toBe(
+      255,
+    );
     expect(alphaAt(leftLonger, leftArm.front, 0, 5)).toBe(0);
 
     expect(redAt(rightLonger, body.base.front, 0, 6)).toBeGreaterThan(150);
@@ -2746,9 +2773,9 @@ describe("packFrontViewToAtlas", () => {
     expect(
       redAt(rightLonger, body.base.left, body.base.left.w - 1, 6),
     ).toBeLessThan(150);
-    expect(
-      alphaAt(rightLonger, rightArm.front, rightArm.front.w - 1, 5),
-    ).toBe(0);
+    expect(alphaAt(rightLonger, rightArm.front, rightArm.front.w - 1, 5)).toBe(
+      0,
+    );
     expect(alphaAt(rightLonger, leftArm.front, 0, 5)).toBe(255);
 
     applyUvMask(leftLonger);
@@ -4871,12 +4898,8 @@ describe("packFrontViewToAtlas", () => {
     );
     // mouthShape=full means a strongly defined, non-compact footprint;
     // lipFullness=full on a small mouth remains the compact two-pixel case.
-    expect(redAt(full, face, 2, 6)).toBeLessThan(
-      redAt(small, face, 2, 6) - 20,
-    );
-    expect(redAt(full, face, 5, 6)).toBeLessThan(
-      redAt(small, face, 5, 6) - 20,
-    );
+    expect(redAt(full, face, 2, 6)).toBeLessThan(redAt(small, face, 2, 6) - 20);
+    expect(redAt(full, face, 5, 6)).toBeLessThan(redAt(small, face, 5, 6) - 20);
     expect(rgbaAt(full, face, 2, 6)).not.toEqual(rgbaAt(wide, face, 2, 6));
     expect(rgbaAt(full, face, 5, 6)).not.toEqual(rgbaAt(wide, face, 5, 6));
   });

@@ -5,6 +5,21 @@ import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
 
 afterEach(() => vi.unstubAllGlobals());
 
+const P5_PRESENT = [
+  {
+    feature: "short side-swept black fringe",
+    status: "present",
+    evidence: "the fringe remains readable in front and three-quarter head views",
+    targetRegions: ["head.front", "head.overlay"],
+  },
+  {
+    feature: "thin silver glasses",
+    status: "present",
+    evidence: "both thin frames remain visible around the eyes",
+    targetRegions: ["head.front", "head.overlay"],
+  },
+] as const;
+
 describe("Gemini rendered-skin critique", () => {
   it("calibrates likeness review to achievable Minecraft layer geometry", async () => {
     const fetchMock = vi.fn(
@@ -40,6 +55,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 84,
                       consistencyScore: 91,
                       layerScore: 76,
+                      p5IdentityChecks: P5_PRESENT,
                       defects: [],
                     }),
                   },
@@ -80,6 +96,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 84,
                       consistencyScore: 91,
                       layerScore: 76,
+                      p5IdentityChecks: P5_PRESENT,
                       defects: [],
                     }),
                   },
@@ -97,6 +114,66 @@ describe("Gemini rendered-skin critique", () => {
       "data:image/png;base64,BAUG",
     );
     expect(result.ok && result.approved).toBe(true);
+  });
+
+  it("rejects a missing or wrong P5 cue even when every aggregate score passes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          candidates: [{ content: { parts: [{ text: JSON.stringify({
+            identityScore: 99,
+            faceHairScore: 99,
+            outfitScore: 99,
+            consistencyScore: 99,
+            layerScore: 99,
+            p5IdentityChecks: [
+              { ...P5_PRESENT[0], status: "wrong", evidence: "the fringe opens on the opposite side" },
+              P5_PRESENT[1],
+            ],
+            defects: [],
+          }) }] } }],
+        }),
+      ),
+    );
+    const result = await runSkinCritique(
+      { GEMINI_API_KEY: "test" } as Env,
+      makeAnalysis(),
+      ["data:image/png;base64,AQID"],
+      "data:image/png;base64,BAUG",
+    );
+    expect(result.ok && result.approved).toBe(false);
+    expect(result.ok && result.correctionPrompt).toContain("hard-constraint P5 cue");
+    expect(result.ok && result.correctionPrompt).toContain("short side-swept black fringe");
+  });
+
+  it("places a focused source face crop directly before the rendered head montage", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { contents: Array<{ parts: Array<{ text?: string; inlineData?: { data: string } }> }> };
+      const labels = body.contents[0].parts.filter((part) => part.text?.endsWith(":"));
+      expect(labels.at(-2)?.text).toContain("Focused source face/head crop");
+      expect(labels.at(-1)?.text).toContain("NOT a source photo");
+      return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+        identityScore: 90,
+        faceHairScore: 88,
+        outfitScore: 84,
+        consistencyScore: 91,
+        layerScore: 76,
+        p5IdentityChecks: P5_PRESENT,
+        defects: [],
+      }) }] } }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await runSkinCritique(
+      { GEMINI_API_KEY: "test" } as Env,
+      makeAnalysis(),
+      ["data:image/png;base64,AQID"],
+      "data:image/png;base64,BAUG",
+      undefined,
+      undefined,
+      "data:image/png;base64,BwgJ",
+    );
+    expect(result.ok).toBe(true);
   });
 
   it("uses all five same-person photos before the rendered montage", async () => {
@@ -136,6 +213,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 84,
                       consistencyScore: 91,
                       layerScore: 76,
+                      p5IdentityChecks: P5_PRESENT,
                       defects: [],
                     }),
                   },
@@ -178,6 +256,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 82,
                       consistencyScore: 80,
                       layerScore: 72,
+                      p5IdentityChecks: P5_PRESENT,
                       defects: [
                         {
                           category: "face_hair",
@@ -225,6 +304,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 8,
                       consistencyScore: 4,
                       layerScore: 8,
+                      p5IdentityChecks: P5_PRESENT,
                       defects: [
                         {
                           category: "face_hair",
@@ -289,6 +369,7 @@ describe("Gemini rendered-skin critique", () => {
                     outfitScore: 84,
                     consistencyScore: 91,
                     layerScore: 76,
+                    p5IdentityChecks: P5_PRESENT,
                     defects: [],
                   }),
                 },

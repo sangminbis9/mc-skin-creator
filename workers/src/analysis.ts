@@ -143,6 +143,16 @@ export interface FallbackFeatures {
   shoesColor: string;
 }
 
+/** Per-reference ownership for an ordered same-person photo set. */
+export interface SourceSelection {
+  portraitImageIndex: number;
+  outfitImageIndex: number;
+  generationImageIndex: number;
+  portraitEvidence: string;
+  outfitEvidence: string;
+  generationEvidence: string;
+}
+
 export interface PhotoAnalysis {
   quality: "pass" | "warn" | "fail";
   failReason: "no_face" | "blurry" | "too_small" | null;
@@ -154,6 +164,7 @@ export interface PhotoAnalysis {
     lowerBody: boolean;
     feet: boolean;
   };
+  sourceSelection: SourceSelection;
   observed: {
     face: string;
     hair: string;
@@ -227,9 +238,14 @@ STEP 1 — photo quality:
 A photo showing only a face IS acceptable — never fail a photo just because the body is not visible.
 If multiple people appear, analyze only the most prominent/central person.
 
-STEP 2 — framing: how much of the person is visible: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
+STEP 2 — reference ownership and framing:
+- With one image, set every sourceSelection image index to 0.
+- With multiple compatible images, portraitImageIndex is the clearest face+hair view for a dedicated crop, outfitImageIndex is the clearest head-to-toe clothing evidence, and generationImageIndex is the most complete, least-occluded view that should anchor a full Minecraft character. These can be different images. Give concrete evidence for each choice.
+- Do not automatically select image 0. Prefer a sharp face portrait for portraitImageIndex and a clear three-quarter/full-body view for outfitImageIndex and generationImageIndex. Use only indices that exist in the attached set.
+- framing describes the most complete compatible view selected for generation: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
+- visibleRegions is the union of regions directly visible across all compatible references. A lower body seen in image 2 is visible, not inferred, even when image 0 is a face portrait.
 
-STEP 3 — observed: describe ONLY what is actually visible in the photo. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logo identities. Never return the bare word "logo": describe a visible small mark neutrally as a graphic, badge or marking and include its visible colors, approximate shape and viewer-relative chest location when readable.
+STEP 3 — observed: describe ONLY what is actually visible in at least one compatible reference. Fuse the clearest evidence per region instead of privileging upload order. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logo identities. Never return the bare word "logo": describe a visible small mark neutrally as a graphic, badge or marking and include its visible colors, approximate shape and viewer-relative chest location when readable.
 - observed.face MUST explicitly state the visible skin-tone impression (pale/fair, light, medium, tan, brown or dark, plus warm/cool/neutral undertone when readable). Include that skin colour in observed.colorPalette. Do not omit it merely because the lighting is soft or the face occupies a small part of the frame.
 - For observed.hair, explicitly describe root/scalp part visibility, fringe density and gaps, left and right temple contours, whether either ear is exposed or framed, side-hair taper/flare, the visible transition toward the nape, and the lowest substantial hair endpoint relative to the shoulders, chest/bust, natural waist or belt, and hips. Correct for head tilt and slanted shoulders: compare the locks with local physical landmarks on the same side of the person instead of raw screen height. Do not summarize all short hair as a bowl cut or all side hair as merely "short".
 - For every visible white or contrasting fabric at the throat, describe its construction separately from the shirt: ordinary collar flaps, a central knot, paired loops, and any broad hanging tails. Do not call the whole shape a "collar" merely because a collared shirt is underneath. A central knot with two long pointed fabric tails is a neck bow or scarf even when its loops are folded flat or partly hidden.
@@ -241,7 +257,7 @@ STEP 4 — inferred: for body parts and clothing NOT visible, design choices tha
 - Never base clothing choices on gender presentation or facial stereotypes; use only visible clothing cues, colors and mood.
 - If there are no clothing cues at all, choose neutral casual wear that harmonizes with skin/hair colors. Vary between shirt, knit, hoodie or light jacket depending on the photo's mood — do not always default to a plain t-shirt.
 - If a region IS visible in the photo, set its inferred entry to null.
-- If the lower body is NOT visible, also fill inferred.lowerBodyDesign with concrete Minecraft-ready choices for bottomType, pattern, accent, legwear, asymmetry, optional thigh accessory and shoe style. If the lower body IS visible, set inferred.lowerBodyDesign to null. Prefer a detailed but coherent design over a generic plain lower half. Never return the completely generic combination of plain pants + no accent + no legwear + sneakers: infer at least one low-resolution construction cue (pattern, belt, cuffs, side stripe or legwear) from the visible top, and describe the shoe color/construction in inferred.shoes.
+- If the lower body is NOT visible, fill inferred.lowerBodyDesign using minimum invention: extend only materials, colors, formality and construction already supported by the visible outfit. Plain pants, no accent, no legwear and simple shoes is valid when it is the least assumptive continuation. Never add a pattern, belt, stripe, accessory, asymmetry or legwear merely to make the design more detailed. State the evidence boundary in rationale. If the lower body IS visible, set inferred.lowerBodyDesign to null.
 - For inferred lower-body designs with one-sided legwear, use legwearAsymmetry "left" or "right" from the viewer's perspective. For a one-sided thigh bow, ribbon or garter, use thighAccessorySide independently. Repeat both exact sides in outfitPrompt; a thigh accessory can intentionally sit on the opposite leg from asymmetric legwear.
 
 STEP 5 — prompts for an image generation model:
@@ -250,8 +266,8 @@ STEP 5 — prompts for an image generation model:
 - negativePrompt: things to avoid for this specific person (e.g. "no beard" if clean-shaven, "no hat" if bare-headed).
 
 STEP 5A — canonicalIdentity and likeness salience:
-- When multiple reference images are supplied, treat image 0 as the primary composition/outfit reference and every remaining image as identity evidence for the SAME person. Reconcile lighting, pose and expression differences; never create multiple people or average away a distinctive feature.
-- Before fusing identity evidence, check that each alternate is compatible with image 0 and the majority on multiple stable cues. If one alternate conflicts on several stable traits beyond plausible lighting, pose, expression, styling or time differences, treat it as an accidental outlier: do not blend its conflicting face, hair or accessory traits. Image 0 and cues consistently supported by the remaining references win. Never reject an otherwise compatible alternate merely because makeup, expression, lighting, hairstyle or outfit changed.
+- When multiple reference images are supplied, treat them as evidence for the SAME person and use sourceSelection rather than upload order to assign portrait, outfit and generation ownership. Reconcile lighting, pose and expression differences; never create multiple people or average away a distinctive feature.
+- Before fusing identity evidence, check that each alternate is compatible with the majority on multiple stable cues. If one alternate conflicts on several stable traits beyond plausible lighting, pose, expression, styling or time differences, treat it as an accidental outlier: do not blend its conflicting face, hair or accessory traits. Cues consistently supported by the clearest compatible references win. Never reject an otherwise compatible alternate merely because makeup, expression, lighting, hairstyle or outfit changed.
 - canonicalIdentity.overallImpression: one concise description of the stable appearance shared across the references.
 - canonicalIdentity.mustPreserve: 3-8 concrete, ordered likeness cues that must remain readable after reduction to a 64x64 Minecraft skin.
 - canonicalIdentity.features: 4-12 distinct cues. Assign priority 5 only to the strongest identity cues, then 4/3/2/1 in descending importance. Include category, confidence, visible evidence, and exact targetRegions such as "head.front", "head.overlay", "torso.front", "arm.left" or "leg.right".
@@ -327,6 +343,14 @@ Respond with ONLY a JSON object matching this shape:
   "failReason": "no_face" | "blurry" | "too_small" | null,
   "framing": "face" | "upper_body" | "three_quarter" | "full_body",
   "visibleRegions": { "face": bool, "hair": bool, "upperBody": bool, "lowerBody": bool, "feet": bool },
+  "sourceSelection": {
+    "portraitImageIndex": int,
+    "outfitImageIndex": int,
+    "generationImageIndex": int,
+    "portraitEvidence": str,
+    "outfitEvidence": str,
+    "generationEvidence": str
+  },
   "observed": { "face": str, "hair": str, "accessories": str, "clothing": str, "colorPalette": [str] },
   "inferred": {
     "hairBack": { "value": str, "rationale": str },
@@ -480,6 +504,26 @@ export const PHOTO_ANALYSIS_SCHEMA = {
         feet: { type: "boolean" },
       },
       required: ["face", "hair", "upperBody", "lowerBody", "feet"],
+    },
+    sourceSelection: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        portraitImageIndex: { type: "integer", minimum: 0, maximum: 4 },
+        outfitImageIndex: { type: "integer", minimum: 0, maximum: 4 },
+        generationImageIndex: { type: "integer", minimum: 0, maximum: 4 },
+        portraitEvidence: { type: "string" },
+        outfitEvidence: { type: "string" },
+        generationEvidence: { type: "string" },
+      },
+      required: [
+        "portraitImageIndex",
+        "outfitImageIndex",
+        "generationImageIndex",
+        "portraitEvidence",
+        "outfitEvidence",
+        "generationEvidence",
+      ],
     },
     observed: {
       type: "object",
@@ -829,6 +873,7 @@ export const PHOTO_ANALYSIS_SCHEMA = {
     "failReason",
     "framing",
     "visibleRegions",
+    "sourceSelection",
     "observed",
     "inferred",
     "canonicalIdentity",
@@ -856,6 +901,170 @@ const FRAMINGS: Framing[] = [
   "three_quarter",
   "full_body",
 ];
+
+const GENERIC_IDENTITY_KEYS = new Set([
+  "faceshape",
+  "skintone",
+  "eyecolor",
+  "eyeshape",
+  "eyesize",
+  "eyebrows",
+  "eyebrowshape",
+  "nose",
+  "noseshape",
+  "mouth",
+  "mouthshape",
+  "lips",
+  "lipcolor",
+  "haircolor",
+  "hairstyle",
+  "hairlength",
+  "overallhairlength",
+  "bangs",
+  "fringe",
+  "hairpart",
+  "hairsilhouette",
+  "toptype",
+  "topcolor",
+  "bottomtype",
+  "bottomcolor",
+  "outfit",
+  "clothing",
+  "glasses",
+  "earrings",
+  "hat",
+  "accessory",
+  "accessories",
+  "expression",
+]);
+
+function identityKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function readableCueValue(value: string): string {
+  return /^#[0-9a-f]{6}$/i.test(value)
+    ? ""
+    : value.replace(/[_-]+/g, " ").trim();
+}
+
+function cueForGenericIdentityKey(
+  key: string,
+  renderHints: PixelRenderHints,
+  fallbackFeatures: FallbackFeatures,
+): string {
+  const skin = readableCueValue(fallbackFeatures.skinTone);
+  const eyes = readableCueValue(fallbackFeatures.eyeColor);
+  const hair = readableCueValue(fallbackFeatures.hairColor);
+  const top = readableCueValue(fallbackFeatures.topColor);
+  const bottom = readableCueValue(fallbackFeatures.bottomColor);
+  switch (key) {
+    case "faceshape":
+      return `${renderHints.faceShape} face shape`;
+    case "skintone":
+      return `${renderHints.skinUndertone}${skin ? ` ${skin}` : ""} skin`;
+    case "eyecolor":
+      return `${renderHints.irisLightness}${eyes ? ` ${eyes}` : ""} ${renderHints.eyeShape} eyes`;
+    case "eyeshape":
+    case "eyesize":
+      return `${renderHints.eyeSize} ${renderHints.eyeShape} ${renderHints.eyeTilt} eyes`;
+    case "eyebrows":
+    case "eyebrowshape":
+      return `${renderHints.eyebrowShape} eyebrows`;
+    case "nose":
+    case "noseshape":
+      return `${renderHints.noseShape} nose`;
+    case "mouth":
+    case "mouthshape":
+    case "lips":
+    case "lipcolor":
+      return `${renderHints.mouthShape} ${renderHints.lipFullness} ${renderHints.lipColor} lips`;
+    case "haircolor":
+      return `${hair ? `${hair} ` : ""}${renderHints.hairTexture} hair`;
+    case "hairstyle":
+    case "hairlength":
+    case "overallhairlength":
+    case "hairsilhouette":
+      return `${renderHints.overallHairLength}-length ${renderHints.hairTexture} hair with a ${renderHints.hairSilhouette} silhouette`;
+    case "bangs":
+    case "fringe":
+      return `${renderHints.bangsDensity} ${renderHints.bangsLength} ${renderHints.bangs} fringe`;
+    case "hairpart":
+      return `${renderHints.hairPart} root parting`;
+    case "toptype":
+    case "topcolor":
+      return `${top ? `${top} ` : ""}${readableCueValue(fallbackFeatures.topType)}`;
+    case "bottomtype":
+    case "bottomcolor":
+      return `${bottom ? `${bottom} ` : ""}${readableCueValue(fallbackFeatures.bottomType)}`;
+    case "glasses": {
+      const glasses = readableCueValue(fallbackFeatures.glasses);
+      return glasses === "none"
+        ? "bare face without glasses"
+        : `${readableCueValue(fallbackFeatures.glassesColor)} ${glasses} glasses`.trim();
+    }
+    case "earrings":
+      return fallbackFeatures.earrings
+        ? "visible earrings"
+        : "bare ears without earrings";
+    case "hat": {
+      const hat = readableCueValue(fallbackFeatures.hat);
+      return hat === "none"
+        ? "uncovered hair without a hat"
+        : `${hat} headwear`;
+    }
+    case "expression":
+      return `${readableCueValue(fallbackFeatures.expression)} expression`;
+    default:
+      return "";
+  }
+}
+
+function concretizeCanonicalIdentity(
+  mustPreserve: string[],
+  features: IdentityFeaturePriority[],
+  renderHints: PixelRenderHints,
+  fallbackFeatures: FallbackFeatures,
+): {
+  mustPreserve: string[];
+  features: IdentityFeaturePriority[];
+} {
+  const originalKeys = features.map((feature) => identityKey(feature.feature));
+  const concreteFeatures = features.map((feature, index) => {
+    const key = originalKeys[index];
+    if (!GENERIC_IDENTITY_KEYS.has(key)) return feature;
+    const evidence = feature.evidence.trim().replace(/[.;]+$/g, "");
+    const concrete =
+      evidence.length >= 8 &&
+      !/^(?:none|unknown|not visible|n\/?a)$/i.test(evidence)
+        ? evidence
+        : cueForGenericIdentityKey(key, renderHints, fallbackFeatures);
+    return concrete ? { ...feature, feature: concrete } : feature;
+  });
+  const featureByOriginalKey = new Map(
+    originalKeys.map((key, index) => [key, concreteFeatures[index].feature]),
+  );
+  const concreteMustPreserve = mustPreserve.map((cue) => {
+    const key = identityKey(cue);
+    if (!GENERIC_IDENTITY_KEYS.has(key)) return cue.trim();
+    return (
+      featureByOriginalKey.get(key) ||
+      cueForGenericIdentityKey(key, renderHints, fallbackFeatures) ||
+      cue.trim()
+    );
+  });
+  const uniqueMustPreserve = [...new Set(concreteMustPreserve.filter(Boolean))];
+  for (const feature of concreteFeatures) {
+    if (uniqueMustPreserve.length >= 3) break;
+    if (!uniqueMustPreserve.includes(feature.feature)) {
+      uniqueMustPreserve.push(feature.feature);
+    }
+  }
+  return {
+    mustPreserve: uniqueMustPreserve.slice(0, 8),
+    features: concreteFeatures,
+  };
+}
 
 /**
  * 모델 응답을 명시적으로 검증한다.
@@ -918,6 +1127,14 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           upperBody: false,
           lowerBody: false,
           feet: false,
+        },
+        sourceSelection: {
+          portraitImageIndex: 0,
+          outfitImageIndex: 0,
+          generationImageIndex: 0,
+          portraitEvidence: "photo rejected before source selection",
+          outfitEvidence: "photo rejected before source selection",
+          generationEvidence: "photo rejected before source selection",
         },
         observed: {
           face: "",
@@ -1006,6 +1223,51 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     lowerBody: bool("visibleRegions.lowerBody", vr.lowerBody),
     feet: bool("visibleRegions.feet", vr.feet),
   };
+
+  const selection =
+    typeof obj.sourceSelection === "object" &&
+    obj.sourceSelection !== null &&
+    !Array.isArray(obj.sourceSelection)
+      ? (obj.sourceSelection as Record<string, unknown>)
+      : (errors.push("sourceSelection: 객체가 아님"), {});
+  const sourceIndex = (path: string, value: unknown): number => {
+    if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 4) {
+      errors.push(`${path}: 0~4 정수 필요`);
+      return 0;
+    }
+    return Number(value);
+  };
+  const sourceSelection: SourceSelection = {
+    portraitImageIndex: sourceIndex(
+      "sourceSelection.portraitImageIndex",
+      selection.portraitImageIndex,
+    ),
+    outfitImageIndex: sourceIndex(
+      "sourceSelection.outfitImageIndex",
+      selection.outfitImageIndex,
+    ),
+    generationImageIndex: sourceIndex(
+      "sourceSelection.generationImageIndex",
+      selection.generationImageIndex,
+    ),
+    portraitEvidence: str(
+      "sourceSelection.portraitEvidence",
+      selection.portraitEvidence,
+    ),
+    outfitEvidence: str(
+      "sourceSelection.outfitEvidence",
+      selection.outfitEvidence,
+    ),
+    generationEvidence: str(
+      "sourceSelection.generationEvidence",
+      selection.generationEvidence,
+    ),
+  };
+  for (const [key, evidence] of Object.entries(sourceSelection)) {
+    if (key.endsWith("Evidence") && String(evidence).trim().length < 3) {
+      errors.push(`sourceSelection.${key}: 근거가 너무 짧음`);
+    }
+  }
 
   const ob = (obj.observed ?? {}) as Record<string, unknown>;
   const observed = {
@@ -1754,6 +2016,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
   if (errors.length > 0) {
     return { ok: false, errors };
   }
+  const concreteCanonical = concretizeCanonicalIdentity(
+    mustPreserve,
+    identityFeatures,
+    renderHints,
+    fallbackFeatures,
+  );
 
   return {
     ok: true,
@@ -1762,12 +2030,13 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       failReason,
       framing,
       visibleRegions,
+      sourceSelection,
       observed,
       inferred,
       canonicalIdentity: {
         overallImpression,
-        mustPreserve,
-        features: identityFeatures,
+        mustPreserve: concreteCanonical.mustPreserve,
+        features: concreteCanonical.features,
       },
       renderHints,
       identityPrompt,
@@ -1825,6 +2094,15 @@ export interface PortraitDetailAnalysis {
   fringeConfidence: "low" | "medium" | "high";
   sideHairConfidence: "low" | "medium" | "high";
   hairEndpointConfidence: "low" | "medium" | "high";
+  hairEndpointLandmark:
+    | "scalp"
+    | "ear"
+    | "jaw"
+    | "neck"
+    | "shoulder"
+    | "below_shoulder"
+    | "not_visible";
+  hairTouchesShoulder: boolean;
   clothingConfidence?: "low" | "medium" | "high";
   skinTone: "pale" | "light" | "medium" | "tan" | "brown" | "dark";
   skinUndertone: "warm" | "cool" | "neutral";
@@ -1877,6 +2155,7 @@ export interface PortraitDetailAnalysis {
   neckConfidence: NeckDetailAnalysis["confidence"];
   faceEvidence: string;
   hairEvidence: string;
+  hairEndpointEvidence: string;
   neckEvidence: string;
   clothingEvidence?: string;
 }
@@ -1914,6 +2193,7 @@ Hair:
 - hairSilhouette is the OUTER crown and temple contour. It is not the lower edge of the fringe. Straight or blunt bangs can still sit under a rounded crown.
 - hairVolume is independent from length and silhouette: flat for sleek/low-volume hair close to the head, normal for ordinary lift, and full only when the hair visibly expands away from the scalp. Do not call all long hair full.
 - Classify overallHairLength from the lowest substantial visible lock relative to the ear, jaw, neck and physical shoulder seam. Correct for head tilt and slanted shoulders by mentally rotating the head upright and comparing each lock with its same-side anatomical landmarks; do not use raw screen y-position. Curly hair that flares widely around the head but ends above the shoulder is ear- or jaw-length, not shoulder-length. Use shoulder only when multiple substantial locks visibly touch or overlap the shoulder seam.
+- Report hairEndpointLandmark independently as the closest anatomical level reached by those lowest substantial locks. Report hairTouchesShoulder true only when multiple substantial locks physically touch or overlap the local shoulder seam after correcting for head tilt. Wide curls beside the neck, flyaways, background edges and sweater texture do not count. hairEndpointEvidence must state the visible same-side landmark relationship rather than merely repeat the enum.
 - Set hairEndpointConfidence low when the lowest substantial locks leave the crop, disappear behind clothing/body, or their endpoint is otherwise not directly visible. In that case classify the nearest visible length conservatively but expect the full-frame analysis to retain ownership of overallHairLength.
 - A short two-block, bowl-like or ear-length cut with a domed top and tapered/ear-hugging sides is rounded unless the crown itself is visibly flat, boxy or close-cropped.
 - Trace continuity from crown to temple to sideburn/ear on both sides. sideHairShape describes that contour; earExposure describes the visible ear opening rather than hair length.
@@ -1951,6 +2231,19 @@ const PORTRAIT_DETAIL_SCHEMA = {
       type: "string",
       enum: ["low", "medium", "high"],
     },
+    hairEndpointLandmark: {
+      type: "string",
+      enum: [
+        "scalp",
+        "ear",
+        "jaw",
+        "neck",
+        "shoulder",
+        "below_shoulder",
+        "not_visible",
+      ],
+    },
+    hairTouchesShoulder: { type: "boolean" },
     clothingConfidence: {
       type: "string",
       enum: ["low", "medium", "high"],
@@ -2096,6 +2389,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     },
     faceEvidence: { type: "string" },
     hairEvidence: { type: "string" },
+    hairEndpointEvidence: { type: "string" },
     neckEvidence: { type: "string" },
     clothingEvidence: { type: "string" },
   },
@@ -2106,6 +2400,8 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "fringeConfidence",
     "sideHairConfidence",
     "hairEndpointConfidence",
+    "hairEndpointLandmark",
+    "hairTouchesShoulder",
     "skinTone",
     "skinUndertone",
     "eyeColor",
@@ -2142,6 +2438,7 @@ const PORTRAIT_DETAIL_SCHEMA = {
     "neckConfidence",
     "faceEvidence",
     "hairEvidence",
+    "hairEndpointEvidence",
     "neckEvidence",
   ],
 } as const;
@@ -2342,6 +2639,8 @@ async function runPortraitDetailWithModel(
         PortraitDetailAnalysis,
         | "faceEvidence"
         | "hairEvidence"
+        | "hairEndpointEvidence"
+        | "hairTouchesShoulder"
         | "neckEvidence"
         | "clothingConfidence"
         | "clothingEvidence"
@@ -2354,6 +2653,15 @@ async function runPortraitDetailWithModel(
       fringeConfidence: ["low", "medium", "high"],
       sideHairConfidence: ["low", "medium", "high"],
       hairEndpointConfidence: ["low", "medium", "high"],
+      hairEndpointLandmark: [
+        "scalp",
+        "ear",
+        "jaw",
+        "neck",
+        "shoulder",
+        "below_shoulder",
+        "not_visible",
+      ],
       skinTone: ["pale", "light", "medium", "tan", "brown", "dark"],
       skinUndertone: ["warm", "cool", "neutral"],
       eyeColor: [
@@ -2437,10 +2745,13 @@ async function runPortraitDetailWithModel(
     if (
       !validEnums ||
       !clothingFieldsValid ||
+      typeof parsed.hairTouchesShoulder !== "boolean" ||
       typeof parsed.faceEvidence !== "string" ||
       parsed.faceEvidence.trim().length < 3 ||
       typeof parsed.hairEvidence !== "string" ||
       parsed.hairEvidence.trim().length < 3 ||
+      typeof parsed.hairEndpointEvidence !== "string" ||
+      parsed.hairEndpointEvidence.trim().length < 3 ||
       typeof parsed.neckEvidence !== "string" ||
       parsed.neckEvidence.trim().length < 3
     ) {
@@ -2458,6 +2769,7 @@ async function runPortraitDetailWithModel(
         ...(parsed as unknown as PortraitDetailAnalysis),
         faceEvidence: parsed.faceEvidence.trim(),
         hairEvidence: parsed.hairEvidence.trim(),
+        hairEndpointEvidence: parsed.hairEndpointEvidence.trim(),
         neckEvidence: parsed.neckEvidence.trim(),
         ...(typeof parsed.clothingEvidence === "string"
           ? { clothingEvidence: parsed.clothingEvidence.trim() }
@@ -2608,9 +2920,26 @@ export async function runPhotoAnalysis(
       }
       const validated = validatePhotoAnalysis(parsed);
       if (validated.ok) {
+        const lastReferenceIndex = Math.max(0, references.length - 1);
+        const boundedIndex = (index: number): number =>
+          Math.min(lastReferenceIndex, Math.max(0, index));
         return {
           ok: true,
-          analysis: validated.analysis,
+          analysis: {
+            ...validated.analysis,
+            sourceSelection: {
+              ...validated.analysis.sourceSelection,
+              portraitImageIndex: boundedIndex(
+                validated.analysis.sourceSelection.portraitImageIndex,
+              ),
+              outfitImageIndex: boundedIndex(
+                validated.analysis.sourceSelection.outfitImageIndex,
+              ),
+              generationImageIndex: boundedIndex(
+                validated.analysis.sourceSelection.generationImageIndex,
+              ),
+            },
+          },
           attempts,
           neuronsSpent,
         };

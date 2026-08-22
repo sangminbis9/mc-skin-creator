@@ -7,6 +7,18 @@ import {
 import { makeAnalysis } from "./helpers";
 
 describe("buildSkinPrompt framing 정책", () => {
+  it("puts same-person likeness ahead of styling and forbids beautification", () => {
+    for (const prompt of [
+      buildSkinPrompt(makeAnalysis(), { hasStyleRef: false }),
+      buildFrontViewPrompt(makeAnalysis()),
+      buildFourViewPrompt(makeAnalysis()),
+    ]) {
+      expect(prompt).toContain("(1) same-person identity");
+      expect(prompt).toContain("Do not beautify or redesign");
+      expect(prompt).toContain("more generic or conventionally attractive");
+      expect(prompt).toContain("Preserve visible asymmetry");
+    }
+  });
   it("face: 얼굴 보존 + 중성 캐주얼 전신 생성", () => {
     const prompt = buildSkinPrompt(makeAnalysis({ framing: "face" }), {
       hasStyleRef: true,

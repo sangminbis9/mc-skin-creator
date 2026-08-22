@@ -7,6 +7,7 @@
  */
 
 import type { RawImage } from "./png";
+import type { FacePixelPlan } from "./identityPlans";
 import {
   ALL_PARTS,
   ATLAS_SIZE,
@@ -316,6 +317,129 @@ export interface AtlasCraftMetrics {
   baseHorizontalSeamColorDistanceByPart: Record<BodyPart, number>;
   detailedBaseFaces: number;
   overlayPixelsByPart: Record<BodyPart, number>;
+  overlayCoverageByPart: Record<BodyPart, number>;
+  isolatedNoisePixels: number;
+  isolatedNoiseRatio: number;
+  maxLocalPaletteSize: number;
+  meanLocalPaletteSize: number;
+  connectedClusterCoherence: number;
+  colorEntropy: number;
+  edgeFrequency: number;
+}
+
+function perceptualKey(r: number, g: number, b: number): string {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const value = Math.round(max / 32);
+  const chroma = Math.round((max - min) / 24);
+  let hue = 0;
+  if (max !== min) {
+    if (max === r) hue = ((g - b) / (max - min) + 6) % 6;
+    else if (max === g) hue = (b - r) / (max - min) + 2;
+    else hue = (r - g) / (max - min) + 4;
+  }
+  return `${Math.round(hue * 2)}:${chroma}:${value}`;
+}
+
+function measureCraftTexture(atlas: RawImage): Pick<
+  AtlasCraftMetrics,
+  | "isolatedNoisePixels"
+  | "isolatedNoiseRatio"
+  | "maxLocalPaletteSize"
+  | "meanLocalPaletteSize"
+  | "connectedClusterCoherence"
+  | "colorEntropy"
+  | "edgeFrequency"
+> {
+  const faces = ALL_PARTS.flatMap((part) => [
+    ...Object.values(CLASSIC_LAYOUT[part].base),
+    ...Object.values(CLASSIC_LAYOUT[part].overlay),
+  ]);
+  let isolatedNoisePixels = 0;
+  let opaquePixels = 0;
+  let edgePairs = 0;
+  let neighborPairs = 0;
+  let largestClusterMass = 0;
+  let clusteredMass = 0;
+  const localPalettes: number[] = [];
+  const global = new Map<string, number>();
+  const colorDistance = (first: number, second: number) =>
+    Math.abs(atlas.rgba[first] - atlas.rgba[second]) +
+    Math.abs(atlas.rgba[first + 1] - atlas.rgba[second + 1]) +
+    Math.abs(atlas.rgba[first + 2] - atlas.rgba[second + 2]);
+
+  for (const rect of faces) {
+    const palette = new Set<string>();
+    const present = new Set<number>();
+    for (let y = 0; y < rect.h; y++) {
+      for (let x = 0; x < rect.w; x++) {
+        const absolute = (rect.y + y) * ATLAS_SIZE + rect.x + x;
+        const offset = absolute * 4;
+        if (atlas.rgba[offset + 3] === 0) continue;
+        present.add(y * rect.w + x);
+        opaquePixels++;
+        const key = perceptualKey(atlas.rgba[offset], atlas.rgba[offset + 1], atlas.rgba[offset + 2]);
+        palette.add(key);
+        global.set(key, (global.get(key) ?? 0) + 1);
+        const neighbors = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const;
+        const comparable = neighbors
+          .filter(([nx, ny]) => nx >= 0 && nx < rect.w && ny >= 0 && ny < rect.h)
+          .map(([nx, ny]) => ((rect.y + ny) * ATLAS_SIZE + rect.x + nx) * 4)
+          .filter((neighbor) => atlas.rgba[neighbor + 3] !== 0);
+        if (comparable.length >= 2 && comparable.every((neighbor) => colorDistance(offset, neighbor) > 72)) isolatedNoisePixels++;
+        for (const [nx, ny] of [[x + 1, y], [x, y + 1]] as const) {
+          if (nx >= rect.w || ny >= rect.h) continue;
+          const neighbor = ((rect.y + ny) * ATLAS_SIZE + rect.x + nx) * 4;
+          if (atlas.rgba[neighbor + 3] === 0) continue;
+          neighborPairs++;
+          if (colorDistance(offset, neighbor) > 54) edgePairs++;
+        }
+      }
+    }
+    if (present.size > 0) localPalettes.push(palette.size);
+    const visited = new Set<number>();
+    let faceLargest = 0;
+    for (const seed of present) {
+      if (visited.has(seed)) continue;
+      const queue = [seed];
+      visited.add(seed);
+      let size = 0;
+      while (queue.length > 0) {
+        const current = queue.pop()!;
+        size++;
+        const x = current % rect.w;
+        const y = Math.floor(current / rect.w);
+        const currentOffset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+          const next = ny * rect.w + nx;
+          if (nx < 0 || nx >= rect.w || ny < 0 || ny >= rect.h || !present.has(next) || visited.has(next)) continue;
+          const nextOffset = ((rect.y + ny) * ATLAS_SIZE + rect.x + nx) * 4;
+          if (colorDistance(currentOffset, nextOffset) <= 72) {
+            visited.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      faceLargest = Math.max(faceLargest, size);
+    }
+    largestClusterMass += faceLargest;
+    clusteredMass += present.size;
+  }
+  let entropy = 0;
+  for (const count of global.values()) {
+    const probability = count / Math.max(1, opaquePixels);
+    entropy -= probability * Math.log2(probability);
+  }
+  const normalizedEntropy = global.size <= 1 ? 0 : entropy / Math.log2(global.size);
+  return {
+    isolatedNoisePixels,
+    isolatedNoiseRatio: isolatedNoisePixels / Math.max(1, opaquePixels),
+    maxLocalPaletteSize: Math.max(0, ...localPalettes),
+    meanLocalPaletteSize: localPalettes.reduce((sum, count) => sum + count, 0) / Math.max(1, localPalettes.length),
+    connectedClusterCoherence: largestClusterMass / Math.max(1, clusteredMass),
+    colorEntropy: normalizedEntropy,
+    edgeFrequency: edgePairs / Math.max(1, neighborPairs),
+  };
 }
 
 /** Analysis-derived expectations for rejecting flat default-looking skins. */
@@ -344,6 +468,18 @@ export interface AtlasCraftStyle {
 }
 
 /**
+ * Broad envelopes measured from the bundled deterministic handcrafted-style
+ * regression family. They are distribution guards, not a single-skin style
+ * template; subjects may legitimately be sparse, bald, wrapped or layered.
+ */
+export const HANDCRAFTED_CRAFT_DISTRIBUTION = {
+  maxLocalPaletteP95: 30,
+  isolatedNoiseRatioP95: 0.1,
+  minimumClusterCoherenceP05: 0.18,
+  maximumNonWrappedOverlayCoverageP95: 0.8,
+} as const;
+
+/**
  * Measures hand-authored pixel-art signals without assuming every subject must
  * wear the same amount of outer-layer detail. Consumers can compare these
  * metrics against style-specific expectations or a reference skin; the core
@@ -355,6 +491,12 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
   }
   const overlayPixelsByPart = Object.fromEntries(
     ALL_PARTS.map((part) => [part, 0]),
+  ) as Record<BodyPart, number>;
+  const overlayCapacityByPart = Object.fromEntries(
+    ALL_PARTS.map((part) => [
+      part,
+      Object.values(CLASSIC_LAYOUT[part].overlay).reduce((sum, rect) => sum + rect.w * rect.h, 0),
+    ]),
   ) as Record<BodyPart, number>;
   const overlayVerticalSeamMismatchesByPart = Object.fromEntries(
     ALL_PARTS.map((part) => [part, 0]),
@@ -446,6 +588,9 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
       averageSeamColorDistance(baseHorizontalStats);
   }
 
+  const overlayCoverageByPart = Object.fromEntries(
+    ALL_PARTS.map((part) => [part, overlayPixelsByPart[part] / Math.max(1, overlayCapacityByPart[part])]),
+  ) as Record<BodyPart, number>;
   return {
     baseColorCount: distinctColorsIn(atlas, BASE_RECTS),
     overlayColorCount: overlayColors.size,
@@ -482,6 +627,8 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
     baseHorizontalSeamColorDistanceByPart,
     detailedBaseFaces,
     overlayPixelsByPart,
+    overlayCoverageByPart,
+    ...measureCraftTexture(atlas),
   };
 }
 
@@ -495,6 +642,7 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
 export function validateAtlasCraft(
   atlas: RawImage,
   style: AtlasCraftStyle,
+  facePixelPlan?: FacePixelPlan,
 ): AtlasValidation {
   const problems: string[] = [];
   const metrics = measureAtlasCraft(atlas);
@@ -578,6 +726,22 @@ export function validateAtlasCraft(
     problems.push(
       `base-layer horizontal seam colours diverge (${metrics.baseHorizontalSeamColorDistance.toFixed(1)})`,
     );
+  if (metrics.isolatedNoiseRatio > 0.12)
+    problems.push(`isolated pixel noise too high (${metrics.isolatedNoiseRatio.toFixed(3)})`);
+  if (metrics.maxLocalPaletteSize > HANDCRAFTED_CRAFT_DISTRIBUTION.maxLocalPaletteP95 + 2)
+    problems.push(`local material palette too large (${metrics.maxLocalPaletteSize})`);
+  if (metrics.connectedClusterCoherence < HANDCRAFTED_CRAFT_DISTRIBUTION.minimumClusterCoherenceP05 - 0.02)
+    problems.push(`pixel clusters are too fragmented (${metrics.connectedClusterCoherence.toFixed(3)})`);
+  if (metrics.colorEntropy > 0.94 && metrics.edgeFrequency > 0.62)
+    problems.push(`high-entropy edge noise (${metrics.colorEntropy.toFixed(3)}/${metrics.edgeFrequency.toFixed(3)})`);
+  for (const part of ALL_PARTS) {
+    const maximumCoverage = headScarf && part === "head"
+      ? 0.86
+      : HANDCRAFTED_CRAFT_DISTRIBUTION.maximumNonWrappedOverlayCoverageP95;
+    if (metrics.overlayCoverageByPart[part] > maximumCoverage) {
+      problems.push(`${part} outer layer is over-covered (${metrics.overlayCoverageByPart[part].toFixed(3)})`);
+    }
+  }
 
   if (richStyle) {
     if (metrics.opaqueOverlayPixels < 120)
@@ -716,8 +880,12 @@ export function validateAtlasCraft(
   if (validateIdentity) {
     const face = CLASSIC_LAYOUT.head.base.front;
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
-    const eyePairs =
-      style.eyeSpacing === "wide"
+    const eyePairs: ReadonlyArray<readonly [number, number]> = facePixelPlan
+      ? [
+          [facePixelPlan.layout.leftEyeXs[0], facePixelPlan.layout.leftEyeXs.at(-1)!],
+          [facePixelPlan.layout.rightEyeXs.at(-1)!, facePixelPlan.layout.rightEyeXs[0]],
+        ]
+      : style.eyeSpacing === "wide"
         ? ([
             [0, 1],
             [7, 6],
@@ -731,7 +899,8 @@ export function validateAtlasCraft(
               [1, 2],
               [6, 5],
             ] as const);
-    const outerEyeY = 4;
+    const eyeRow = facePixelPlan?.layout.eyeRow ?? 4;
+    const outerEyeY = eyeRow;
     const tiltAccentY =
       style.eyeTilt === "upturned"
         ? 3
@@ -747,11 +916,14 @@ export function validateAtlasCraft(
     const excluded = new Set<string>();
     for (const [outer, inner] of eyePairs) {
       excluded.add(`${outer},${outerEyeY}`);
-      excluded.add(`${inner},4`);
+      excluded.add(`${inner},${eyeRow}`);
       if (tiltAccentY !== null) excluded.add(`${outer},${tiltAccentY}`);
     }
-    for (let x = 2; x <= 5; x++) excluded.add(`${x},6`);
-    for (let y = 4; y <= 6; y++) {
+    const mouthRow = facePixelPlan?.layout.mouthRow ?? 6;
+    const mouthWidth = facePixelPlan?.layout.mouthWidth ?? (style.mouthShape === "wide" ? 4 : 2);
+    const mouthStart = Math.floor((8 - mouthWidth) / 2);
+    for (let x = mouthStart; x < mouthStart + mouthWidth; x++) excluded.add(`${x},${mouthRow}`);
+    for (let y = 3; y <= 7; y++) {
       for (let x = 0; x < face.w; x++) {
         if (excluded.has(`${x},${y}`)) continue;
         const offset = offsetAt(face, x, y);
@@ -779,19 +951,24 @@ export function validateAtlasCraft(
     // colour bucket can accidentally choose the two matching lower-iris or
     // hair pixels when deliberate face shading makes every skin pixel a
     // slightly different tone, causing one real eye to be rejected.
-    const skinAnchors = [
+    const skinAnchors = ([
       [3, 4],
       [4, 4],
       [3, 5],
       [4, 5],
       [1, 6],
       [6, 6],
-    ] as const;
+      [1, 7],
+      [6, 7],
+    ] as const).filter(([x, y]) => !excluded.has(`${x},${y}`));
     const medianChannel = (channel: number) => {
       const values = skinAnchors
         .map(([x, y]) => atlas.rgba[offsetAt(face, x, y) + channel])
         .sort((first, second) => first - second);
-      return (values[2] + values[3]) / 2;
+      const middle = Math.floor(values.length / 2);
+      return values.length % 2 === 0
+        ? (values[middle - 1] + values[middle]) / 2
+        : values[middle];
     };
     const skin: [number, number, number] = skinBucket
       ? [medianChannel(0), medianChannel(1), medianChannel(2)]
@@ -806,25 +983,38 @@ export function validateAtlasCraft(
     };
 
     let readableEyes = 0;
+    const eyeDiagnostics: string[] = [];
     for (const [outer, inner] of eyePairs) {
-      const irisOffset = offsetAt(faceOverlay, inner, 4);
+      const irisOffset = offsetAt(faceOverlay, inner, eyeRow);
       const outerOffset = offsetAt(faceOverlay, outer, outerEyeY);
       const intentionalCurtainOverlap =
         style.bangs === "curtain" &&
         style.bangsLength === "eye" &&
         outerEyeY === 4;
+      const intentionalWideSideHairOverlap =
+        style.eyeSpacing === "wide" &&
+        !["none", "bald", "buzz"].includes(style.hairstyle ?? "none") &&
+        ["cheek", "jaw", "shoulder"].includes(style.sideHairLength ?? "none");
       const irisVisible =
         style.glasses !== "none" ||
         (atlas.rgba[irisOffset + 3] === 0 &&
-          (atlas.rgba[outerOffset + 3] === 0 || intentionalCurtainOverlap));
-      if (irisVisible && distanceFromSkin(inner, 4) >= 45) readableEyes++;
+          (atlas.rgba[outerOffset + 3] === 0 ||
+            intentionalCurtainOverlap ||
+            intentionalWideSideHairOverlap));
+      const contrast = distanceFromSkin(inner, eyeRow);
+      if (irisVisible && contrast >= 45) readableEyes++;
+      eyeDiagnostics.push(
+        `${inner}:${irisVisible ? "visible" : "occluded"}/${Math.round(contrast)}`,
+      );
     }
     if (readableEyes < 2)
-      problems.push(`face has only ${readableEyes} readable eye(s)`);
+      problems.push(
+        `face has only ${readableEyes} readable eye(s) (${eyeDiagnostics.join(", ")})`,
+      );
 
-    const mouthXs = style.mouthShape === "wide" ? [2, 3, 4, 5] : [3, 4];
+    const mouthXs = Array.from({ length: mouthWidth }, (_, index) => mouthStart + index);
     const mouthPixels = mouthXs.filter(
-      (x) => distanceFromSkin(x, 6) >= 30,
+      (x) => distanceFromSkin(x, mouthRow) >= 30,
     ).length;
     if (mouthPixels < Math.min(2, mouthXs.length))
       problems.push(`mouth landmark is not readable (${mouthPixels} pixels)`);

@@ -107,6 +107,77 @@ describe("runPhotoAnalysis", () => {
     expect(result).toMatchObject({ attempts: 1 });
   });
 
+  it("keeps model-selected roles for a same-person reference set", async () => {
+    const analysis = makeAnalysis({
+      framing: "full_body",
+      sourceSelection: {
+        portraitImageIndex: 1,
+        outfitImageIndex: 2,
+        generationImageIndex: 2,
+        portraitEvidence: "image 1 is a sharp face and hair close-up",
+        outfitEvidence: "image 2 clearly shows the complete outfit and shoes",
+        generationEvidence: "image 2 is an unobstructed full-body view",
+      },
+    });
+    const run = vi.fn(async () => ({ response: analysis }));
+
+    const result = await runPhotoAnalysis(makeVisionEnv(run), [
+      "data:image/jpeg;base64,AAA0",
+      "data:image/jpeg;base64,AAA1",
+      "data:image/jpeg;base64,AAA2",
+    ]);
+
+    expect(result).toMatchObject({
+      ok: true,
+      analysis: {
+        framing: "full_body",
+        sourceSelection: {
+          portraitImageIndex: 1,
+          outfitImageIndex: 2,
+          generationImageIndex: 2,
+        },
+      },
+    });
+    const content = (
+      run.mock.calls[0]?.[1] as {
+        messages?: Array<{ content?: Array<{ text?: string }> }>;
+      }
+    )?.messages?.[0]?.content;
+    const prompt = (content ?? []).map((part) => part.text ?? "").join("\n");
+    expect(prompt).toContain("3 image(s) of the same person");
+  });
+
+  it("bounds a model-selected role to the supplied reference count", async () => {
+    const run = vi.fn(async () => ({
+      response: makeAnalysis({
+        sourceSelection: {
+          portraitImageIndex: 4,
+          outfitImageIndex: 4,
+          generationImageIndex: 4,
+          portraitEvidence: "the last reported image has the clearest face",
+          outfitEvidence: "the last reported image has the clearest outfit",
+          generationEvidence: "the last reported image is the most complete",
+        },
+      }),
+    }));
+
+    const result = await runPhotoAnalysis(makeVisionEnv(run), [
+      "data:image/jpeg;base64,AAA0",
+      "data:image/jpeg;base64,AAA1",
+    ]);
+
+    expect(result).toMatchObject({
+      ok: true,
+      analysis: {
+        sourceSelection: {
+          portraitImageIndex: 1,
+          outfitImageIndex: 1,
+          generationImageIndex: 1,
+        },
+      },
+    });
+  });
+
   it("accounts from Workers AI token usage instead of a fixed estimate", async () => {
     const run = vi.fn(async () => ({
       response: makeAnalysis(),
@@ -284,6 +355,8 @@ describe("runPortraitDetailAnalysis", () => {
       fringeConfidence: "high",
       sideHairConfidence: "high",
       hairEndpointConfidence: "high",
+      hairEndpointLandmark: "ear",
+      hairTouchesShoulder: false,
       skinTone: "light",
       skinUndertone: "neutral",
       eyeColor: "dark-brown",
@@ -321,6 +394,8 @@ describe("runPortraitDetailAnalysis", () => {
       clothingConfidence: "high",
       faceEvidence: "Light neutral skin and a soft oval jaw are visible.",
       hairEvidence: "A domed crown flows into ear-hugging temple hair.",
+      hairEndpointEvidence:
+        "The lowest substantial locks end around the ears above the jaw.",
       neckEvidence: "A central knot has two broad pointed hanging tails.",
       clothingEvidence:
         "A small blue and gold rectangular viewer-left chest badge is visible.",
@@ -365,6 +440,8 @@ describe("runPortraitDetailAnalysis", () => {
       fringeConfidence: "high",
       sideHairConfidence: "high",
       hairEndpointConfidence: "high",
+      hairEndpointLandmark: "jaw",
+      hairTouchesShoulder: false,
       skinTone: "light",
       skinUndertone: "neutral",
       eyeColor: "blue",
@@ -401,6 +478,8 @@ describe("runPortraitDetailAnalysis", () => {
       neckConfidence: "high",
       faceEvidence: "Warm smiling oval face and light eyes.",
       hairEvidence: "Full curls end above the shoulder at the jaw line.",
+      hairEndpointEvidence:
+        "Multiple curls end at the jaw and do not touch the shoulder seam.",
       neckEvidence: "No neck accessory is visible.",
     };
     const run = vi.fn(async (model: string) => {
@@ -430,6 +509,8 @@ describe("runPortraitDetailAnalysis", () => {
     expect(PORTRAIT_DETAIL_PROMPT).toContain("fringeConfidence");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("sideHairConfidence");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("hairEndpointConfidence low");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("hairTouchesShoulder true only");
+    expect(PORTRAIT_DETAIL_PROMPT).toContain("hairEndpointEvidence");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("central knot with paired loops");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("teeth_visible");
     expect(PORTRAIT_DETAIL_PROMPT).toContain("low neckConfidence");
@@ -464,6 +545,76 @@ describe("validatePhotoAnalysis", () => {
         ],
       }),
     ).toEqual(analysis);
+  });
+
+  it("turns schema-key salience into concrete identity cues", () => {
+    const raw = makeAnalysis({
+      canonicalIdentity: {
+        overallImpression:
+          "A person with full blonde curls, light eyes and a gray knit sweater.",
+        mustPreserve: ["faceShape", "hairColor", "eyeColor", "topType"],
+        features: [
+          {
+            feature: "faceShape",
+            category: "face",
+            priority: 5,
+            confidence: "high",
+            evidence: "soft oval face with bright blue eyes",
+            targetRegions: ["head.front"],
+          },
+          {
+            feature: "hairColor",
+            category: "hair",
+            priority: 4,
+            confidence: "high",
+            evidence: "full jaw-length blonde curls",
+            targetRegions: ["head.overlay"],
+          },
+          {
+            feature: "topType",
+            category: "outfit",
+            priority: 3,
+            confidence: "high",
+            evidence: "light gray cable-knit sweater",
+            targetRegions: ["torso.front"],
+          },
+          {
+            feature: "glasses",
+            category: "accessory",
+            priority: 1,
+            confidence: "high",
+            evidence: "none",
+            targetRegions: ["head.front"],
+          },
+        ],
+      },
+      fallbackFeatures: {
+        ...makeAnalysis().fallbackFeatures,
+        eyeColor: "blue",
+        hairColor: "blonde",
+        topType: "sweater",
+        topColor: "gray",
+        glasses: "none",
+      },
+    });
+
+    const result = validatePhotoAnalysis(raw);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.analysis.canonicalIdentity.mustPreserve).toEqual([
+      "soft oval face with bright blue eyes",
+      "full jaw-length blonde curls",
+      "medium blue round eyes",
+      "light gray cable-knit sweater",
+    ]);
+    expect(
+      result.analysis.canonicalIdentity.features.map(({ feature }) => feature),
+    ).toEqual([
+      "soft oval face with bright blue eyes",
+      "full jaw-length blonde curls",
+      "light gray cable-knit sweater",
+      "bare face without glasses",
+    ]);
   });
 
   it("analysis prompt requires visible lower-body, legwear asymmetry and shoe details", () => {
@@ -503,10 +654,11 @@ describe("validatePhotoAnalysis", () => {
     expect(ANALYSIS_PROMPT).toContain(
       "Repeat both exact sides in outfitPrompt",
     );
+    expect(ANALYSIS_PROMPT).toContain("using minimum invention");
     expect(ANALYSIS_PROMPT).toContain(
-      "Never return the completely generic combination of plain pants + no accent + no legwear + sneakers",
+      "Never add a pattern, belt, stripe, accessory, asymmetry or legwear merely to make the design more detailed",
     );
-    expect(ANALYSIS_PROMPT).toContain("describe the shoe color/construction");
+    expect(ANALYSIS_PROMPT).toContain("Plain pants, no accent, no legwear and simple shoes is valid");
   });
 
   it("analysis prompt distinguishes fringe density and side-hair profile", () => {

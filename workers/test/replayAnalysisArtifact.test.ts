@@ -24,8 +24,20 @@ import type { Env } from "../src/types";
 const INPUT = process.env.REPLAY_ANALYSIS_JSON;
 const OUTPUT = process.env.REPLAY_ARTIFACT_DIR;
 const SOURCE_IMAGE = process.env.REPLAY_SOURCE_IMAGE;
+const SOURCE_IMAGES_JSON = process.env.REPLAY_SOURCE_IMAGES_JSON;
 const OFFLINE_CRITIQUE = process.env.REPLAY_CRITIQUE_JSON;
 const REQUIRE_APPROVAL = process.env.REPLAY_REQUIRE_APPROVAL === "1";
+const HAIR_LENGTH_OVERRIDE = process.env.REPLAY_HAIR_LENGTH_OVERRIDE?.trim();
+
+const HAIR_LENGTHS = [
+  "cropped",
+  "ear",
+  "jaw",
+  "shoulder",
+  "chest",
+  "waist",
+  "hip",
+] as const;
 
 interface SavedAnalysisDocument {
   primaryAnalysis?: PhotoAnalysis;
@@ -40,6 +52,16 @@ interface SavedAnalysisDocument {
     | "fallbackFeatures"
   >;
   features?: PhotoAnalysis["fallbackFeatures"];
+}
+
+function hasHexFeaturePalette(
+  features: PhotoAnalysis["fallbackFeatures"] | undefined,
+): features is PhotoAnalysis["fallbackFeatures"] & Record<string, string> {
+  return Boolean(
+    features &&
+    typeof features.skinTone === "string" &&
+    features.skinTone.startsWith("#"),
+  );
 }
 
 describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
@@ -78,14 +100,39 @@ describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
     if (!source) return;
 
     const analysis = normalizeAnalysisForRendering(source);
+    if (HAIR_LENGTH_OVERRIDE) {
+      expect(HAIR_LENGTHS).toContain(
+        HAIR_LENGTH_OVERRIDE as (typeof HAIR_LENGTHS)[number],
+      );
+      const hairLength = HAIR_LENGTH_OVERRIDE as
+        PhotoAnalysis["renderHints"]["overallHairLength"] | undefined;
+      if (hairLength) {
+        analysis.renderHints.overallHairLength = hairLength;
+        analysis.renderHints.sideHairLength =
+          hairLength === "cropped" || hairLength === "ear"
+            ? "short"
+            : hairLength === "jaw"
+              ? "jaw"
+              : "shoulder";
+      }
+    }
     const features = refineFeatureColorsFromAnalysis(
       analysis,
-      fallbackFeaturesToHex(
-        analysis.fallbackFeatures,
-        analysis.renderHints.skinUndertone,
-      ),
+      hasHexFeaturePalette(document.features)
+        ? document.features
+        : fallbackFeaturesToHex(
+            analysis.fallbackFeatures,
+            analysis.renderHints.skinUndertone,
+          ),
     );
     const style = buildFaceStyle(analysis, features);
+    const stem = basename(INPUT as string).replace(/-analysis\.json$/i, "");
+    await mkdir(OUTPUT as string, { recursive: true });
+    await writeFile(
+      join(OUTPUT as string, `${stem}-normalized.json`),
+      JSON.stringify({ analysis, features, style }, null, 2),
+      "utf8",
+    );
     const atlas = buildProceduralFallbackAtlas(features, style);
     expect(atlas).not.toBeNull();
     if (!atlas) return;
@@ -94,21 +141,11 @@ describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
     const views = renderSkinViews(atlas);
     expect(inspectRenderedSkin(views).ok).toBe(true);
     const montage = buildSkinViewMontage(views);
-    const stem = basename(INPUT as string).replace(/-analysis\.json$/i, "");
-    await mkdir(OUTPUT as string, { recursive: true });
     const atlasBytes = await encodePng(atlas);
     const montageBytes = await encodePng(montage);
     await Promise.all([
       writeFile(join(OUTPUT as string, `${stem}-skin.png`), atlasBytes),
-      writeFile(
-        join(OUTPUT as string, `${stem}-six-view.png`),
-        montageBytes,
-      ),
-      writeFile(
-        join(OUTPUT as string, `${stem}-normalized.json`),
-        JSON.stringify({ analysis, features, style }, null, 2),
-        "utf8",
-      ),
+      writeFile(join(OUTPUT as string, `${stem}-six-view.png`), montageBytes),
     ]);
 
     if (OFFLINE_CRITIQUE) {
@@ -146,18 +183,37 @@ describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
       ]);
     }
 
-    if (SOURCE_IMAGE) {
+    const sourceImagePaths = SOURCE_IMAGES_JSON
+      ? (JSON.parse(SOURCE_IMAGES_JSON) as unknown)
+      : SOURCE_IMAGE
+        ? [SOURCE_IMAGE]
+        : [];
+    expect(Array.isArray(sourceImagePaths)).toBe(true);
+    if (Array.isArray(sourceImagePaths) && sourceImagePaths.length > 0) {
+      expect(sourceImagePaths.every((value) => typeof value === "string")).toBe(
+        true,
+      );
+      expect(sourceImagePaths.length).toBeLessThanOrEqual(5);
       const key = process.env.GEMINI_API_KEY;
-      expect(key, "GEMINI_API_KEY is required for replay critique").toBeTruthy();
+      expect(
+        key,
+        "GEMINI_API_KEY is required for replay critique",
+      ).toBeTruthy();
       if (!key) return;
-      const sourceBytes = await readFile(SOURCE_IMAGE);
-      const mime = /\.png$/i.test(SOURCE_IMAGE) ? "image/png" : "image/jpeg";
+      const sourceDataUrls = await Promise.all(
+        sourceImagePaths.map(async (sourcePath) => {
+          const sourceBytes = await readFile(sourcePath as string);
+          const mime = /\.png$/i.test(sourcePath as string)
+            ? "image/png"
+            : "image/jpeg";
+          return `data:${mime};base64,${bytesToBase64(sourceBytes)}`;
+        }),
+      );
       const critique = await runSkinCritique(
         {
           GEMINI_API_KEY: key,
           VISION_MODEL:
-            process.env.LIVE_GEMINI_VISION_MODEL?.trim() ||
-            "gemini-3.6-flash",
+            process.env.LIVE_GEMINI_VISION_MODEL?.trim() || "gemini-3.6-flash",
           VISION_FALLBACK_MODEL:
             process.env.LIVE_GEMINI_FALLBACK_MODEL?.trim() ||
             "gemini-3.1-flash-lite",
@@ -165,7 +221,7 @@ describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
             process.env.LIVE_GEMINI_STRUCTURED_TIMEOUT_MS?.trim() || "90000",
         } as Env,
         analysis,
-        [`data:${mime};base64,${bytesToBase64(sourceBytes)}`],
+        sourceDataUrls,
         `data:image/png;base64,${bytesToBase64(montageBytes)}`,
         buildSkinPlan(analysis),
         atlas,
@@ -180,5 +236,5 @@ describe.skipIf(!INPUT || !OUTPUT)("saved-analysis visual replay", () => {
         expect(critique.approved, JSON.stringify(critique.critique)).toBe(true);
       }
     }
-  });
+  }, 120_000);
 });

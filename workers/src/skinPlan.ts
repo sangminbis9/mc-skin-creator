@@ -15,6 +15,13 @@ import {
   type SkinLayer,
 } from "./skinCorrection";
 import type { BodyPart } from "./uvLayout";
+import {
+  buildIdentityPixelPlans,
+  type FacePixelPlan,
+  type HairPlan,
+  type OutfitPlan,
+  type PalettePlan,
+} from "./identityPlans";
 
 export interface SkinPlanAssignment {
   feature: string;
@@ -41,6 +48,10 @@ export interface SkinPlan {
   hiddenSurfaces: HiddenSurfacePlan[];
   palette: string[];
   invariants: string[];
+  facePixelPlan: FacePixelPlan;
+  hairPlan: HairPlan;
+  palettePlan: PalettePlan;
+  outfitPlan: OutfitPlan;
 }
 
 function pixelStrategy(feature: IdentityFeaturePriority): string {
@@ -126,6 +137,7 @@ function describeStructuredLowerBody(analysis: PhotoAnalysis): string | null {
 }
 
 export function buildSkinPlan(analysis: PhotoAnalysis): SkinPlan {
+  const pixelPlans = buildIdentityPixelPlans(analysis);
   const assignments = analysis.canonicalIdentity.features
     .slice()
     .sort((a, b) => b.priority - a.priority)
@@ -185,6 +197,7 @@ export function buildSkinPlan(analysis: PhotoAnalysis): SkinPlan {
       "Hair, cuffs, hems, waistlines, patterns, legwear and shoes must continue across physical seams.",
       "Unobserved surfaces must extend observed construction without inventing a new motif.",
     ],
+    ...pixelPlans,
   };
 }
 
@@ -198,5 +211,5 @@ export function formatSkinPlanForPrompt(plan: SkinPlan): string {
   const hidden = plan.hiddenSurfaces
     .map((surface) => `${surface.part}: ${surface.completion}`)
     .join("; ");
-  return `Explicit surface plan: ${assignments}. Hidden-surface completion: ${hidden}. Invariants: ${plan.invariants.join(" ")}`;
+  return `Explicit surface plan: ${assignments}. Face pixels use named palette roles at fixed 8x8 coordinates (${plan.facePixelPlan.pixels.length} planned cells). Hair template: ${plan.hairPlan.template}, continuous over ${plan.hairPlan.continuousFaces.join("/")}. Palette policy: at most ${plan.palettePlan.maxGlobalColors} global colours with connected local ramps. Hidden-surface completion: ${hidden}. Outfit invention policy: ${plan.outfitPlan.inventionPolicy}. Invariants: ${plan.invariants.join(" ")}`;
 }

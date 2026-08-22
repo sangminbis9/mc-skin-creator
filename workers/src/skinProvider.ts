@@ -33,11 +33,20 @@ export interface SkinGenerationRequest {
   photoDataUrl: string;
   /** Optional alternate photos of the same person, ordered by usefulness. */
   referencePhotoDataUrls?: string[];
+  /** Focused face/head crop; priority is primary, crop, best alternate, guide. */
+  identityCropDataUrl?: string;
   seed: number;
   mode: GenerationStrategy;
   modelTier?: ImageModelTier;
   /** A bounded, evidence-backed correction from the previous rendered atlas. */
   correctionPrompt?: string;
+}
+
+export interface GenerationInputDiagnostic {
+  order: number;
+  role: "primary" | "identity_crop" | "alternate" | "pose_guide";
+  original: { width: number; height: number };
+  submitted: { width: number; height: number };
 }
 
 export type SkinGenerationResult =
@@ -47,22 +56,30 @@ export type SkinGenerationResult =
       inputTiles: number;
       outputTiles: number;
       provider?: "gemini" | "workers_ai";
+      model?: string;
+      attemptedModels?: string[];
       /** Effective sheet layout when a provider simplifies a recovery pass. */
       mode?: GenerationStrategy;
       /** Exact local-meter estimate when the provider has a different cost model. */
       neuronsSpent?: number;
+      inputDiagnostics?: GenerationInputDiagnostic[];
+      providerInputLimit?: number;
     }
   | {
       ok: false;
       error: string;
       retryable: boolean;
       provider?: "gemini" | "workers_ai";
+      model?: string;
+      attemptedModels?: string[];
       quotaExceeded?: boolean;
       /** True when inference ran far enough that account capacity may be used. */
       capacityConsumed?: boolean;
       retryAfterMs?: number;
       /** Capacity consumed across hidden primary/fallback provider attempts. */
       neuronsSpent?: number;
+      inputDiagnostics?: GenerationInputDiagnostic[];
+      providerInputLimit?: number;
     };
 
 export interface SkinGenerationProvider {
@@ -237,8 +254,15 @@ export class GeminiImageProvider implements SkinGenerationProvider {
         provider: "gemini",
       };
     }
+    const identityCrop = request.identityCropDataUrl
+      ? dataUrlToBytes(request.identityCropDataUrl)
+      : null;
+    const usableIdentityCrop = identityCrop && (() => {
+      const cropSize = sniffImageSize(identityCrop.bytes);
+      return cropSize && cropSize.width >= MIN_INPUT_EDGE && cropSize.height >= MIN_INPUT_EDGE ? identityCrop : null;
+    })();
     const references = (request.referencePhotoDataUrls || [])
-      .slice(0, 4)
+      .slice(0, usableIdentityCrop ? 1 : 2)
       .map(dataUrlToBytes)
       .filter(
         (image): image is { bytes: Uint8Array; mime: string } => image !== null,
@@ -256,12 +280,12 @@ export class GeminiImageProvider implements SkinGenerationProvider {
       request.mode === "front_view"
         ? buildFrontViewPrompt(
             request.analysis,
-            references.length,
+            references.length + (usableIdentityCrop ? 1 : 0),
             request.skinPlan,
           )
         : buildFourViewPrompt(
             request.analysis,
-            references.length,
+            references.length + (usableIdentityCrop ? 1 : 0),
             request.skinPlan,
           );
     if (request.correctionPrompt?.trim()) {
@@ -271,6 +295,16 @@ export class GeminiImageProvider implements SkinGenerationProvider {
       request.mode === "front_view"
         ? await buildFrontBackGuidePng()
         : await buildFourViewGuidePng();
+    const orderedInputs = [
+      { role: "primary" as const, image: photo },
+      ...(usableIdentityCrop ? [{ role: "identity_crop" as const, image: usableIdentityCrop }] : []),
+      ...references.map((image) => ({ role: "alternate" as const, image })),
+      { role: "pose_guide" as const, image: { bytes: guide, mime: "image/png" } },
+    ];
+    const inputDiagnostics: GenerationInputDiagnostic[] = orderedInputs.map((entry, order) => {
+      const dimensions = sniffImageSize(entry.image.bytes)!;
+      return { order, role: entry.role, original: dimensions, submitted: dimensions };
+    });
     const modelTier =
       request.modelTier ??
       (this.env.IMAGE_MODEL_TIER === "quality" ? "quality" : "balanced");
@@ -285,6 +319,7 @@ export class GeminiImageProvider implements SkinGenerationProvider {
           prompt,
           images: [
             { bytes: photo.bytes, mimeType: photo.mime },
+            ...(usableIdentityCrop ? [{ bytes: usableIdentityCrop.bytes, mimeType: usableIdentityCrop.mime }] : []),
             ...references.map((image) => ({
               bytes: image.bytes,
               mimeType: image.mime,
@@ -298,9 +333,12 @@ export class GeminiImageProvider implements SkinGenerationProvider {
         return {
           ok: true,
           imageBytes,
-          inputTiles: 2 + references.length,
+          inputTiles: 2 + references.length + (usableIdentityCrop ? 1 : 0),
           outputTiles: 2,
           provider: "gemini",
+          model,
+          inputDiagnostics,
+          providerInputLimit: 4,
         };
       } catch (error) {
         lastError = error;
@@ -335,6 +373,9 @@ export class GeminiImageProvider implements SkinGenerationProvider {
       ...(!quotaExceeded && !temporaryRateLimit
         ? { capacityConsumed: true }
         : {}),
+      attemptedModels,
+      inputDiagnostics,
+      providerInputLimit: 4,
     };
   }
 }
@@ -384,6 +425,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
     let submitted = false;
     let attemptedInputTiles = 0;
     let attemptedNeurons = 0;
+    let attemptedModel: string | undefined;
     try {
       // Klein 4B can occasionally duplicate the front figure in a dense
       // four-view sheet. Preserve the richer first attempt, then simplify a
@@ -396,8 +438,15 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
       this.attempts += 1;
       // FLUX.2 supports at most four inputs. Keep the primary photo first and
       // the pose guide last, leaving two slots for compatible identity refs.
+      const identityCrop = request.identityCropDataUrl
+        ? dataUrlToBytes(request.identityCropDataUrl)
+        : null;
+      const usableIdentityCrop = identityCrop && (() => {
+        const cropSize = sniffImageSize(identityCrop.bytes);
+        return cropSize && cropSize.width >= MIN_INPUT_EDGE && cropSize.height >= MIN_INPUT_EDGE ? identityCrop : null;
+      })();
       const referencePhotos = (request.referencePhotoDataUrls || [])
-        .slice(0, 2)
+        .slice(0, usableIdentityCrop ? 1 : 2)
         .map(dataUrlToBytes)
         .filter(
           (image): image is { bytes: Uint8Array; mime: string } =>
@@ -407,22 +456,30 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         effectiveMode === "front_view"
           ? await buildFrontBackGuidePng()
           : await buildFourViewGuidePng();
-      const images = await Promise.all([
-        fitWorkersImage(photo),
-        ...referencePhotos.map(fitWorkersImage),
-        fitWorkersImage({ bytes: guide, mime: "image/png" }),
-      ]);
+      const orderedInputs = [
+        { role: "primary" as const, image: photo },
+        ...(usableIdentityCrop ? [{ role: "identity_crop" as const, image: usableIdentityCrop }] : []),
+        ...referencePhotos.map((image) => ({ role: "alternate" as const, image })),
+        { role: "pose_guide" as const, image: { bytes: guide, mime: "image/png" } },
+      ];
+      const images = await Promise.all(orderedInputs.map((entry) => fitWorkersImage(entry.image)));
+      const inputDiagnostics: GenerationInputDiagnostic[] = orderedInputs.map((entry, order) => ({
+        order,
+        role: entry.role,
+        original: sniffImageSize(entry.image.bytes)!,
+        submitted: sniffImageSize(images[order].bytes)!,
+      }));
       attemptedInputTiles = images.length;
       let prompt =
         effectiveMode === "front_view"
           ? buildFrontViewPrompt(
               request.analysis,
-              referencePhotos.length,
+              referencePhotos.length + (usableIdentityCrop ? 1 : 0),
               request.skinPlan,
             )
           : buildFourViewPrompt(
               request.analysis,
-              referencePhotos.length,
+              referencePhotos.length + (usableIdentityCrop ? 1 : 0),
               request.skinPlan,
             );
       if (request.correctionPrompt?.trim()) {
@@ -458,6 +515,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
           ? this.env.WORKERS_IMAGE_QUALITY_MODEL?.trim() ||
             DEFAULT_WORKERS_IMAGE_QUALITY_MODEL
           : this.env.WORKERS_IMAGE_MODEL?.trim() || DEFAULT_WORKERS_IMAGE_MODEL;
+      attemptedModel = model;
       attemptedNeurons = workersImageNeurons(
         this.env,
         model,
@@ -487,8 +545,12 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         inputTiles,
         outputTiles,
         provider: "workers_ai",
+        model,
+        attemptedModels: [model],
         mode: effectiveMode,
         neuronsSpent: attemptedNeurons,
+        inputDiagnostics,
+        providerInputLimit: 4,
       };
     } catch (error) {
       const quotaExceeded = isWorkersQuotaError(error);
@@ -499,6 +561,7 @@ export class WorkersAiImageProvider implements SkinGenerationProvider {
         error: `Workers AI image generation failed: ${errorText(error)}`,
         retryable,
         provider: "workers_ai",
+        ...(attemptedModel ? { model: attemptedModel, attemptedModels: [attemptedModel] } : {}),
         ...(quotaExceeded ? { quotaExceeded: true } : {}),
         ...(capacityConsumed ? { capacityConsumed: true } : {}),
         ...(capacityConsumed

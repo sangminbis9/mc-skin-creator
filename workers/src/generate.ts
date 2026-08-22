@@ -25,11 +25,14 @@ import {
 } from "./png";
 import {
   DEFAULT_FACE_STYLE,
+  createFacePlanAtlasCandidate,
   packFrontViewToAtlas,
   type FaceStyle,
 } from "./skinPack";
 import {
   applyUvMask,
+  measureAtlasCraft,
+  type AtlasCraftMetrics,
   validateAtlas,
   validateAtlasCraft,
   validateFinalAtlas,
@@ -41,6 +44,7 @@ import {
   type SkinGenerationProvider,
 } from "./skinProvider";
 import {
+  findCriticalIdentityMisses,
   isActionableCritiqueDefect,
   runSkinCritique,
 } from "./skinCritique";
@@ -49,9 +53,18 @@ import { applyProceduralCritiqueCorrections } from "./proceduralCorrection";
 import { buildSkinPlan, type SkinPlan } from "./skinPlan";
 import {
   buildSkinViewMontage,
+  buildHeadViewMontage,
   inspectRenderedSkin,
   renderSkinViews,
 } from "./skinRender";
+import {
+  runHeadPairwiseComparison,
+  selectHeadCandidate,
+  shouldAcceptIdentityCorrection,
+  type HeadCandidate,
+  type HeadPairwiseReview,
+} from "./headIdentity";
+import { buildFacePixelPlanVariants, type FacePixelPlan } from "./identityPlans";
 import { imageGenerationNeurons } from "./quota";
 import type { Env } from "./types";
 
@@ -61,10 +74,91 @@ const MAX_IMAGE_CHARS = 1_500_000;
 export type GenerationMode = "image" | "procedural_fallback";
 const GEMINI_MAX_SEED = 2_147_483_647;
 
+async function headCandidate(
+  id: string,
+  kind: HeadCandidate["kind"],
+  atlas: RawImage,
+  structuralValidity: boolean,
+  facePlanVariant?: string,
+): Promise<HeadCandidate> {
+  const montage = buildHeadViewMontage(renderSkinViews(atlas));
+  return {
+    id,
+    kind,
+    atlas,
+    structuralValidity,
+    headMontageDataUrl: `data:image/png;base64,${bytesToBase64(await encodePng(montage))}`,
+    ...(facePlanVariant ? { facePlanVariant } : {}),
+  };
+}
+
+interface HeadCandidateComparison {
+  candidateA: string;
+  candidateB: string;
+  review: HeadPairwiseReview;
+}
+
+async function selectBoundedHeadCandidates(
+  env: Env,
+  analysis: PhotoAnalysis,
+  sourceFaceCropDataUrl: string,
+  candidates: HeadCandidate[],
+): Promise<{
+  selected: HeadCandidate;
+  comparisons: HeadCandidateComparison[];
+  failures: string[];
+  neuronsSpent: number;
+}> {
+  // Keep the tournament deliberately small: the baseline plus at most two
+  // uncertainty-driven FacePixelPlan alternatives (A/B/C total).
+  const bounded = candidates.slice(0, 3);
+  let selected = bounded[0];
+  const comparisons: HeadCandidateComparison[] = [];
+  const failures: string[] = [];
+  let neuronsSpent = 0;
+  for (const challenger of bounded.slice(1)) {
+    const incumbent = selected;
+    const pairwise = await runHeadPairwiseComparison(
+      env,
+      analysis,
+      sourceFaceCropDataUrl,
+      incumbent.headMontageDataUrl,
+      challenger.headMontageDataUrl,
+    );
+    neuronsSpent += pairwise.neuronsSpent;
+    if (!pairwise.ok) {
+      failures.push(pairwise.detail.slice(0, 1000));
+      continue;
+    }
+    comparisons.push({
+      candidateA: incumbent.id,
+      candidateB: challenger.id,
+      review: pairwise.review,
+    });
+    selected = selectHeadCandidate(incumbent, challenger, pairwise.review);
+  }
+  return { selected, comparisons, failures, neuronsSpent };
+}
+
+function buildValidFacePlanCandidateAtlases(
+  baseline: RawImage,
+  analysis: PhotoAnalysis,
+  faceStyle: FaceStyle,
+): Array<{ plan: FacePixelPlan; atlas: RawImage }> {
+  return buildFacePixelPlanVariants(analysis, 2).flatMap((plan) => {
+    const atlas = createFacePlanAtlasCandidate(baseline, plan, faceStyle);
+    applyUvMask(atlas);
+    return validateFinalAtlas(atlas).ok && validateAtlasCraft(atlas, faceStyle, plan).ok
+      ? [{ plan, atlas }]
+      : [];
+  });
+}
+
 /** 클라이언트에 내려보내는 분석 요약 (원본 사진 관련 정보는 포함하지 않는다) */
 export interface AnalysisSummary {
   framing: PhotoAnalysis["framing"];
   visibleRegions: PhotoAnalysis["visibleRegions"];
+  sourceSelection: PhotoAnalysis["sourceSelection"];
   observed: PhotoAnalysis["observed"];
   inferred: PhotoAnalysis["inferred"];
   canonicalIdentity: PhotoAnalysis["canonicalIdentity"];
@@ -83,6 +177,24 @@ export interface GenerateResult {
     skinPngBase64?: string;
     generationMode?: GenerationMode;
     generationProvider?: "gemini" | "workers_ai";
+    generationModel?: string;
+    fallbackReason?: string;
+    qualityReport?: {
+      scores?: {
+        identity: number;
+        faceHair: number;
+        outfit: number;
+        consistency: number;
+        layer: number;
+      };
+      p5IdentityChecks?: Array<{
+        feature: string;
+        status: "present" | "weak" | "missing" | "wrong";
+        evidence: string;
+        targetRegions: string[];
+      }>;
+      craftMetrics: AtlasCraftMetrics;
+    };
     error?: string;
     errorCode?: string;
   };
@@ -118,11 +230,14 @@ export async function generateSkin(
     return fail(400, "이미지 형식이 올바르지 않아요", "bad_request", 0);
   }
 
+  const analysisReferences = [analysisImageDataUrl, ...references];
+  // Indices match analysisReferences. Only image 0 has a separate 448px
+  // generation copy; alternate uploads already satisfy the provider input
+  // limit and are resized inside the Workers provider when needed.
+  const generationCandidates = [imageDataUrl, ...references];
+
   // ---------- 1) 사진 분석 ----------
-  const analysisResult = await runPhotoAnalysis(env, [
-    analysisImageDataUrl,
-    ...references,
-  ]);
+  const analysisResult = await runPhotoAnalysis(env, analysisReferences);
   // Every Gemini invocation consumes provider capacity, including schema
   // retries and fallback-model attempts. Count all of them in the advisory
   // local meter; provider-reported exhaustion remains authoritative.
@@ -188,14 +303,44 @@ export async function generateSkin(
     };
   }
 
+  const selectedIndex = (index: number): number =>
+    Math.min(analysisReferences.length - 1, Math.max(0, index));
+  const portraitSourceIndex = selectedIndex(
+    analysis.sourceSelection.portraitImageIndex,
+  );
+  const generationSourceIndex = selectedIndex(
+    analysis.sourceSelection.generationImageIndex,
+  );
+  const outfitSourceIndex = selectedIndex(
+    analysis.sourceSelection.outfitImageIndex,
+  );
+  const portraitAnalysisDataUrl =
+    analysisReferences[portraitSourceIndex] ?? analysisImageDataUrl;
+  const initialGenerationReferenceDataUrl =
+    generationCandidates[generationSourceIndex] ?? imageDataUrl;
+  const generationReferenceIndices = [
+    portraitSourceIndex,
+    outfitSourceIndex,
+    ...generationCandidates.map((_, index) => index),
+  ].filter(
+    (index, position, all) =>
+      index !== generationSourceIndex && all.indexOf(index) === position,
+  );
+  const generationSourceReferences = generationReferenceIndices
+    .map((index) => generationCandidates[index])
+    .filter((reference): reference is string => typeof reference === "string")
+    .slice(0, 4);
+  const critiqueReferenceDataUrls = analysisReferences.slice(0, 5);
+
   // The full-frame pass has to divide its attention between the face, hair,
   // outfit and missing-body inference. On tall photos, enlarge the visible
   // portrait once and let one cheap structured pass re-check the face, hair
   // and throat construction that become a handful of pixels in the original
   // frame. Keeping these in one pass avoids spending free-tier capacity on a
   // second request over the exact same crop.
-  const upperBodyDetailCrop =
-    await createUpperBodyDetailCrop(analysisImageDataUrl);
+  const upperBodyDetailCrop = await createUpperBodyDetailCrop(
+    portraitAnalysisDataUrl,
+  );
   if (
     upperBodyDetailCrop &&
     (analysis.visibleRegions.face || analysis.visibleRegions.hair)
@@ -241,6 +386,7 @@ export async function generateSkin(
   const summary: AnalysisSummary = {
     framing: renderAnalysis.framing,
     visibleRegions: renderAnalysis.visibleRegions,
+    sourceSelection: renderAnalysis.sourceSelection,
     observed: renderAnalysis.observed,
     inferred: renderAnalysis.inferred,
     canonicalIdentity: renderAnalysis.canonicalIdentity,
@@ -253,7 +399,13 @@ export async function generateSkin(
   let skinPngBase64: string | null = null;
   let generationMode: GenerationMode = "procedural_fallback";
   let generationProvider: "gemini" | "workers_ai" | undefined;
+  let generationModel: string | undefined;
+  const attemptedImageModels: string[] = [];
+  let generationInputDiagnostics: Extract<Awaited<ReturnType<SkinGenerationProvider["generate"]>>, { ok: true }>["inputDiagnostics"];
+  let fallbackReason = env.IMAGE_GENERATION_ENABLED === "true" ? "image_path_not_accepted" : "image_generation_disabled";
+  let qualityReport: GenerateResult["body"]["qualityReport"];
   let providerQuotaExhausted = false;
+  let proceduralHardRejected = false;
   if (env.IMAGE_GENERATION_ENABLED === "true") {
     const mode: GenerationStrategy =
       env.IMAGE_GEN_STRATEGY === "four_view" ? "four_view" : "front_view";
@@ -268,7 +420,7 @@ export async function generateSkin(
       configuredTier === "quality"
         ? ["quality", "balanced"]
         : ["balanced", "balanced"];
-    let generationReferenceDataUrl = imageDataUrl;
+    let generationReferenceDataUrl = initialGenerationReferenceDataUrl;
     let correctionPrompt = "";
     let correctionBaseAtlas: RawImage | null = null;
     let correctionRegions: string[] = [];
@@ -283,12 +435,18 @@ export async function generateSkin(
         skinPlan,
         photoDataUrl: generationReferenceDataUrl,
         referencePhotoDataUrls:
-          generationReferenceDataUrl === imageDataUrl ? references : [],
+          generationReferenceDataUrl === initialGenerationReferenceDataUrl
+            ? generationSourceReferences
+            : [],
+        ...(upperBodyDetailCrop ? { identityCropDataUrl: upperBodyDetailCrop } : {}),
         seed: (baseSeed + attempt * 7919) % (GEMINI_MAX_SEED + 1),
         mode,
         modelTier,
         ...(correctionPrompt ? { correctionPrompt } : {}),
       });
+      for (const model of generated.attemptedModels ?? (generated.model ? [generated.model] : [])) {
+        if (!attemptedImageModels.includes(model)) attemptedImageModels.push(model);
+      }
       if (!generated.ok) {
         if (generated.neuronsSpent !== undefined) {
           spent += generated.neuronsSpent;
@@ -299,6 +457,11 @@ export async function generateSkin(
           providerQuotaExhausted = true;
         }
         console.log(`image gen attempt ${attempt} failed:`, generated.error);
+        fallbackReason = generated.quotaExceeded
+          ? "image_provider_quota"
+          : generated.retryable
+            ? "image_provider_temporary_failure"
+            : "image_provider_rejected_input";
         await env.MCSKIN_KV.put(
           "diagnostic:last-image-failure",
           JSON.stringify({
@@ -307,7 +470,7 @@ export async function generateSkin(
             detail: generated.error.slice(0, 1500),
             retryable: generated.retryable,
             referenceMode:
-              generationReferenceDataUrl === imageDataUrl
+              generationReferenceDataUrl === initialGenerationReferenceDataUrl
                 ? "source_photo"
                 : "procedural_identity",
           }),
@@ -323,7 +486,7 @@ export async function generateSkin(
         }
         if (
           generated.retryable &&
-          generationReferenceDataUrl === imageDataUrl &&
+          generationReferenceDataUrl === initialGenerationReferenceDataUrl &&
           /(?:3030|flagged|moderation)/i.test(generated.error)
         ) {
           // A benign portrait can still trip output moderation after the
@@ -369,16 +532,79 @@ export async function generateSkin(
           generated.outputTiles,
           modelTier,
         );
+      generationInputDiagnostics = generated.inputDiagnostics;
       const generatedMode = generated.mode ?? mode;
-      const processed = await postprocess(
+      const processed = await postprocessGeneratedSheet(
         generated.imageBytes,
         attempt,
         generatedMode,
         faceStyle,
+        skinPlan,
       );
       if (processed.atlasBase64 && processed.atlas) {
         let candidateAtlas = processed.atlas;
         let candidateBase64 = processed.atlasBase64;
+        if (
+          env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" &&
+          upperBodyDetailCrop &&
+          processed.generatedFacePreserved
+        ) {
+          const generatedCandidate = await headCandidate(
+            "generated",
+            "generated",
+            processed.atlas,
+            true,
+          );
+          const plannedCandidates = await Promise.all(
+            buildValidFacePlanCandidateAtlases(processed.atlas, renderAnalysis, faceStyle)
+              .map(({ plan, atlas }, index) => headCandidate(
+                `face-plan-${plan.variantId}`,
+                index === 0 ? "deterministic" : "deterministic_variant",
+                atlas,
+                true,
+                plan.variantId,
+              )),
+          );
+          const selection = await selectBoundedHeadCandidates(
+            env,
+            renderAnalysis,
+            upperBodyDetailCrop,
+            [generatedCandidate, ...plannedCandidates],
+          );
+          spent += selection.neuronsSpent;
+          if (selection.comparisons.length > 0) {
+            const selected = selection.selected;
+            candidateAtlas = selected.atlas;
+            candidateBase64 = bytesToBase64(await encodePng(candidateAtlas));
+            await env.MCSKIN_KV.put(
+              "diagnostic:last-head-candidate-selection",
+              JSON.stringify({
+                at: new Date().toISOString(),
+                attempt: attempt + 1,
+                candidates: [generatedCandidate, ...plannedCandidates].map((candidate) => ({
+                  id: candidate.id,
+                  kind: candidate.kind,
+                  structuralValidity: candidate.structuralValidity,
+                  facePlanVariant: candidate.facePlanVariant,
+                })),
+                comparisons: selection.comparisons,
+                selected: selected.id,
+                failures: selection.failures,
+              }),
+              { expirationTtl: 60 * 60 * 48 },
+            ).catch(() => undefined);
+          } else if (selection.failures.length > 0) {
+            await env.MCSKIN_KV.put(
+              "diagnostic:last-head-candidate-selection-failure",
+              JSON.stringify({
+                at: new Date().toISOString(),
+                attempt: attempt + 1,
+                details: selection.failures,
+              }),
+              { expirationTtl: 60 * 60 * 48 },
+            ).catch(() => undefined);
+          }
+        }
         if (correctionBaseAtlas && correctionRegions.length > 0) {
           const merged = mergeTargetedAtlas(
             correctionBaseAtlas,
@@ -387,7 +613,7 @@ export async function generateSkin(
           );
           applyUvMask(merged.atlas);
           const mergedFinal = validateFinalAtlas(merged.atlas);
-          const mergedCraft = validateAtlasCraft(merged.atlas, faceStyle);
+          const mergedCraft = validateAtlasCraft(merged.atlas, faceStyle, skinPlan.facePixelPlan);
           if (
             !mergedFinal.ok ||
             !mergedCraft.ok ||
@@ -406,14 +632,40 @@ export async function generateSkin(
             ).catch(() => undefined);
             continue;
           }
-          candidateAtlas = merged.atlas;
+          let acceptCorrection = true;
+          let correctionReview: Awaited<ReturnType<typeof runHeadPairwiseComparison>> | undefined;
+          if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && upperBodyDetailCrop) {
+            const before = await headCandidate("before-correction", "generated", correctionBaseAtlas, true);
+            const after = await headCandidate("after-correction", "corrected", merged.atlas, true);
+            correctionReview = await runHeadPairwiseComparison(
+              env,
+              renderAnalysis,
+              upperBodyDetailCrop,
+              before.headMontageDataUrl,
+              after.headMontageDataUrl,
+              "correction_guard",
+            );
+            spent += correctionReview.neuronsSpent;
+            acceptCorrection = correctionReview.ok && shouldAcceptIdentityCorrection(correctionReview.review);
+          }
+          candidateAtlas = acceptCorrection ? merged.atlas : correctionBaseAtlas;
           candidateBase64 = bytesToBase64(await encodePng(candidateAtlas));
           await env.MCSKIN_KV.put(
             "diagnostic:last-targeted-correction",
             JSON.stringify({
               at: new Date().toISOString(),
               attempt: attempt + 1,
-              mode: "targeted_uv_merge",
+              mode: acceptCorrection ? "targeted_uv_merge" : "pairwise_rollback",
+              accepted: acceptCorrection,
+              pairwise: correctionReview?.ok
+                ? {
+                    winner: correctionReview.review.winner,
+                    confidence: correctionReview.review.confidence,
+                    reasons: correctionReview.review.reasons,
+                  }
+                : correctionReview
+                  ? { failed: true, detail: correctionReview.detail.slice(0, 500) }
+                  : { skipped: true },
               targets: merged.plan.targets.map(
                 (target) => `${target.part}.${target.layer}.${target.face}`,
               ),
@@ -446,10 +698,11 @@ export async function generateSkin(
           const critique = await runSkinCritique(
             env,
             renderAnalysis,
-            [imageDataUrl, ...references].slice(0, 4),
+            critiqueReferenceDataUrls,
             montageDataUrl,
             skinPlan,
             candidateAtlas,
+            upperBodyDetailCrop ?? undefined,
           );
           spent += critique.neuronsSpent;
           if (!critique.ok) {
@@ -462,6 +715,8 @@ export async function generateSkin(
               skinPngBase64 = candidateBase64;
               generationMode = "image";
               generationProvider = generated.provider;
+              generationModel = generated.model;
+              qualityReport = { craftMetrics: measureAtlasCraft(candidateAtlas) };
             }
             correctionPrompt =
               "Reinforce the ranked canonical identity, exact face/hair silhouette, outfit color blocks, connected side/back surfaces and deliberate outer-layer details.";
@@ -478,12 +733,12 @@ export async function generateSkin(
             continue;
           }
           if (!critique.approved) {
+            fallbackReason = "visual_critique_rejected";
             correctionPrompt =
               critique.correctionPrompt ||
               "Improve the highest-priority likeness cues and cross-view consistency without changing correct details.";
             const actionableDefects = critique.critique.defects.filter(
-              (defect) =>
-                isActionableCritiqueDefect(critique.critique, defect),
+              (defect) => isActionableCritiqueDefect(critique.critique, defect),
             );
             correctionRegions = [
               ...new Set(
@@ -504,6 +759,7 @@ export async function generateSkin(
                   consistency: critique.critique.consistencyScore,
                   layer: critique.critique.layerScore,
                 },
+                p5IdentityChecks: critique.critique.p5IdentityChecks,
                 defects: critique.critique.defects,
               }),
               { expirationTtl: 60 * 60 * 48 },
@@ -527,11 +783,25 @@ export async function generateSkin(
             }
             continue;
           }
+          qualityReport = {
+            scores: {
+              identity: critique.critique.identityScore,
+              faceHair: critique.critique.faceHairScore,
+              outfit: critique.critique.outfitScore,
+              consistency: critique.critique.consistencyScore,
+              layer: critique.critique.layerScore,
+            },
+            p5IdentityChecks: critique.critique.p5IdentityChecks,
+            craftMetrics: measureAtlasCraft(candidateAtlas),
+          };
         }
         skinPngBase64 = candidateBase64;
         generationMode = "image";
         generationProvider = generated.provider;
+        generationModel = generated.model;
+        qualityReport ??= { craftMetrics: measureAtlasCraft(candidateAtlas) };
       } else if (processed.failure) {
+        fallbackReason = "generated_atlas_invalid";
         await env.MCSKIN_KV.put(
           "diagnostic:last-image-postprocess-failure",
           JSON.stringify({
@@ -547,7 +817,54 @@ export async function generateSkin(
   }
 
   if (skinPngBase64 === null) {
-    let proceduralAtlas = buildProceduralFallbackAtlas(features, faceStyle);
+    let proceduralAtlas = buildProceduralFallbackAtlas(features, faceStyle, skinPlan);
+    if (
+      proceduralAtlas &&
+      env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" &&
+      upperBodyDetailCrop
+    ) {
+      const plannedAtlases = buildValidFacePlanCandidateAtlases(proceduralAtlas, renderAnalysis, faceStyle);
+      if (plannedAtlases.length > 0) {
+        const composedCandidate = await headCandidate("procedural-compose", "deterministic", proceduralAtlas, true);
+        const plannedCandidates = await Promise.all(
+          plannedAtlases.map(({ plan, atlas }) => headCandidate(
+            `face-plan-${plan.variantId}`,
+            "deterministic_variant",
+            atlas,
+            true,
+            plan.variantId,
+          )),
+        );
+        const selection = await selectBoundedHeadCandidates(
+          env,
+          renderAnalysis,
+          upperBodyDetailCrop,
+          [composedCandidate, ...plannedCandidates],
+        );
+        spent += selection.neuronsSpent;
+        if (selection.comparisons.length > 0) {
+          const selected = selection.selected;
+          proceduralAtlas = selected.atlas;
+          await env.MCSKIN_KV.put(
+            "diagnostic:last-head-candidate-selection",
+            JSON.stringify({
+              at: new Date().toISOString(),
+              path: "procedural_fallback",
+              candidates: [composedCandidate, ...plannedCandidates].map((candidate) => ({
+                id: candidate.id,
+                kind: candidate.kind,
+                structuralValidity: candidate.structuralValidity,
+                facePlanVariant: candidate.facePlanVariant,
+              })),
+              comparisons: selection.comparisons,
+              selected: selected.id,
+              failures: selection.failures,
+            }),
+            { expirationTtl: 60 * 60 * 48 },
+          ).catch(() => undefined);
+        }
+      }
+    }
     if (
       proceduralAtlas &&
       env.IMAGE_CRITIQUE_ENABLED === "true" &&
@@ -563,10 +880,11 @@ export async function generateSkin(
         const critique = await runSkinCritique(
           env,
           renderAnalysis,
-          [imageDataUrl, ...references].slice(0, 4),
+          critiqueReferenceDataUrls,
           montageDataUrl,
           skinPlan,
           proceduralAtlas,
+          upperBodyDetailCrop ?? undefined,
         );
         spent += critique.neuronsSpent;
         if (!critique.ok) {
@@ -580,6 +898,15 @@ export async function generateSkin(
             { expirationTtl: 60 * 60 * 48 },
           ).catch(() => undefined);
         } else if (!critique.approved) {
+          fallbackReason = "procedural_visual_critique_rejected";
+          const criticalIdentityMisses = findCriticalIdentityMisses(
+            renderAnalysis,
+            critique.critique,
+          );
+          if (criticalIdentityMisses.length > 0) {
+            proceduralHardRejected = true;
+            fallbackReason = "procedural_p5_identity_rejected";
+          }
           const correction = applyProceduralCritiqueCorrections(
             renderAnalysis,
             faceStyle,
@@ -596,8 +923,10 @@ export async function generateSkin(
                 consistency: critique.critique.consistencyScore,
                 layer: critique.critique.layerScore,
               },
+              p5IdentityChecks: critique.critique.p5IdentityChecks,
               defects: critique.critique.defects,
               applied: correction.applied,
+              criticalIdentityMisses,
             }),
             { expirationTtl: 60 * 60 * 48 },
           ).catch(() => undefined);
@@ -605,18 +934,41 @@ export async function generateSkin(
             const correctedAtlas = buildProceduralFallbackAtlas(
               features,
               correction.style,
+              skinPlan,
             );
             if (correctedAtlas) {
               const correctedInspection = inspectRenderedSkin(
                 renderSkinViews(correctedAtlas),
               );
               if (correctedInspection.ok) {
-                proceduralAtlas = correctedAtlas;
+                let acceptCorrection = true;
+                let pairwise: Awaited<ReturnType<typeof runHeadPairwiseComparison>> | undefined;
+                if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && upperBodyDetailCrop) {
+                  const before = await headCandidate("procedural-before", "deterministic", proceduralAtlas, true);
+                  const after = await headCandidate("procedural-after", "corrected", correctedAtlas, true);
+                  pairwise = await runHeadPairwiseComparison(
+                    env,
+                    renderAnalysis,
+                    upperBodyDetailCrop,
+                    before.headMontageDataUrl,
+                    after.headMontageDataUrl,
+                    "correction_guard",
+                  );
+                  spent += pairwise.neuronsSpent;
+                  acceptCorrection = pairwise.ok && shouldAcceptIdentityCorrection(pairwise.review);
+                }
+                if (acceptCorrection) proceduralAtlas = correctedAtlas;
                 await env.MCSKIN_KV.put(
                   "diagnostic:last-procedural-correction",
                   JSON.stringify({
                     at: new Date().toISOString(),
-                    mode: "analysis_grounded_style_reinforcement",
+                    mode: acceptCorrection ? "analysis_grounded_style_reinforcement" : "pairwise_rollback",
+                    accepted: acceptCorrection,
+                    pairwise: pairwise?.ok
+                      ? { winner: pairwise.review.winner, confidence: pairwise.review.confidence, reasons: pairwise.review.reasons }
+                      : pairwise
+                        ? { failed: true, detail: pairwise.detail.slice(0, 500) }
+                        : { skipped: true },
                     applied: correction.applied,
                   }),
                   { expirationTtl: 60 * 60 * 48 },
@@ -634,13 +986,89 @@ export async function generateSkin(
               }
             }
           }
+        } else {
+          qualityReport = {
+            scores: {
+              identity: critique.critique.identityScore,
+              faceHair: critique.critique.faceHairScore,
+              outfit: critique.critique.outfitScore,
+              consistency: critique.critique.consistencyScore,
+              layer: critique.critique.layerScore,
+            },
+            p5IdentityChecks: critique.critique.p5IdentityChecks,
+            craftMetrics: measureAtlasCraft(proceduralAtlas),
+          };
         }
       }
     }
     skinPngBase64 = proceduralAtlas
-      ? bytesToBase64(await encodePng(proceduralAtlas))
-      : await buildProceduralFallbackPng(features, faceStyle);
+      ? proceduralHardRejected
+        ? null
+        : bytesToBase64(await encodePng(proceduralAtlas))
+      : proceduralHardRejected
+        ? null
+        : await buildProceduralFallbackPng(features, faceStyle, skinPlan);
+    if (proceduralAtlas) {
+      qualityReport ??= { craftMetrics: measureAtlasCraft(proceduralAtlas) };
+    }
   }
+
+  if (!skinPngBase64) {
+    // `ok: true` without the promised PNG makes callers attempt to decode an
+    // absent value and hides the actual renderer failure behind a base64
+    // error. Keep the response contract strict: a successful generation
+    // always contains a validated 64x64 atlas.
+    await env.MCSKIN_KV.put(
+      "diagnostic:last-generation-path",
+      JSON.stringify({
+        at: new Date().toISOString(),
+        generationMode,
+        provider: generationProvider ?? "deterministic_renderer",
+        imageModel: generationModel ?? null,
+        attemptedImageModels,
+        fallbackReason,
+        scores: qualityReport?.scores ?? null,
+        p5IdentityChecks: qualityReport?.p5IdentityChecks ?? null,
+        craftMetrics: qualityReport?.craftMetrics ?? null,
+        generationInputDiagnostics: generationInputDiagnostics ?? null,
+        rejected: true,
+      }),
+      { expirationTtl: 60 * 60 * 48 },
+    ).catch(() => undefined);
+    return {
+      status: 500,
+      body: {
+        ok: false,
+        quality: analysis.quality,
+        features,
+        analysis: summary,
+        generationMode,
+        fallbackReason,
+        error: "Unable to construct a valid Minecraft skin atlas.",
+        errorCode: "SKIN_RENDER_FAILED",
+      },
+      neuronsSpent: spent,
+      success: false,
+      ...(providerQuotaExhausted ? { providerQuotaExhausted: true } : {}),
+    };
+  }
+
+  await env.MCSKIN_KV.put(
+    "diagnostic:last-generation-path",
+    JSON.stringify({
+      at: new Date().toISOString(),
+      generationMode,
+      provider: generationProvider ?? "deterministic_renderer",
+      imageModel: generationModel ?? null,
+      attemptedImageModels,
+      fallbackReason: generationMode === "procedural_fallback" ? fallbackReason : null,
+      scores: qualityReport?.scores ?? null,
+      p5IdentityChecks: qualityReport?.p5IdentityChecks ?? null,
+      craftMetrics: qualityReport?.craftMetrics ?? null,
+      generationInputDiagnostics: generationInputDiagnostics ?? null,
+    }),
+    { expirationTtl: 60 * 60 * 48 },
+  ).catch(() => undefined);
 
   return {
     status: 200,
@@ -652,6 +1080,9 @@ export async function generateSkin(
       ...(skinPngBase64 ? { skinPngBase64 } : {}),
       generationMode,
       ...(generationProvider ? { generationProvider } : {}),
+      ...(generationModel ? { generationModel } : {}),
+      ...(generationMode === "procedural_fallback" ? { fallbackReason } : {}),
+      ...(qualityReport ? { qualityReport } : {}),
     },
     neuronsSpent: spent,
     success: true,
@@ -742,6 +1173,30 @@ export async function createUpperBodyDetailCrop(
  * fringe clearly while cutting off the side profile or lowest endpoint. The
  * crop cannot establish back construction, so that remains untouched.
  */
+function resolvedFocusedHairEndpoint(
+  detail: PortraitDetailAnalysis,
+): PhotoAnalysis["renderHints"]["overallHairLength"] {
+  const reported = detail.overallHairLength;
+  const landmark = detail.hairEndpointLandmark;
+  if (landmark === "not_visible") return reported;
+
+  if (!detail.hairTouchesShoulder) {
+    if (landmark === "scalp") return "cropped";
+    if (landmark === "ear") return "ear";
+    // Minecraft has no separate neck-length enum. Jaw is the conservative
+    // short-hair construction and, unlike shoulder, does not invent draped
+    // torso panels for curls that merely flare beside the neck.
+    if (landmark === "jaw" || landmark === "neck") return "jaw";
+  }
+  if (detail.hairTouchesShoulder && landmark === "shoulder") {
+    return "shoulder";
+  }
+  if (landmark === "below_shoulder") {
+    return ["chest", "waist", "hip"].includes(reported) ? reported : "chest";
+  }
+  return reported;
+}
+
 export function applyFocusedPortraitDetail(
   analysis: PhotoAnalysis,
   detail: PortraitDetailAnalysis,
@@ -750,10 +1205,12 @@ export function applyFocusedPortraitDetail(
   const hairReliable = detail.hairConfidence !== "low";
   const crownReliable = hairReliable && detail.crownConfidence !== "low";
   const fringeReliable = hairReliable && detail.fringeConfidence !== "low";
-  const sideHairReliable =
-    hairReliable && detail.sideHairConfidence !== "low";
+  const sideHairReliable = hairReliable && detail.sideHairConfidence !== "low";
   const hairEndpointReliable =
-    hairReliable && detail.hairEndpointConfidence !== "low";
+    hairReliable &&
+    detail.hairEndpointConfidence !== "low" &&
+    detail.hairEndpointLandmark !== "not_visible";
+  const focusedHairEndpoint = resolvedFocusedHairEndpoint(detail);
   if (!faceReliable && !hairReliable) {
     return analysis;
   }
@@ -821,7 +1278,15 @@ export function applyFocusedPortraitDetail(
     }
     if (sideHairReliable) {
       Object.assign(renderHints, {
-        sideHairLength: detail.sideHairLength,
+        sideHairLength:
+          hairEndpointReliable &&
+          !detail.hairTouchesShoulder &&
+          ["scalp", "ear", "jaw", "neck"].includes(
+            detail.hairEndpointLandmark,
+          ) &&
+          detail.sideHairLength === "shoulder"
+            ? "jaw"
+            : detail.sideHairLength,
         sideHairShape: detail.sideHairShape,
         sideHairAsymmetry: detail.sideHairAsymmetry,
         earExposure: detail.earExposure,
@@ -829,7 +1294,7 @@ export function applyFocusedPortraitDetail(
     }
     if (hairEndpointReliable) {
       Object.assign(renderHints, {
-        overallHairLength: detail.overallHairLength,
+        overallHairLength: focusedHairEndpoint,
       });
     }
     fallbackFeatures = {
@@ -848,7 +1313,7 @@ export function applyFocusedPortraitDetail(
         ? `${detail.sideHairLength} ${detail.sideHairShape} side hair with ${detail.sideHairAsymmetry} viewer-side asymmetry and ${detail.earExposure} ear exposure`
         : null,
       hairEndpointReliable
-        ? `${detail.overallHairLength}-length lowest substantial hair endpoint`
+        ? `${focusedHairEndpoint}-length lowest substantial hair endpoint (${detail.hairEndpointEvidence})`
         : null,
     ].filter((value): value is string => value !== null);
     const allHairGeometryReliable =
@@ -1092,7 +1557,9 @@ function buildProceduralFrontView(
   };
 
   fill(196, 40, 316, 180, skin);
-  fill(196, 40, 316, 104, hair);
+  if (style.hairstyle !== "bald") {
+    fill(196, 40, 316, 104, hair);
+  }
   if (style.hairstyle === "long" || style.hairstyle === "twintails") {
     fill(196, 88, 212, 180, hair);
     fill(300, 88, 316, 180, hair);
@@ -1106,7 +1573,10 @@ function buildProceduralFrontView(
   if (style.outerGarment !== "none" || style.neckAccessory !== "none") {
     fill(224, 180, 288, 238, accent);
   }
-  if (style.sleeveLength === "short") {
+  if (style.sleeveLength === "sleeveless") {
+    fill(136, 180, 196, 330, skin);
+    fill(316, 180, 376, 330, skin);
+  } else if (style.sleeveLength === "short") {
     fill(136, 244, 196, 330, skin);
     fill(316, 244, 376, 330, skin);
   }
@@ -1178,9 +1648,10 @@ export async function buildProceduralGenerationReference(
 async function buildProceduralFallbackPng(
   features: Record<string, unknown>,
   style: FaceStyle,
+  skinPlan?: SkinPlan,
 ): Promise<string | null> {
   try {
-    const atlas = buildProceduralFallbackAtlas(features, style);
+    const atlas = buildProceduralFallbackAtlas(features, style, skinPlan);
     if (!atlas) return null;
     return bytesToBase64(await encodePng(atlas));
   } catch (error) {
@@ -1200,10 +1671,22 @@ async function buildProceduralFallbackPng(
 export function buildProceduralFallbackAtlas(
   features: Record<string, unknown>,
   style: FaceStyle,
+  skinPlan?: SkinPlan,
 ): RawImage | null {
   const packed = packFrontViewToAtlas(
     buildProceduralFrontView(features, style),
     style,
+    2,
+    {
+      faceMode: "deterministic_plan",
+      ...(skinPlan ? {
+        // The fallback renderer's composeFace already carries expression and
+        // correction state. FacePixelPlan is applied to the separately ranked
+        // deterministic candidate built from a generated sheet; repainting it
+        // here would erase bounded procedural corrections.
+        hairPlan: skinPlan.hairPlan,
+      } : {}),
+    },
   );
   if (!packed) return null;
   const atlas = packed.atlas;
@@ -1236,14 +1719,16 @@ export function buildProceduralFallbackAtlas(
 }
 
 /** FLUX 출력 → 64x64 atlas. 검증 실패 시 null (재시도 유도) */
-async function postprocess(
+export async function postprocessGeneratedSheet(
   imageBytes: Uint8Array,
   attempt: number,
   mode: GenerationStrategy,
   faceStyle: FaceStyle,
+  skinPlan: SkinPlan,
 ): Promise<{
   atlasBase64: string | null;
   atlas?: RawImage;
+  generatedFacePreserved?: boolean;
   failure?: string;
 }> {
   try {
@@ -1252,6 +1737,11 @@ async function postprocess(
       decoded,
       faceStyle,
       mode === "four_view" ? 4 : 2,
+      {
+        faceMode: "preserve_generated",
+        facePixelPlan: skinPlan.facePixelPlan,
+        hairPlan: skinPlan.hairPlan,
+      },
     );
     if (!packed) {
       console.log(
@@ -1304,7 +1794,7 @@ async function postprocess(
         failure: `final atlas validation failed: ${finalVerdict.problems.join(" / ")}`,
       };
     }
-    const craftVerdict = validateAtlasCraft(atlas, faceStyle);
+    const craftVerdict = validateAtlasCraft(atlas, faceStyle, skinPlan.facePixelPlan);
     if (!craftVerdict.ok) {
       console.log(
         `attempt ${attempt}: craft quality validation failed`,
@@ -1315,7 +1805,11 @@ async function postprocess(
         failure: `craft quality validation failed: ${craftVerdict.problems.join(" / ")}`,
       };
     }
-    return { atlasBase64: bytesToBase64(await encodePng(atlas)), atlas };
+    return {
+      atlasBase64: bytesToBase64(await encodePng(atlas)),
+      atlas,
+      generatedFacePreserved: packed.preservedGeneratedFace,
+    };
   } catch (error) {
     console.log(
       `attempt ${attempt}: 후처리 오류 —`,
@@ -2270,143 +2764,39 @@ export function normalizeAnalysisForRendering(
         /^(?:null|none|unknown|not[-\s]+visible|n\/?a)$/i.test(lowerValue));
 
     if (missingLowerInference) {
-      const topType = analysis.fallbackFeatures.topType.toLowerCase();
-      const upperConstructionText = joinedAnalysisText([
-        analysis.observed.clothing,
-        analysis.observed.accessories,
-        analysis.outfitPrompt,
-        analysis.canonicalIdentity.overallImpression,
-      ]);
-      const preppyTop =
-        (renderHints.outerGarment === "cardigan" ||
-          renderHints.outerGarment === "vest") &&
-        (renderHints.neckAccessory === "bow" ||
-          renderHints.neckAccessory === "collar");
-      const tailoredTop =
-        topType === "jacket" ||
-        renderHints.neckAccessory === "tie" ||
-        renderHints.outerGarment === "open_jacket" ||
-        renderHints.outerGarment === "coat" ||
-        (topType === "shirt" &&
-          /\b(?:dress|formal|collared|button[-\s]+down|tailored)\b/.test(
-            upperConstructionText,
-          ));
-      const athleticTop =
-        /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|top|jersey|jacket)|\bjersey\b/.test(
-          upperConstructionText,
-        );
-      const knitTop =
-        topType === "sweater" ||
-        renderHints.garmentTexture === "knit" ||
-        /\b(?:knit|knitted|sweater|pullover)\b/.test(upperConstructionText);
-      const hoodieTop =
-        topType === "hoodie" || /\bhoodie\b/.test(upperConstructionText);
-
-      const bottomType = preppyTop
-        ? "skirt"
-        : /\b(?:skirt|skort|culottes)\b/.test(
-              analysis.outfitPrompt.toLowerCase(),
-            )
+      const promptText = analysis.outfitPrompt.toLowerCase();
+      const bottomType: NonNullable<PhotoAnalysis["inferred"]["lowerBodyDesign"]>["bottomType"] =
+        /\b(?:skirt|skort|culottes)\b/.test(promptText)
           ? "skirt"
-          : /\bshorts?\b/.test(analysis.outfitPrompt.toLowerCase())
+          : /\bshorts?\b/.test(promptText)
             ? "shorts"
-            : /\b(?:jeans?|denim)\b/.test(
-                  analysis.outfitPrompt.toLowerCase(),
-                ) ||
-                (knitTop && !athleticTop && !tailoredTop && !hoodieTop)
+            : /\b(?:jeans?|denim)\b/.test(promptText)
               ? "jeans"
               : "pants";
-      const bottomPattern =
-        bottomType === "skirt" && renderHints.bottomPattern === "plain"
-          ? "pleated"
-          : renderHints.bottomPattern;
-      const bottomAccent = preppyTop
-        ? renderHints.neckAccessory === "bow"
-          ? "ribbon"
-          : "belt"
-        : tailoredTop
-          ? "belt"
-          : athleticTop
-            ? "side_stripe"
-            : knitTop
-              ? "belt"
-              : hoodieTop || bottomType === "shorts" || bottomType === "jeans"
-                ? "cuffs"
-                : "belt";
-      const legwear =
-        preppyTop || (knitTop && !athleticTop && !tailoredTop && !hoodieTop)
-          ? "socks"
-          : renderHints.legwear === "none"
-            ? "none"
-            : renderHints.legwear;
-      const legwearAsymmetry = legwear === "none" ? "none" : "both";
-      const shoeStyle = preppyTop || tailoredTop ? "dress_shoes" : "sneakers";
-      const bottomDescription =
-        bottomType === "jeans"
-          ? "dark blue denim jeans"
-          : bottomType === "skirt"
-            ? `a coordinated ${bottomPattern === "plain" ? "clean-lined" : bottomPattern} skirt`
-            : bottomType === "shorts"
-              ? "coordinated cuffed shorts"
-              : athleticTop || hoodieTop
-                ? "dark jogger pants"
-                : tailoredTop
-                  ? "charcoal tailored trousers"
-                  : "coordinated trousers";
-      const accentDescription =
-        bottomAccent === "side_stripe"
-          ? " with a readable side stripe"
-          : bottomAccent === "cuffs"
-            ? " with visible cuffs"
-            : bottomAccent === "ribbon"
-              ? " with a ribbon waistband"
-              : " with a readable belt";
-      const legwearDescription =
-        legwear === "none" ? "" : `, paired ${legwear.replace("_", " ")}`;
-      const shoeDescription =
-        shoeStyle === "dress_shoes"
-          ? preppyTop
-            ? "polished strap dress shoes"
-            : "polished black leather dress shoes"
-          : athleticTop
-            ? "clean white low-top sneakers"
-            : "clean off-white low-top sneakers";
-      const visibleUpperCue =
-        analysis.observed.clothing.trim() || `${topType} upper garment`;
-      const completionSentence = `Complete the unseen lower body with ${bottomDescription}${accentDescription}${legwearDescription} and ${shoeDescription}, grounded in the visible ${visibleUpperCue}.`;
-
+      const rationale = "The lower body is not visible; continue the visible outfit with a plain, color-coordinated lower garment and simple shoes, adding no unsupported motif, accessory, asymmetry or legwear.";
       lowerDesign = {
         bottomType,
-        bottomPattern,
-        bottomAccent,
-        legwear,
-        legwearAsymmetry,
-        thighAccessory: renderHints.thighAccessory,
-        thighAccessorySide:
-          renderHints.thighAccessory === "none"
-            ? "none"
-            : renderHints.thighAccessorySide,
-        shoeStyle,
-        rationale: completionSentence,
+        bottomPattern: "plain",
+        bottomAccent: "none",
+        legwear: "none",
+        legwearAsymmetry: "none",
+        thighAccessory: "none",
+        thighAccessorySide: "none",
+        shoeStyle: "sneakers",
+        rationale,
       };
-      renderHints.bottomPattern = bottomPattern;
-      renderHints.bottomAccent = bottomAccent;
-      renderHints.legwear = legwear;
-      renderHints.legwearAsymmetry = legwearAsymmetry;
-      if (legwear !== "none") renderHints.legwearColor = "white";
+      renderHints.bottomPattern = "plain";
+      renderHints.bottomAccent = "none";
+      renderHints.legwear = "none";
+      renderHints.legwearAsymmetry = "none";
+      renderHints.thighAccessory = "none";
+      renderHints.thighAccessorySide = "none";
       inferred = {
         ...inferred,
-        lowerBody: {
-          value: `${bottomDescription}${accentDescription}${legwearDescription}`,
-          rationale: completionSentence,
-        },
+        lowerBody: { value: `plain coordinated ${bottomType}`, rationale },
         lowerBodyDesign: lowerDesign,
-        shoes: {
-          value: shoeDescription,
-          rationale: completionSentence,
-        },
+        shoes: { value: "simple coordinated shoes", rationale },
       };
-      outfitPrompt = `${outfitPrompt} ${completionSentence}`.trim();
     }
     const explicitlyAthleticUpper =
       /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|top|jersey|jacket)|\bjersey\b/.test(
@@ -2480,199 +2870,6 @@ export function normalizeAnalysisForRendering(
         .join(" ")
         .trim();
       outfitPrompt = `${cleanedPrompt} ${completion}`.trim();
-    }
-    const completelyGenericLower =
-      lowerDesign !== null &&
-      lowerDesign !== undefined &&
-      lowerDesign.bottomType === "pants" &&
-      lowerDesign.bottomPattern === "plain" &&
-      lowerDesign.bottomAccent === "none" &&
-      lowerDesign.legwear === "none" &&
-      lowerDesign.thighAccessory === "none" &&
-      lowerDesign.shoeStyle === "sneakers" &&
-      renderHints.bottomPattern === "plain" &&
-      renderHints.bottomAccent === "none" &&
-      renderHints.legwear === "none" &&
-      renderHints.thighAccessory === "none";
-
-    if (completelyGenericLower && lowerDesign) {
-      const topType = analysis.fallbackFeatures.topType.toLowerCase();
-      const visibleUpperText = [
-        analysis.observed.clothing,
-        analysis.outfitPrompt,
-      ]
-        .join(" ")
-        .toLowerCase();
-      const preppyTop =
-        (renderHints.outerGarment === "cardigan" ||
-          renderHints.outerGarment === "vest") &&
-        (renderHints.neckAccessory === "bow" ||
-          renderHints.neckAccessory === "collar");
-      const tailoredTop =
-        topType === "jacket" ||
-        renderHints.neckAccessory === "tie" ||
-        renderHints.outerGarment === "open_jacket" ||
-        renderHints.outerGarment === "coat" ||
-        (topType === "shirt" &&
-          /\b(?:dress|formal|collared|button[-\s]+down|tailored)\b/.test(
-            visibleUpperText,
-          ));
-      const athleticTop =
-        /\b(?:athletic(?:[-\s]+style)?|sports?)[-\s]+(?:shirt|top|jersey|jacket)|\bjersey\b/.test(
-          visibleUpperText,
-        );
-      const hoodieTop = topType === "hoodie" || /\bhoodie\b/.test(visibleUpperText);
-      const knitTop =
-        topType === "sweater" ||
-        renderHints.garmentTexture === "knit" ||
-        /\b(?:knit|knitted|sweater|pullover)\b/.test(visibleUpperText);
-      const inferredLowerDetailText = joinedAnalysisText([
-        inferred.lowerBody?.value,
-        inferred.lowerBody?.rationale,
-        lowerDesign.rationale,
-        inferred.shoes?.value,
-        inferred.shoes?.rationale,
-      ]);
-      const hasConcreteLowerDetail =
-        /\b(?:denim|jeans?|chinos?|cargo|joggers?|track|tailored|pleated|plaid|skorts?|skirts?|shorts?|slim[-\s]*fit|wide[-\s]*leg|cuffs?|belt|stripes?|ribbons?|socks?|stockings?|leg[-\s]*warmers?|thigh[-\s]*highs?|low[-\s]*top|high[-\s]*top|mary[-\s]*janes?|loafers?|boots?|sandals?|leather|canvas)\b/.test(
-          inferredLowerDetailText,
-        );
-
-      if (preppyTop) {
-        // A cardigan/vest plus a visible bow or collar supplies substantially
-        // more style evidence than the model's safe pants+sneakers fallback.
-        // Complete all lower-body layers together so the result reads as one
-        // authored outfit rather than generic pants with a token accent.
-        const outerCue =
-          renderHints.outerGarment === "vest" ? "vest" : "cardigan";
-        const neckCue =
-          renderHints.neckAccessory === "bow" ? "neck bow" : "collar";
-        const waistCue =
-          renderHints.neckAccessory === "bow"
-            ? "a ribbon waistband"
-            : "a readable belt";
-        const completionSentence = `Complete the unseen lower body as a coordinated pleated skirt with ${waistCue}, paired socks and polished strap dress shoes, grounded in the visible ${outerCue} and ${neckCue}.`;
-        renderHints.bottomPattern = "pleated";
-        renderHints.bottomAccent =
-          renderHints.neckAccessory === "bow" ? "ribbon" : "belt";
-        renderHints.legwear = "socks";
-        renderHints.legwearAsymmetry = "both";
-        inferred = {
-          ...analysis.inferred,
-          lowerBody: {
-            value: `a coordinated pleated skirt with ${waistCue} and paired socks`,
-            rationale: `${analysis.inferred.lowerBody?.rationale ?? lowerDesign.rationale} ${completionSentence}`,
-          },
-          lowerBodyDesign: {
-            ...lowerDesign,
-            bottomType: "skirt",
-            bottomPattern: "pleated",
-            bottomAccent:
-              renderHints.neckAccessory === "bow" ? "ribbon" : "belt",
-            legwear: "socks",
-            legwearAsymmetry: "both",
-            shoeStyle: "dress_shoes",
-            rationale: `${lowerDesign.rationale} ${completionSentence}`,
-          },
-          shoes: {
-            value: "polished strap dress shoes",
-            rationale: `${analysis.inferred.shoes?.rationale ?? "The structured upper outfit calls for a refined shoe."} ${completionSentence}`,
-          },
-        };
-        outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
-        return { ...analysis, inferred, renderHints, outfitPrompt };
-      }
-
-      if (tailoredTop) {
-        const completionSentence =
-          "Complete the unseen lower body with tailored trousers, a readable belt and polished leather dress shoes, grounded in the visible structured shirt, jacket or tie.";
-        renderHints.bottomAccent = "belt";
-        inferred = {
-          ...analysis.inferred,
-          lowerBody: {
-            value: "coordinated tailored trousers with a readable belt",
-            rationale: `${analysis.inferred.lowerBody?.rationale ?? lowerDesign.rationale} ${completionSentence}`,
-          },
-          lowerBodyDesign: {
-            ...lowerDesign,
-            bottomType: "pants",
-            bottomPattern: "plain",
-            bottomAccent: "belt",
-            legwear: "none",
-            legwearAsymmetry: "none",
-            shoeStyle: "dress_shoes",
-            rationale: `${lowerDesign.rationale} ${completionSentence}`,
-          },
-          shoes: {
-            value: "polished leather dress shoes",
-            rationale: `${analysis.inferred.shoes?.rationale ?? "The structured upper outfit calls for formal footwear."} ${completionSentence}`,
-          },
-        };
-        outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
-        return { ...analysis, inferred, renderHints, outfitPrompt };
-      }
-
-      if (!hasConcreteLowerDetail && (athleticTop || hoodieTop || knitTop)) {
-        const bottomType = knitTop && !athleticTop && !hoodieTop ? "jeans" : "pants";
-        const bottomAccent = athleticTop
-          ? "side_stripe"
-          : hoodieTop
-            ? "cuffs"
-            : "belt";
-        const legwear = knitTop && !athleticTop && !hoodieTop ? "socks" : "none";
-        const bottomDescription = athleticTop
-          ? "dark track pants with a readable side stripe"
-          : hoodieTop
-            ? "coordinated jogger pants with visible ankle cuffs"
-            : "dark blue denim jeans with a readable belt";
-        const shoeDescription = athleticTop
-          ? "clean white low-top sneakers"
-          : "clean off-white low-top sneakers";
-        const legwearDescription = legwear === "socks" ? ", paired socks" : "";
-        const upperCue = athleticTop
-          ? "athletic top"
-          : hoodieTop
-            ? "hoodie"
-            : "knit sweater";
-        const completionSentence = `Replace the vague unseen lower-body default with ${bottomDescription}${legwearDescription} and ${shoeDescription}, grounded in the visible ${upperCue}.`;
-
-        renderHints.bottomPattern = "plain";
-        renderHints.bottomAccent = bottomAccent;
-        renderHints.legwear = legwear;
-        renderHints.legwearAsymmetry = legwear === "none" ? "none" : "both";
-        if (legwear !== "none") renderHints.legwearColor = "white";
-        renderHints.thighAccessory = "none";
-        renderHints.thighAccessorySide = "none";
-        inferred = {
-          ...analysis.inferred,
-          lowerBody: {
-            value: `${bottomDescription}${legwearDescription}`,
-            rationale: completionSentence,
-          },
-          lowerBodyDesign: {
-            ...lowerDesign,
-            bottomType,
-            bottomPattern: "plain",
-            bottomAccent,
-            legwear,
-            legwearAsymmetry: legwear === "none" ? "none" : "both",
-            thighAccessory: "none",
-            thighAccessorySide: "none",
-            shoeStyle: "sneakers",
-            rationale: completionSentence,
-          },
-          shoes: {
-            value: shoeDescription,
-            rationale: completionSentence,
-          },
-        };
-        outfitPrompt = `${analysis.outfitPrompt} ${completionSentence}`;
-        return { ...analysis, inferred, renderHints, outfitPrompt };
-      }
-
-      // A plain casual top does not provide evidence for a new lower-body
-      // motif. Preserve the model's coherent garment/shoe completion without
-      // inventing stripes, ribbons, cuffs or belts on unseen surfaces.
     }
   }
 
@@ -2786,10 +2983,14 @@ export function refineFeatureColorsFromAnalysis(
   ).test(bottomText)
     ? CLOTHING_COLORS.denim
     : null;
-  const recoveredBottomColor =
-    denimBottomColor ??
+  const recoveredNamedBottomColor =
     recoverNamedColorBeforeItem(bottomText, lowerGarmentPattern, 5) ??
     recoverNamedColorNearItem(bottomText, lowerGarmentPattern);
+  const recoveredBottomColor =
+    recoveredNamedBottomColor &&
+    recoveredNamedBottomColor !== CLOTHING_COLORS.blue
+      ? recoveredNamedBottomColor
+      : (denimBottomColor ?? recoveredNamedBottomColor);
   const recoveredShoesColor = recoverNamedColorNearItem(
     shoesText,
     shoePattern,
@@ -2807,9 +3008,20 @@ export function refineFeatureColorsFromAnalysis(
   if (recoveredHeadCoveringColor) refined.hatColor = recoveredHeadCoveringColor;
   const darkNeutralPattern =
     "(?:dark(?:[-\\s]+colou?red)?|charcoal|monochrome|near[-\\s]+black)";
+  const explicitlyDarkVisibleTop = relevantClauseList(
+    [
+      analysis.observed.clothing,
+      analysis.inferred.upperBody?.value,
+      analysis.outfitPrompt,
+    ],
+    /\b(?:top|shirt|blouse|sweater|pullover|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey)\b/,
+  ).some((clause) =>
+    mentionsColorNearItem(clause, darkNeutralPattern, topGarmentPattern, 4),
+  );
   if (
-    mentionsColorNearItem(topText, darkNeutralPattern, topGarmentPattern, 6) &&
-    (!recoveredTopColor || recoveredTopColor === CLOTHING_COLORS.gray)
+    (!recoveredOuterGarmentColor && explicitlyDarkVisibleTop) ||
+    (mentionsColorNearItem(topText, darkNeutralPattern, topGarmentPattern, 6) &&
+      (!recoveredTopColor || recoveredTopColor === CLOTHING_COLORS.gray))
   ) {
     refined.topColor = "#474a50";
   }
@@ -2929,16 +3141,21 @@ export function refineFeatureColorsFromAnalysis(
 
   const softBeigePattern =
     "(?:(?:light|soft|muted|pale|cream)[-\\s]+(?:beige|tan)|taupe[-\\s]+beige|beige\\s*\\/\\s*tan|tan\\s*\\/\\s*beige|beige[-\\s]+tan|tan[-\\s]+beige|beige|tan)";
-  const beigePatternedLower =
-    mentionsColorNearItem(
-      bottomText,
-      softBeigePattern,
-      lowerGarmentPattern,
-      7,
-    ) &&
-    /\b(?:plaid|check(?:ed|ered)?|tartan|light|soft|muted|pale)\b/.test(
-      bottomText,
-    );
+  const beigePatternedLower = relevantClauseList(
+    [
+      analysis.observed.clothing,
+      analysis.inferred.lowerBody?.value,
+      analysis.inferred.lowerBodyDesign?.rationale,
+      analysis.outfitPrompt,
+    ],
+    new RegExp(`\\b${lowerGarmentPattern}\\b`, "i"),
+  ).some(
+    (clause) =>
+      mentionsColorNearItem(clause, softBeigePattern, lowerGarmentPattern, 3) &&
+      /\b(?:plaid|check(?:ed|ered)?|tartan|light|soft|muted|pale)\b/.test(
+        clause,
+      ),
+  );
   if (beigePatternedLower) {
     refined.bottomColor = "#cbb8a3";
   }
@@ -3099,13 +3316,6 @@ function completeInferredLowerDetails(
         style.legwearAsymmetry = "both";
       }
     }
-  } else if (structuredGenericLower && preppyTop) {
-    style.bottomType = "skirt";
-    style.bottomPattern = "pleated";
-    style.bottomAccent = style.neckAccessory === "bow" ? "ribbon" : "belt";
-    style.legwear = "socks";
-    style.legwearAsymmetry = "both";
-    style.shoeStyle = "dress_shoes";
   } else if (structuredGenericLower) {
     // Preserve the inferred plain construction. An unseen lower body does not
     // justify adding a new decorative motif merely to increase pixel detail.
@@ -3203,24 +3413,42 @@ function completeVisibleUpperDetails(
       ) ?? style.topColor;
   }
 
-  if (/\b(knit|knitted|cable knit|sweater)\b/.test(upperText)) {
+  const upperGarmentItemPattern =
+    "(?:top|shirt|blouse|sweater|pullover|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey)";
+  const upperHas = (descriptorPattern: string) =>
+    mentionsColorNearItem(
+      upperText,
+      descriptorPattern,
+      upperGarmentItemPattern,
+      3,
+    );
+  const explicitRibbedUpper = upperHas("(?:ribbed)");
+  const explicitKnitUpper =
+    upperHas("(?:knit|knitted|cable[-\\s]+knit)") ||
+    /\b(?:sweater|pullover)\b/.test(upperText);
+  if (explicitRibbedUpper || explicitKnitUpper) {
     style.garmentTexture = "knit";
-    if (style.topType === "tshirt") style.topType = "sweater";
-  } else if (/\b(denim)\b/.test(upperText)) {
+    if (explicitKnitUpper && style.topType === "tshirt") {
+      style.topType = "sweater";
+    }
+  } else if (upperHas("(?:denim)")) {
     style.garmentTexture = "denim";
-  } else if (/\b(leather)\b/.test(upperText)) {
+  } else if (upperHas("(?:leather)")) {
     style.garmentTexture = "leather";
-  } else if (/\b(striped|stripes)\b/.test(upperText)) {
+  } else if (upperHas("(?:striped|stripes)")) {
     style.garmentTexture = "striped";
-  } else if (/\b(patterned|floral|plaid|checkered|checked)\b/.test(upperText)) {
+  } else if (upperHas("(?:patterned|floral|plaid|checkered|checked)")) {
     style.garmentTexture = "patterned";
   }
 
-  const explicitShortSleeves =
-    /\b(?:short[-\s]+sleeve(?:d|s)?|sleeveless|tank(?:[-\s]+top)?)\b/.test(
+  const explicitSleeveless =
+    /\b(?:strapless|tube[-\s]+top|sleeveless|tank(?:[-\s]+top)?|camisole)\b/.test(
       upperText,
     );
-  if (explicitShortSleeves) {
+  const explicitShortSleeves = /\bshort[-\s]+sleeve(?:d|s)?\b/.test(upperText);
+  if (explicitSleeveless) {
+    style.sleeveLength = "sleeveless";
+  } else if (explicitShortSleeves) {
     style.sleeveLength = "short";
   } else if (
     /\b(?:long[-\s]+sleeve(?:d|s)?|sleeved cardigan|sleeved jacket)\b/.test(
@@ -3517,11 +3745,17 @@ function completeVisibleAccessoryDetails(
           ? "hoop"
           : "stud";
     style.earringColor =
+      recoverNamedColorBeforeItem(
+        earringText,
+        "(?:earrings?|ear[-\\s]?studs?|hoops?|teardrops?|pendants?)",
+        3,
+      ) ??
       recoverNamedColorNearItem(
         earringText,
         "(?:earrings?|ear[-\\s]?studs?|hoops?|teardrops?|pendants?)",
         5,
-      ) ?? style.earringColor;
+      ) ??
+      style.earringColor;
     const left = /\bviewer(?:'s)?[- ]left\b/.test(earringText);
     const right = /\bviewer(?:'s)?[- ]right\b/.test(earringText);
     style.earringSide =
@@ -3691,6 +3925,15 @@ function completeCanonicalIdentityDetails(
     canonicalText,
   ];
   const hairIdentityText = joinedAnalysisText(headValues);
+  const explicitlyBaldScalp = relevantClauseList(
+    headValues,
+    /\b(?:bald|balding|bald[-\s]+top|bare[-\s]+scalp|smooth[-\s]+scalp|receding[-\s]+hairline)\b/,
+  ).some(
+    (clause) =>
+      !/\b(?:not|non[-\s]+bald|not[-\s]+bald|without)\b[^.!?;,]{0,24}\b(?:bald|balding|bare[-\s]+scalp|receding[-\s]+hairline)\b/.test(
+        clause,
+      ),
+  );
   if (
     /\b(?:middle[-\s]+aged|mature|older|senior|elderly|wrinkles?|fine lines?|crow'?s feet)\b/.test(
       hairIdentityText,
@@ -3699,12 +3942,49 @@ function completeCanonicalIdentityDetails(
     style.matureFeatures = true;
   }
   if (
+    style.matureFeatures &&
+    /\b(?:broad|friendly|warm|gentle|big|wide)[-\s]+smil(?:e|ing)\b|\bsmiling[-\s]+expression\b/.test(
+      hairIdentityText,
+    )
+  ) {
+    // A photographed mature smile commonly narrows the eye aperture. At 8x8,
+    // retaining the generic two-row almond enum creates oversized dark eye
+    // patches and loses the smile lines that actually identify the face.
+    style.eyeShape = "narrow";
+    style.eyeSize = "small";
+  }
+  if (
+    /\b(?:soft|subtle|light|fine|thin|sparse)(?:[-\s]+(?:soft|subtle|light|fine|thin|sparse|gray|grey|brown|dark)){0,3}[-\s]+eyebrows?\b|\beyebrows?\b[^.!?;,]{0,24}\b(?:soft|subtle|light|fine|thin|sparse)\b/.test(
+      hairIdentityText,
+    )
+  ) {
+    style.eyebrowThickness = "thin";
+  }
+  if (
     /\b(?:angular|chiseled|chiselled|defined)[-\s]+(?:face|facial features?|jaw|jawline|cheekbones?)\b|\b(?:face|jaw|jawline|cheekbones?)\b[^.!?;,]{0,24}\b(?:angular|chiseled|chiselled|defined)\b/.test(
       canonicalText,
     )
   ) {
     style.faceShape = "angular";
     style.jawShape = "square";
+  }
+  if (explicitlyBaldScalp) {
+    // A generic compact fallback can still report "short" when the rich
+    // identity analysis correctly describes a bare crown with only side/back
+    // hair. Treat baldness as head geometry, not a colour cue: otherwise two
+    // default hair rows become a full fringe and erase the most salient trait.
+    style.hairstyle = "bald";
+    style.bangs = "none";
+    style.bangsLength = "none";
+    style.bangsDensity = "sparse";
+    style.fringeOpening = "none";
+    style.hairVolume = "flat";
+    style.hairSilhouette = "flat";
+    style.hairBackShape = "tapered";
+    style.overallHairLength = "cropped";
+    style.hairPart = "none";
+    style.sideHairLength = "short";
+    style.sideHairShape = "tapered";
   }
   const longHairConstruction =
     analysis.renderHints.hairBackShape === "long" ||
@@ -3724,6 +4004,29 @@ function completeCanonicalIdentityDetails(
     // category as well as the render hints; otherwise the late short-hair
     // clump pass can overwrite flowers, bows and long face-framing locks.
     style.hairstyle = "long";
+    if (
+      style.hairVolume !== "flat" &&
+      (style.hairTexture === "wavy" ||
+        style.hairTexture === "curly" ||
+        style.hairTexture === "coily")
+    ) {
+      // Long textured hair spans the head and torso, where a normal-volume
+      // fallback otherwise becomes one flat brown/black slab. Strengthen its
+      // authored strand ramp without changing the analysed silhouette.
+      style.hairDepthBoost = true;
+    }
+  }
+  if (
+    style.hairstyle === "short" &&
+    style.hairVolume !== "flat" &&
+    style.bangs !== "none" &&
+    style.hairPart !== "none" &&
+    ["rounded", "swept", "tousled"].includes(style.hairSilhouette ?? "")
+  ) {
+    // A compact side-parted cut has very little silhouette area at 8x8. Its
+    // part, fringe direction and crown clumps therefore need the stronger
+    // authored shade ramp by default, not only after a critique retry.
+    style.hairDepthBoost = true;
   }
   if (
     style.hairTexture === "curly" &&

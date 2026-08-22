@@ -9,6 +9,8 @@ npm-debug.log*
 workers/node_modules/
 workers/dist/
 workers/.wrangler/
+workers/evaluation-artifacts/
+evaluation-artifacts/
 .wrangler/
 .granite/
 .playwright-cli/

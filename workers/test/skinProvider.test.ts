@@ -71,6 +71,7 @@ describe("GeminiImageProvider model fallback", () => {
     expect(result).toMatchObject({
       ok: true,
       imageBytes: new Uint8Array([1, 2, 3]),
+      model: "gemini-3.1-flash-lite-image",
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
@@ -164,6 +165,33 @@ describe("GeminiImageProvider model fallback", () => {
       "Use image 3 strictly as the composition guide",
     );
   });
+
+  it("prioritizes primary, focused face crop, one best alternate and guide", async () => {
+    const fetchMock = vi.fn(async () => generatedImageResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const base = await request();
+    const crop = await encodePng(makeSyntheticAtlas(73));
+    const result = await new GeminiImageProvider(env).generate({
+      ...base,
+      identityCropDataUrl: `data:image/png;base64,${bytesToBase64(crop)}`,
+      referencePhotoDataUrls: [base.photoDataUrl, base.photoDataUrl, base.photoDataUrl],
+    });
+    expect(result).toMatchObject({ ok: true, inputTiles: 4, model: "gemini-3.1-flash-image" });
+    if (result.ok) {
+      expect(result.providerInputLimit).toBe(4);
+      expect(result.inputDiagnostics?.map((input) => input.role)).toEqual([
+        "primary",
+        "identity_crop",
+        "alternate",
+        "pose_guide",
+      ]);
+      expect(result.inputDiagnostics?.every((input) => input.original.width === input.submitted.width && input.original.height === input.submitted.height)).toBe(true);
+    }
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.input).toHaveLength(5);
+    expect(body.input.slice(0, 4).map((item: { type: string }) => item.type)).toEqual(["image", "image", "image", "image"]);
+    expect(body.input[4].text).toContain("Use image 3 strictly as the composition guide");
+  });
 });
 
 describe("Workers AI image recovery", () => {
@@ -203,9 +231,20 @@ describe("Workers AI image recovery", () => {
       inputTiles: 4,
       outputTiles: 2,
       provider: "workers_ai",
+      model: "@cf/black-forest-labs/flux-2-klein-4b",
       mode: "four_view",
     });
     expect(result.neuronsSpent).toBeGreaterThan(0);
+    if (result.ok) {
+      expect(result.providerInputLimit).toBe(4);
+      expect(result.inputDiagnostics?.map((input) => input.role)).toEqual([
+        "primary",
+        "alternate",
+        "alternate",
+        "pose_guide",
+      ]);
+      expect(result.inputDiagnostics?.every((input) => input.submitted.width <= 448 && input.submitted.height <= 448)).toBe(true);
+    }
     expect(capturedModel).toBe("@cf/black-forest-labs/flux-2-klein-4b");
     expect(capturedForm).not.toBeNull();
     expect(capturedForm?.get("width")).toBe("1024");

@@ -31,6 +31,12 @@ export interface SkinCritique {
   outfitScore: number;
   consistencyScore: number;
   layerScore: number;
+  p5IdentityChecks: Array<{
+    feature: string;
+    status: "present" | "weak" | "missing" | "wrong";
+    evidence: string;
+    targetRegions: string[];
+  }>;
   defects: SkinCritiqueDefect[];
 }
 
@@ -58,6 +64,21 @@ export const SKIN_CRITIQUE_SCHEMA = {
     outfitScore: { type: "integer", minimum: 0, maximum: 100 },
     consistencyScore: { type: "integer", minimum: 0, maximum: 100 },
     layerScore: { type: "integer", minimum: 0, maximum: 100 },
+    p5IdentityChecks: {
+      type: "array",
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          feature: { type: "string" },
+          status: { type: "string", enum: ["present", "weak", "missing", "wrong"] },
+          evidence: { type: "string" },
+          targetRegions: { type: "array", items: { type: "string" } },
+        },
+        required: ["feature", "status", "evidence", "targetRegions"],
+      },
+    },
     defects: {
       type: "array",
       maxItems: 8,
@@ -102,6 +123,7 @@ export const SKIN_CRITIQUE_SCHEMA = {
     "outfitScore",
     "consistencyScore",
     "layerScore",
+    "p5IdentityChecks",
     "defects",
   ],
 } as const;
@@ -138,6 +160,24 @@ function validateCritique(raw: Record<string, unknown>): SkinCritique | null {
     layerScore: score("layerScore"),
   };
   if (Object.values(scores).some((value) => value === null)) return null;
+  if (!Array.isArray(raw.p5IdentityChecks)) return null;
+  const p5IdentityChecks: SkinCritique["p5IdentityChecks"] = [];
+  for (const value of raw.p5IdentityChecks.slice(0, 8)) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const item = value as Record<string, unknown>;
+    if (
+      typeof item.feature !== "string" ||
+      !["present", "weak", "missing", "wrong"].includes(String(item.status)) ||
+      typeof item.evidence !== "string" ||
+      !Array.isArray(item.targetRegions)
+    ) return null;
+    p5IdentityChecks.push({
+      feature: item.feature,
+      status: item.status as SkinCritique["p5IdentityChecks"][number]["status"],
+      evidence: item.evidence,
+      targetRegions: item.targetRegions.filter((region): region is string => typeof region === "string"),
+    });
+  }
   if (!Array.isArray(raw.defects)) return null;
   const defects: SkinCritiqueDefect[] = [];
   for (const value of raw.defects.slice(0, 8)) {
@@ -187,6 +227,7 @@ function validateCritique(raw: Record<string, unknown>): SkinCritique | null {
     outfitScore: scores.outfitScore! * scale,
     consistencyScore: scores.consistencyScore! * scale,
     layerScore: scores.layerScore! * scale,
+    p5IdentityChecks,
     defects,
   };
 }
@@ -200,11 +241,29 @@ export function isActionableCritiqueDefect(
     defect.category === "identity" ||
     defect.category === "face_hair"
   ) {
-    return critique.identityScore < 78 || critique.faceHairScore < 75;
+    return critique.identityScore < 88 || critique.faceHairScore < 85;
   }
-  if (defect.category === "outfit") return critique.outfitScore < 70;
-  if (defect.category === "overlay") return critique.layerScore < 65;
-  return critique.consistencyScore < 75;
+  if (defect.category === "outfit") return critique.outfitScore < 78;
+  if (defect.category === "overlay") return critique.layerScore < 70;
+  return critique.consistencyScore < 82;
+}
+
+export function findCriticalIdentityMisses(
+  analysis: PhotoAnalysis,
+  critique: SkinCritique,
+): Array<{ feature: string; status: "missing" | "wrong" }> {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return analysis.canonicalIdentity.features
+    .filter((feature) => feature.priority === 5)
+    .flatMap((feature) => {
+      const check = critique.p5IdentityChecks.find(
+        (item) => normalize(item.feature) === normalize(feature.feature),
+      );
+      if (!check) return [{ feature: feature.feature, status: "missing" as const }];
+      return check.status === "missing" || check.status === "wrong"
+        ? [{ feature: feature.feature, status: check.status }]
+        : [];
+    });
 }
 
 function atlasRegionStats(atlas: RawImage, rects: Rect[]): string {
@@ -247,12 +306,14 @@ export async function runSkinCritique(
   renderedMontageDataUrl: string,
   suppliedPlan?: SkinPlan,
   structuralAtlas?: RawImage,
+  sourceFaceCropDataUrl?: string,
 ): Promise<SkinCritiqueResult> {
   const skinPlan = suppliedPlan ?? buildSkinPlan(analysis);
   // Preserve the full UI contract: primary photo plus up to four alternate
   // same-person views. The rendered montage is a separate sixth input.
-  const references = referenceImageDataUrls.slice(0, 5);
-  const prompt = `You are a strict Minecraft skin likeness reviewer. The first ${references.length} image(s) are photos of the SAME person. The final image is a deterministic render of one exact 64x64 Java skin. Its top two rows contain the six full-body views in this order: front, back, left, right, front-left 3/4, front-right 3/4. The third row contains enlarged head close-ups in this order: front, front-left 3/4, front-right 3/4. The fourth row contains enlarged upper-body close-ups in this order: front, back, front-left 3/4. Use the head close-ups to judge glasses, eyes, fringe, earrings, and hair texture; use the upper-body close-ups for collars, ties, knit, jackets, and shoulder hair; use the full-body views for overall outfit and cross-view consistency.
+  const references = referenceImageDataUrls.slice(0, sourceFaceCropDataUrl ? 4 : 5);
+  const sourceCount = references.length + (sourceFaceCropDataUrl ? 1 : 0);
+  const prompt = `You are a strict Minecraft skin likeness reviewer. The first ${sourceCount} image(s) are source evidence for the SAME person. When present, the explicitly labelled focused face/head crop is the direct facial-identity reference and must be compared against the candidate's front and 3/4 head close-ups. The final image is a deterministic render of one exact 64x64 Java skin. Its top two rows contain the six full-body views in this order: front, back, left, right, front-left 3/4, front-right 3/4. The third row contains enlarged head close-ups in this order: front, front-left 3/4, front-right 3/4. The fourth row contains enlarged upper-body close-ups in this order: front, back, front-left 3/4. Use the head close-ups to judge glasses, eyes, fringe, earrings, and hair texture; use the upper-body close-ups for collars, ties, knit, jackets, and shoulder hair; use the full-body views for overall outfit and cross-view consistency.
 
 Canonical identity: ${analysis.canonicalIdentity.overallImpression}
 Must preserve: ${analysis.canonicalIdentity.mustPreserve.join("; ")}
@@ -272,7 +333,7 @@ Minecraft constraint calibration:
 - The overlay is expanded by only 0.35 Minecraft texture pixels in these renders. Use the enlarged head and upper-body rows to distinguish it from the base before claiming that the second layer is unused.
 - At an 8x12 torso, cable knit is represented by repeating alternating light/dark ribs or zigzags on base and overlay. Judge whether that readable construction exists; do not require photoreal woven cables.
 
-Score identity and face/hair against the photos, outfit fidelity, cross-view physical consistency, and meaningful second-layer depth. Every score MUST be an integer on a 0-100 scale, never a 0-10 scale. Penalize generic faces, wrong fringe/part/silhouette, missing accessories, incorrect color blocks, repeated or mirrored views, disconnected seams, hollow shells, random noise and blank surfaces. Report only visible, actionable defects that are achievable within the standard Minecraft skin format. targetRegions must use Minecraft regions such as head.front, head.overlay, torso.front, torso.back, arm.left, arm.right, leg.left or leg.right. Keep corrections narrow and preserve already-correct features.`;
+Score identity and face/hair against the photos, outfit fidelity, cross-view physical consistency, and meaningful second-layer depth. Every score MUST be an integer on a 0-100 scale, never a 0-10 scale. For EVERY P5 cue, emit one p5IdentityChecks entry using the exact feature text and classify it present, weak, missing, or wrong. Missing or wrong P5 cues are hard failures regardless of aggregate score. Penalize generic faces, wrong fringe/part/silhouette, missing accessories, incorrect color blocks, repeated or mirrored views, disconnected seams, hollow shells, random noise and blank surfaces. Report only visible, actionable defects that are achievable within the standard Minecraft skin format. targetRegions must use Minecraft regions such as head.front, head.overlay, torso.front, torso.back, arm.left, arm.right, leg.left or leg.right. Keep corrections narrow and preserve already-correct features.`;
   const models = [
     env.VISION_MODEL?.trim() || "gemini-3.6-flash",
     env.VISION_FALLBACK_MODEL?.trim(),
@@ -286,11 +347,21 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
     try {
       const result = await generateGeminiStructuredJson(env, {
         model,
-        imageDataUrls: [...references, renderedMontageDataUrl],
+        imageDataUrls: [
+          ...(references[0] ? [references[0]] : []),
+          ...(sourceFaceCropDataUrl ? [sourceFaceCropDataUrl] : []),
+          ...references.slice(1),
+          renderedMontageDataUrl,
+        ],
         imageLabels: [
-          ...references.map(
-            (_, index) =>
-              `Source photo ${index} of the same person${index === 0 ? " (primary identity and outfit reference)" : " (alternate identity/view evidence)"}:`,
+          ...(references[0]
+            ? ["Source photo 0 of the same person (primary identity and outfit reference):"]
+            : []),
+          ...(sourceFaceCropDataUrl
+            ? ["Focused source face/head crop (primary direct identity reference):"]
+            : []),
+          ...references.slice(1).map(
+            (_, index) => `Source photo ${index + 1} of the same person (alternate identity/view evidence):`,
           ),
           "Rendered Minecraft skin inspection montage (candidate output to evaluate, NOT a source photo):",
         ],
@@ -311,14 +382,17 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
       const critical = critique.defects.some(
         (defect) => defect.severity === "critical",
       );
+      const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+      const failedP5 = findCriticalIdentityMisses(analysis, critique);
       const approved =
         !critical &&
-        critique.identityScore >= 78 &&
-        critique.faceHairScore >= 75 &&
-        critique.outfitScore >= 70 &&
-        critique.consistencyScore >= 75 &&
-        critique.layerScore >= 65;
-      const correctionPrompt = critique.defects
+        failedP5.length === 0 &&
+        critique.identityScore >= 88 &&
+        critique.faceHairScore >= 85 &&
+        critique.outfitScore >= 78 &&
+        critique.consistencyScore >= 82 &&
+        critique.layerScore >= 70;
+      const defectCorrections = critique.defects
         .filter((defect) => isActionableCritiqueDefect(critique, defect))
         .slice(0, 4)
         .map(
@@ -326,6 +400,14 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
             `${defect.targetRegions.join("+")}: ${defect.correction} (${defect.evidence})`,
         )
         .join("; ");
+      const p5Corrections = failedP5
+        .map((miss) => {
+          const feature = analysis.canonicalIdentity.features.find((item) => item.priority === 5 && normalize(item.feature) === normalize(miss.feature))!;
+          const check = critique.p5IdentityChecks.find((item) => normalize(item.feature) === normalize(feature.feature));
+          return `${feature.targetRegions.join("+")}: restore hard-constraint P5 cue '${feature.feature}' (${check?.evidence || "review did not verify the cue"})`;
+        })
+        .join("; ");
+      const correctionPrompt = [p5Corrections, defectCorrections].filter(Boolean).join("; ");
       return {
         ok: true,
         critique,

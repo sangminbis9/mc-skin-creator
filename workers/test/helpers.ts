@@ -18,6 +18,14 @@ export function makeAnalysis(
       lowerBody: false,
       feet: false,
     },
+    sourceSelection: {
+      portraitImageIndex: 0,
+      outfitImageIndex: 0,
+      generationImageIndex: 0,
+      portraitEvidence: "the first image has a clear face and hair",
+      outfitEvidence: "the first image has the clearest visible outfit",
+      generationEvidence: "the first image is the only complete reference",
+    },
     observed: {
       face: "round face, warm smile, thick eyebrows",
       hair: "short black hair with side-swept bangs",
