@@ -7,7 +7,8 @@
  */
 
 import type { RawImage } from "./png";
-import type { FacePixelPlan } from "./identityPlans";
+import type { FacePixelPlan, HairPlan } from "./identityPlans";
+import { measureFaceRenderContract, measureHairRenderContract } from "./identityRenderContract";
 import {
   ALL_PARTS,
   ATLAS_SIZE,
@@ -643,6 +644,7 @@ export function validateAtlasCraft(
   atlas: RawImage,
   style: AtlasCraftStyle,
   facePixelPlan?: FacePixelPlan,
+  hairPlan?: HairPlan,
 ): AtlasValidation {
   const problems: string[] = [];
   const metrics = measureAtlasCraft(atlas);
@@ -762,7 +764,9 @@ export function validateAtlasCraft(
       );
   }
 
+  const hasMeasuredHeadMask = hairPlan?.headMask.source === "identity_geometry";
   if (
+    !hasMeasuredHeadMask &&
     (styledHair || longSideHair || has(style.hairAccessory)) &&
     metrics.overlayPixelsByPart.head < 50
   ) {
@@ -770,10 +774,14 @@ export function validateAtlasCraft(
       `hair silhouette lacks head outer-layer pixels (${metrics.overlayPixelsByPart.head})`,
     );
   }
-  if (has(style.hairAccessory) && metrics.overlayPixelsByPart.head < 60) {
+  if (!hasMeasuredHeadMask && has(style.hairAccessory) && metrics.overlayPixelsByPart.head < 60) {
     problems.push(
       `hair accessory lacks a readable head cluster (${metrics.overlayPixelsByPart.head})`,
     );
+  }
+  if (hasMeasuredHeadMask) {
+    const hairContract = measureHairRenderContract(atlas, hairPlan);
+    for (const problem of hairContract.violations) problems.push(`head mask contract: ${problem}`);
   }
   if (
     style.sideHairLength === "shoulder" &&
@@ -1016,7 +1024,12 @@ export function validateAtlasCraft(
     if (mouthPixels < Math.min(2, mouthCoordinates.length))
       problems.push(`mouth landmark is not readable (${mouthPixels} pixels)`);
 
-    if (styledHair) {
+    if (facePixelPlan) {
+      const faceContract = measureFaceRenderContract(atlas, facePixelPlan);
+      for (const problem of faceContract.violations) problems.push(`identity render contract: ${problem}`);
+    }
+
+    if (styledHair && !hasMeasuredHeadMask) {
       const rightSide = opaqueStatsIn(
         atlas,
         CLASSIC_LAYOUT.head.overlay.right,

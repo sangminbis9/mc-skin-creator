@@ -2,6 +2,7 @@ import type { PhotoAnalysis } from "./analysis";
 import { generateGeminiStructuredJson, isGeminiQuotaError } from "./gemini";
 import type { RawImage } from "./png";
 import type { FacePixelPlan, HairPlan } from "./identityPlans";
+import { measureFaceRenderContract, measureHairRenderContract, type ContractStatus } from "./identityRenderContract";
 import { ATLAS_SIZE, CLASSIC_LAYOUT, type Rect } from "./uvLayout";
 import { NEURONS_VISION_DETAIL_ESTIMATE, visionNeuronsFromUsage } from "./quota";
 import type { Env } from "./types";
@@ -46,6 +47,8 @@ export interface IdentityDimensionReview {
 
 export interface HeadStructuralEvidence {
   dimensions: Record<IdentityDimension, IdentityDimensionReview["structuralPresenceA"]>;
+  contractSatisfaction: Record<IdentityDimension, ContractStatus>;
+  contractViolations: string[];
   expectedPixels: number;
   presentPixels: number;
 }
@@ -246,6 +249,11 @@ export function measureHeadCandidateStructure(
     hairSilhouette: "not_applicable", hairline: "not_applicable", eyeLayout: "not_applicable",
     glassesReadability: "not_applicable", mouthExpression: "not_applicable", faceWidth: "not_applicable",
   };
+  const contractSatisfaction: HeadStructuralEvidence["contractSatisfaction"] = {
+    hairSilhouette: "not_applicable", hairline: "not_applicable", eyeLayout: "not_applicable",
+    glassesReadability: "not_applicable", mouthExpression: "not_applicable", faceWidth: "not_applicable",
+  };
+  const contractViolations: string[] = [];
   let expectedPixels = 0;
   let presentPixels = 0;
   const presence = (points: Array<{ x: number; y: number }>, rect: Rect, requireContrast = false, ratio = 0.65) => {
@@ -264,6 +272,13 @@ export function measureHeadCandidateStructure(
     dimensions.hairline = presence(points("fringe"), face, true, 0.2);
     dimensions.faceWidth = "present";
     dimensions.glassesReadability = presence(facePlan.layout.glassesMask, CLASSIC_LAYOUT.head.overlay.front);
+    const faceContract = measureFaceRenderContract(atlas, facePlan);
+    contractSatisfaction.eyeLayout = faceContract.eyesPresent ? "satisfied" : "violated";
+    contractSatisfaction.mouthExpression = faceContract.violations.some((problem) => /mouth|teeth|smile/.test(problem)) ? "violated" : "satisfied";
+    contractSatisfaction.glassesReadability = faceContract.glassesPresent === null ? "not_applicable" : faceContract.glassesPresent ? "satisfied" : "violated";
+    contractSatisfaction.faceWidth = "satisfied";
+    if (facePlan.renderContract.hairline) contractSatisfaction.hairline = dimensions.hairline === "present" ? "satisfied" : "violated";
+    contractViolations.push(...faceContract.violations);
   }
   if (hairPlan) {
     const mask = hairPlan.headMask;
@@ -274,8 +289,12 @@ export function measureHeadCandidateStructure(
     const count = checks.filter(({ face, point }) => opaque(atlas, CLASSIC_LAYOUT.head.overlay[face], point.x, point.y)).length;
     presentPixels += count;
     dimensions.hairSilhouette = checks.length === 0 ? "not_applicable" : count >= Math.ceil(checks.length * 0.65) ? "present" : "absent";
+    const hairContract = measureHairRenderContract(atlas, hairPlan);
+    contractSatisfaction.hairSilhouette = hairContract.status;
+    if (contractSatisfaction.hairline === "not_applicable" && hairPlan.headMask.faces.front.length > 0) contractSatisfaction.hairline = hairContract.status;
+    contractViolations.push(...hairContract.violations);
   }
-  return { dimensions, expectedPixels, presentPixels };
+  return { dimensions, contractSatisfaction, contractViolations, expectedPixels, presentPixels };
 }
 
 export function buildIdentityDimensionWeights(analysis: PhotoAnalysis): Record<IdentityDimension, number> {
@@ -334,7 +353,7 @@ Canonical identity: ${analysis.canonicalIdentity.overallImpression}
 P5 features: ${analysis.canonicalIdentity.features.filter((feature) => feature.priority === 5).map((feature) => feature.feature).join("; ") || "none labelled"}
 Must preserve: ${analysis.canonicalIdentity.mustPreserve.join("; ")}
 
-Structural pixel presence has already been measured deterministically and is not your task. Evidence A: ${JSON.stringify(structuralA?.dimensions ?? {})}. Evidence B: ${JSON.stringify(structuralB?.dimensions ?? {})}. For every identityDimensions entry, report only visual readability and which candidate is closer to the source. A present but weakly readable frame is not "missing". Use not_evaluable when the crop cannot support a judgment. Mark p5RegressionInB, structuralRegressionInB, or craftRegressionInB true whenever B loses one of those invariants. Return winner A, B, or tie. Use tie when the evidence is genuinely indistinguishable at 8x8 resolution. confidence is 0..1. reasons must cite visible comparative evidence. failedIdentityFeatures and correctionTargets describe only remaining identity losses, using compact targets such as head.front.eye_row, head.front.mouth, head.overlay.fringe, head.left.hair, head.right.glasses.`;
+Structural pixel presence and render-contract satisfaction have already been measured deterministically and are not your task. Evidence A: ${JSON.stringify({ presence: structuralA?.dimensions ?? {}, contracts: structuralA?.contractSatisfaction ?? {} })}. Evidence B: ${JSON.stringify({ presence: structuralB?.dimensions ?? {}, contracts: structuralB?.contractSatisfaction ?? {} })}. For every identityDimensions entry, report only visual readability and which candidate is closer to the source. A present but weakly readable frame is not "missing". Use not_evaluable when the crop cannot support a judgment. Mark p5RegressionInB, structuralRegressionInB, or craftRegressionInB true whenever B loses one of those invariants. Return winner A, B, or tie. Use tie when the evidence is genuinely indistinguishable at 8x8 resolution. confidence is 0..1. reasons must cite visible comparative evidence. failedIdentityFeatures and correctionTargets describe only remaining identity losses, using compact targets such as head.front.eye_row, head.front.mouth, head.overlay.fringe, head.left.hair, head.right.glasses.`;
   const models = [env.VISION_MODEL?.trim() || "gemini-3.6-flash", env.VISION_FALLBACK_MODEL?.trim()]
     .filter((model, index, all): model is string => Boolean(model) && all.indexOf(model) === index);
   let lastError: unknown;

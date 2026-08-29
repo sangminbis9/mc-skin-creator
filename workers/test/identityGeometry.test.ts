@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseIdentityGeometry } from "../src/identityGeometry";
-import { buildFacePixelPlanVariants, buildIdentityPixelPlans, compareFacePlans, measureFacePlanConvergence } from "../src/identityPlans";
+import { buildFacePixelPlanVariants, buildIdentityPixelPlans, compareFacePlans, measureFacePlanConvergence, scoreFacePixelPlan } from "../src/identityPlans";
 import { quantizeIdentityGeometry } from "../src/identityQuantization";
 import { makeAnalysis, makeIdentityGeometry } from "./helpers";
 
@@ -62,7 +62,7 @@ describe("normalized identity geometry quantization", () => {
     expect(layout.protectedGeometry).toContain("hairline");
   });
 
-  it("does not vary an eye axis protected by a P5 cue", () => {
+  it("keeps P5 eye semantics while allowing contract-safe quantization variation", () => {
     const base = makeAnalysis();
     const protectedAnalysis = makeAnalysis({
       identityGeometry: makeIdentityGeometry({ eyes: { ...makeIdentityGeometry().eyes, leftCenterY: 0.4125, rightCenterY: 0.4125 } }),
@@ -74,8 +74,124 @@ describe("normalized identity geometry quantization", () => {
       },
     });
     const variants = buildFacePixelPlanVariants(protectedAnalysis, 3);
-    expect(variants.every((plan) => plan.layout.leftEyeXs.join(",") === variants[0].layout.leftEyeXs.join(","))).toBe(true);
-    expect(variants.every((plan) => plan.layout.rightEyeXs.join(",") === variants[0].layout.rightEyeXs.join(","))).toBe(true);
+    expect(variants.length).toBeGreaterThan(1);
+    expect(variants.every((plan) => plan.renderContract.eyes?.protected)).toBe(true);
+    expect(variants.every((plan) => plan.perceptualScore.p5ContractViolations === 0)).toBe(true);
+    expect(variants.every((plan) => Math.min(...plan.layout.rightEyeXs) - Math.max(...plan.layout.leftEyeXs) - 1 >= plan.renderContract.eyes!.minimumInterEyeGap)).toBe(true);
+  });
+
+  it("renders a wide toothy P5 smile as a bounded multi-row topology rather than a white bar", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry({
+        mouth: { ...makeIdentityGeometry().mouth, width: 0.43, centerY: 0.75, leftCornerY: 0.64, rightCornerY: 0.65, opening: "teeth" },
+      }),
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        features: base.canonicalIdentity.features.map((feature, index) => index === 0
+          ? { ...feature, feature: "wide open toothy smile", evidence: "broad exposed teeth with lifted corners", category: "face" as const, priority: 5 as const }
+          : feature),
+      },
+    });
+    const plan = buildFacePixelPlanVariants(analysis, 1)[0];
+    const mouth = plan.pixels.filter((pixel) => pixel.cluster === "mouth");
+    expect(plan.layout.mouthTopology).toBe("wide_teeth_smile");
+    expect(plan.layout.mouthWidth).toBe(5);
+    expect(mouth.some((pixel) => pixel.role === "teeth")).toBe(true);
+    expect(mouth.some((pixel) => pixel.role === "mouth_shadow" || pixel.role === "lip")).toBe(true);
+    expect(new Set(mouth.map((pixel) => pixel.y)).size).toBeGreaterThan(1);
+    expect(Math.max(...mouth.map((pixel) => pixel.x)) - Math.min(...mouth.map((pixel) => pixel.x)) + 1).toBeGreaterThanOrEqual(5);
+    expect(plan.perceptualScore.violations).not.toContain("mouth collapsed to flat white bar");
+  });
+
+  it("never introduces a toothy topology for a closed mouth", () => {
+    const source = makeIdentityGeometry();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry({ mouth: { ...source.mouth, width: 0.43, opening: "closed" } }),
+      renderHints: { ...makeAnalysis().renderHints, mouthShape: "wide", mouthOpening: "closed" },
+    });
+    const plan = buildFacePixelPlanVariants(analysis, 3)[0];
+    expect(plan.layout.mouthTopology).toMatch(/^closed_/);
+    expect(plan.pixels.filter((pixel) => pixel.cluster === "mouth").some((pixel) => pixel.role === "teeth")).toBe(false);
+  });
+
+  it("promotes a geometry-supported wide toothy expression even when salience did not label the mouth P5", () => {
+    const source = makeIdentityGeometry();
+    const plan = buildFacePixelPlanVariants(makeAnalysis({
+      identityGeometry: makeIdentityGeometry({ mouth: { ...source.mouth, width: 0.27, opening: "teeth" } }),
+    }), 1)[0];
+    expect(plan.renderContract.mouth?.protected).toBe(false);
+    expect(plan.layout.mouthWidth).toBe(4);
+    expect(plan.layout.mouthTopology).toBe("wide_teeth_smile");
+  });
+
+  it("offers one bounded topology alternative for a confident wide toothy expression", () => {
+    const source = makeIdentityGeometry();
+    const variants = buildFacePixelPlanVariants(makeAnalysis({
+      identityGeometry: makeIdentityGeometry({ mouth: { ...source.mouth, width: 0.27, opening: "teeth" } }),
+    }), 3);
+    expect(variants.length).toBeGreaterThan(1);
+    expect(new Set(variants.map((plan) => plan.layout.mouthTopology))).toEqual(new Set(["wide_teeth_smile", "teeth_smile"]));
+    expect(variants.every((plan) => plan.perceptualScore.violations.length === 0)).toBe(true);
+    const primary = variants.find((plan) => plan.layout.mouthTopology === "wide_teeth_smile")!;
+    const alternative = variants.find((plan) => plan.layout.mouthTopology === "teeth_smile")!;
+    expect(primary.pixels.filter((pixel) => pixel.cluster === "mouth")).not.toEqual(alternative.pixels.filter((pixel) => pixel.cluster === "mouth"));
+    const primaryMouth = primary.pixels.filter((pixel) => pixel.cluster === "mouth");
+    expect(Math.min(...primaryMouth.map((pixel) => pixel.y))).toBeLessThan(primary.layout.mouthRow);
+    expect(primary.perceptualScore.total).toBeLessThan(alternative.perceptualScore.total);
+  });
+
+  it("keeps brow pixels above rather than overwriting both measured eye apertures", () => {
+    const source = makeIdentityGeometry();
+    const plan = buildFacePixelPlanVariants(makeAnalysis({
+      identityGeometry: makeIdentityGeometry({
+        eyes: { ...source.eyes, leftCenterY: 0.38, rightCenterY: 0.38 },
+        brows: { ...source.brows, leftY: 0.39, rightY: 0.39, thickness: 0.9 },
+      }),
+    }), 1)[0];
+    for (const cluster of ["left_eye", "right_eye"] as const) {
+      expect(plan.pixels.some((pixel) => pixel.cluster === cluster && (pixel.role === "iris" || pixel.role === "sclera"))).toBe(true);
+      const eyeRows = plan.pixels.filter((pixel) => pixel.cluster === cluster && (pixel.role === "iris" || pixel.role === "sclera")).map((pixel) => pixel.y);
+      const browRows = plan.pixels.filter((pixel) => pixel.cluster === cluster && pixel.role === "brow").map((pixel) => pixel.y);
+      expect(Math.max(...browRows)).toBeLessThan(Math.min(...eyeRows));
+    }
+  });
+
+  it("uses asymmetric smile topology only when measured asymmetry is confident", () => {
+    const source = makeIdentityGeometry();
+    const mouth = { ...source.mouth, centerY: 0.74, leftCornerY: 0.62, rightCornerY: 0.74, opening: "teeth" as const };
+    const confident = buildFacePixelPlanVariants(makeAnalysis({ identityGeometry: makeIdentityGeometry({ mouth }) }), 1)[0];
+    const uncertain = buildFacePixelPlanVariants(makeAnalysis({ identityGeometry: makeIdentityGeometry({ mouth, confidence: { ...source.confidence, mouth: 0.6 } }) }), 1)[0];
+    expect(confident.layout.mouthTopology).toBe("asymmetric_smile");
+    expect(confident.renderContract.mouth?.preserveAsymmetry).toBe(true);
+    expect(uncertain.layout.mouthTopology).not.toBe("asymmetric_smile");
+  });
+
+  it("does not freeze P5 mouth candidates and all variants retain the semantic contract", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry({ mouth: { ...makeIdentityGeometry().mouth, width: 0.27, opening: "teeth" } }),
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        features: base.canonicalIdentity.features.map((feature, index) => index === 0
+          ? { ...feature, feature: "wide toothy smile", evidence: "wide visible teeth and level lifted corners", category: "face" as const, priority: 5 as const }
+          : feature),
+      },
+    });
+    const variants = buildFacePixelPlanVariants(analysis, 3);
+    expect(variants.length).toBeGreaterThan(1);
+    expect(new Set(variants.map((plan) => plan.layout.mouthTopology)).size).toBeGreaterThan(1);
+    expect(variants.every((plan) => scoreFacePixelPlan(plan).p5ContractViolations === 0)).toBe(true);
+    expect(variants.every((plan) => plan.pixels.some((pixel) => pixel.cluster === "mouth" && pixel.role === "teeth"))).toBe(true);
+  });
+
+  it("keeps both P5 glasses lenses and bridge in every bounded variant", () => {
+    const analysis = makeAnalysis({ identityGeometry: makeIdentityGeometry() });
+    const variants = buildFacePixelPlanVariants(analysis, 3);
+    expect(variants.every((plan) => plan.renderContract.glasses?.protected)).toBe(true);
+    expect(variants.every((plan) => plan.layout.glassesMask.some((point) => point.x <= 3))).toBe(true);
+    expect(variants.every((plan) => plan.layout.glassesMask.some((point) => point.x >= 4))).toBe(true);
+    expect(variants.every((plan) => plan.layout.glassesMask.some((point) => point.x === 3 || point.x === 4))).toBe(true);
   });
 
   it("reports geometry-backed plan distance without random diversity", () => {
@@ -147,5 +263,15 @@ describe("normalized identity geometry quantization", () => {
     expect(first.headMask.source).toBe("identity_geometry");
     expect(first.headMask.faces.left).not.toEqual(second.headMask.faces.left);
     expect(first.headMask.endpointRows).not.toEqual(second.headMask.endpointRows);
+  });
+
+  it("keeps measured non-covering head masks contour-shaped instead of solid overlay planes", () => {
+    const hairPlan = buildIdentityPixelPlans(makeAnalysis({ identityGeometry: makeIdentityGeometry({
+      headSilhouette: { ...makeIdentityGeometry().headSilhouette, sideVolumeLeft: 1, sideVolumeRight: 1, hairEndpointLeftY: 1, hairEndpointRightY: 1 },
+    }) })).hairPlan;
+    expect(hairPlan.headMask.faces.top.length).toBeLessThan(64);
+    expect(hairPlan.headMask.faces.left.length).toBeLessThan(64);
+    expect(hairPlan.headMask.faces.right.length).toBeLessThan(64);
+    expect(hairPlan.headMask.faces.back.length).toBeLessThan(64);
   });
 });

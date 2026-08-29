@@ -243,10 +243,13 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       const baseline = buildProceduralFallbackAtlas(features, faceStyle, skinPlan);
       expect(baseline, `${source.id}: baseline renderer failed`).toBeTruthy();
       if (!baseline) continue;
-      const oldPlanned = createFacePlanAtlasCandidate(baseline, oldSkinPlan.facePixelPlan, faceStyle);
-      const planned = createFacePlanAtlasCandidate(baseline, skinPlan.facePixelPlan, faceStyle);
+      const oldPlanned = createFacePlanAtlasCandidate(baseline, oldSkinPlan.facePixelPlan, faceStyle, skinPlan.facePixelPlan);
+      const planned = createFacePlanAtlasCandidate(baseline, skinPlan.facePixelPlan, faceStyle, skinPlan.facePixelPlan);
+      const topologyVariant = buildFacePixelPlanVariants(renderAnalysis, 3)
+        .find((variant) => variant.layout.mouthTopology !== skinPlan.facePixelPlan.layout.mouthTopology);
+      const topologyAtlas = topologyVariant ? createFacePlanAtlasCandidate(baseline, topologyVariant, faceStyle, skinPlan.facePixelPlan) : undefined;
       const plannedStructurallyValid = validateFinalAtlas(planned).ok;
-      const plannedCraftValidation = validateAtlasCraft(planned, faceStyle, skinPlan.facePixelPlan);
+      const plannedCraftValidation = validateAtlasCraft(planned, faceStyle, skinPlan.facePixelPlan, skinPlan.hairPlan);
       const plannedCraftValid = plannedCraftValidation.ok;
       const oldViews = renderSkinViews(oldPlanned);
       const plannedViews = renderSkinViews(planned);
@@ -261,6 +264,22 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         measureHeadCandidateStructure(oldPlanned, oldSkinPlan.facePixelPlan, oldSkinPlan.hairPlan),
         measureHeadCandidateStructure(planned, skinPlan.facePixelPlan, skinPlan.hairPlan),
       );
+      const topologyCraft = topologyAtlas && topologyVariant
+        ? validateAtlasCraft(topologyAtlas, faceStyle, topologyVariant, skinPlan.hairPlan)
+        : null;
+      const topologyPairwise = topologyAtlas && topologyVariant && topologyCraft?.ok
+        ? await runHeadPairwiseComparison(
+            env,
+            renderAnalysis,
+            faceCropDataUrl,
+            await pngDataUrl(buildHeadViewMontage(plannedViews)),
+            await pngDataUrl(buildHeadViewMontage(renderSkinViews(topologyAtlas))),
+            "candidate_selection",
+            headCropDataUrl,
+            measureHeadCandidateStructure(planned, skinPlan.facePixelPlan, skinPlan.hairPlan),
+            measureHeadCandidateStructure(topologyAtlas, topologyVariant, skinPlan.hairPlan),
+          )
+        : null;
       const selectedPlanned = plannedStructurallyValid && plannedCraftValid && pairwise.ok && shouldAcceptIdentityCorrection(pairwise.review);
       const afterAtlas = selectedPlanned ? planned : oldPlanned;
       const beforeCritique = await runSkinCritique(
@@ -302,12 +321,36 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         sourceGeometryAfter: geometryResult.geometry,
         oldFacePixelPlan: oldSkinPlan.facePixelPlan,
         newFacePixelPlan: skinPlan.facePixelPlan,
+        sourceP5Contract: skinPlan.facePixelPlan.renderContract,
+        topology: {
+          old: { mouth: oldSkinPlan.facePixelPlan.layout.mouthTopology, eyes: oldSkinPlan.facePixelPlan.layout.eyeTopology },
+          next: { mouth: skinPlan.facePixelPlan.layout.mouthTopology, eyes: skinPlan.facePixelPlan.layout.eyeTopology },
+        },
+        headMaskSummary: {
+          template: skinPlan.hairPlan.template,
+          source: skinPlan.hairPlan.headMask.source,
+          coverageByFace: Object.fromEntries(Object.entries(skinPlan.hairPlan.headMask.faces).map(([face, points]) => [face, points.length])),
+          endpointRows: skinPlan.hairPlan.headMask.endpointRows,
+          partColumn: skinPlan.hairPlan.headMask.partColumn,
+          earExposure: skinPlan.hairPlan.headMask.earExposure,
+        },
+        deterministicQuantization: {
+          old: oldSkinPlan.facePixelPlan.perceptualScore,
+          next: skinPlan.facePixelPlan.perceptualScore,
+        },
         planDifference: compareFacePlans(oldSkinPlan.facePixelPlan, skinPlan.facePixelPlan),
         candidateSelected: selectedPlanned ? "geometry-face-plan-primary" : "semantic-face-plan-primary",
         pairwise: pairwise.ok ? pairwise.review : { failed: true, detail: pairwise.detail },
+        topologyAlternative: topologyVariant ? {
+          facePixelPlan: topologyVariant,
+          craft: topologyCraft,
+          pairwise: topologyPairwise ? topologyPairwise.ok ? topologyPairwise.review : { failed: true, detail: topologyPairwise.detail } : null,
+        } : null,
+        identityDimensionResults: pairwise.ok ? pairwise.review.identityDimensions : null,
         largestLossStage: selectedPlanned ? "categorical_analysis_to_face_plan" : "normalized_geometry_to_8x8_head",
         beforeScores: beforeCritique.ok ? beforeCritique.critique : null,
         afterScores: afterCritique.ok ? afterCritique.critique : null,
+        p5FinalStatus: afterCritique.ok ? afterCritique.critique.p5IdentityChecks : null,
         beforeCraft: measureAtlasCraft(oldPlanned),
         afterCraft: measureAtlasCraft(afterAtlas),
         craftStatus: {
@@ -329,10 +372,7 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         oldFacePixelPlan: oldSkinPlan.facePixelPlan,
         candidateA: buildHeadViewMontage(oldViews),
         candidateB: buildHeadViewMontage(plannedViews),
-        candidateC: (() => {
-          const variant = buildFacePixelPlanVariants(renderAnalysis, 3)[1];
-          return variant ? buildHeadViewMontage(renderSkinViews(createFacePlanAtlasCandidate(baseline, variant, faceStyle))) : undefined;
-        })(),
+        candidateC: topologyAtlas ? buildHeadViewMontage(renderSkinViews(topologyAtlas)) : undefined,
         finalHeadFront: front,
         finalHeadLeft: left,
         finalHeadRight: right,

@@ -88,12 +88,13 @@ async function headCandidate(
   hairPlan?: SkinPlan["hairPlan"],
 ): Promise<HeadCandidate> {
   const montage = buildHeadViewMontage(renderSkinViews(atlas));
+  const structuralEvidence = measureHeadCandidateStructure(atlas, facePlan, hairPlan);
   return {
     id,
     kind,
     atlas,
-    structuralValidity,
-    structuralEvidence: measureHeadCandidateStructure(atlas, facePlan, hairPlan),
+    structuralValidity: structuralValidity && structuralEvidence.contractViolations.length === 0,
+    structuralEvidence,
     ...(facePlan ? { facePlan } : {}),
     ...(hairPlan ? { hairPlan } : {}),
     headMontageDataUrl: `data:image/png;base64,${bytesToBase64(await encodePng(montage))}`,
@@ -158,11 +159,14 @@ function buildValidFacePlanCandidateAtlases(
   baseline: RawImage,
   analysis: PhotoAnalysis,
   faceStyle: FaceStyle,
+  hairPlan: SkinPlan["hairPlan"],
 ): Array<{ plan: FacePixelPlan; atlas: RawImage }> {
-  return buildFacePixelPlanVariants(analysis, 2).flatMap((plan) => {
-    const atlas = createFacePlanAtlasCandidate(baseline, plan, faceStyle);
+  const plans = buildFacePixelPlanVariants(analysis, 2);
+  const baselinePlan = plans[0];
+  return plans.flatMap((plan) => {
+    const atlas = createFacePlanAtlasCandidate(baseline, plan, faceStyle, baselinePlan);
     applyUvMask(atlas);
-    return validateFinalAtlas(atlas).ok && validateAtlasCraft(atlas, faceStyle, plan).ok
+    return validateFinalAtlas(atlas).ok && validateAtlasCraft(atlas, faceStyle, plan, hairPlan).ok
       ? [{ plan, atlas }]
       : [];
   });
@@ -628,7 +632,7 @@ export async function generateSkin(
             skinPlan.hairPlan,
           );
           const plannedCandidates = await Promise.all(
-            buildValidFacePlanCandidateAtlases(processed.atlas, renderAnalysis, faceStyle)
+            buildValidFacePlanCandidateAtlases(processed.atlas, renderAnalysis, faceStyle, skinPlan.hairPlan)
               .map(({ plan, atlas }, index) => headCandidate(
                 `face-plan-${plan.variantId}`,
                 index === 0 ? "deterministic" : "deterministic_variant",
@@ -688,7 +692,7 @@ export async function generateSkin(
           );
           applyUvMask(merged.atlas);
           const mergedFinal = validateFinalAtlas(merged.atlas);
-          const mergedCraft = validateAtlasCraft(merged.atlas, faceStyle, skinPlan.facePixelPlan);
+          const mergedCraft = validateAtlasCraft(merged.atlas, faceStyle, skinPlan.facePixelPlan, skinPlan.hairPlan);
           if (
             !mergedFinal.ok ||
             !mergedCraft.ok ||
@@ -901,7 +905,7 @@ export async function generateSkin(
       env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" &&
       faceIdentityCrop
     ) {
-      const plannedAtlases = buildValidFacePlanCandidateAtlases(proceduralAtlas, renderAnalysis, faceStyle);
+      const plannedAtlases = buildValidFacePlanCandidateAtlases(proceduralAtlas, renderAnalysis, faceStyle, skinPlan.hairPlan);
       if (plannedAtlases.length > 0) {
         const composedCandidate = await headCandidate("procedural-compose", "deterministic", proceduralAtlas, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
         const plannedCandidates = await Promise.all(
@@ -2034,7 +2038,7 @@ export async function postprocessGeneratedSheet(
         failure: `final atlas validation failed: ${finalVerdict.problems.join(" / ")}`,
       };
     }
-    const craftVerdict = validateAtlasCraft(atlas, faceStyle, skinPlan.facePixelPlan);
+    const craftVerdict = validateAtlasCraft(atlas, faceStyle, skinPlan.facePixelPlan, skinPlan.hairPlan);
     if (!craftVerdict.ok) {
       console.log(
         `attempt ${attempt}: craft quality validation failed`,

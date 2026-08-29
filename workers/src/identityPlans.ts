@@ -9,10 +9,11 @@ import type { PhotoAnalysis } from "./analysis";
 import {
   buildQuantizedLayoutVariants,
   type FaceLayoutPlan,
+  type IdentityRenderContract,
   type ProtectedGeometry,
 } from "./identityQuantization";
 
-export type { FaceLayoutPlan, ProtectedGeometry, QuantizationAxis } from "./identityQuantization";
+export type { EyeTopology, FaceLayoutPlan, IdentityRenderContract, MouthTopology, ProtectedGeometry, QuantizationAxis } from "./identityQuantization";
 
 export type FacePaletteRole =
   | "skin_light"
@@ -50,6 +51,19 @@ export interface FacePixelPlan {
   variantId: "primary" | "geometry_alt_1" | "geometry_alt_2" | "semantic_alt_1" | "semantic_alt_2";
   source: "identity_geometry" | "semantic_fallback";
   protectedGeometry: ProtectedGeometry[];
+  renderContract: IdentityRenderContract;
+  perceptualScore: PerceptualQuantizationScore;
+}
+
+export interface PerceptualQuantizationScore {
+  geometryError: number;
+  p5ContractViolations: number;
+  clusterPenalty: number;
+  isolatedPixelPenalty: number;
+  expressionPenalty: number;
+  overlayConflictPenalty: number;
+  total: number;
+  violations: string[];
 }
 
 export type HairTemplate =
@@ -211,6 +225,93 @@ function pushPixel(
   else pixels[existing] = next;
 }
 
+function connectedComponents(points: Array<{ x: number; y: number }>): number {
+  const remaining = new Set(points.map((point) => `${point.x},${point.y}`));
+  let components = 0;
+  while (remaining.size > 0) {
+    components++;
+    const first = remaining.values().next().value as string;
+    remaining.delete(first);
+    const queue = [first];
+    while (queue.length > 0) {
+      const [x, y] = queue.shift()!.split(",").map(Number);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const key = `${x + dx},${y + dy}`;
+        if (remaining.delete(key)) queue.push(key);
+      }
+    }
+  }
+  return components;
+}
+
+export function scoreFacePixelPlan(plan: Omit<FacePixelPlan, "perceptualScore"> | FacePixelPlan): PerceptualQuantizationScore {
+  const layout = plan.layout;
+  const mouth = plan.pixels.filter((pixel) => pixel.cluster === "mouth");
+  const violations: string[] = [];
+  const mouthXs = mouth.map((pixel) => pixel.x);
+  const mouthWidth = mouthXs.length ? Math.max(...mouthXs) - Math.min(...mouthXs) + 1 : 0;
+  const contract = layout.renderContract;
+  if (contract.mouth) {
+    if (mouthWidth < contract.mouth.minimumPerceptualWidth) violations.push("mouth perceptual width below contract");
+    const teeth = mouth.filter((pixel) => pixel.role === "teeth");
+    const boundary = mouth.filter((pixel) => pixel.role === "lip" || pixel.role === "mouth_shadow");
+    if (contract.mouth.teethReadable && teeth.length === 0) violations.push("teeth role missing");
+    if (contract.mouth.teethReadable && boundary.length === 0) violations.push("mouth boundary missing");
+    if (contract.mouth.opening === "closed" && teeth.length > 0) violations.push("closed mouth contains teeth topology");
+    const flatWhiteBar = teeth.length >= 3 && mouth.every((pixel) => pixel.y === mouth[0].y && pixel.role === "teeth");
+    if (flatWhiteBar) violations.push("mouth collapsed to flat white bar");
+    if (contract.mouth.cornerDirection === "upward_or_level" && layout.mouthCornerOffsets.some((offset) => offset > 0)) violations.push("smile corner points downward");
+    if (contract.mouth.preserveAsymmetry && layout.mouthCornerOffsets[0] === layout.mouthCornerOffsets[1]) violations.push("distinctive mouth asymmetry lost");
+  }
+  if (contract.eyes) {
+    const gap = Math.min(...layout.rightEyeXs) - Math.max(...layout.leftEyeXs) - 1;
+    if (gap < contract.eyes.minimumInterEyeGap) violations.push("eye spacing below contract");
+    if (contract.eyes.preserveAsymmetry && layout.eyeTopology !== "asymmetric") violations.push("distinctive eye asymmetry lost");
+  }
+  if (contract.glasses) {
+    const left = layout.glassesMask.filter((point) => point.x <= 3);
+    const right = layout.glassesMask.filter((point) => point.x >= 4);
+    const bridge = layout.glassesMask.filter((point) => point.x === 3 || point.x === 4);
+    if (left.length === 0 || right.length === 0) violations.push("glasses lens footprint missing");
+    if (bridge.length === 0) violations.push("glasses bridge missing");
+    if (layout.glassesMask.length < contract.glasses.minimumFootprint) violations.push("glasses footprint below contract");
+  }
+  const clusterPenalty = Math.max(0, connectedComponents(mouth) - 1) * 0.2;
+  const isolated = mouth.filter((pixel) => !mouth.some((other) => other !== pixel && Math.abs(other.x - pixel.x) <= 1 && Math.abs(other.y - pixel.y) <= 1)).length;
+  const isolatedPixelPenalty = isolated / Math.max(1, mouth.length);
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+  const currentLeftEye = mean(layout.leftEyeXs);
+  const currentRightEye = mean(layout.rightEyeXs);
+  const geometryError = mean([
+    Math.abs(currentLeftEye - layout.geometryTarget.leftEyeCenterX) / 4,
+    Math.abs(currentRightEye - layout.geometryTarget.rightEyeCenterX) / 4,
+    Math.abs(layout.eyeRow - layout.geometryTarget.eyeRow) / 2,
+    Math.abs(layout.mouthCenterX - layout.geometryTarget.mouthCenterX) / 4,
+    Math.abs(layout.mouthRow - layout.geometryTarget.mouthRow) / 2,
+    Math.abs(layout.mouthWidth - layout.geometryTarget.mouthWidth) / 5,
+  ]);
+  const protectedViolation = (violation: string) =>
+    (contract.mouth?.protected && /mouth|teeth|smile/.test(violation)) ||
+    (contract.eyes?.protected && /eye/.test(violation)) ||
+    (contract.glasses?.protected && /glasses/.test(violation));
+  const p5ContractViolations = violations.filter(protectedViolation).length;
+  const expressionPenalty =
+    violations.filter((violation) => /mouth|teeth|smile/.test(violation)).length * 0.3 +
+    (contract.mouth && layout.mouthTopology !== contract.mouth.preferredTopology ? 0.18 : 0);
+  const overlayConflictPenalty = layout.glassesMask.filter((point) => point.y < layout.hairlineDepthByColumn[point.x]).length / Math.max(1, layout.glassesMask.length);
+  return {
+    geometryError,
+    p5ContractViolations,
+    clusterPenalty,
+    isolatedPixelPenalty,
+    expressionPenalty,
+    overlayConflictPenalty,
+    total: geometryError + p5ContractViolations * 10 + clusterPenalty + isolatedPixelPenalty + expressionPenalty + overlayConflictPenalty * 0.4,
+    violations,
+  };
+}
+
 function facePixelPlan(
   analysis: PhotoAnalysis,
   layout: FaceLayoutPlan,
@@ -229,28 +330,45 @@ function facePixelPlan(
     const eyeXs = width === 1 ? [ordered[0]] : width === 3 && ordered.length < 3 ? [...ordered, extension] : ordered;
     eyeXs.forEach((x, position) => {
       const tiltOffset = position === 0 ? layout.eyeTiltOffset : 0;
-      pushPixel(pixels, x, row + tiltOffset, layout.eyeOpenness === "open" && position === 0 ? "sclera" : "iris", cluster);
-      if (layout.eyeOpenness === "open" && position === eyeXs.length - 1) pushPixel(pixels, x, Math.min(7, row + 1), "iris", cluster);
+      const openTopology = layout.eyeTopology === "open_iris_sclera" || (layout.eyeTopology === "asymmetric" && index === 1);
+      const smilingSquint = layout.eyeTopology === "smiling_squint";
+      pushPixel(pixels, x, row + tiltOffset, openTopology && position === 0 ? "sclera" : "iris", cluster);
+      if (openTopology && position === eyeXs.length - 1) pushPixel(pixels, x, Math.min(7, row + 1), "iris", cluster);
+      if (smilingSquint && position === 0 && eyeXs.length > 1) pushPixel(pixels, x, Math.max(3, row - 1), "iris", cluster);
       const browTilt = position === 0 ? layout.browTiltOffset : 0;
-      pushPixel(pixels, x, Math.max(1, Math.min(4, browRow + browTilt)), "brow", cluster);
-      if (layout.browThickness === "strong" && position === 0) pushPixel(pixels, x, Math.min(4, browRow + browTilt + 1), "brow", cluster);
+      const browY = Math.max(1, Math.min(row - 1, browRow + browTilt));
+      pushPixel(pixels, x, browY, "brow", cluster);
+      if (layout.browThickness === "strong" && position === 0) pushPixel(pixels, x, Math.max(1, browY - 1), "brow", cluster);
     });
   });
   // glassesMask is declarative layout evidence. The renderer applies it on
   // the outer layer so frames do not overwrite the base-layer irises.
   if (layout.noseStrength >= 0.35) pushPixel(pixels, layout.noseX, layout.noseY, "nose_shadow", "nose");
   const mouthStart = Math.max(0, Math.min(8 - layout.mouthWidth, Math.round(layout.mouthCenterX - (layout.mouthWidth - 1) / 2)));
-  for (let position = 0; position < layout.mouthWidth; position++) {
-    const x = mouthStart + position;
-    const edgeOffset = position === 0 ? layout.mouthCornerOffsets[0] : position === layout.mouthWidth - 1 ? layout.mouthCornerOffsets[1] : 0;
-    const teethPosition = layout.mouthWidth <= 2 ? position === 1 : position > 0 && position < layout.mouthWidth - 1;
-    pushPixel(
-      pixels,
-      x,
-      Math.max(4, Math.min(7, layout.mouthRow + edgeOffset)),
-      layout.mouthOpening === "closed" ? "lip" : layout.mouthOpening === "teeth" && teethPosition ? "teeth" : "mouth_shadow",
-      "mouth",
-    );
+  const mouthEnd = mouthStart + layout.mouthWidth - 1;
+  const mouthY = (offset = 0) => Math.max(4, Math.min(7, layout.mouthRow + offset));
+  const semanticCornerLift = layout.mouthTopology === "wide_teeth_smile" && layout.renderContract.mouth?.cornerDirection === "upward_or_level" ? -1 : 0;
+  const leftCornerY = mouthY(Math.min(layout.mouthCornerOffsets[0], semanticCornerLift));
+  const rightCornerY = mouthY(Math.min(layout.mouthCornerOffsets[1], semanticCornerLift));
+  const putMouth = (x: number, y: number, role: FacePaletteRole) => pushPixel(pixels, x, y, role, "mouth");
+  if (layout.mouthOpening === "closed" || layout.mouthTopology === "closed_compact" || layout.mouthTopology === "closed_wide") {
+    for (let x = mouthStart; x <= mouthEnd; x++) putMouth(x, x === mouthStart ? leftCornerY : x === mouthEnd ? rightCornerY : mouthY(), "lip");
+  } else {
+    putMouth(mouthStart, leftCornerY, "lip");
+    putMouth(mouthEnd, rightCornerY, "lip");
+    const teethTopology = layout.mouthOpening === "teeth" && ["teeth_smile", "wide_teeth_smile", "asymmetric_smile"].includes(layout.mouthTopology);
+    for (let x = mouthStart + 1; x < mouthEnd; x++) putMouth(x, mouthY(), teethTopology ? "teeth" : "mouth_shadow");
+    if (layout.mouthWidth === 2) putMouth(mouthEnd, mouthY(), teethTopology ? "teeth" : "mouth_shadow");
+    if (["open_wide", "teeth_smile", "wide_teeth_smile", "asymmetric_smile"].includes(layout.mouthTopology) && layout.mouthRow < 7) {
+      const center = Math.max(mouthStart + 1, Math.min(mouthEnd - 1, Math.round(layout.mouthCenterX)));
+      putMouth(center, mouthY(1), "mouth_shadow");
+      if (layout.mouthTopology === "wide_teeth_smile" && layout.mouthWidth >= 4) {
+        const secondBoundary = Math.min(mouthEnd - 1, center + 1) === center
+          ? Math.max(mouthStart + 1, center - 1)
+          : Math.min(mouthEnd - 1, center + 1);
+        putMouth(secondBoundary, mouthY(1), "mouth_shadow");
+      }
+    }
   }
 
   for (let x = 0; x < 8; x++) {
@@ -266,7 +384,7 @@ function facePixelPlan(
     }
   }
 
-  return {
+  const plan: Omit<FacePixelPlan, "perceptualScore"> = {
     width: 8,
     height: 8,
     coordinateSpace: "head.base.front",
@@ -286,15 +404,22 @@ function facePixelPlan(
     variantId,
     source: analysis.identityGeometry ? "identity_geometry" : "semantic_fallback",
     protectedGeometry: [...layout.protectedGeometry],
+    renderContract: structuredClone(layout.renderContract),
   };
+  return { ...plan, perceptualScore: scoreFacePixelPlan(plan) };
 }
 
 export function buildFacePixelPlanVariants(
   analysis: PhotoAnalysis,
   maximum = 3,
 ): FacePixelPlan[] {
-  return buildQuantizedLayoutVariants(analysis, maximum)
-    .map((variant) => facePixelPlan(analysis, variant.layout, variant.id));
+  const plans = buildQuantizedLayoutVariants(analysis, maximum)
+    .map((variant) => facePixelPlan(analysis, variant.layout, variant.id))
+    .filter((plan) => plan.perceptualScore.violations.length === 0);
+  if (plans.length <= 1) return plans;
+  const primary = plans.find((plan) => plan.variantId === "primary");
+  const alternatives = plans.filter((plan) => plan !== primary).sort((first, second) => first.perceptualScore.total - second.perceptualScore.total);
+  return [...(primary ? [primary] : []), ...alternatives].slice(0, Math.max(1, Math.min(3, maximum)));
 }
 
 function hairPlan(analysis: PhotoAnalysis): HairPlan {
@@ -366,12 +491,45 @@ function buildHeadMaskPlan(
         if ((x <= 1 && y <= endpointLeft) || (x >= 6 && y <= endpointRight) || y <= 1) add("front", x, y, role);
       }
     }
-    const leftWidth = Math.max(1, Math.min(8, Math.round(1 + geometry.sideVolumeLeft * 7)));
-    const rightWidth = Math.max(1, Math.min(8, Math.round(1 + geometry.sideVolumeRight * 7)));
-    for (let y = crownRow; y <= endpointLeft; y++) for (let x = 0; x < leftWidth; x++) add("left", x, y, role);
-    for (let y = crownRow; y <= endpointRight; y++) for (let x = 8 - rightWidth; x < 8; x++) add("right", x, y, role);
-    for (let y = crownRow; y <= Math.max(endpointLeft, endpointRight); y++) for (let x = 0; x < 8; x++) add("back", x, y, role);
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y, role);
+    const maximumSideWidth = covering ? 8 : 5;
+    const sideScale = covering ? 7 : 4;
+    const baseLeftWidth = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeLeft * sideScale)));
+    const baseRightWidth = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeRight * sideScale)));
+    for (let y = crownRow; y <= endpointLeft; y++) {
+      const earTaper = y >= endpointLeft - 1 ? Math.round(geometry.earExposureLeft * 2) : 0;
+      const contourTaper = Math.round(Math.max(0, leftContour[y] - leftContour[Math.max(crownRow, y - 1)]) * 8);
+      const width = Math.max(1, baseLeftWidth - earTaper - contourTaper);
+      for (let x = 0; x < width; x++) add("left", x, y, role);
+    }
+    for (let y = crownRow; y <= endpointRight; y++) {
+      const earTaper = y >= endpointRight - 1 ? Math.round(geometry.earExposureRight * 2) : 0;
+      const contourTaper = Math.round(Math.max(0, rightContour[Math.max(crownRow, y - 1)] - rightContour[y]) * 8);
+      const width = Math.max(1, baseRightWidth - earTaper - contourTaper);
+      for (let x = 8 - width; x < 8; x++) add("right", x, y, role);
+    }
+    for (let y = crownRow; y <= Math.max(endpointLeft, endpointRight); y++) {
+      const crownBevel = !covering && y === crownRow ? 1 : 0;
+      const endpointTaper = !covering && y >= Math.max(endpointLeft, endpointRight) - 1
+        ? Math.round(Math.max(geometry.earExposureLeft, geometry.earExposureRight))
+        : 0;
+      const leftInset = Math.min(2, crownBevel + endpointTaper);
+      const rightInset = Math.min(2, crownBevel + endpointTaper);
+      for (let x = leftInset; x < 8 - rightInset; x++) {
+        const silhouetteEdge = x <= leftInset + 1 || x >= 6 - rightInset;
+        const endpointBand = y >= Math.max(endpointLeft, endpointRight) - 1;
+        if (covering || silhouetteEdge || endpointBand) add("back", x, y, role);
+      }
+    }
+    for (let y = 0; y < 8; y++) {
+      const contourIndex = Math.min(7, y);
+      const leftInset = covering ? 0 : Math.min(2, Math.max(y === 0 || y === 7 ? 1 : 0, Math.round(leftContour[contourIndex])));
+      const rightInset = covering ? 0 : Math.min(2, Math.max(y === 0 || y === 7 ? 1 : 0, Math.round(1 - rightContour[contourIndex])));
+      for (let x = leftInset; x < 8 - rightInset; x++) {
+        const crownBand = y <= 1 || y >= 6;
+        const sideRoot = x <= leftInset + 1 || x >= 6 - rightInset;
+        if (covering || crownBand || sideRoot) add("top", x, y, role);
+      }
+    }
     const partColumn = geometry.partCenterX === null ? null : Math.max(0, Math.min(7, Math.round(geometry.partCenterX * 7)));
     if (!covering) {
       const openingColumn = partColumn ?? 3;

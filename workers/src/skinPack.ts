@@ -1739,6 +1739,13 @@ function faceRoleColor(
   style: FaceStyle,
 ): Rgb {
   const eye = hexToRgb(style.eyeColor, shadeRgb(hairColor, 0.62));
+  const ensureComplexionContrast = (candidate: Rgb, minimum = 55): Rgb => {
+    const distance = (color: Rgb) => Math.abs(color[0] - skinColor[0]) + Math.abs(color[1] - skinColor[1]) + Math.abs(color[2] - skinColor[2]);
+    if (distance(candidate) >= minimum) return candidate;
+    const dark = shadeRgb(candidate, 0.48);
+    const light = mixRgb(candidate, [238, 234, 220], 0.58);
+    return distance(dark) >= distance(light) ? dark : light;
+  };
   const lipBase: Record<string, Rgb> = {
     natural: mixRgb(skinColor, [132, 65, 60], 0.34),
     rose: [157, 78, 89],
@@ -1756,7 +1763,7 @@ function faceRoleColor(
     case "hair_shadow": return shadeRgb(hairColor, 0.72);
     case "brow": return shadeRgb(hairColor, 0.7);
     case "glasses": return hexToRgb(style.glassesColor, shadeRgb(hairColor, 0.52));
-    case "iris": return shadeRgb(eye, style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5);
+    case "iris": return ensureComplexionContrast(shadeRgb(eye, style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5));
     case "sclera": return mixRgb(skinColor, [236, 232, 218], 0.72);
     case "nose_shadow": return mixRgb(skinColor, [111, 63, 51], 0.24);
     case "lip": return lipBase[style.lipColor ?? "natural"] ?? lipBase.natural;
@@ -1773,6 +1780,13 @@ function applyFacePixelPlan(
   style: FaceStyle,
 ): void {
   const face = CLASSIC_LAYOUT.head.base.front;
+  const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
+  if (style.glasses !== "sunglasses") {
+    for (const pixel of plan.pixels.filter((item) => item.role === "iris" || item.role === "sclera")) {
+      const overlayOffset = ((faceOverlay.y + pixel.y) * ATLAS_SIZE + faceOverlay.x + pixel.x) * 4;
+      atlas.rgba.fill(0, overlayOffset, overlayOffset + 4);
+    }
+  }
   for (const pixel of plan.pixels) {
     // composeFace owns the connected complexion ramp and expression shading.
     // The plan replaces only discrete identity landmarks and fringe geometry.
@@ -1785,7 +1799,6 @@ function applyFacePixelPlan(
     atlas.rgba[offset + 2] = color[2];
     atlas.rgba[offset + 3] = 255;
   }
-  const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
   const glassesColor = faceRoleColor("glasses", hairColor, skinColor, style);
   for (const point of plan.layout.glassesMask) {
     if (!Number.isInteger(point.x) || !Number.isInteger(point.y) || point.x < 0 || point.x >= 8 || point.y < 0 || point.y >= 8) continue;
@@ -1802,6 +1815,7 @@ export function createFacePlanAtlasCandidate(
   source: RawImage,
   plan: FacePixelPlan,
   style: FaceStyle,
+  previousPlan?: FacePixelPlan,
 ): RawImage {
   if (source.width !== ATLAS_SIZE || source.height !== ATLAS_SIZE) {
     throw new Error("Face plan candidate requires a 64x64 atlas");
@@ -1813,6 +1827,19 @@ export function createFacePlanAtlasCandidate(
   };
   const hairColor = hexToRgb(style.hairColor ?? "", [54, 42, 34]);
   const skinColor = hexToRgb(style.skinTone ?? "", [210, 154, 116]);
+  if (previousPlan) {
+    const face = CLASSIC_LAYOUT.head.base.front;
+    for (const pixel of previousPlan.pixels.filter((item) => item.cluster !== "complexion")) {
+      const at = ((face.y + pixel.y) * ATLAS_SIZE + face.x + pixel.x) * 4;
+      const restored = shadeRgb(skinColor, 0.96 + ((pixel.x + pixel.y) % 3) * 0.025);
+      candidate.rgba.set([restored[0], restored[1], restored[2], 255], at);
+    }
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    for (const point of previousPlan.layout.glassesMask) {
+      const at = ((overlay.y + point.y) * ATLAS_SIZE + overlay.x + point.x) * 4;
+      candidate.rgba.fill(0, at, at + 4);
+    }
+  }
   applyFacePixelPlan(candidate, plan, hairColor, skinColor, style);
   return candidate;
 }
@@ -1889,27 +1916,56 @@ function styleForHairPlan(style: FaceStyle, plan: HairPlan | undefined): FaceSty
 }
 
 /** Apply the measured outer hair/head-covering mass after the coarse template. */
-function applyHeadMaskPlan(
+export function applyHeadMaskPlan(
   atlas: RawImage,
   plan: HairPlan | undefined,
   hairColor: Rgb,
   coveringColor: Rgb,
+  style?: FaceStyle,
+  facePlan?: FacePixelPlan,
 ): void {
   const mask = plan?.headMask;
   if (!mask || mask.source !== "identity_geometry") return;
   const overlay = CLASSIC_LAYOUT.head.overlay;
   const faces = ["front", "top", "left", "right", "back"] as const;
+  const protectedCoordinates = new Set<string>();
+  const protect = (face: (typeof faces)[number], x: number, y: number) => protectedCoordinates.add(`${face}:${x},${y}`);
+  for (const point of facePlan?.layout.glassesMask ?? []) protect("front", point.x, point.y);
+  if (style?.glasses && style.glasses !== "none") {
+    const frameStarts = style.glasses === "round" ? [1, 4] : [0, 5];
+    for (const x0 of frameStarts) for (let y = style.glassesScale === "large" ? 2 : 3; y <= 5; y++) for (let x = x0; x <= x0 + 2; x++) protect("front", x, y);
+    const bridgeY = style.glasses === "round" ? 4 : 3;
+    protect("front", 3, bridgeY); protect("front", 4, bridgeY);
+    for (const x of [6, 7]) protect("right", x, 3);
+    for (const x of [0, 1]) protect("left", x, 3);
+    if (style.glassesScale === "large") {
+      for (const x of [6, 7]) protect("right", x, 4);
+      for (const x of [0, 1]) protect("left", x, 4);
+    }
+  }
+  const colorDistance = (offset: number, target: Rgb) =>
+    Math.abs(atlas.rgba[offset] - target[0]) + Math.abs(atlas.rgba[offset + 1] - target[1]) + Math.abs(atlas.rgba[offset + 2] - target[2]);
+  const hasCovering = faces.some((faceName) => mask.faces[faceName].some((point) => point.role === "covering"));
+  const hairOwned = (offset: number) => colorDistance(offset, hairColor) <= 170 || (hasCovering && colorDistance(offset, coveringColor) <= 170);
   for (const faceName of faces) {
     const rect = overlay[faceName];
     // On the front, protect eye-row accessories while replacing only crown
     // and fringe mass. The other outer faces are silhouette-only surfaces.
     const clearRows = faceName === "front" ? Math.min(3, rect.h) : rect.h;
     for (let y = 0; y < clearRows; y++) for (let x = 0; x < rect.w; x++) {
-      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3] = 0;
+      const pointKey = `${faceName}:${x},${y}`;
+      const pixelOffset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+      if (protectedCoordinates.has(pointKey) || atlas.rgba[pixelOffset + 3] === 0 || !hairOwned(pixelOffset)) continue;
+      atlas.rgba.fill(0, pixelOffset, pixelOffset + 4);
     }
     for (const point of mask.faces[faceName]) {
       if (point.x < 0 || point.x >= rect.w || point.y < 0 || point.y >= rect.h) continue;
       const offset = ((rect.y + point.y) * ATLAS_SIZE + rect.x + point.x) * 4;
+      if (protectedCoordinates.has(`${faceName}:${point.x},${point.y}`)) continue;
+      // A distinct pre-existing colour belongs to a glasses/accessory layer,
+      // not to hair. Preserve it byte-for-byte even when the measured mask
+      // occupies the same low-resolution cell.
+      if (atlas.rgba[offset + 3] > 0 && !hairOwned(offset)) continue;
       const base = point.role === "covering" ? coveringColor : hairColor;
       const color = shadeRgb(base, 0.88 + ((point.x * 3 + point.y * 5) % 4) * 0.045);
       atlas.rgba[offset] = color[0];
@@ -9228,7 +9284,7 @@ export function packFrontViewToAtlas(
   resetPortraitFaceOverlay(atlas);
   composeGlassesOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);
-  applyHeadMaskPlan(atlas, options.hairPlan, hairColor, hatColor);
+  applyHeadMaskPlan(atlas, options.hairPlan, hairColor, hatColor, faceStyle, options.facePixelPlan);
   // With no fringe in front of the face, prescription frames physically sit
   // above the hair/temple layer. Coily and full-volume passes otherwise erase
   // the entire frame even though the analysis explicitly detected glasses.

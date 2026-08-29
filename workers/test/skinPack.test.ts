@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { RawImage } from "../src/png";
 import {
   DEFAULT_FACE_STYLE,
+  applyHeadMaskPlan,
+  createFacePlanAtlasCandidate,
   hairVolumePixel,
   packFrontViewToAtlas,
   type FaceStyle,
@@ -12,6 +14,7 @@ import {
   validateAtlasCraft,
   validateFinalAtlas,
 } from "../src/skinPost";
+import { buildFacePixelPlanVariants, buildIdentityPixelPlans } from "../src/identityPlans";
 import {
   ATLAS_SIZE,
   CLASSIC_LAYOUT,
@@ -19,7 +22,7 @@ import {
   type Rect,
 } from "../src/uvLayout";
 
-import { makeFourViewSheet, makeFrontBackView, makeFrontView } from "./helpers";
+import { makeAnalysis, makeFourViewSheet, makeFrontBackView, makeFrontView, makeIdentityGeometry } from "./helpers";
 
 function avgOfRect(
   atlas: RawImage,
@@ -5248,5 +5251,74 @@ describe("packFrontViewToAtlas", () => {
     const right = avgOfRect(packed!.atlas, CLASSIC_LAYOUT.body.base.right);
     expect(left[1]).toBeGreaterThan(left[2]);
     expect(right[2]).toBeGreaterThan(right[1]);
+  });
+
+  it("head mask replacement preserves glasses arms and non-hair accessory pixels byte-for-byte", () => {
+    const analysis = makeAnalysis({ identityGeometry: makeIdentityGeometry() });
+    const plans = buildIdentityPixelPlans(analysis);
+    const atlas: RawImage = { width: ATLAS_SIZE, height: ATLAS_SIZE, rgba: new Uint8Array(ATLAS_SIZE * ATLAS_SIZE * 4) };
+    const right = CLASSIC_LAYOUT.head.overlay.right;
+    const protectedArm = ((right.y + 3) * ATLAS_SIZE + right.x + 7) * 4;
+    const accessory = ((right.y + 7) * ATLAS_SIZE + right.x + 2) * 4;
+    const obsoleteHair = ((right.y + 7) * ATLAS_SIZE + right.x) * 4;
+    atlas.rgba.set([40, 30, 20, 255], protectedArm);
+    atlas.rgba.set([250, 24, 210, 255], accessory);
+    atlas.rgba.set([40, 30, 20, 255], obsoleteHair);
+    const beforeArm = atlas.rgba.slice(protectedArm, protectedArm + 4);
+    const beforeAccessory = atlas.rgba.slice(accessory, accessory + 4);
+    applyHeadMaskPlan(
+      atlas,
+      plans.hairPlan,
+      [40, 30, 20],
+      [180, 60, 50],
+      { ...DEFAULT_FACE_STYLE, glasses: "regular", glassesColor: "#281e14" },
+      plans.facePixelPlan,
+    );
+    expect(atlas.rgba.slice(protectedArm, protectedArm + 4)).toEqual(beforeArm);
+    expect(atlas.rgba.slice(accessory, accessory + 4)).toEqual(beforeAccessory);
+    expect(atlas.rgba[obsoleteHair + 3]).toBe(0);
+  });
+
+  it("final FacePixelPlan clears overlay occlusion at its measured iris coordinates", () => {
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry({ glasses: null }),
+      fallbackFeatures: { ...makeAnalysis().fallbackFeatures, glasses: "none" },
+    });
+    const plans = buildIdentityPixelPlans(analysis);
+    const style = { ...DEFAULT_FACE_STYLE, glasses: "none" };
+    const atlas = packFrontViewToAtlas(makeFrontView(), style)!.atlas;
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    const eyePixels = plans.facePixelPlan.pixels.filter((pixel) => pixel.role === "iris" || pixel.role === "sclera");
+    for (const pixel of eyePixels) {
+      const offset = ((overlay.y + pixel.y) * ATLAS_SIZE + overlay.x + pixel.x) * 4;
+      atlas.rgba.set([24, 18, 12, 255], offset);
+    }
+    const candidate = createFacePlanAtlasCandidate(atlas, plans.facePixelPlan, style);
+    for (const pixel of eyePixels) {
+      const offset = ((overlay.y + pixel.y) * ATLAS_SIZE + overlay.x + pixel.x) * 4;
+      expect(candidate.rgba[offset + 3]).toBe(0);
+    }
+  });
+
+  it("isolates topology alternatives instead of retaining pixels from the primary face plan", () => {
+    const geometry = makeIdentityGeometry();
+    const analysis = makeAnalysis({ identityGeometry: makeIdentityGeometry({ mouth: { ...geometry.mouth, width: 0.27, opening: "teeth" } }) });
+    const plans = buildFacePixelPlanVariants(analysis, 3);
+    const primary = plans.find((plan) => plan.layout.mouthTopology === "wide_teeth_smile")!;
+    const alternative = plans.find((plan) => plan.layout.mouthTopology === "teeth_smile")!;
+    const style = { ...DEFAULT_FACE_STYLE, glasses: "none" };
+    const baseline = packFrontViewToAtlas(makeFrontView(), style, 2, buildIdentityPixelPlans(analysis))!.atlas;
+    const primaryAtlas = createFacePlanAtlasCandidate(baseline, primary, style, primary);
+    const alternativeAtlas = createFacePlanAtlasCandidate(baseline, alternative, style, primary);
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const sample = (atlas: RawImage) => {
+      const values: number[] = [];
+      for (let y = 4; y < 8; y++) for (let x = 1; x < 7; x++) {
+        const at = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
+        values.push(...atlas.rgba.slice(at, at + 4));
+      }
+      return values;
+    };
+    expect(sample(primaryAtlas)).not.toEqual(sample(alternativeAtlas));
   });
 });

@@ -9,9 +9,10 @@ import {
   validateFinalAtlas,
 } from "../src/skinPost";
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas } from "../src/skinPack";
+import { buildIdentityPixelPlans } from "../src/identityPlans";
 import { buildSkinViewMontage, renderSkinViews } from "../src/skinRender";
 import { REFERENCE_SKIN_BASE64 } from "./fixtures/referenceSkin";
-import { makeFrontView } from "./helpers";
+import { makeAnalysis, makeFrontView, makeIdentityGeometry } from "./helpers";
 import {
   ALL_PARTS,
   ATLAS_SIZE,
@@ -867,4 +868,58 @@ describe("handcrafted atlas quality metrics", () => {
       }
     },
   );
+
+  it("uses a sparse measured short-hair side mask instead of the generic side minimum", () => {
+    const sourceGeometry = makeIdentityGeometry();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry({
+        headSilhouette: {
+          ...sourceGeometry.headSilhouette,
+          sideVolumeLeft: 0.02,
+          sideVolumeRight: 0.03,
+          hairEndpointLeftY: 0.35,
+          hairEndpointRightY: 0.38,
+          earExposureLeft: 0.9,
+          earExposureRight: 0.88,
+        },
+      }),
+      renderHints: { ...makeAnalysis().renderHints, sideHairLength: "short", earExposure: "exposed", overallHairLength: "ear" },
+    });
+    const plans = buildIdentityPixelPlans(analysis);
+    const style = { ...DEFAULT_FACE_STYLE, hairstyle: "short", sideHairLength: "short" as const, earExposure: "exposed" as const, glasses: "regular" };
+    const atlas = packFrontViewToAtlas(makeFrontView(), style, 2, plans)!.atlas;
+    const verdict = validateAtlasCraft(atlas, style, plans.facePixelPlan, plans.hairPlan);
+    expect(verdict.problems.join(" / ")).not.toContain("side hair is disconnected");
+    expect(verdict.problems.join(" / ")).not.toContain("planned side silhouette missing");
+  });
+
+  it("does not treat a semantic hair template as an exact measured pixel contract", () => {
+    const analysis = makeAnalysis({ identityGeometry: undefined });
+    const plans = buildIdentityPixelPlans(analysis);
+    const style = { ...DEFAULT_FACE_STYLE, hairstyle: "long", sideHairLength: "shoulder" as const, overallHairLength: "waist" as const };
+    const atlas = packFrontViewToAtlas(makeFrontView(), style, 2, plans)!.atlas;
+    const verdict = validateAtlasCraft(atlas, style, plans.facePixelPlan, plans.hairPlan);
+    expect(plans.hairPlan.headMask.source).toBe("semantic_template");
+    expect(verdict.problems.join(" / ")).not.toContain("planned head mask coverage");
+    expect(verdict.problems.join(" / ")).not.toContain("planned side silhouette missing");
+  });
+
+  it("rejects a sparse actual mask when the measured long/full hair plan requires side volume", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry(),
+      renderHints: { ...base.renderHints, overallHairLength: "waist", sideHairLength: "shoulder", hairVolume: "full" },
+    });
+    const plans = buildIdentityPixelPlans(analysis);
+    const style = { ...DEFAULT_FACE_STYLE, hairstyle: "long", sideHairLength: "shoulder" as const, overallHairLength: "waist" as const, hairVolume: "full" as const, glasses: "regular" };
+    const atlas = packFrontViewToAtlas(makeFrontView(), style, 2, plans)!.atlas;
+    for (const faceName of ["left", "right"] as const) {
+      const rect = CLASSIC_LAYOUT.head.overlay[faceName];
+      for (const point of plans.hairPlan.headMask.faces[faceName]) {
+        const offset = ((rect.y + point.y) * ATLAS_SIZE + rect.x + point.x) * 4;
+        atlas.rgba.fill(0, offset, offset + 4);
+      }
+    }
+    expect(validateAtlasCraft(atlas, style, plans.facePixelPlan, plans.hairPlan).problems.join(" / ")).toContain("planned side silhouette missing");
+  });
 });

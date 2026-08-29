@@ -140,6 +140,31 @@ describe("head identity candidate selection", () => {
     }
     const absent = measureHeadCandidateStructure(atlas, plans.facePixelPlan, plans.hairPlan);
     expect(absent.dimensions.mouthExpression).toBe("absent");
+    expect(absent.contractSatisfaction.mouthExpression).toBe("violated");
+    expect(absent.contractViolations.some((problem) => /mouth|teeth/.test(problem))).toBe(true);
+  });
+
+  it("distinguishes mouth pixel presence from P5 expression contract satisfaction", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        features: base.canonicalIdentity.features.map((feature, index) => index === 0
+          ? { ...feature, feature: "wide toothy smile", evidence: "broad visible tooth row", category: "face" as const, priority: 5 as const }
+          : feature),
+      },
+    });
+    const plans = buildIdentityPixelPlans(analysis);
+    const atlas = makeSyntheticAtlas(17);
+    const mouth = plans.facePixelPlan.pixels.filter((pixel) => pixel.cluster === "mouth");
+    const face = CLASSIC_LAYOUT.head.base.front;
+    for (const pixel of mouth) {
+      const offset = ((face.y + pixel.y) * ATLAS_SIZE + face.x + pixel.x) * 4;
+      atlas.rgba.set([84, 42, 45, 255], offset);
+    }
+    const evidence = measureHeadCandidateStructure(atlas, plans.facePixelPlan);
+    expect(evidence.dimensions.mouthExpression).toBe("present");
+    expect(evidence.contractSatisfaction.mouthExpression).toBe("violated");
   });
 
   it("lets a high-confidence P5 identity dimension outweigh generic votes", () => {
