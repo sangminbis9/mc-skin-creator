@@ -1,6 +1,8 @@
 import type { PhotoAnalysis } from "./analysis";
 import { generateGeminiStructuredJson, isGeminiQuotaError } from "./gemini";
 import type { RawImage } from "./png";
+import type { FacePixelPlan, HairPlan } from "./identityPlans";
+import { ATLAS_SIZE, CLASSIC_LAYOUT, type Rect } from "./uvLayout";
 import { NEURONS_VISION_DETAIL_ESTIMATE, visionNeuronsFromUsage } from "./quota";
 import type { Env } from "./types";
 
@@ -13,6 +15,9 @@ export interface HeadCandidate {
   headMontageDataUrl: string;
   structuralValidity: boolean;
   facePlanVariant?: string;
+  facePlan?: FacePixelPlan;
+  hairPlan?: HairPlan;
+  structuralEvidence?: HeadStructuralEvidence;
 }
 
 export interface HeadPairwiseReview {
@@ -26,6 +31,7 @@ export interface HeadPairwiseReview {
   reasons: string[];
   failedIdentityFeatures: string[];
   correctionTargets: string[];
+  dimensionWeights?: Record<IdentityDimension, number>;
 }
 
 export type IdentityDimension = "hairSilhouette" | "hairline" | "eyeLayout" | "glassesReadability" | "mouthExpression" | "faceWidth";
@@ -36,6 +42,12 @@ export interface IdentityDimensionReview {
   visualReadabilityA: "strong" | "weak" | "absent" | "not_evaluable";
   visualReadabilityB: "strong" | "weak" | "absent" | "not_evaluable";
   reason: string;
+}
+
+export interface HeadStructuralEvidence {
+  dimensions: Record<IdentityDimension, IdentityDimensionReview["structuralPresenceA"]>;
+  expectedPixels: number;
+  presentPixels: number;
 }
 
 export const HEAD_CANDIDATE_REPLACEMENT_CONFIDENCE = 0.7;
@@ -49,13 +61,11 @@ const dimensionSchema = {
   additionalProperties: false,
   properties: {
     better: { type: "string", enum: ["A", "B", "tie", "not_evaluable"] },
-    structuralPresenceA: { type: "string", enum: ["present", "absent", "not_applicable"] },
-    structuralPresenceB: { type: "string", enum: ["present", "absent", "not_applicable"] },
     visualReadabilityA: { type: "string", enum: ["strong", "weak", "absent", "not_evaluable"] },
     visualReadabilityB: { type: "string", enum: ["strong", "weak", "absent", "not_evaluable"] },
     reason: { type: "string" },
   },
-  required: ["better", "structuralPresenceA", "structuralPresenceB", "visualReadabilityA", "visualReadabilityB", "reason"],
+  required: ["better", "visualReadabilityA", "visualReadabilityB", "reason"],
 } as const;
 
 export const HEAD_PAIRWISE_SCHEMA = {
@@ -100,7 +110,11 @@ function extractPayload(result: unknown): Record<string, unknown> | null {
   }
 }
 
-export function parseHeadPairwiseReview(raw: Record<string, unknown>): HeadPairwiseReview | null {
+export function parseHeadPairwiseReview(
+  raw: Record<string, unknown>,
+  structuralA?: HeadStructuralEvidence,
+  structuralB?: HeadStructuralEvidence,
+): HeadPairwiseReview | null {
   if (
     !["A", "B", "tie"].includes(String(raw.winner)) ||
     typeof raw.confidence !== "number" ||
@@ -136,16 +150,14 @@ export function parseHeadPairwiseReview(raw: Record<string, unknown>): HeadPairw
     if (!candidate) { identityDimensions[name] = fallbackDimension; continue; }
     if (
       !["A", "B", "tie", "not_evaluable"].includes(String(candidate.better)) ||
-      !["present", "absent", "not_applicable"].includes(String(candidate.structuralPresenceA)) ||
-      !["present", "absent", "not_applicable"].includes(String(candidate.structuralPresenceB)) ||
       !["strong", "weak", "absent", "not_evaluable"].includes(String(candidate.visualReadabilityA)) ||
       !["strong", "weak", "absent", "not_evaluable"].includes(String(candidate.visualReadabilityB)) ||
       typeof candidate.reason !== "string"
     ) return null;
     identityDimensions[name] = {
       better: candidate.better as IdentityDimensionReview["better"],
-      structuralPresenceA: candidate.structuralPresenceA as IdentityDimensionReview["structuralPresenceA"],
-      structuralPresenceB: candidate.structuralPresenceB as IdentityDimensionReview["structuralPresenceB"],
+      structuralPresenceA: structuralA?.dimensions[name] ?? (["present", "absent", "not_applicable"].includes(String(candidate.structuralPresenceA)) ? candidate.structuralPresenceA as IdentityDimensionReview["structuralPresenceA"] : "not_applicable"),
+      structuralPresenceB: structuralB?.dimensions[name] ?? (["present", "absent", "not_applicable"].includes(String(candidate.structuralPresenceB)) ? candidate.structuralPresenceB as IdentityDimensionReview["structuralPresenceB"] : "not_applicable"),
       visualReadabilityA: candidate.visualReadabilityA as IdentityDimensionReview["visualReadabilityA"],
       visualReadabilityB: candidate.visualReadabilityB as IdentityDimensionReview["visualReadabilityB"],
       reason: candidate.reason,
@@ -196,13 +208,101 @@ export function selectHeadCandidate(
 
 function identityDimensionsSupportWinner(review: HeadPairwiseReview, winner: "A" | "B"): boolean {
   const dimensions = Object.values(review.identityDimensions);
-  const aVotes = dimensions.filter((dimension) => dimension.better === "A").length;
-  const bVotes = dimensions.filter((dimension) => dimension.better === "B").length;
+  const entries = Object.entries(review.identityDimensions) as Array<[IdentityDimension, IdentityDimensionReview]>;
+  const weight = (name: IdentityDimension) => review.dimensionWeights?.[name] ?? 1;
+  const aVotes = entries.filter(([, dimension]) => dimension.better === "A").reduce((sum, [name]) => sum + weight(name), 0);
+  const bVotes = entries.filter(([, dimension]) => dimension.better === "B").reduce((sum, [name]) => sum + weight(name), 0);
   const allUnavailable = dimensions.every((dimension) => dimension.better === "not_evaluable");
   // Keep old stored reviews readable, but do not let an overall winner override
   // contradictory structured evidence or six dimension-level ties.
   if (allUnavailable) return true;
   return winner === "B" ? bVotes > 0 && bVotes >= aVotes : aVotes > 0 && aVotes >= bVotes;
+}
+
+function opaque(atlas: RawImage, rect: Rect, x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return false;
+  return atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3] > 0;
+}
+
+function locallyDistinct(atlas: RawImage, rect: Rect, x: number, y: number): boolean {
+  const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+  return [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (nx < 0 || ny < 0 || nx >= rect.w || ny >= rect.h) return false;
+    const adjacent = ((rect.y + ny) * ATLAS_SIZE + rect.x + nx) * 4;
+    return Math.abs(atlas.rgba[offset] - atlas.rgba[adjacent]) +
+      Math.abs(atlas.rgba[offset + 1] - atlas.rgba[adjacent + 1]) +
+      Math.abs(atlas.rgba[offset + 2] - atlas.rgba[adjacent + 2]) >= 36;
+  });
+}
+
+export function measureHeadCandidateStructure(
+  atlas: RawImage,
+  facePlan?: FacePixelPlan,
+  hairPlan?: HairPlan,
+): HeadStructuralEvidence {
+  const dimensions: HeadStructuralEvidence["dimensions"] = {
+    hairSilhouette: "not_applicable", hairline: "not_applicable", eyeLayout: "not_applicable",
+    glassesReadability: "not_applicable", mouthExpression: "not_applicable", faceWidth: "not_applicable",
+  };
+  let expectedPixels = 0;
+  let presentPixels = 0;
+  const presence = (points: Array<{ x: number; y: number }>, rect: Rect, requireContrast = false, ratio = 0.65) => {
+    expectedPixels += points.length;
+    const count = points.filter((point) => opaque(atlas, rect, point.x, point.y) && (!requireContrast || locallyDistinct(atlas, rect, point.x, point.y))).length;
+    presentPixels += count;
+    return points.length === 0 ? "not_applicable" as const : count >= Math.max(1, Math.ceil(points.length * ratio)) ? "present" as const : "absent" as const;
+  };
+  if (facePlan) {
+    const face = CLASSIC_LAYOUT.head.base.front;
+    const points = (cluster: "left_eye" | "right_eye" | "mouth" | "fringe") => facePlan.pixels.filter((pixel) => pixel.cluster === cluster);
+    const leftEye = presence(points("left_eye"), face, true, 0.35);
+    const rightEye = presence(points("right_eye"), face, true, 0.35);
+    dimensions.eyeLayout = leftEye === "present" && rightEye === "present" ? "present" : "absent";
+    dimensions.mouthExpression = presence(points("mouth"), face, true, 0.35);
+    dimensions.hairline = presence(points("fringe"), face, true, 0.2);
+    dimensions.faceWidth = "present";
+    dimensions.glassesReadability = presence(facePlan.layout.glassesMask, CLASSIC_LAYOUT.head.overlay.front);
+  }
+  if (hairPlan) {
+    const mask = hairPlan.headMask;
+    const checks = (["front", "top", "left", "right", "back"] as const).flatMap((face) =>
+      mask.faces[face].map((point) => ({ face, point })),
+    );
+    expectedPixels += checks.length;
+    const count = checks.filter(({ face, point }) => opaque(atlas, CLASSIC_LAYOUT.head.overlay[face], point.x, point.y)).length;
+    presentPixels += count;
+    dimensions.hairSilhouette = checks.length === 0 ? "not_applicable" : count >= Math.ceil(checks.length * 0.65) ? "present" : "absent";
+  }
+  return { dimensions, expectedPixels, presentPixels };
+}
+
+export function buildIdentityDimensionWeights(analysis: PhotoAnalysis): Record<IdentityDimension, number> {
+  const weights: Record<IdentityDimension, number> = { hairSilhouette: 1, hairline: 1, eyeLayout: 1, glassesReadability: 1, mouthExpression: 1, faceWidth: 1 };
+  const mapFeature = (text: string): IdentityDimension[] => [
+    ...(/silhouette|overall hair|crown|volume/.test(text) ? ["hairSilhouette" as const] : []),
+    ...(/hairline|fringe|bang|forehead|part/.test(text) ? ["hairline" as const] : []),
+    ...(/\beye|brow|inter-eye/.test(text) ? ["eyeLayout" as const] : []),
+    ...(/glass|frame|spectacle/.test(text) ? ["glassesReadability" as const] : []),
+    ...(/mouth|smile|teeth|lip/.test(text) ? ["mouthExpression" as const] : []),
+    ...(/face width|jaw|round face|narrow face/.test(text) ? ["faceWidth" as const] : []),
+  ];
+  for (const feature of analysis.canonicalIdentity.features) {
+    const confidence = feature.confidence === "high" ? 1 : feature.confidence === "medium" ? 0.65 : 0.35;
+    const priority = 0.15 * feature.priority + (feature.priority === 5 ? 0.75 : 0);
+    for (const dimension of mapFeature(`${feature.feature} ${feature.evidence}`.toLowerCase())) weights[dimension] += priority * confidence;
+  }
+  const geometry = analysis.identityGeometry?.confidence;
+  if (geometry) {
+    weights.eyeLayout *= 0.7 + geometry.eyes * 0.3;
+    weights.hairline *= 0.7 + geometry.hairline * 0.3;
+    weights.hairSilhouette *= 0.7 + geometry.headSilhouette * 0.3;
+    weights.mouthExpression *= 0.7 + geometry.mouth * 0.3;
+    weights.faceWidth *= 0.7 + geometry.faceBounds * 0.3;
+    weights.glassesReadability *= 0.7 + geometry.glasses * 0.3;
+  }
+  return weights;
 }
 
 export function shouldAcceptIdentityCorrection(review: HeadPairwiseReview): boolean {
@@ -223,6 +323,8 @@ export async function runHeadPairwiseComparison(
   candidateBDataUrl: string,
   purpose: "candidate_selection" | "correction_guard" = "candidate_selection",
   sourceHeadCropDataUrl?: string,
+  structuralA?: HeadStructuralEvidence,
+  structuralB?: HeadStructuralEvidence,
 ): Promise<HeadPairwiseResult> {
   const prompt = `You are choosing between two Minecraft heads for SAME-PERSON identity preservation. Image 0 is a tight source FACE crop.${sourceHeadCropDataUrl ? " Image 1 is a wider source HEAD crop." : ""} The final two images are Candidate A and Candidate B. Each candidate strip is ordered front, front-left 3/4, front-right 3/4 and uses identical Minecraft geometry. Ignore outfit quality and background. This is ${purpose === "correction_guard" ? "a before(A) versus after(B) correction guard; choose B only if it is genuinely more like the source" : "a bounded candidate selection"}.
 
@@ -232,7 +334,7 @@ Canonical identity: ${analysis.canonicalIdentity.overallImpression}
 P5 features: ${analysis.canonicalIdentity.features.filter((feature) => feature.priority === 5).map((feature) => feature.feature).join("; ") || "none labelled"}
 Must preserve: ${analysis.canonicalIdentity.mustPreserve.join("; ")}
 
-For every identityDimensions entry, separately report structural pixel presence, visual readability, and which candidate is closer to the source. A present but weakly readable frame is not "missing". Use not_evaluable when the crop cannot support a judgment. Mark p5RegressionInB, structuralRegressionInB, or craftRegressionInB true whenever B loses one of those invariants. Return winner A, B, or tie. Use tie when the evidence is genuinely indistinguishable at 8x8 resolution. confidence is 0..1. reasons must cite visible comparative evidence. failedIdentityFeatures and correctionTargets describe only remaining identity losses, using compact targets such as head.front.eye_row, head.front.mouth, head.overlay.fringe, head.left.hair, head.right.glasses.`;
+Structural pixel presence has already been measured deterministically and is not your task. Evidence A: ${JSON.stringify(structuralA?.dimensions ?? {})}. Evidence B: ${JSON.stringify(structuralB?.dimensions ?? {})}. For every identityDimensions entry, report only visual readability and which candidate is closer to the source. A present but weakly readable frame is not "missing". Use not_evaluable when the crop cannot support a judgment. Mark p5RegressionInB, structuralRegressionInB, or craftRegressionInB true whenever B loses one of those invariants. Return winner A, B, or tie. Use tie when the evidence is genuinely indistinguishable at 8x8 resolution. confidence is 0..1. reasons must cite visible comparative evidence. failedIdentityFeatures and correctionTargets describe only remaining identity losses, using compact targets such as head.front.eye_row, head.front.mouth, head.overlay.fringe, head.left.hair, head.right.glasses.`;
   const models = [env.VISION_MODEL?.trim() || "gemini-3.6-flash", env.VISION_FALLBACK_MODEL?.trim()]
     .filter((model, index, all): model is string => Boolean(model) && all.indexOf(model) === index);
   let lastError: unknown;
@@ -254,11 +356,12 @@ For every identityDimensions entry, separately report structural pixel presence,
       });
       neuronsSpent += visionNeuronsFromUsage(result, NEURONS_VISION_DETAIL_ESTIMATE);
       const payload = extractPayload(result);
-      const review = payload ? parseHeadPairwiseReview(payload) : null;
+      const review = payload ? parseHeadPairwiseReview(payload, structuralA, structuralB) : null;
       if (!review) {
         lastError = new Error(`${model}: invalid pairwise response`);
         continue;
       }
+      review.dimensionWeights = buildIdentityDimensionWeights(analysis);
       return { ok: true, review, neuronsSpent };
     } catch (error) {
       lastError = error;

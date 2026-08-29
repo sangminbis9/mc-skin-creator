@@ -13,6 +13,7 @@ import {
   buildFaceStyle,
   buildProceduralFallbackAtlas,
   createIdentityCrops,
+  createHeuristicIdentityCrops,
   createUpperBodyDetailCrop,
   fallbackFeaturesToHex,
   generateSkin,
@@ -29,7 +30,7 @@ import {
 } from "../src/identityPlans";
 import { runIdentityGeometryAnalysis } from "../src/identityGeometry";
 import { buildSkinPlan } from "../src/skinPlan";
-import { runHeadPairwiseComparison, shouldAcceptIdentityCorrection } from "../src/headIdentity";
+import { measureHeadCandidateStructure, runHeadPairwiseComparison, shouldAcceptIdentityCorrection } from "../src/headIdentity";
 import { decodeImage, decodePng, encodePng, type RawImage } from "../src/png";
 import { runSkinCritique } from "../src/skinCritique";
 import { measureAtlasCraft, validateAtlasCraft, validateFinalAtlas } from "../src/skinPost";
@@ -211,15 +212,20 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       const analysisResult = await runPhotoAnalysis(env, dataUrl);
       expect(analysisResult.ok, analysisResult.ok ? undefined : analysisResult.detail).toBe(true);
       if (!analysisResult.ok) continue;
-      const crops = await createIdentityCrops(dataUrl);
+      let analysis = analysisResult.analysis;
+      const heuristicCrops = await createHeuristicIdentityCrops(dataUrl);
+      const crops = await createIdentityCrops(dataUrl, analysis.sourceSelection.portraitRegion);
       expect(crops, `${source.id}: focused crops missing`).toBeTruthy();
-      if (!crops) continue;
+      expect(heuristicCrops, `${source.id}: heuristic control crops missing`).toBeTruthy();
+      if (!crops || !heuristicCrops) continue;
       const faceCropDataUrl = crops.faceDataUrl;
       const headCropDataUrl = crops.headDataUrl;
-      let analysis = analysisResult.analysis;
       const detailResult = await runPortraitDetailAnalysis(env, headCropDataUrl);
       if (detailResult.ok) analysis = applyFocusedPortraitDetail(analysis, detailResult.detail);
-      const oldRenderAnalysis = normalizeAnalysisForRendering(analysis);
+      const oldGeometryResult = await runIdentityGeometryAnalysis(env, heuristicCrops.faceDataUrl, heuristicCrops.headDataUrl, analysis);
+      expect(oldGeometryResult.ok, oldGeometryResult.ok ? undefined : oldGeometryResult.detail).toBe(true);
+      if (!oldGeometryResult.ok) continue;
+      const oldRenderAnalysis = normalizeAnalysisForRendering({ ...analysis, identityGeometry: oldGeometryResult.geometry });
       const oldSkinPlan = buildSkinPlan(oldRenderAnalysis);
       const geometryResult = await runIdentityGeometryAnalysis(env, faceCropDataUrl, headCropDataUrl, analysis);
       expect(geometryResult.ok, geometryResult.ok ? undefined : geometryResult.detail).toBe(true);
@@ -240,7 +246,8 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       const oldPlanned = createFacePlanAtlasCandidate(baseline, oldSkinPlan.facePixelPlan, faceStyle);
       const planned = createFacePlanAtlasCandidate(baseline, skinPlan.facePixelPlan, faceStyle);
       const plannedStructurallyValid = validateFinalAtlas(planned).ok;
-      const plannedCraftValid = validateAtlasCraft(planned, faceStyle, skinPlan.facePixelPlan).ok;
+      const plannedCraftValidation = validateAtlasCraft(planned, faceStyle, skinPlan.facePixelPlan);
+      const plannedCraftValid = plannedCraftValidation.ok;
       const oldViews = renderSkinViews(oldPlanned);
       const plannedViews = renderSkinViews(planned);
       const pairwise = await runHeadPairwiseComparison(
@@ -251,6 +258,8 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         await pngDataUrl(buildHeadViewMontage(plannedViews)),
         "candidate_selection",
         headCropDataUrl,
+        measureHeadCandidateStructure(oldPlanned, oldSkinPlan.facePixelPlan, oldSkinPlan.hairPlan),
+        measureHeadCandidateStructure(planned, skinPlan.facePixelPlan, skinPlan.hairPlan),
       );
       const selectedPlanned = plannedStructurallyValid && plannedCraftValid && pairwise.ok && shouldAcceptIdentityCorrection(pairwise.review);
       const afterAtlas = selectedPlanned ? planned : oldPlanned;
@@ -282,9 +291,15 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         sourcePage: source.page,
         generationProvider: "deterministic_renderer",
         originalInputDimensions: { width: original.width, height: original.height },
+        cropComparison: {
+          before: heuristicCrops.diagnostics,
+          after: crops.diagnostics,
+          subjectAwareActivated: crops.diagnostics.cropMode === "subject_aware",
+        },
         faceCropDimensions: crops.diagnostics.face,
         headCropDimensions: crops.diagnostics.head,
-        sourceGeometry: geometryResult.geometry,
+        sourceGeometryBefore: oldGeometryResult.geometry,
+        sourceGeometryAfter: geometryResult.geometry,
         oldFacePixelPlan: oldSkinPlan.facePixelPlan,
         newFacePixelPlan: skinPlan.facePixelPlan,
         planDifference: compareFacePlans(oldSkinPlan.facePixelPlan, skinPlan.facePixelPlan),
@@ -295,7 +310,11 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         afterScores: afterCritique.ok ? afterCritique.critique : null,
         beforeCraft: measureAtlasCraft(oldPlanned),
         afterCraft: measureAtlasCraft(afterAtlas),
-        craftStatus: { before: "valid", planned: plannedCraftValid && plannedStructurallyValid ? "valid" : "rejected" },
+        craftStatus: {
+          before: "valid",
+          planned: plannedCraftValid && plannedStructurallyValid ? "valid" : "rejected",
+          plannedProblems: [...plannedCraftValidation.problems, ...(plannedStructurallyValid ? [] : ["final atlas validation failed"])],
+        },
         correctionAccepted: false,
         strictThresholds: { identity: 88, faceHair: 85, outfit: 78, consistency: 82, layer: 70, p5HardGate: true },
       };

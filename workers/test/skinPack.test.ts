@@ -820,12 +820,12 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
-  it("uses coherent directional face shading instead of a mirrored template mask", () => {
+  it("uses a minimal symmetric complexion ramp so lighting does not become identity", () => {
     const atlas = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
-      hairstyle: "short",
-      bangs: "straight",
-      bangsLength: "brow",
+      hairstyle: "bald",
+      bangs: "none",
+      bangsLength: "none",
       eyeShape: "almond",
       eyeSize: "average",
       eyeSpacing: "average",
@@ -837,9 +837,10 @@ describe("packFrontViewToAtlas", () => {
     })!.atlas;
     const face = CLASSIC_LAYOUT.head.base.front;
 
-    expect(redAt(atlas, face, 2, 4)).toBeGreaterThan(redAt(atlas, face, 5, 4));
-    expect(redAt(atlas, face, 3, 6)).toBeGreaterThan(redAt(atlas, face, 4, 6));
-    expect(redAt(atlas, face, 1, 5)).toBeGreaterThan(redAt(atlas, face, 6, 5));
+    expect(redAt(atlas, face, 0, 5)).toBe(redAt(atlas, face, 7, 5));
+    expect(redAt(atlas, face, 1, 5)).toBe(redAt(atlas, face, 6, 5));
+    expect(redAt(atlas, face, 1, 5)).toBeGreaterThan(redAt(atlas, face, 0, 5));
+    expect(redAt(atlas, face, 1, 5)).toBeGreaterThan(redAt(atlas, face, 1, 7));
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseIdentityGeometry } from "../src/identityGeometry";
-import { buildFacePixelPlanVariants, compareFacePlans, measureFacePlanConvergence } from "../src/identityPlans";
+import { buildFacePixelPlanVariants, buildIdentityPixelPlans, compareFacePlans, measureFacePlanConvergence } from "../src/identityPlans";
 import { quantizeIdentityGeometry } from "../src/identityQuantization";
 import { makeAnalysis, makeIdentityGeometry } from "./helpers";
 
@@ -90,5 +90,62 @@ describe("normalized identity geometry quantization", () => {
     const convergence = measureFacePlanConvergence(plans);
     expect(convergence.pairCount).toBe(3);
     expect(convergence.nearIdenticalPairs).toBe(0);
+  });
+
+  it("preserves asymmetric eye width, openness, brows and geometry mouth opening", () => {
+    const source = makeIdentityGeometry();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry({
+        eyes: { ...source.eyes, leftWidth: 0.07, rightWidth: 0.2, openness: 0.82, verticalAsymmetry: 0.24 },
+        brows: { ...source.brows, thickness: 0.82, tilt: -0.65 },
+        mouth: { ...source.mouth, opening: "closed", leftCornerY: 0.77, rightCornerY: 0.7 },
+      }),
+      renderHints: { ...makeAnalysis().renderHints, eyeShape: "narrow", eyeSize: "small", eyebrowThickness: "thin", mouthOpening: "teeth_visible" },
+    });
+    const plan = buildFacePixelPlanVariants(analysis, 1)[0];
+    expect(plan.layout.leftEyeWidth).toBeLessThan(plan.layout.rightEyeWidth);
+    expect(plan.layout.eyeOpenness).toBe("open");
+    expect(plan.layout.browThickness).toBe("strong");
+    expect(plan.layout.browTiltOffset).toBe(-1);
+    expect(plan.layout.mouthOpening).toBe("closed");
+    expect(plan.pixels.filter((pixel) => pixel.cluster === "mouth").every((pixel) => pixel.role === "lip")).toBe(true);
+    expect(plan.layout.geometryUsage).toMatchObject({ eyes: true, brows: true, mouth: true });
+  });
+
+  it("falls back per geometry group when its confidence is weak", () => {
+    const source = makeIdentityGeometry();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry({
+        eyes: { ...source.eyes, leftWidth: 0.2, rightWidth: 0.2, openness: 0.95 },
+        confidence: { ...source.confidence, eyes: 0.3 },
+      }),
+      renderHints: { ...makeAnalysis().renderHints, eyeSize: "small", eyeShape: "narrow" },
+    });
+    const layout = buildFacePixelPlanVariants(analysis, 1)[0].layout;
+    expect(layout.geometryUsage.eyes).toBe(false);
+    expect(layout.leftEyeWidth).toBe(1);
+    expect(layout.eyeOpenness).toBe("compact");
+  });
+
+  it("produces different deterministic head masks inside the same coarse hair template", () => {
+    const base = makeAnalysis();
+    const first = buildIdentityPixelPlans({ ...base, identityGeometry: makeIdentityGeometry() }).hairPlan;
+    const source = makeIdentityGeometry();
+    const second = buildIdentityPixelPlans({
+      ...base,
+      identityGeometry: makeIdentityGeometry({
+        headSilhouette: {
+          ...source.headSilhouette,
+          leftContourByRow: [0.04, 0.05, 0.07, 0.08, 0.1, 0.14, 0.2, 0.3],
+          rightContourByRow: [0.96, 0.95, 0.93, 0.92, 0.9, 0.86, 0.8, 0.7],
+          sideVolumeLeft: 0.95, sideVolumeRight: 0.2,
+          hairEndpointLeftY: 0.98, hairEndpointRightY: 0.55,
+        },
+      }),
+    }).hairPlan;
+    expect(first.template).toBe(second.template);
+    expect(first.headMask.source).toBe("identity_geometry");
+    expect(first.headMask.faces.left).not.toEqual(second.headMask.faces.left);
+    expect(first.headMask.endpointRows).not.toEqual(second.headMask.endpointRows);
   });
 });

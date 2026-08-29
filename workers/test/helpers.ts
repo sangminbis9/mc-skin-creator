@@ -180,8 +180,17 @@ export function makeIdentityGeometry(
     nose: { centerX: 0.51, contrastY: 0.6, leftRightBias: 0.05, visibleStrength: 0.55 },
     mouth: { centerX: 0.5, centerY: 0.74, width: 0.32, leftCornerY: 0.72, rightCornerY: 0.73, opening: "teeth" },
     hairline: { depthByColumn: [0.7, 0.72, 0.62, 0.2, 0.12, 0.5, 0.66, 0.7], foreheadOpeningLeft: 0.42, foreheadOpeningRight: 0.58, asymmetry: 0.08 },
+    headSilhouette: {
+      crownTopY: 0.04,
+      leftContourByRow: [0.24, 0.16, 0.13, 0.12, 0.13, 0.16, 0.2, 0.28],
+      rightContourByRow: [0.76, 0.84, 0.87, 0.88, 0.87, 0.84, 0.8, 0.72],
+      sideVolumeLeft: 0.62, sideVolumeRight: 0.58, partCenterX: 0.46,
+      hairEndpointLeftY: 0.82, hairEndpointRightY: 0.78,
+      foreheadExposure: 0.42, earExposureLeft: 0.35, earExposureRight: 0.4,
+      covering: null, confidence: 0.88,
+    },
     glasses: { leftBox: { left: 0.24, top: 0.4, right: 0.45, bottom: 0.54 }, rightBox: { left: 0.56, top: 0.4, right: 0.77, bottom: 0.54 }, bridgeCenterX: 0.5, bridgeY: 0.46, thickness: 0.3 },
-    confidence: { faceBounds: 0.9, eyes: 0.94, brows: 0.82, nose: 0.72, mouth: 0.91, hairline: 0.88, glasses: 0.96 },
+    confidence: { faceBounds: 0.9, eyes: 0.94, brows: 0.82, nose: 0.72, mouth: 0.91, hairline: 0.88, headSilhouette: 0.88, glasses: 0.96 },
     source: "normalized_face_head_crops",
     ...overrides,
   };

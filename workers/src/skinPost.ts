@@ -881,7 +881,7 @@ export function validateAtlasCraft(
     const face = CLASSIC_LAYOUT.head.base.front;
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
     const defaultEyeRow = facePixelPlan?.layout.eyeRow ?? 4;
-    const tiltOffset = style.eyeTilt === "upturned" ? -1 : style.eyeTilt === "downturned" ? 1 : 0;
+    const tiltOffset = facePixelPlan?.layout.eyeTiltOffset ?? (style.eyeTilt === "upturned" ? -1 : style.eyeTilt === "downturned" ? 1 : 0);
     const eyePairs: ReadonlyArray<{ outer: number; inner: number; row: number; outerRow: number }> = facePixelPlan
       ? [
           { outer: facePixelPlan.layout.leftEyeXs[0], inner: facePixelPlan.layout.leftEyeXs.at(-1)!, row: facePixelPlan.layout.leftEyeRow, outerRow: facePixelPlan.layout.leftEyeRow + tiltOffset },

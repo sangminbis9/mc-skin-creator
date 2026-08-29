@@ -9,6 +9,7 @@ import {
   runPortraitDetailAnalysis,
   runPhotoAnalysis,
   validatePhotoAnalysis,
+  validatePortraitRegion,
 } from "../src/analysis";
 import type { Env } from "../src/types";
 import { GeminiApiError } from "../src/gemini";
@@ -520,6 +521,34 @@ describe("runPortraitDetailAnalysis", () => {
 });
 
 describe("validatePhotoAnalysis", () => {
+  it("validates one primary-subject region and degrades malformed localization to crop fallback", () => {
+    const region = {
+      subjectBox: { left: 0.08, top: 0.04, right: 0.62, bottom: 0.98 },
+      headBox: { left: 0.16, top: 0.08, right: 0.52, bottom: 0.5 },
+      faceBox: { left: 0.21, top: 0.17, right: 0.47, bottom: 0.44 },
+      confidence: 0.91,
+    };
+    expect(validatePortraitRegion(region)).toMatchObject({ ok: true, region });
+    const compact = makeAnalysis({
+      sourceSelection: {
+        ...makeAnalysis().sourceSelection,
+        portraitEvidence: "the selected image clearly shows the primary person | REGION:[0.08,0.04,0.62,0.98,0.16,0.08,0.52,0.5,0.21,0.17,0.47,0.44,0.91]",
+      },
+    });
+    const compactResult = validatePhotoAnalysis(compact);
+    expect(compactResult.ok).toBe(true);
+    if (compactResult.ok) {
+      expect(compactResult.analysis.sourceSelection.portraitRegion).toEqual(region);
+      expect(compactResult.analysis.sourceSelection.portraitEvidence).not.toContain("REGION:");
+    }
+    const invalid = makeAnalysis({ sourceSelection: { ...makeAnalysis().sourceSelection, portraitRegion: { ...region, faceBox: { left: 0.7, top: 0.2, right: 0.8, bottom: 0.4 } } } });
+    const result = validatePhotoAnalysis(invalid);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.analysis.sourceSelection.portraitRegion).toBeNull();
+    expect(ANALYSIS_PROMPT).toContain("same primary person");
+    expect(ANALYSIS_PROMPT).toContain("Do not include another person's face");
+  });
+
   it("accepts structured JSON from Workers AI native and chat-completions responses", () => {
     const analysis = makeAnalysis();
     expect(extractAnalysisPayload({ response: analysis })).toEqual(analysis);

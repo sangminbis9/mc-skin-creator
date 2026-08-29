@@ -6,6 +6,7 @@ import {
   buildProceduralFallbackAtlas,
   buildProceduralGenerationReference,
   createIdentityCrops,
+  createHeuristicIdentityCrops,
   createUpperBodyDetailCrop,
   fallbackFeaturesToHex,
   generateSkin,
@@ -188,6 +189,45 @@ describe("generateSkin", () => {
     expect(crops!.diagnostics.face.width).toBeLessThan(crops!.diagnostics.head.width);
     expect(crops!.diagnostics.face.height).toBeLessThan(crops!.diagnostics.head.height);
     expect(crops!.faceDataUrl).not.toBe(crops!.headDataUrl);
+  });
+
+  it.each([
+    ["centered", { left: 0.3, top: 0.08, right: 0.7, bottom: 0.94 }, { left: 0.38, top: 0.1, right: 0.62, bottom: 0.48 }, { left: 0.41, top: 0.18, right: 0.59, bottom: 0.43 }],
+    ["left subject", { left: 0.02, top: 0.06, right: 0.46, bottom: 0.96 }, { left: 0.08, top: 0.1, right: 0.38, bottom: 0.52 }, { left: 0.13, top: 0.19, right: 0.33, bottom: 0.46 }],
+    ["right subject", { left: 0.54, top: 0.05, right: 0.98, bottom: 0.95 }, { left: 0.62, top: 0.1, right: 0.92, bottom: 0.52 }, { left: 0.67, top: 0.19, right: 0.87, bottom: 0.46 }],
+    ["top margin", { left: 0.25, top: 0.2, right: 0.75, bottom: 0.99 }, { left: 0.33, top: 0.25, right: 0.67, bottom: 0.62 }, { left: 0.38, top: 0.32, right: 0.62, bottom: 0.56 }],
+    ["full body", { left: 0.28, top: 0.02, right: 0.72, bottom: 0.99 }, { left: 0.37, top: 0.06, right: 0.63, bottom: 0.38 }, { left: 0.4, top: 0.12, right: 0.6, bottom: 0.34 }],
+  ])("uses the detected primary subject for %s layouts", async (_name, subjectBox, headBox, faceBox) => {
+    const width = 640;
+    const height = 480;
+    const rgba = new Uint8Array(width * height * 4).fill(238);
+    for (let pixel = 0; pixel < width * height; pixel++) rgba[pixel * 4 + 3] = 255;
+    const encoded = await encodePng({ width, height, rgba });
+    const url = `data:image/png;base64,${bytesToBase64(encoded)}`;
+    const crops = await createIdentityCrops(url, { subjectBox, headBox, faceBox, confidence: 0.92 });
+    expect(crops?.diagnostics.cropMode).toBe("subject_aware");
+    expect(crops?.diagnostics.subjectBox).toEqual(subjectBox);
+    expect(crops?.diagnostics.faceCoverageRatio).toBeGreaterThanOrEqual(0.22);
+    expect(crops?.diagnostics.fallbackReason).toBeNull();
+  });
+
+  it("falls back to the old centered crop only when detected bounds are invalid", async () => {
+    const width = 640;
+    const height = 400;
+    const rgba = new Uint8Array(width * height * 4).fill(180);
+    for (let pixel = 0; pixel < width * height; pixel++) rgba[pixel * 4 + 3] = 255;
+    const encoded = await encodePng({ width, height, rgba });
+    const url = `data:image/png;base64,${bytesToBase64(encoded)}`;
+    const invalid = await createIdentityCrops(url, {
+      subjectBox: { left: 0.1, top: 0.1, right: 0.9, bottom: 0.95 },
+      headBox: { left: 0.2, top: 0.12, right: 0.7, bottom: 0.65 },
+      faceBox: { left: 0.8, top: 0.2, right: 0.9, bottom: 0.5 },
+      confidence: 0.9,
+    });
+    const heuristic = await createHeuristicIdentityCrops(url);
+    expect(invalid?.diagnostics.cropMode).toBe("center_fallback");
+    expect(invalid?.diagnostics.fallbackReason).toMatch(/face|head/);
+    expect(invalid?.diagnostics.faceCropDimensions).toEqual(heuristic?.diagnostics.faceCropDimensions);
   });
 
   it("bounds a large landscape portrait for the focused identity pass", async () => {

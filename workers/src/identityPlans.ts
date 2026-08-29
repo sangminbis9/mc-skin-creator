@@ -60,6 +60,23 @@ export type HairTemplate =
   | "curly_volume"
   | "coily_volume";
 
+export type HeadMaskFace = "front" | "top" | "left" | "right" | "back";
+export interface HeadMaskPoint {
+  x: number;
+  y: number;
+  role: "hair" | "covering";
+}
+
+export interface HeadMaskPlan {
+  coordinateSpace: "head.overlay";
+  source: "identity_geometry" | "semantic_template";
+  faces: Record<HeadMaskFace, HeadMaskPoint[]>;
+  partColumn: number | null;
+  endpointRows: { left: number; right: number };
+  foreheadExposure: number;
+  earExposure: { left: number; right: number };
+}
+
 export interface HairPlan {
   template: HairTemplate;
   lengthClass: "none" | "short" | "medium" | "long";
@@ -78,6 +95,7 @@ export interface HairPlan {
   >;
   overlayPolicy: "silhouette_only";
   minimumInvention: true;
+  headMask: HeadMaskPlan;
 }
 
 export type PaletteMaterial = "skin" | "hair" | "top" | "bottom" | "shoes" | "accent";
@@ -198,36 +216,24 @@ function facePixelPlan(
   layout: FaceLayoutPlan,
   variantId: FacePixelPlan["variantId"] = "primary",
 ): FacePixelPlan {
-  const hints = analysis.renderHints;
   const pixels: FacePixelInstruction[] = [];
 
-  // A connected, three-role complexion field is the stable base. Landmark
-  // clusters below replace only the coordinates they explicitly own.
-  for (let y = 0; y < 8; y++) {
-    for (let x = 0; x < 8; x++) {
-      const role: FacePaletteRole =
-        x === 0 || x === 7 || y === 7
-          ? "skin_shadow"
-          : x <= 2 && y >= 4
-            ? "skin_light"
-            : "skin_mid";
-      pushPixel(pixels, x, y, role, "complexion");
-    }
-  }
-
   const eyePairs = [
-    { xs: layout.leftEyeXs, row: layout.leftEyeRow, browRow: layout.leftBrowRow },
-    { xs: layout.rightEyeXs, row: layout.rightEyeRow, browRow: layout.rightBrowRow },
+    { xs: layout.leftEyeXs, width: layout.leftEyeWidth, row: layout.leftEyeRow, browRow: layout.leftBrowRow },
+    { xs: layout.rightEyeXs, width: layout.rightEyeWidth, row: layout.rightEyeRow, browRow: layout.rightBrowRow },
   ];
-  eyePairs.forEach(({ xs, row, browRow }, index) => {
+  eyePairs.forEach(({ xs, width, row, browRow }, index) => {
     const cluster = index === 0 ? "left_eye" : "right_eye";
     const ordered = index === 0 ? [...xs] : [...xs].reverse();
     const extension = index === 0 ? Math.max(...ordered) + 1 : Math.min(...ordered) - 1;
-    const eyeXs = layout.eyeWidth === 1 ? [ordered[0]] : layout.eyeWidth === 3 ? [...ordered, extension] : ordered;
+    const eyeXs = width === 1 ? [ordered[0]] : width === 3 && ordered.length < 3 ? [...ordered, extension] : ordered;
     eyeXs.forEach((x, position) => {
-      const tiltOffset = position === 0 ? (hints.eyeTilt === "upturned" ? -1 : hints.eyeTilt === "downturned" ? 1 : 0) : 0;
-      pushPixel(pixels, x, row + tiltOffset, hints.eyeShape === "round" && position === 0 ? "sclera" : "iris", cluster);
-      pushPixel(pixels, x, browRow, "brow", cluster);
+      const tiltOffset = position === 0 ? layout.eyeTiltOffset : 0;
+      pushPixel(pixels, x, row + tiltOffset, layout.eyeOpenness === "open" && position === 0 ? "sclera" : "iris", cluster);
+      if (layout.eyeOpenness === "open" && position === eyeXs.length - 1) pushPixel(pixels, x, Math.min(7, row + 1), "iris", cluster);
+      const browTilt = position === 0 ? layout.browTiltOffset : 0;
+      pushPixel(pixels, x, Math.max(1, Math.min(4, browRow + browTilt)), "brow", cluster);
+      if (layout.browThickness === "strong" && position === 0) pushPixel(pixels, x, Math.min(4, browRow + browTilt + 1), "brow", cluster);
     });
   });
   // glassesMask is declarative layout evidence. The renderer applies it on
@@ -242,7 +248,7 @@ function facePixelPlan(
       pixels,
       x,
       Math.max(4, Math.min(7, layout.mouthRow + edgeOffset)),
-      hints.mouthOpening === "closed" ? "lip" : hints.mouthOpening === "teeth_visible" && teethPosition ? "teeth" : "mouth_shadow",
+      layout.mouthOpening === "closed" ? "lip" : layout.mouthOpening === "teeth" && teethPosition ? "teeth" : "mouth_shadow",
       "mouth",
     );
   }
@@ -316,6 +322,7 @@ function hairPlan(analysis: PhotoAnalysis): HairPlan {
     lengthClass === "long"
       ? ["head.front", "head.top", "head.left", "head.right", "head.back", "body.back", "body.left", "body.right"]
       : ["head.front", "head.top", "head.left", "head.right", "head.back"];
+  const headMask = buildHeadMaskPlan(analysis, template, lengthClass);
   return {
     template,
     lengthClass,
@@ -325,7 +332,68 @@ function hairPlan(analysis: PhotoAnalysis): HairPlan {
     continuousFaces,
     overlayPolicy: "silhouette_only",
     minimumInvention: true,
+    headMask,
   };
+}
+
+function buildHeadMaskPlan(
+  analysis: PhotoAnalysis,
+  template: HairTemplate,
+  lengthClass: HairPlan["lengthClass"],
+): HeadMaskPlan {
+  const geometry = analysis.identityGeometry?.headSilhouette;
+  const useGeometry = Boolean(geometry && geometry.confidence >= 0.55 && analysis.identityGeometry!.confidence.headSilhouette >= 0.55);
+  const faces: HeadMaskPlan["faces"] = { front: [], top: [], left: [], right: [], back: [] };
+  const add = (face: HeadMaskFace, x: number, y: number, role: HeadMaskPoint["role"] = "hair") => {
+    if (x < 0 || x > 7 || y < 0 || y > 7 || faces[face].some((point) => point.x === x && point.y === y)) return;
+    faces[face].push({ x, y, role });
+  };
+  if (template === "bald") {
+    return { coordinateSpace: "head.overlay", source: useGeometry ? "identity_geometry" : "semantic_template", faces, partColumn: null, endpointRows: { left: 0, right: 0 }, foreheadExposure: 1, earExposure: { left: 1, right: 1 } };
+  }
+  if (useGeometry && geometry) {
+    const covering = geometry.covering;
+    const role: HeadMaskPoint["role"] = covering ? "covering" : "hair";
+    const leftContour = covering?.leftContourByRow ?? geometry.leftContourByRow;
+    const rightContour = covering?.rightContourByRow ?? geometry.rightContourByRow;
+    const crownRow = Math.max(0, Math.min(2, Math.round(geometry.crownTopY * 7)));
+    const endpointLeft = Math.max(crownRow, Math.min(7, Math.round(geometry.hairEndpointLeftY * 7)));
+    const endpointRight = Math.max(crownRow, Math.min(7, Math.round(geometry.hairEndpointRightY * 7)));
+    for (let y = crownRow; y <= Math.max(endpointLeft, endpointRight); y++) {
+      const left = Math.max(0, Math.min(7, Math.floor(leftContour[y] * 8)));
+      const right = Math.max(left, Math.min(7, Math.ceil(rightContour[y] * 8) - 1));
+      for (let x = left; x <= right; x++) {
+        if ((x <= 1 && y <= endpointLeft) || (x >= 6 && y <= endpointRight) || y <= 1) add("front", x, y, role);
+      }
+    }
+    const leftWidth = Math.max(1, Math.min(8, Math.round(1 + geometry.sideVolumeLeft * 7)));
+    const rightWidth = Math.max(1, Math.min(8, Math.round(1 + geometry.sideVolumeRight * 7)));
+    for (let y = crownRow; y <= endpointLeft; y++) for (let x = 0; x < leftWidth; x++) add("left", x, y, role);
+    for (let y = crownRow; y <= endpointRight; y++) for (let x = 8 - rightWidth; x < 8; x++) add("right", x, y, role);
+    for (let y = crownRow; y <= Math.max(endpointLeft, endpointRight); y++) for (let x = 0; x < 8; x++) add("back", x, y, role);
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y, role);
+    const partColumn = geometry.partCenterX === null ? null : Math.max(0, Math.min(7, Math.round(geometry.partCenterX * 7)));
+    if (!covering) {
+      const openingColumn = partColumn ?? 3;
+      // Hair is an outer silhouette accent, never an opaque second cube.
+      // Keep the opening internal so every physical seam remains continuous.
+      faces.top = faces.top.filter((point) => !(point.x === openingColumn && point.y >= 2 && point.y <= 4));
+    }
+    return {
+      coordinateSpace: "head.overlay", source: "identity_geometry", faces, partColumn,
+      endpointRows: { left: endpointLeft, right: endpointRight }, foreheadExposure: geometry.foreheadExposure,
+      earExposure: { left: geometry.earExposureLeft, right: geometry.earExposureRight },
+    };
+  }
+  const endpoint = lengthClass === "long" ? 7 : lengthClass === "medium" ? 6 : 4;
+  for (let y = 0; y <= endpoint; y++) for (let x = 0; x < 8; x++) {
+    if (y <= 1 || x <= 1 || x >= 6) add("front", x, y);
+    add("back", x, y);
+    if (x < (lengthClass === "short" ? 4 : 6)) add("left", x, y);
+    if (x >= (lengthClass === "short" ? 4 : 2)) add("right", x, y);
+  }
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y);
+  return { coordinateSpace: "head.overlay", source: "semantic_template", faces, partColumn: null, endpointRows: { left: endpoint, right: endpoint }, foreheadExposure: 0.4, earExposure: { left: 0.5, right: 0.5 } };
 }
 
 export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelPlans {

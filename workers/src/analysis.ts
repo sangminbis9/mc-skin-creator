@@ -19,7 +19,7 @@ import {
   isGeminiTemporaryRateLimit,
 } from "./gemini";
 import type { Env } from "./types";
-import type { IdentityGeometryAnalysis } from "./identityGeometry";
+import type { IdentityGeometryAnalysis, NormalizedBox } from "./identityGeometry";
 
 const DEFAULT_VISION_MODEL = "gemini-3.6-flash";
 const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
@@ -145,6 +145,14 @@ export interface FallbackFeatures {
 }
 
 /** Per-reference ownership for an ordered same-person photo set. */
+export interface PortraitRegion {
+  /** Bounds are normalized to the selected portrait source, never the upload set. */
+  subjectBox: NormalizedBox;
+  headBox: NormalizedBox;
+  faceBox: NormalizedBox;
+  confidence: number;
+}
+
 export interface SourceSelection {
   portraitImageIndex: number;
   outfitImageIndex: number;
@@ -152,6 +160,8 @@ export interface SourceSelection {
   portraitEvidence: string;
   outfitEvidence: string;
   generationEvidence: string;
+  /** Primary subject localization; null is an explicit request for heuristic recovery. */
+  portraitRegion?: PortraitRegion | null;
 }
 
 export interface PhotoAnalysis {
@@ -247,6 +257,7 @@ STEP 2 — reference ownership and framing:
 - Do not automatically select image 0. Prefer a sharp face portrait for portraitImageIndex and a clear three-quarter/full-body view for outfitImageIndex and generationImageIndex. Use only indices that exist in the attached set.
 - framing describes the most complete compatible view selected for generation: "face" (head only), "upper_body" (head + torso), "three_quarter" (down to thighs/knees), "full_body".
 - visibleRegions is the union of regions directly visible across all compatible references. A lower body seen in image 2 is visible, not inferred, even when image 0 is a face portrait.
+- Localize only the same primary person selected by portraitImageIndex. Append to portraitEvidence exactly " | REGION:[subject L,T,R,B,head L,T,R,B,face L,T,R,B,confidence]" using 13 comma-separated numbers, or " | REGION:null" when bounds cannot be measured. All coordinates are normalized 0..1 within that selected source image, not within a montage or another reference. subjectBox encloses that person's visible body, headBox encloses crown/hair/head covering through jaw and a small amount of neck, and faceBox encloses the visible forehead, brows, eyes, nose, mouth, chin, glasses and face edges. Do not include another person's face.
 
 STEP 3 — observed: describe ONLY what is actually visible in at least one compatible reference. Fuse the clearest evidence per region instead of privileging upload order. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logo identities. Never return the bare word "logo": describe a visible small mark neutrally as a graphic, badge or marking and include its visible colors, approximate shape and viewer-relative chest location when readable.
 - observed.face MUST explicitly state the visible skin-tone impression (pale/fair, light, medium, tan, brown or dark, plus warm/cool/neutral undertone when readable). Include that skin colour in observed.colorPalette. Do not omit it merely because the lighting is soft or the face occupies a small part of the frame.
@@ -905,6 +916,54 @@ const FRAMINGS: Framing[] = [
   "full_body",
 ];
 
+export type PortraitRegionValidation =
+  | { ok: true; region: PortraitRegion }
+  | { ok: false; reason: string };
+
+/** Validate normalized primary-subject localization without trusting model output. */
+export function validatePortraitRegion(value: unknown): PortraitRegionValidation {
+  if (Array.isArray(value) && value.length === 13 && value.every((item) => typeof item === "number" && Number.isFinite(item))) {
+    value = {
+      subjectBox: { left: value[0], top: value[1], right: value[2], bottom: value[3] },
+      headBox: { left: value[4], top: value[5], right: value[6], bottom: value[7] },
+      faceBox: { left: value[8], top: value[9], right: value[10], bottom: value[11] },
+      confidence: value[12],
+    };
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { ok: false, reason: "portrait_region_missing" };
+  }
+  const source = value as Record<string, unknown>;
+  const parseBox = (name: string): NormalizedBox | null => {
+    const candidate = source[name];
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return null;
+    const box = candidate as Record<string, unknown>;
+    const values = [box.left, box.top, box.right, box.bottom];
+    if (!values.every((coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate) && coordinate >= 0 && coordinate <= 1)) return null;
+    const parsed = { left: Number(box.left), top: Number(box.top), right: Number(box.right), bottom: Number(box.bottom) };
+    return parsed.left < parsed.right && parsed.top < parsed.bottom ? parsed : null;
+  };
+  const subjectBox = parseBox("subjectBox");
+  const headBox = parseBox("headBox");
+  const faceBox = parseBox("faceBox");
+  if (!subjectBox || !headBox || !faceBox) return { ok: false, reason: "malformed_normalized_bounds" };
+  if (typeof source.confidence !== "number" || !Number.isFinite(source.confidence) || source.confidence < 0 || source.confidence > 1) {
+    return { ok: false, reason: "invalid_localization_confidence" };
+  }
+  const width = (box: NormalizedBox) => box.right - box.left;
+  const height = (box: NormalizedBox) => box.bottom - box.top;
+  if (width(faceBox) < 0.025 || height(faceBox) < 0.035) return { ok: false, reason: "face_bounds_too_small" };
+  if (width(headBox) < width(faceBox) * 1.02 || height(headBox) < height(faceBox) * 1.08) {
+    return { ok: false, reason: "face_head_relationship_invalid" };
+  }
+  const containsWithTolerance = (outer: NormalizedBox, inner: NormalizedBox, tolerance: number) =>
+    inner.left >= outer.left - tolerance && inner.top >= outer.top - tolerance &&
+    inner.right <= outer.right + tolerance && inner.bottom <= outer.bottom + tolerance;
+  if (!containsWithTolerance(headBox, faceBox, 0.06)) return { ok: false, reason: "face_outside_head" };
+  if (!containsWithTolerance(subjectBox, headBox, 0.08)) return { ok: false, reason: "head_outside_subject" };
+  return { ok: true, region: { subjectBox, headBox, faceBox, confidence: source.confidence } };
+}
+
 const GENERIC_IDENTITY_KEYS = new Set([
   "faceshape",
   "skintone",
@@ -1138,6 +1197,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
           portraitEvidence: "photo rejected before source selection",
           outfitEvidence: "photo rejected before source selection",
           generationEvidence: "photo rejected before source selection",
+          portraitRegion: null,
         },
         observed: {
           face: "",
@@ -1256,7 +1316,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     portraitEvidence: str(
       "sourceSelection.portraitEvidence",
       selection.portraitEvidence,
-    ),
+    ).replace(/\s*\|\s*REGION\s*:\s*(?:\[[^\]]*\]|null)\s*$/i, ""),
     outfitEvidence: str(
       "sourceSelection.outfitEvidence",
       selection.outfitEvidence,
@@ -1265,6 +1325,17 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       "sourceSelection.generationEvidence",
       selection.generationEvidence,
     ),
+    portraitRegion: (() => {
+      let candidate = selection.portraitRegion;
+      if (candidate === null || candidate === undefined) {
+        const evidence = typeof selection.portraitEvidence === "string" ? selection.portraitEvidence : "";
+        const match = /\|\s*REGION\s*:\s*\[([^\]]+)\]\s*$/i.exec(evidence);
+        if (match) candidate = match[1].split(",").map((value) => Number(value.trim()));
+      }
+      if (candidate === null || candidate === undefined) return null;
+      const validated = validatePortraitRegion(candidate);
+      return validated.ok ? validated.region : null;
+    })(),
   };
   for (const [key, evidence] of Object.entries(sourceSelection)) {
     if (key.endsWith("Evidence") && String(evidence).trim().length < 3) {

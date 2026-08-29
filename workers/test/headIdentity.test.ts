@@ -4,11 +4,14 @@ import {
   selectHeadCandidate,
   shouldAcceptIdentityCorrection,
   HEAD_CANDIDATE_REPLACEMENT_CONFIDENCE,
+  measureHeadCandidateStructure,
+  buildIdentityDimensionWeights,
   type HeadCandidate,
   type HeadPairwiseReview,
 } from "../src/headIdentity";
-import { buildFacePixelPlanVariants } from "../src/identityPlans";
+import { buildFacePixelPlanVariants, buildIdentityPixelPlans } from "../src/identityPlans";
 import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
+import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 
 function candidate(id: string, kind: HeadCandidate["kind"]): HeadCandidate {
   return {
@@ -124,6 +127,40 @@ describe("head identity candidate selection", () => {
     });
     expect(parsed?.calibrationConflicts).toHaveLength(1);
     expect(parsed && shouldAcceptIdentityCorrection(parsed)).toBe(false);
+  });
+
+  it("measures structural landmark presence from atlas pixels instead of VLM output", () => {
+    const analysis = makeAnalysis();
+    const plans = buildIdentityPixelPlans(analysis);
+    const atlas = makeSyntheticAtlas(42);
+    const present = measureHeadCandidateStructure(atlas, plans.facePixelPlan, plans.hairPlan);
+    expect(present.dimensions.mouthExpression).toBe("present");
+    for (const pixel of plans.facePixelPlan.pixels.filter((item) => item.cluster === "mouth")) {
+      atlas.rgba[((CLASSIC_LAYOUT.head.base.front.y + pixel.y) * ATLAS_SIZE + CLASSIC_LAYOUT.head.base.front.x + pixel.x) * 4 + 3] = 0;
+    }
+    const absent = measureHeadCandidateStructure(atlas, plans.facePixelPlan, plans.hairPlan);
+    expect(absent.dimensions.mouthExpression).toBe("absent");
+  });
+
+  it("lets a high-confidence P5 identity dimension outweigh generic votes", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        features: base.canonicalIdentity.features.map((feature, index) => index === 0
+          ? { ...feature, priority: 5 as const, confidence: "high" as const, feature: "distinctive crown hair silhouette", evidence: "unusually broad crown volume" }
+          : { ...feature, priority: 1 as const, confidence: "low" as const }),
+      },
+    });
+    const weighted = review({
+      identityDimensions: {
+        hairSilhouette: dimension("A"), hairline: dimension("B"), eyeLayout: dimension("B"),
+        glassesReadability: dimension("tie"), mouthExpression: dimension("tie"), faceWidth: dimension("tie"),
+      },
+      dimensionWeights: buildIdentityDimensionWeights(analysis),
+    });
+    expect(weighted.dimensionWeights!.hairSilhouette).toBeGreaterThan(weighted.dimensionWeights!.hairline);
+    expect(shouldAcceptIdentityCorrection(weighted)).toBe(false);
   });
 });
 

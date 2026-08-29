@@ -902,12 +902,10 @@ function composeFace(
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       const edge = Math.abs(x - 3.5) / 3.5;
-      // Hand-authored skins rarely shade a portrait as a perfectly mirrored
-      // mask. A restrained viewer-left key light gives the cheeks, eyes and
-      // mouth a coherent three-to-five shade ramp without changing the
-      // analysed facial geometry or skin tone.
-      const lateralLight = 1.018 - (x / 7) * 0.036;
-      let factor = (1.035 - edge * 0.075 - (y / 7) * 0.035) * lateralLight;
+      // Keep complexion subordinate to landmarks: a compact symmetric edge
+      // and jaw ramp avoids making unrelated subjects share one directional
+      // portrait-light signature.
+      let factor = 1.025 - edge * 0.07 - (y >= 6 ? 0.035 : 0);
       if (
         y >= 6 &&
         (style.faceShape === "angular" || style.faceShape === "square")
@@ -1888,6 +1886,38 @@ function styleForHairPlan(style: FaceStyle, plan: HairPlan | undefined): FaceSty
           : plan.lengthClass === "medium" ? "shoulder"
             : style.overallHairLength ?? "waist",
   };
+}
+
+/** Apply the measured outer hair/head-covering mass after the coarse template. */
+function applyHeadMaskPlan(
+  atlas: RawImage,
+  plan: HairPlan | undefined,
+  hairColor: Rgb,
+  coveringColor: Rgb,
+): void {
+  const mask = plan?.headMask;
+  if (!mask || mask.source !== "identity_geometry") return;
+  const overlay = CLASSIC_LAYOUT.head.overlay;
+  const faces = ["front", "top", "left", "right", "back"] as const;
+  for (const faceName of faces) {
+    const rect = overlay[faceName];
+    // On the front, protect eye-row accessories while replacing only crown
+    // and fringe mass. The other outer faces are silhouette-only surfaces.
+    const clearRows = faceName === "front" ? Math.min(3, rect.h) : rect.h;
+    for (let y = 0; y < clearRows; y++) for (let x = 0; x < rect.w; x++) {
+      atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3] = 0;
+    }
+    for (const point of mask.faces[faceName]) {
+      if (point.x < 0 || point.x >= rect.w || point.y < 0 || point.y >= rect.h) continue;
+      const offset = ((rect.y + point.y) * ATLAS_SIZE + rect.x + point.x) * 4;
+      const base = point.role === "covering" ? coveringColor : hairColor;
+      const color = shadeRgb(base, 0.88 + ((point.x * 3 + point.y * 5) % 4) * 0.045);
+      atlas.rgba[offset] = color[0];
+      atlas.rgba[offset + 1] = color[1];
+      atlas.rgba[offset + 2] = color[2];
+      atlas.rgba[offset + 3] = 255;
+    }
+  }
 }
 
 /**
@@ -9198,6 +9228,7 @@ export function packFrontViewToAtlas(
   resetPortraitFaceOverlay(atlas);
   composeGlassesOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);
+  applyHeadMaskPlan(atlas, options.hairPlan, hairColor, hatColor);
   // With no fringe in front of the face, prescription frames physically sit
   // above the hair/temple layer. Coily and full-volume passes otherwise erase
   // the entire frame even though the analysis explicitly detected glasses.
