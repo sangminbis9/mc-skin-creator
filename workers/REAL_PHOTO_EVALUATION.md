@@ -42,6 +42,19 @@ view for outfit and generation composition, fuse the visible regions without
 inventing covered lower-body details, render the exact procedural atlas from
 six 3D views, and pass the strict likeness critique against both sources.
 
+Set `RUN_LIVE_GEMINI_PROCEDURAL_IDENTITY_QA=1` together with an explicit
+`LIVE_GEMINI_ARTIFACT_DIR` to run the controlled semantic-plan (A) versus
+normalized-geometry-plan (B) comparison. The default matrix covers short hair,
+statement glasses, curls, a headscarf, and long hair. Each case uses one primary
+analysis, distinct tight-face and wider-head crops, one geometry analysis, one
+structured pairwise review, and unchanged strict absolute reviews for both A
+and B. It writes crop dimensions, both pixel plans, their feature-level plan
+distance, structured presence/readability judgments, craft metrics, and the
+safe selected result. Source photographs remain in memory; only the bounded
+evaluation crops and derived artifacts are written under the explicit,
+gitignored directory. Override the cases with the existing
+`LIVE_GEMINI_IDENTITY_CASES` comma-separated filter.
+
 For local visual diagnosis, set `LIVE_GEMINI_DEBUG=1` to print the public
 photo's structured feature analysis. Set `LIVE_GEMINI_ARTIFACT_DIR` to a
 temporary directory to save the generated atlas, six-view montage, and

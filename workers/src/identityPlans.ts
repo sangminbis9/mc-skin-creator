@@ -6,6 +6,13 @@
  * analysed complexion, hair and outfit colours at render time.
  */
 import type { PhotoAnalysis } from "./analysis";
+import {
+  buildQuantizedLayoutVariants,
+  type FaceLayoutPlan,
+  type ProtectedGeometry,
+} from "./identityQuantization";
+
+export type { FaceLayoutPlan, ProtectedGeometry, QuantizationAxis } from "./identityQuantization";
 
 export type FacePaletteRole =
   | "skin_light"
@@ -30,21 +37,6 @@ export interface FacePixelInstruction {
   cluster: "complexion" | "fringe" | "left_eye" | "right_eye" | "glasses" | "nose" | "mouth";
 }
 
-export interface FaceLayoutPlan {
-  eyeRow: 3 | 4 | 5;
-  leftEyeXs: number[];
-  rightEyeXs: number[];
-  eyeWidth: 1 | 2 | 3;
-  browRow: 1 | 2 | 3 | 4;
-  mouthRow: 5 | 6;
-  mouthWidth: 2 | 3 | 4;
-  hairlineDepth: 0 | 1 | 2 | 3;
-  fringeOpening: PhotoAnalysis["renderHints"]["fringeOpening"];
-  exposedFaceWidth: 5 | 6 | 7 | 8;
-  glassesMask: Array<{ x: number; y: number }>;
-  uncertainAxes: Array<"eye_row" | "mouth_row" | "hairline_depth">;
-}
-
 export interface FacePixelPlan {
   width: 8;
   height: 8;
@@ -55,8 +47,9 @@ export interface FacePixelPlan {
     minimumPixels: number;
   }>;
   layout: FaceLayoutPlan;
-  variantId: "primary" | "eye_row_alt" | "mouth_or_hairline_alt";
-  source: "analysis_normalized";
+  variantId: "primary" | "geometry_alt_1" | "geometry_alt_2" | "semantic_alt_1" | "semantic_alt_2";
+  source: "identity_geometry" | "semantic_fallback";
+  protectedGeometry: ProtectedGeometry[];
 }
 
 export type HairTemplate =
@@ -119,6 +112,73 @@ export interface IdentityPixelPlans {
   outfitPlan: OutfitPlan;
 }
 
+export interface FacePlanSimilarity {
+  eyeLayoutDistance: number;
+  mouthLayoutDistance: number;
+  hairlineProfileDistance: number;
+  glassesMaskDistance: number;
+  faceWindowDistance: number;
+  weightedSimilarity: number;
+}
+
+export function compareFacePlans(first: FacePixelPlan, second: FacePixelPlan): FacePlanSimilarity {
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+  const eyeLayoutDistance = Math.min(1, mean([
+    Math.abs(first.layout.leftEyeRow - second.layout.leftEyeRow) / 2,
+    Math.abs(first.layout.rightEyeRow - second.layout.rightEyeRow) / 2,
+    Math.abs(mean(first.layout.leftEyeXs) - mean(second.layout.leftEyeXs)) / 3,
+    Math.abs(mean(first.layout.rightEyeXs) - mean(second.layout.rightEyeXs)) / 3,
+  ]));
+  const mouthLayoutDistance = Math.min(1, mean([
+    Math.abs(first.layout.mouthRow - second.layout.mouthRow),
+    Math.abs(first.layout.mouthWidth - second.layout.mouthWidth) / 2,
+    Math.abs(first.layout.mouthCenterX - second.layout.mouthCenterX) / 5,
+  ]));
+  const hairlineProfileDistance = Math.min(1, mean(first.layout.hairlineDepthByColumn.map((depth, index) => Math.abs(depth - second.layout.hairlineDepthByColumn[index]) / 3)));
+  const firstGlasses = new Set(first.layout.glassesMask.map((point) => `${point.x},${point.y}`));
+  const secondGlasses = new Set(second.layout.glassesMask.map((point) => `${point.x},${point.y}`));
+  const union = new Set([...firstGlasses, ...secondGlasses]);
+  const intersection = [...firstGlasses].filter((point) => secondGlasses.has(point)).length;
+  const glassesMaskDistance = union.size === 0 ? 0 : 1 - intersection / union.size;
+  const faceWindowDistance = Math.abs(first.layout.exposedFaceWidth - second.layout.exposedFaceWidth) / 3;
+  const weightedDistance =
+    hairlineProfileDistance * 0.29 +
+    eyeLayoutDistance * 0.27 +
+    glassesMaskDistance * 0.2 +
+    mouthLayoutDistance * 0.16 +
+    faceWindowDistance * 0.08;
+  return {
+    eyeLayoutDistance,
+    mouthLayoutDistance,
+    hairlineProfileDistance,
+    glassesMaskDistance,
+    faceWindowDistance,
+    weightedSimilarity: Math.max(0, Math.min(1, 1 - weightedDistance)),
+  };
+}
+
+export function measureFacePlanConvergence(plans: FacePixelPlan[]): {
+  pairCount: number;
+  meanSimilarity: number;
+  maximumSimilarity: number;
+  nearIdenticalPairs: number;
+} {
+  const similarities: number[] = [];
+  for (let left = 0; left < plans.length; left++) {
+    for (let right = left + 1; right < plans.length; right++) similarities.push(compareFacePlans(plans[left], plans[right]).weightedSimilarity);
+  }
+  return {
+    pairCount: similarities.length,
+    meanSimilarity: similarities.length ? meanNumber(similarities) : 0,
+    maximumSimilarity: similarities.length ? Math.max(...similarities) : 0,
+    nearIdenticalPairs: similarities.filter((similarity) => similarity >= 0.97).length,
+  };
+}
+
+function meanNumber(values: number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+}
+
 function pushPixel(
   pixels: FacePixelInstruction[],
   x: number,
@@ -133,78 +193,9 @@ function pushPixel(
   else pixels[existing] = next;
 }
 
-function deriveFaceLayout(analysis: PhotoAnalysis): FaceLayoutPlan {
-  const hints = analysis.renderHints;
-  const eyeRow: FaceLayoutPlan["eyeRow"] =
-    analysis.fallbackFeatures.glasses !== "none"
-      ? 4
-      : hints.bangsLength === "eye"
-      ? 5
-      : hints.faceShape === "round" || hints.faceShape === "square"
-        ? 3
-        : 4;
-  const leftEyeXs = hints.eyeSpacing === "wide" ? [0, 1] : hints.eyeSpacing === "close" ? [2] : [1, 2];
-  const rightEyeXs = hints.eyeSpacing === "wide" ? [6, 7] : hints.eyeSpacing === "close" ? [5] : [5, 6];
-  const eyeWidth: FaceLayoutPlan["eyeWidth"] = hints.eyeSize === "large" ? 3 : hints.eyeSize === "small" ? 1 : 2;
-  const browRow = Math.max(1, Math.min(4, eyeRow - (hints.eyeSize === "large" ? 2 : 1))) as FaceLayoutPlan["browRow"];
-  const mouthRow: FaceLayoutPlan["mouthRow"] = hints.faceShape === "round" || hints.faceShape === "square" ? 5 : 6;
-  const mouthWidth: FaceLayoutPlan["mouthWidth"] = hints.mouthShape === "wide" ? 4 : hints.mouthShape === "full" ? 3 : 2;
-  const hairlineDepth: FaceLayoutPlan["hairlineDepth"] =
-    hints.bangs === "none" || hints.bangsLength === "none"
-      ? 0
-      : hints.bangsLength === "eye"
-        ? 3
-        : hints.bangsLength === "brow"
-          ? 2
-          : 1;
-  const exposedFaceWidth: FaceLayoutPlan["exposedFaceWidth"] =
-    hints.sideHairShape === "face_framing" || hints.earExposure === "covered"
-      ? 5
-      : hints.earExposure === "partial" || hints.hairVolume === "full"
-        ? 6
-        : hints.faceShape === "round" || hints.faceShape === "square"
-          ? 8
-          : 7;
-  const glassesMask: Array<{ x: number; y: number }> = [];
-  if (analysis.fallbackFeatures.glasses !== "none") {
-    for (const x of [...leftEyeXs, ...rightEyeXs]) glassesMask.push({ x, y: eyeRow });
-    if (analysis.fallbackFeatures.glasses === "round" || hints.eyeSize === "large") {
-      for (const x of [...leftEyeXs, ...rightEyeXs]) glassesMask.push({ x, y: Math.min(7, eyeRow + 1) });
-    }
-    glassesMask.push({ x: 3, y: eyeRow }, { x: 4, y: eyeRow });
-  }
-  const faceConfidence = analysis.canonicalIdentity.features
-    .filter((feature) => feature.category === "face")
-    .map((feature) => feature.confidence);
-  const fringeConfidence = analysis.canonicalIdentity.features
-    .filter((feature) => feature.category === "hair" && /fringe|bang|hairline|forehead/i.test(feature.feature))
-    .map((feature) => feature.confidence);
-  const uncertainAxes: FaceLayoutPlan["uncertainAxes"] = [];
-  if (faceConfidence.length === 0 || faceConfidence.some((confidence) => confidence !== "high")) {
-    uncertainAxes.push("eye_row", "mouth_row");
-  }
-  if (hairlineDepth > 0 && (fringeConfidence.length === 0 || fringeConfidence.some((confidence) => confidence !== "high"))) {
-    uncertainAxes.push("hairline_depth");
-  }
-  return {
-    eyeRow,
-    leftEyeXs,
-    rightEyeXs,
-    eyeWidth,
-    browRow,
-    mouthRow,
-    mouthWidth,
-    hairlineDepth,
-    fringeOpening: hints.fringeOpening,
-    exposedFaceWidth,
-    glassesMask,
-    uncertainAxes,
-  };
-}
-
 function facePixelPlan(
   analysis: PhotoAnalysis,
-  layout = deriveFaceLayout(analysis),
+  layout: FaceLayoutPlan,
   variantId: FacePixelPlan["variantId"] = "primary",
 ): FacePixelPlan {
   const hints = analysis.renderHints;
@@ -224,47 +215,45 @@ function facePixelPlan(
     }
   }
 
-  const eyePairs = [layout.leftEyeXs, layout.rightEyeXs];
-  eyePairs.forEach((xs, index) => {
+  const eyePairs = [
+    { xs: layout.leftEyeXs, row: layout.leftEyeRow, browRow: layout.leftBrowRow },
+    { xs: layout.rightEyeXs, row: layout.rightEyeRow, browRow: layout.rightBrowRow },
+  ];
+  eyePairs.forEach(({ xs, row, browRow }, index) => {
     const cluster = index === 0 ? "left_eye" : "right_eye";
     const ordered = index === 0 ? [...xs] : [...xs].reverse();
     const extension = index === 0 ? Math.max(...ordered) + 1 : Math.min(...ordered) - 1;
     const eyeXs = layout.eyeWidth === 1 ? [ordered[0]] : layout.eyeWidth === 3 ? [...ordered, extension] : ordered;
     eyeXs.forEach((x, position) => {
       const tiltOffset = position === 0 ? (hints.eyeTilt === "upturned" ? -1 : hints.eyeTilt === "downturned" ? 1 : 0) : 0;
-      pushPixel(pixels, x, layout.eyeRow + tiltOffset, hints.eyeShape === "round" && position === 0 ? "sclera" : "iris", cluster);
-      pushPixel(pixels, x, layout.browRow, "brow", cluster);
+      pushPixel(pixels, x, row + tiltOffset, hints.eyeShape === "round" && position === 0 ? "sclera" : "iris", cluster);
+      pushPixel(pixels, x, browRow, "brow", cluster);
     });
   });
   // glassesMask is declarative layout evidence. The renderer applies it on
   // the outer layer so frames do not overwrite the base-layer irises.
-  pushPixel(pixels, hints.noseShape === "prominent" ? 3 : 4, Math.min(6, layout.eyeRow + 1), "nose_shadow", "nose");
-  const mouthStart = Math.floor((8 - layout.mouthWidth) / 2);
-  for (let x = mouthStart; x < mouthStart + layout.mouthWidth; x++) {
+  if (layout.noseStrength >= 0.35) pushPixel(pixels, layout.noseX, layout.noseY, "nose_shadow", "nose");
+  const mouthStart = Math.max(0, Math.min(8 - layout.mouthWidth, Math.round(layout.mouthCenterX - (layout.mouthWidth - 1) / 2)));
+  for (let position = 0; position < layout.mouthWidth; position++) {
+    const x = mouthStart + position;
+    const edgeOffset = position === 0 ? layout.mouthCornerOffsets[0] : position === layout.mouthWidth - 1 ? layout.mouthCornerOffsets[1] : 0;
+    const teethPosition = layout.mouthWidth <= 2 ? position === 1 : position > 0 && position < layout.mouthWidth - 1;
     pushPixel(
       pixels,
       x,
-      layout.mouthRow,
-      hints.mouthOpening === "closed" ? "lip" : hints.mouthOpening === "teeth_visible" ? "teeth" : "mouth_shadow",
+      Math.max(4, Math.min(7, layout.mouthRow + edgeOffset)),
+      hints.mouthOpening === "closed" ? "lip" : hints.mouthOpening === "teeth_visible" && teethPosition ? "teeth" : "mouth_shadow",
       "mouth",
     );
   }
 
-  if (layout.hairlineDepth > 0) {
-    const row = layout.hairlineDepth;
-    const opening = hints.fringeOpening === "center"
-      ? new Set([3, 4])
-      : hints.fringeOpening === "left"
-        ? new Set([1, 2])
-        : hints.fringeOpening === "right"
-          ? new Set([5, 6])
-          : new Set<number>();
-    for (let x = 0; x < 8; x++) {
-      if (!opening.has(x)) pushPixel(pixels, x, row, x % 3 === 0 ? "hair_shadow" : "hair_mid", "fringe");
+  for (let x = 0; x < 8; x++) {
+    for (let y = 0; y < layout.hairlineDepthByColumn[x]; y++) {
+      pushPixel(pixels, x, y, (x + y) % 3 === 0 ? "hair_shadow" : "hair_mid", "fringe");
     }
   }
   const sideMargin = Math.floor((8 - layout.exposedFaceWidth) / 2);
-  for (let y = 1; y < layout.eyeRow; y++) {
+  for (let y = 1; y < Math.min(layout.leftEyeRow, layout.rightEyeRow); y++) {
     for (let x = 0; x < sideMargin; x++) {
       pushPixel(pixels, x, y, "hair_shadow", "fringe");
       pushPixel(pixels, 7 - x, y, "hair_mid", "fringe");
@@ -280,10 +269,17 @@ function facePixelPlan(
       { name: "left_eye", minimumPixels: 2 },
       { name: "right_eye", minimumPixels: 2 },
       { name: "mouth", minimumPixels: 2 },
+      ...(layout.protectedGeometry.includes("glasses") && layout.glassesMask.length > 0
+        ? [{ name: "glasses" as const, minimumPixels: Math.min(4, layout.glassesMask.length) }]
+        : []),
+      ...(layout.protectedGeometry.includes("hairline") && layout.hairlineDepth > 0
+        ? [{ name: "fringe" as const, minimumPixels: 2 }]
+        : []),
     ],
     layout,
     variantId,
-    source: "analysis_normalized",
+    source: analysis.identityGeometry ? "identity_geometry" : "semantic_fallback",
+    protectedGeometry: [...layout.protectedGeometry],
   };
 }
 
@@ -291,26 +287,8 @@ export function buildFacePixelPlanVariants(
   analysis: PhotoAnalysis,
   maximum = 3,
 ): FacePixelPlan[] {
-  const primaryLayout = deriveFaceLayout(analysis);
-  const variants = [facePixelPlan(analysis, primaryLayout, "primary")];
-  if (maximum <= 1) return variants;
-  if (primaryLayout.uncertainAxes.includes("eye_row")) {
-    const eyeRow = (primaryLayout.eyeRow === 3 ? 4 : primaryLayout.eyeRow === 5 ? 4 : 3) as FaceLayoutPlan["eyeRow"];
-    variants.push(facePixelPlan(analysis, {
-      ...primaryLayout,
-      eyeRow,
-      browRow: Math.max(1, eyeRow - 1) as FaceLayoutPlan["browRow"],
-      glassesMask: primaryLayout.glassesMask.map((point) => ({ ...point, y: point.y + (eyeRow - primaryLayout.eyeRow) })),
-    }, "eye_row_alt"));
-  }
-  if (variants.length < maximum && (primaryLayout.uncertainAxes.includes("mouth_row") || primaryLayout.uncertainAxes.includes("hairline_depth"))) {
-    variants.push(facePixelPlan(analysis, {
-      ...primaryLayout,
-      mouthRow: (primaryLayout.mouthRow === 5 ? 6 : 5) as FaceLayoutPlan["mouthRow"],
-      hairlineDepth: primaryLayout.hairlineDepth === 0 ? 0 : (primaryLayout.hairlineDepth === 3 ? 2 : primaryLayout.hairlineDepth + 1) as FaceLayoutPlan["hairlineDepth"],
-    }, "mouth_or_hairline_alt"));
-  }
-  return variants.slice(0, Math.max(1, Math.min(3, maximum)));
+  return buildQuantizedLayoutVariants(analysis, maximum)
+    .map((variant) => facePixelPlan(analysis, variant.layout, variant.id));
 }
 
 function hairPlan(analysis: PhotoAnalysis): HairPlan {

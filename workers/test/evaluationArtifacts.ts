@@ -12,11 +12,14 @@ import { encodePng, type RawImage } from "../src/png";
 
 export interface IdentityEvaluationArtifacts {
   sourceFace: RawImage;
+  sourceHead?: RawImage;
   generatedSheetFace?: RawImage;
   packedHeadBefore?: RawImage;
   facePixelPlan: FacePixelPlan;
+  oldFacePixelPlan?: FacePixelPlan;
   candidateA?: RawImage;
   candidateB?: RawImage;
+  candidateC?: RawImage;
   finalHeadFront: RawImage;
   finalHeadLeft: RawImage;
   finalHeadRight: RawImage;
@@ -68,11 +71,14 @@ export async function writeIdentityEvaluationArtifacts(
   await mkdir(caseDirectory, { recursive: true });
   const images: Array<[string, RawImage | undefined]> = [
     ["01-source-face.png", artifacts.sourceFace],
+    ["01b-source-head.png", artifacts.sourceHead],
     ["02-generated-sheet-face.png", artifacts.generatedSheetFace],
     ["03-packed-head-before-identity.png", artifacts.packedHeadBefore],
+    ["04a-old-face-pixel-plan.png", artifacts.oldFacePixelPlan ? renderFacePixelPlan(artifacts.oldFacePixelPlan) : undefined],
     ["04-face-pixel-plan.png", renderFacePixelPlan(artifacts.facePixelPlan)],
     ["05-candidate-a.png", artifacts.candidateA],
     ["06-candidate-b.png", artifacts.candidateB],
+    ["06b-candidate-c.png", artifacts.candidateC],
     ["07-final-head-front.png", artifacts.finalHeadFront],
     ["08-final-head-left.png", artifacts.finalHeadLeft],
     ["09-final-head-right.png", artifacts.finalHeadRight],

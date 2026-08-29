@@ -1,6 +1,7 @@
 /** 테스트 공용 헬퍼: 유효한 PhotoAnalysis와 합성 atlas 생성 */
 
 import type { PhotoAnalysis } from "../src/analysis";
+import type { IdentityGeometryAnalysis } from "../src/identityGeometry";
 import type { RawImage } from "../src/png";
 import { ATLAS_SIZE, BASE_RECTS, OVERLAY_RECTS } from "../src/uvLayout";
 
@@ -165,6 +166,23 @@ export function makeAnalysis(
       bottomColor: "navy",
       shoesColor: "white",
     },
+    ...overrides,
+  };
+}
+
+export function makeIdentityGeometry(
+  overrides: Partial<IdentityGeometryAnalysis> = {},
+): IdentityGeometryAnalysis {
+  return {
+    face: { visibleLeft: 0.18, visibleRight: 0.82, foreheadY: 0.12, chinY: 0.9, widthWithinHead: 0.7 },
+    eyes: { leftCenterX: 0.36, leftCenterY: 0.46, rightCenterX: 0.65, rightCenterY: 0.47, leftWidth: 0.12, rightWidth: 0.12, interEyeDistance: 0.29, verticalAsymmetry: 0.01, openness: 0.58 },
+    brows: { leftY: 0.36, rightY: 0.37, thickness: 0.45, tilt: 0.08 },
+    nose: { centerX: 0.51, contrastY: 0.6, leftRightBias: 0.05, visibleStrength: 0.55 },
+    mouth: { centerX: 0.5, centerY: 0.74, width: 0.32, leftCornerY: 0.72, rightCornerY: 0.73, opening: "teeth" },
+    hairline: { depthByColumn: [0.7, 0.72, 0.62, 0.2, 0.12, 0.5, 0.66, 0.7], foreheadOpeningLeft: 0.42, foreheadOpeningRight: 0.58, asymmetry: 0.08 },
+    glasses: { leftBox: { left: 0.24, top: 0.4, right: 0.45, bottom: 0.54 }, rightBox: { left: 0.56, top: 0.4, right: 0.77, bottom: 0.54 }, bridgeCenterX: 0.5, bridgeY: 0.46, thickness: 0.3 },
+    confidence: { faceBounds: 0.9, eyes: 0.94, brows: 0.82, nose: 0.72, mouth: 0.91, hairline: 0.88, glasses: 0.96 },
+    source: "normalized_face_head_crops",
     ...overrides,
   };
 }

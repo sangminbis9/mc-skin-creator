@@ -3,7 +3,7 @@ import { buildSkinPlan } from "../src/skinPlan";
 import { isGeneratedFaceStructurallyValid, packFrontViewToAtlas } from "../src/skinPack";
 import { measureAtlasCraft } from "../src/skinPost";
 import { CLASSIC_LAYOUT } from "../src/uvLayout";
-import { makeAnalysis, makeFrontBackView, makeSyntheticAtlas } from "./helpers";
+import { makeAnalysis, makeFrontBackView, makeIdentityGeometry, makeSyntheticAtlas } from "./helpers";
 
 function frontFaceBytes(atlas: NonNullable<ReturnType<typeof packFrontViewToAtlas>>["atlas"]): number[] {
   const face = CLASSIC_LAYOUT.head.base.front;
@@ -109,6 +109,28 @@ describe("identity-first architecture", () => {
     });
     expect(withPlan?.preservedGeneratedFace).toBe(false);
     expect(frontFaceBytes(withPlan!.atlas)).not.toEqual(frontFaceBytes(withoutPlan!.atlas));
+  });
+
+  it("renders normalized glasses geometry on the head outer layer", () => {
+    const source = makeFrontBackView();
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry(),
+      renderHints: { ...base.renderHints, glasses: "round" },
+    });
+    const plan = buildSkinPlan(analysis);
+    expect(plan.facePixelPlan.layout.glassesMask.length).toBeGreaterThan(0);
+    const packed = packFrontViewToAtlas(source, undefined, 2, {
+      faceMode: "deterministic_plan",
+      facePixelPlan: plan.facePixelPlan,
+      hairPlan: plan.hairPlan,
+    });
+    expect(packed).not.toBeNull();
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    for (const point of plan.facePixelPlan.layout.glassesMask) {
+      const alpha = packed!.atlas.rgba[((overlay.y + point.y) * packed!.atlas.width + overlay.x + point.x) * 4 + 3];
+      expect(alpha).toBe(255);
+    }
   });
 
   it("reports noise, palette, entropy, edge and part-aware overlay metrics", () => {

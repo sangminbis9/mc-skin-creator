@@ -5,6 +5,7 @@ import {
   buildFaceStyle,
   buildProceduralFallbackAtlas,
   buildProceduralGenerationReference,
+  createIdentityCrops,
   createUpperBodyDetailCrop,
   fallbackFeaturesToHex,
   generateSkin,
@@ -26,6 +27,7 @@ import {
   makeAnalysis,
   makeFourViewSheet,
   makeFrontBackView,
+  makeIdentityGeometry,
   makeSyntheticAtlas,
 } from "./helpers";
 
@@ -178,6 +180,14 @@ describe("generateSkin", () => {
     expect(decoded.width).toBe(66);
     expect(decoded.height).toBe(67);
     expect(await createUpperBodyDetailCrop(await photoDataUrl())).toBeNull();
+  });
+
+  it("separates a tighter face crop from the wider head crop", async () => {
+    const crops = await createIdentityCrops(await portraitPhotoDataUrl());
+    expect(crops).not.toBeNull();
+    expect(crops!.diagnostics.face.width).toBeLessThan(crops!.diagnostics.head.width);
+    expect(crops!.diagnostics.face.height).toBeLessThan(crops!.diagnostics.head.height);
+    expect(crops!.faceDataUrl).not.toBe(crops!.headDataUrl);
   });
 
   it("bounds a large landscape portrait for the focused identity pass", async () => {
@@ -402,12 +412,14 @@ describe("generateSkin", () => {
       .mockResolvedValueOnce({ response: main })
       .mockResolvedValueOnce({
         response: focusedPortraitDetail(),
-      }) as unknown as Env["AI"]["run"];
+      })
+      .mockResolvedValueOnce({ response: makeIdentityGeometry() }) as unknown as Env["AI"]["run"];
 
     const result = await generateSkin(env, await portraitPhotoDataUrl());
 
-    expect(env.AI.run).toHaveBeenCalledTimes(2);
-    expect(result.neuronsSpent).toBe(270);
+    expect(env.AI.run).toHaveBeenCalledTimes(3);
+    expect(result.neuronsSpent).toBe(370);
+    expect(result.body.analysis?.identityGeometry?.source).toBe("normalized_face_head_crops");
     expect(result.body.analysis?.renderHints.neckAccessory).toBe("bow");
     expect(result.body.analysis?.renderHints).toMatchObject({
       faceShape: "oval",

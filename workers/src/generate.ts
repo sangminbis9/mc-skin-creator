@@ -67,6 +67,7 @@ import {
 import { buildFacePixelPlanVariants, type FacePixelPlan } from "./identityPlans";
 import { imageGenerationNeurons } from "./quota";
 import type { Env } from "./types";
+import { runIdentityGeometryAnalysis } from "./identityGeometry";
 
 /** 업로드 허용 최대 크기 (base64 data URL 문자 수, 약 1.1MB 이미지) */
 const MAX_IMAGE_CHARS = 1_500_000;
@@ -102,6 +103,7 @@ async function selectBoundedHeadCandidates(
   env: Env,
   analysis: PhotoAnalysis,
   sourceFaceCropDataUrl: string,
+  sourceHeadCropDataUrl: string | undefined,
   candidates: HeadCandidate[],
 ): Promise<{
   selected: HeadCandidate;
@@ -124,6 +126,8 @@ async function selectBoundedHeadCandidates(
       sourceFaceCropDataUrl,
       incumbent.headMontageDataUrl,
       challenger.headMontageDataUrl,
+      "candidate_selection",
+      sourceHeadCropDataUrl,
     );
     neuronsSpent += pairwise.neuronsSpent;
     if (!pairwise.ok) {
@@ -163,6 +167,7 @@ export interface AnalysisSummary {
   inferred: PhotoAnalysis["inferred"];
   canonicalIdentity: PhotoAnalysis["canonicalIdentity"];
   renderHints: PhotoAnalysis["renderHints"];
+  identityGeometry?: PhotoAnalysis["identityGeometry"];
   skinPlan: SkinPlan;
 }
 
@@ -338,9 +343,10 @@ export async function generateSkin(
   // and throat construction that become a handful of pixels in the original
   // frame. Keeping these in one pass avoids spending free-tier capacity on a
   // second request over the exact same crop.
-  const upperBodyDetailCrop = await createUpperBodyDetailCrop(
-    portraitAnalysisDataUrl,
-  );
+  const identityCrops = await createIdentityCrops(portraitAnalysisDataUrl);
+  const upperBodyDetailCrop = identityCrops?.headDataUrl ?? null;
+  const faceIdentityCrop = identityCrops?.faceDataUrl ?? upperBodyDetailCrop;
+  let focusedIdentityQuotaExceeded = false;
   if (
     upperBodyDetailCrop &&
     (analysis.visibleRegions.face || analysis.visibleRegions.hair)
@@ -351,6 +357,7 @@ export async function generateSkin(
     );
     spent += portraitResult.neuronsSpent;
     if (!portraitResult.ok) {
+      focusedIdentityQuotaExceeded = portraitResult.reason === "quota_exceeded";
       console.log(
         "focused portrait analysis failed:",
         portraitResult.reason,
@@ -374,6 +381,21 @@ export async function generateSkin(
     }
   }
 
+  if (faceIdentityCrop && upperBodyDetailCrop && analysis.visibleRegions.face && !(focusedIdentityQuotaExceeded && !env.GEMINI_API_KEY)) {
+    const geometryResult = await runIdentityGeometryAnalysis(
+      env,
+      faceIdentityCrop,
+      upperBodyDetailCrop,
+      analysis,
+    );
+    spent += geometryResult.neuronsSpent;
+    if (geometryResult.ok) {
+      analysis = { ...analysis, identityGeometry: geometryResult.geometry };
+    } else {
+      console.log("focused identity geometry analysis failed:", geometryResult.detail);
+    }
+  }
+
   const renderAnalysis = normalizeAnalysisForRendering(analysis);
   const skinPlan = buildSkinPlan(renderAnalysis);
   const features = refineFeatureColorsFromAnalysis(
@@ -391,6 +413,7 @@ export async function generateSkin(
     inferred: renderAnalysis.inferred,
     canonicalIdentity: renderAnalysis.canonicalIdentity,
     renderHints: renderAnalysis.renderHints,
+    ...(renderAnalysis.identityGeometry ? { identityGeometry: renderAnalysis.identityGeometry } : {}),
     skinPlan,
   };
   const faceStyle = buildFaceStyle(renderAnalysis, features);
@@ -546,7 +569,7 @@ export async function generateSkin(
         let candidateBase64 = processed.atlasBase64;
         if (
           env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" &&
-          upperBodyDetailCrop &&
+          faceIdentityCrop &&
           processed.generatedFacePreserved
         ) {
           const generatedCandidate = await headCandidate(
@@ -568,7 +591,8 @@ export async function generateSkin(
           const selection = await selectBoundedHeadCandidates(
             env,
             renderAnalysis,
-            upperBodyDetailCrop,
+            faceIdentityCrop,
+            upperBodyDetailCrop ?? undefined,
             [generatedCandidate, ...plannedCandidates],
           );
           spent += selection.neuronsSpent;
@@ -634,16 +658,17 @@ export async function generateSkin(
           }
           let acceptCorrection = true;
           let correctionReview: Awaited<ReturnType<typeof runHeadPairwiseComparison>> | undefined;
-          if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && upperBodyDetailCrop) {
+          if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && faceIdentityCrop) {
             const before = await headCandidate("before-correction", "generated", correctionBaseAtlas, true);
             const after = await headCandidate("after-correction", "corrected", merged.atlas, true);
             correctionReview = await runHeadPairwiseComparison(
               env,
               renderAnalysis,
-              upperBodyDetailCrop,
+              faceIdentityCrop,
               before.headMontageDataUrl,
               after.headMontageDataUrl,
               "correction_guard",
+              upperBodyDetailCrop ?? undefined,
             );
             spent += correctionReview.neuronsSpent;
             acceptCorrection = correctionReview.ok && shouldAcceptIdentityCorrection(correctionReview.review);
@@ -702,7 +727,7 @@ export async function generateSkin(
             montageDataUrl,
             skinPlan,
             candidateAtlas,
-            upperBodyDetailCrop ?? undefined,
+            faceIdentityCrop ?? undefined,
           );
           spent += critique.neuronsSpent;
           if (!critique.ok) {
@@ -821,7 +846,7 @@ export async function generateSkin(
     if (
       proceduralAtlas &&
       env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" &&
-      upperBodyDetailCrop
+      faceIdentityCrop
     ) {
       const plannedAtlases = buildValidFacePlanCandidateAtlases(proceduralAtlas, renderAnalysis, faceStyle);
       if (plannedAtlases.length > 0) {
@@ -838,7 +863,8 @@ export async function generateSkin(
         const selection = await selectBoundedHeadCandidates(
           env,
           renderAnalysis,
-          upperBodyDetailCrop,
+          faceIdentityCrop,
+          upperBodyDetailCrop ?? undefined,
           [composedCandidate, ...plannedCandidates],
         );
         spent += selection.neuronsSpent;
@@ -884,7 +910,7 @@ export async function generateSkin(
           montageDataUrl,
           skinPlan,
           proceduralAtlas,
-          upperBodyDetailCrop ?? undefined,
+          faceIdentityCrop ?? undefined,
         );
         spent += critique.neuronsSpent;
         if (!critique.ok) {
@@ -943,16 +969,17 @@ export async function generateSkin(
               if (correctedInspection.ok) {
                 let acceptCorrection = true;
                 let pairwise: Awaited<ReturnType<typeof runHeadPairwiseComparison>> | undefined;
-                if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && upperBodyDetailCrop) {
+                if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && faceIdentityCrop) {
                   const before = await headCandidate("procedural-before", "deterministic", proceduralAtlas, true);
                   const after = await headCandidate("procedural-after", "corrected", correctedAtlas, true);
                   pairwise = await runHeadPairwiseComparison(
                     env,
                     renderAnalysis,
-                    upperBodyDetailCrop,
+                    faceIdentityCrop,
                     before.headMontageDataUrl,
                     after.headMontageDataUrl,
                     "correction_guard",
+                    upperBodyDetailCrop ?? undefined,
                   );
                   spent += pairwise.neuronsSpent;
                   acceptCorrection = pairwise.ok && shouldAcceptIdentityCorrection(pairwise.review);
@@ -1031,6 +1058,8 @@ export async function generateSkin(
         p5IdentityChecks: qualityReport?.p5IdentityChecks ?? null,
         craftMetrics: qualityReport?.craftMetrics ?? null,
         generationInputDiagnostics: generationInputDiagnostics ?? null,
+        identityCropDiagnostics: identityCrops?.diagnostics ?? null,
+        facePlanSource: skinPlan.facePixelPlan.source,
         rejected: true,
       }),
       { expirationTtl: 60 * 60 * 48 },
@@ -1066,6 +1095,8 @@ export async function generateSkin(
       p5IdentityChecks: qualityReport?.p5IdentityChecks ?? null,
       craftMetrics: qualityReport?.craftMetrics ?? null,
       generationInputDiagnostics: generationInputDiagnostics ?? null,
+      identityCropDiagnostics: identityCrops?.diagnostics ?? null,
+      facePlanSource: skinPlan.facePixelPlan.source,
     }),
     { expirationTtl: 60 * 60 * 48 },
   ).catch(() => undefined);
@@ -1090,20 +1121,40 @@ export async function generateSkin(
   };
 }
 
-/**
- * Build a bounded head/upper-body crop for the focused identity pass.
- *
- * Tall portraits need the lower half removed so the face is not a tiny part
- * of the model input. Large landscape/square portraits still benefit from a
- * second pass whose prompt is dedicated to irises, facial proportions and
- * hair geometry, so retain most of their frame instead of skipping them.
- * Downscale the crop before PNG encoding: raw photographic PNGs can otherwise
- * exceed MAX_IMAGE_CHARS and silently disable the most identity-critical
- * stage on exactly the high-resolution photos that need it.
- */
-export async function createUpperBodyDetailCrop(
-  imageDataUrl: string,
-): Promise<string | null> {
+export interface IdentityCropSet {
+  faceDataUrl: string;
+  headDataUrl: string;
+  diagnostics: {
+    original: { width: number; height: number };
+    face: { width: number; height: number };
+    head: { width: number; height: number };
+  };
+}
+
+async function encodeBoundedCrop(
+  source: RawImage,
+  bounds: { x: number; y: number; width: number; height: number },
+  maximumEdge = 512,
+): Promise<{ dataUrl: string; width: number; height: number } | null> {
+  const scale = Math.min(1, maximumEdge / bounds.width, maximumEdge / bounds.height);
+  const outputWidth = Math.max(32, Math.round(bounds.width * scale));
+  const outputHeight = Math.max(48, Math.round(bounds.height * scale));
+  const rgba = new Uint8Array(outputWidth * outputHeight * 4);
+  for (let y = 0; y < outputHeight; y++) {
+    const sourceY = Math.min(source.height - 1, bounds.y + Math.floor(((y + 0.5) * bounds.height) / outputHeight));
+    for (let x = 0; x < outputWidth; x++) {
+      const sourceX = Math.min(source.width - 1, bounds.x + Math.floor(((x + 0.5) * bounds.width) / outputWidth));
+      const sourceOffset = (sourceY * source.width + sourceX) * 4;
+      rgba.set(source.rgba.subarray(sourceOffset, sourceOffset + 4), (y * outputWidth + x) * 4);
+    }
+  }
+  const encoded = await encodePng({ width: outputWidth, height: outputHeight, rgba });
+  const dataUrl = `data:image/png;base64,${bytesToBase64(encoded)}`;
+  return dataUrl.length <= MAX_IMAGE_CHARS ? { dataUrl, width: outputWidth, height: outputHeight } : null;
+}
+
+/** Build distinct face-landmark and full-head crops from one portrait source. */
+export async function createIdentityCrops(imageDataUrl: string): Promise<IdentityCropSet | null> {
   const match = /^data:image\/(?:png|jpe?g);base64,([a-z0-9+/=\r\n]+)$/i.exec(
     imageDataUrl,
   );
@@ -1122,49 +1173,43 @@ export async function createUpperBodyDetailCrop(
       // second identity read. Avoid spending a model request on upscaling.
       return null;
     }
-    const cropWidth = Math.max(32, Math.round(source.width * 0.82));
-    const cropHeight = Math.max(
+    const headWidth = Math.max(32, Math.round(source.width * 0.82));
+    const headHeight = Math.max(
       48,
       Math.round(source.height * (tallPortrait ? 0.56 : 0.92)),
     );
-    const startX = Math.max(0, Math.floor((source.width - cropWidth) / 2));
-    const startY = 0;
-    const scale = Math.min(1, 512 / cropWidth, 512 / cropHeight);
-    const outputWidth = Math.max(32, Math.round(cropWidth * scale));
-    const outputHeight = Math.max(48, Math.round(cropHeight * scale));
-    const rgba = new Uint8Array(outputWidth * outputHeight * 4);
-    for (let y = 0; y < outputHeight; y++) {
-      const sourceY = Math.min(
-        source.height - 1,
-        startY + Math.floor(((y + 0.5) * cropHeight) / outputHeight),
-      );
-      for (let x = 0; x < outputWidth; x++) {
-        const sourceX = Math.min(
-          source.width - 1,
-          startX + Math.floor(((x + 0.5) * cropWidth) / outputWidth),
-        );
-        const sourceOffset = (sourceY * source.width + sourceX) * 4;
-        const targetOffset = (y * outputWidth + x) * 4;
-        rgba.set(
-          source.rgba.subarray(sourceOffset, sourceOffset + 4),
-          targetOffset,
-        );
-      }
-    }
-    const encoded = await encodePng({
-      width: outputWidth,
-      height: outputHeight,
-      rgba,
-    });
-    const dataUrl = `data:image/png;base64,${bytesToBase64(encoded)}`;
-    return dataUrl.length <= MAX_IMAGE_CHARS ? dataUrl : null;
+    const headX = Math.max(0, Math.floor((source.width - headWidth) / 2));
+    const headY = 0;
+    const faceWidth = Math.max(32, Math.round(headWidth * 0.7));
+    const faceHeight = Math.max(48, Math.min(source.height, Math.round(headHeight * 0.76)));
+    const faceX = Math.max(0, headX + Math.floor((headWidth - faceWidth) / 2));
+    const faceY = Math.max(0, Math.min(source.height - faceHeight, headY + Math.round(headHeight * 0.08)));
+    const [head, face] = await Promise.all([
+      encodeBoundedCrop(source, { x: headX, y: headY, width: headWidth, height: headHeight }),
+      encodeBoundedCrop(source, { x: faceX, y: faceY, width: faceWidth, height: faceHeight }),
+    ]);
+    if (!head || !face) return null;
+    return {
+      faceDataUrl: face.dataUrl,
+      headDataUrl: head.dataUrl,
+      diagnostics: {
+        original: { width: source.width, height: source.height },
+        face: { width: face.width, height: face.height },
+        head: { width: head.width, height: head.height },
+      },
+    };
   } catch (error) {
     console.log(
-      "upper-body detail crop failed:",
+      "identity crop creation failed:",
       error instanceof Error ? error.message : String(error),
     );
     return null;
   }
+}
+
+/** Backward-compatible wider crop used by existing callers and tests. */
+export async function createUpperBodyDetailCrop(imageDataUrl: string): Promise<string | null> {
+  return (await createIdentityCrops(imageDataUrl))?.headDataUrl ?? null;
 }
 
 /**

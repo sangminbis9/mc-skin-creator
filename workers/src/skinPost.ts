@@ -880,33 +880,27 @@ export function validateAtlasCraft(
   if (validateIdentity) {
     const face = CLASSIC_LAYOUT.head.base.front;
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
-    const eyePairs: ReadonlyArray<readonly [number, number]> = facePixelPlan
+    const defaultEyeRow = facePixelPlan?.layout.eyeRow ?? 4;
+    const tiltOffset = style.eyeTilt === "upturned" ? -1 : style.eyeTilt === "downturned" ? 1 : 0;
+    const eyePairs: ReadonlyArray<{ outer: number; inner: number; row: number; outerRow: number }> = facePixelPlan
       ? [
-          [facePixelPlan.layout.leftEyeXs[0], facePixelPlan.layout.leftEyeXs.at(-1)!],
-          [facePixelPlan.layout.rightEyeXs.at(-1)!, facePixelPlan.layout.rightEyeXs[0]],
+          { outer: facePixelPlan.layout.leftEyeXs[0], inner: facePixelPlan.layout.leftEyeXs.at(-1)!, row: facePixelPlan.layout.leftEyeRow, outerRow: facePixelPlan.layout.leftEyeRow + tiltOffset },
+          { outer: facePixelPlan.layout.rightEyeXs.at(-1)!, inner: facePixelPlan.layout.rightEyeXs[0], row: facePixelPlan.layout.rightEyeRow, outerRow: facePixelPlan.layout.rightEyeRow + tiltOffset },
         ]
       : style.eyeSpacing === "wide"
         ? ([
-            [0, 1],
-            [7, 6],
+            { outer: 0, inner: 1, row: defaultEyeRow, outerRow: defaultEyeRow + tiltOffset },
+            { outer: 7, inner: 6, row: defaultEyeRow, outerRow: defaultEyeRow + tiltOffset },
           ] as const)
         : style.eyeSpacing === "close"
           ? ([
-              [1, 2],
-              [5, 4],
+              { outer: 1, inner: 2, row: defaultEyeRow, outerRow: defaultEyeRow + tiltOffset },
+              { outer: 5, inner: 4, row: defaultEyeRow, outerRow: defaultEyeRow + tiltOffset },
             ] as const)
           : ([
-              [1, 2],
-              [6, 5],
+              { outer: 1, inner: 2, row: defaultEyeRow, outerRow: defaultEyeRow + tiltOffset },
+              { outer: 6, inner: 5, row: defaultEyeRow, outerRow: defaultEyeRow + tiltOffset },
             ] as const);
-    const eyeRow = facePixelPlan?.layout.eyeRow ?? 4;
-    const outerEyeY = eyeRow;
-    const tiltAccentY =
-      style.eyeTilt === "upturned"
-        ? 3
-        : style.eyeTilt === "downturned"
-          ? 5
-          : null;
     const offsetAt = (rect: Rect, x: number, y: number) =>
       ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
     const skinBuckets = new Map<
@@ -914,15 +908,19 @@ export function validateAtlasCraft(
       { count: number; r: number; g: number; b: number }
     >();
     const excluded = new Set<string>();
-    for (const [outer, inner] of eyePairs) {
-      excluded.add(`${outer},${outerEyeY}`);
-      excluded.add(`${inner},${eyeRow}`);
-      if (tiltAccentY !== null) excluded.add(`${outer},${tiltAccentY}`);
+    for (const { outer, inner, row, outerRow } of eyePairs) {
+      excluded.add(`${outer},${outerRow}`);
+      excluded.add(`${inner},${row}`);
     }
     const mouthRow = facePixelPlan?.layout.mouthRow ?? 6;
     const mouthWidth = facePixelPlan?.layout.mouthWidth ?? (style.mouthShape === "wide" ? 4 : 2);
-    const mouthStart = Math.floor((8 - mouthWidth) / 2);
-    for (let x = mouthStart; x < mouthStart + mouthWidth; x++) excluded.add(`${x},${mouthRow}`);
+    const mouthStart = facePixelPlan
+      ? Math.max(0, Math.min(8 - mouthWidth, Math.round(facePixelPlan.layout.mouthCenterX - (mouthWidth - 1) / 2)))
+      : Math.floor((8 - mouthWidth) / 2);
+    const mouthCoordinates = facePixelPlan
+      ? facePixelPlan.pixels.filter((pixel) => pixel.cluster === "mouth").map((pixel) => ({ x: pixel.x, y: pixel.y }))
+      : Array.from({ length: mouthWidth }, (_, index) => ({ x: mouthStart + index, y: mouthRow }));
+    for (const point of mouthCoordinates) excluded.add(`${point.x},${point.y}`);
     for (let y = 3; y <= 7; y++) {
       for (let x = 0; x < face.w; x++) {
         if (excluded.has(`${x},${y}`)) continue;
@@ -984,13 +982,13 @@ export function validateAtlasCraft(
 
     let readableEyes = 0;
     const eyeDiagnostics: string[] = [];
-    for (const [outer, inner] of eyePairs) {
-      const irisOffset = offsetAt(faceOverlay, inner, eyeRow);
-      const outerOffset = offsetAt(faceOverlay, outer, outerEyeY);
+    for (const { outer, inner, row, outerRow } of eyePairs) {
+      const irisOffset = offsetAt(faceOverlay, inner, row);
+      const outerOffset = offsetAt(faceOverlay, outer, outerRow);
       const intentionalCurtainOverlap =
         style.bangs === "curtain" &&
         style.bangsLength === "eye" &&
-        outerEyeY === 4;
+        outerRow === 4;
       const intentionalWideSideHairOverlap =
         style.eyeSpacing === "wide" &&
         !["none", "bald", "buzz"].includes(style.hairstyle ?? "none") &&
@@ -1001,7 +999,7 @@ export function validateAtlasCraft(
           (atlas.rgba[outerOffset + 3] === 0 ||
             intentionalCurtainOverlap ||
             intentionalWideSideHairOverlap));
-      const contrast = distanceFromSkin(inner, eyeRow);
+      const contrast = distanceFromSkin(inner, row);
       if (irisVisible && contrast >= 45) readableEyes++;
       eyeDiagnostics.push(
         `${inner}:${irisVisible ? "visible" : "occluded"}/${Math.round(contrast)}`,
@@ -1012,11 +1010,10 @@ export function validateAtlasCraft(
         `face has only ${readableEyes} readable eye(s) (${eyeDiagnostics.join(", ")})`,
       );
 
-    const mouthXs = Array.from({ length: mouthWidth }, (_, index) => mouthStart + index);
-    const mouthPixels = mouthXs.filter(
-      (x) => distanceFromSkin(x, mouthRow) >= 30,
+    const mouthPixels = mouthCoordinates.filter(
+      ({ x, y }) => distanceFromSkin(x, y) >= 30,
     ).length;
-    if (mouthPixels < Math.min(2, mouthXs.length))
+    if (mouthPixels < Math.min(2, mouthCoordinates.length))
       problems.push(`mouth landmark is not readable (${mouthPixels} pixels)`);
 
     if (styledHair) {

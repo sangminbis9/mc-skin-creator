@@ -19,6 +19,7 @@ import {
   isGeminiTemporaryRateLimit,
 } from "./gemini";
 import type { Env } from "./types";
+import type { IdentityGeometryAnalysis } from "./identityGeometry";
 
 const DEFAULT_VISION_MODEL = "gemini-3.6-flash";
 const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
@@ -189,6 +190,8 @@ export interface PhotoAnalysis {
   outfitPrompt: string;
   negativePrompt: string;
   fallbackFeatures: FallbackFeatures;
+  /** High-resolution normalized landmarks; absent only when the optional focused pass fails. */
+  identityGeometry?: IdentityGeometryAnalysis;
 }
 
 export type IdentityFeatureCategory =

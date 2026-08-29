@@ -12,6 +12,7 @@ import {
   applyFocusedPortraitDetail,
   buildFaceStyle,
   buildProceduralFallbackAtlas,
+  createIdentityCrops,
   createUpperBodyDetailCrop,
   fallbackFeaturesToHex,
   generateSkin,
@@ -20,6 +21,13 @@ import {
   refineFeatureColorsFromAnalysis,
 } from "../src/generate";
 import { createFacePlanAtlasCandidate } from "../src/skinPack";
+import {
+  buildFacePixelPlanVariants,
+  compareFacePlans,
+  measureFacePlanConvergence,
+  type FacePixelPlan,
+} from "../src/identityPlans";
+import { runIdentityGeometryAnalysis } from "../src/identityGeometry";
 import { buildSkinPlan } from "../src/skinPlan";
 import { runHeadPairwiseComparison, shouldAcceptIdentityCorrection } from "../src/headIdentity";
 import { decodeImage, decodePng, encodePng, type RawImage } from "../src/png";
@@ -59,7 +67,7 @@ const LIVE_IMAGE_TIMEOUT_MS =
 const PROCEDURAL_QA_CASE_FILTER =
   process.env.LIVE_GEMINI_PROCEDURAL_CASES ?? "headscarf-color-blocks";
 const IDENTITY_STAGE_CASE_FILTER =
-  process.env.LIVE_GEMINI_IDENTITY_CASES ?? "short-hair-red-shirt,glasses-monochrome,headscarf-color-blocks";
+  process.env.LIVE_GEMINI_IDENTITY_CASES ?? "short-hair-red-shirt,glasses-monochrome,curly-hair,headscarf-color-blocks,long-straight-hair";
 
 export const REAL_PHOTO_CASES = [
   {
@@ -190,6 +198,8 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       IDENTITY_STAGE_CASE_FILTER.split(",").map((id) => id.trim()).includes(photo.id),
     );
     const summaries: Record<string, unknown>[] = [];
+    const semanticPlans: FacePixelPlan[] = [];
+    const geometryPlans: FacePixelPlan[] = [];
     for (const source of selectedCases) {
       const dataUrl = await fetchCommonsPhoto(source.file);
       const env = {
@@ -201,14 +211,24 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       const analysisResult = await runPhotoAnalysis(env, dataUrl);
       expect(analysisResult.ok, analysisResult.ok ? undefined : analysisResult.detail).toBe(true);
       if (!analysisResult.ok) continue;
-      const cropDataUrl = await createUpperBodyDetailCrop(dataUrl);
-      expect(cropDataUrl, `${source.id}: focused crop missing`).toBeTruthy();
-      if (!cropDataUrl) continue;
+      const crops = await createIdentityCrops(dataUrl);
+      expect(crops, `${source.id}: focused crops missing`).toBeTruthy();
+      if (!crops) continue;
+      const faceCropDataUrl = crops.faceDataUrl;
+      const headCropDataUrl = crops.headDataUrl;
       let analysis = analysisResult.analysis;
-      const detailResult = await runPortraitDetailAnalysis(env, cropDataUrl);
+      const detailResult = await runPortraitDetailAnalysis(env, headCropDataUrl);
       if (detailResult.ok) analysis = applyFocusedPortraitDetail(analysis, detailResult.detail);
+      const oldRenderAnalysis = normalizeAnalysisForRendering(analysis);
+      const oldSkinPlan = buildSkinPlan(oldRenderAnalysis);
+      const geometryResult = await runIdentityGeometryAnalysis(env, faceCropDataUrl, headCropDataUrl, analysis);
+      expect(geometryResult.ok, geometryResult.ok ? undefined : geometryResult.detail).toBe(true);
+      if (!geometryResult.ok) continue;
+      analysis = { ...analysis, identityGeometry: geometryResult.geometry };
       const renderAnalysis = normalizeAnalysisForRendering(analysis);
       const skinPlan = buildSkinPlan(renderAnalysis);
+      semanticPlans.push(oldSkinPlan.facePixelPlan);
+      geometryPlans.push(skinPlan.facePixelPlan);
       const features = refineFeatureColorsFromAnalysis(
         renderAnalysis,
         fallbackFeaturesToHex(renderAnalysis.fallbackFeatures, renderAnalysis.renderHints.skinUndertone),
@@ -217,42 +237,44 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       const baseline = buildProceduralFallbackAtlas(features, faceStyle, skinPlan);
       expect(baseline, `${source.id}: baseline renderer failed`).toBeTruthy();
       if (!baseline) continue;
+      const oldPlanned = createFacePlanAtlasCandidate(baseline, oldSkinPlan.facePixelPlan, faceStyle);
       const planned = createFacePlanAtlasCandidate(baseline, skinPlan.facePixelPlan, faceStyle);
       const plannedStructurallyValid = validateFinalAtlas(planned).ok;
       const plannedCraftValid = validateAtlasCraft(planned, faceStyle, skinPlan.facePixelPlan).ok;
-      const baselineViews = renderSkinViews(baseline);
+      const oldViews = renderSkinViews(oldPlanned);
       const plannedViews = renderSkinViews(planned);
       const pairwise = await runHeadPairwiseComparison(
         env,
         renderAnalysis,
-        cropDataUrl,
-        await pngDataUrl(buildHeadViewMontage(baselineViews)),
+        faceCropDataUrl,
+        await pngDataUrl(buildHeadViewMontage(oldViews)),
         await pngDataUrl(buildHeadViewMontage(plannedViews)),
+        "candidate_selection",
+        headCropDataUrl,
       );
       const selectedPlanned = plannedStructurallyValid && plannedCraftValid && pairwise.ok && shouldAcceptIdentityCorrection(pairwise.review);
-      const afterAtlas = selectedPlanned ? planned : baseline;
+      const afterAtlas = selectedPlanned ? planned : oldPlanned;
       const beforeCritique = await runSkinCritique(
         env,
         renderAnalysis,
         [dataUrl],
-        await pngDataUrl(buildSkinViewMontage(baselineViews)),
-        skinPlan,
-        baseline,
-        cropDataUrl,
+        await pngDataUrl(buildSkinViewMontage(oldViews)),
+        oldSkinPlan,
+        oldPlanned,
+        faceCropDataUrl,
       );
-      const afterCritique = selectedPlanned
-        ? await runSkinCritique(
-            env,
-            renderAnalysis,
-            [dataUrl],
-            await pngDataUrl(buildSkinViewMontage(plannedViews)),
-            skinPlan,
-            planned,
-            cropDataUrl,
-          )
-        : beforeCritique;
-      const afterViews = selectedPlanned ? plannedViews : baselineViews;
-      const sourceFace = await decodeImage(Uint8Array.from(atob(cropDataUrl.split(",")[1]), (value) => value.charCodeAt(0)));
+      const afterCritique = await runSkinCritique(
+        env,
+        renderAnalysis,
+        [dataUrl],
+        await pngDataUrl(buildSkinViewMontage(plannedViews)),
+        skinPlan,
+        planned,
+        faceCropDataUrl,
+      );
+      const afterViews = selectedPlanned ? plannedViews : oldViews;
+      const sourceFace = await decodeImage(Uint8Array.from(atob(faceCropDataUrl.split(",")[1]), (value) => value.charCodeAt(0)));
+      const sourceHead = await decodeImage(Uint8Array.from(atob(headCropDataUrl.split(",")[1]), (value) => value.charCodeAt(0)));
       const original = await decodeImage(Uint8Array.from(atob(dataUrl.split(",")[1]), (value) => value.charCodeAt(0)));
       const metrics = {
         case: source.id,
@@ -260,13 +282,18 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         sourcePage: source.page,
         generationProvider: "deterministic_renderer",
         originalInputDimensions: { width: original.width, height: original.height },
-        faceCropDimensions: { width: sourceFace.width, height: sourceFace.height },
-        candidateSelected: selectedPlanned ? "face-plan-primary" : "procedural-compose",
+        faceCropDimensions: crops.diagnostics.face,
+        headCropDimensions: crops.diagnostics.head,
+        sourceGeometry: geometryResult.geometry,
+        oldFacePixelPlan: oldSkinPlan.facePixelPlan,
+        newFacePixelPlan: skinPlan.facePixelPlan,
+        planDifference: compareFacePlans(oldSkinPlan.facePixelPlan, skinPlan.facePixelPlan),
+        candidateSelected: selectedPlanned ? "geometry-face-plan-primary" : "semantic-face-plan-primary",
         pairwise: pairwise.ok ? pairwise.review : { failed: true, detail: pairwise.detail },
-        largestLossStage: selectedPlanned ? "procedural_compose_face" : "analysis_to_8x8_head",
+        largestLossStage: selectedPlanned ? "categorical_analysis_to_face_plan" : "normalized_geometry_to_8x8_head",
         beforeScores: beforeCritique.ok ? beforeCritique.critique : null,
         afterScores: afterCritique.ok ? afterCritique.critique : null,
-        beforeCraft: measureAtlasCraft(baseline),
+        beforeCraft: measureAtlasCraft(oldPlanned),
         afterCraft: measureAtlasCraft(afterAtlas),
         craftStatus: { before: "valid", planned: plannedCraftValid && plannedStructurallyValid ? "valid" : "rejected" },
         correctionAccepted: false,
@@ -277,10 +304,16 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       const right = extractRenderedHeadView(afterViews.find((view) => view.name === "front_right_three_quarter")!);
       await writeIdentityEvaluationArtifacts(LIVE_ARTIFACT_DIR, source.id, {
         sourceFace,
-        packedHeadBefore: extractRenderedHeadView(baselineViews[0]),
+        sourceHead,
+        packedHeadBefore: extractRenderedHeadView(oldViews[0]),
         facePixelPlan: skinPlan.facePixelPlan,
-        candidateA: buildHeadViewMontage(baselineViews),
+        oldFacePixelPlan: oldSkinPlan.facePixelPlan,
+        candidateA: buildHeadViewMontage(oldViews),
         candidateB: buildHeadViewMontage(plannedViews),
+        candidateC: (() => {
+          const variant = buildFacePixelPlanVariants(renderAnalysis, 3)[1];
+          return variant ? buildHeadViewMontage(renderSkinViews(createFacePlanAtlasCandidate(baseline, variant, faceStyle))) : undefined;
+        })(),
         finalHeadFront: front,
         finalHeadLeft: left,
         finalHeadRight: right,
@@ -291,7 +324,13 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       summaries.push(metrics);
     }
     await mkdir(LIVE_ARTIFACT_DIR, { recursive: true });
-    await writeFile(join(LIVE_ARTIFACT_DIR, "procedural-identity-summary.json"), JSON.stringify(summaries, null, 2), "utf8");
+    await writeFile(join(LIVE_ARTIFACT_DIR, "procedural-identity-summary.json"), JSON.stringify({
+      cases: summaries,
+      planConvergence: {
+        semanticFallback: measureFacePlanConvergence(semanticPlans),
+        normalizedGeometry: measureFacePlanConvergence(geometryPlans),
+      },
+    }, null, 2), "utf8");
     expect(summaries).toHaveLength(selectedCases.length);
   }, 900_000);
 });

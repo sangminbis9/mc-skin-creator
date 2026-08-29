@@ -1787,6 +1787,16 @@ function applyFacePixelPlan(
     atlas.rgba[offset + 2] = color[2];
     atlas.rgba[offset + 3] = 255;
   }
+  const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
+  const glassesColor = faceRoleColor("glasses", hairColor, skinColor, style);
+  for (const point of plan.layout.glassesMask) {
+    if (!Number.isInteger(point.x) || !Number.isInteger(point.y) || point.x < 0 || point.x >= 8 || point.y < 0 || point.y >= 8) continue;
+    const offset = ((faceOverlay.y + point.y) * ATLAS_SIZE + faceOverlay.x + point.x) * 4;
+    atlas.rgba[offset] = glassesColor[0];
+    atlas.rgba[offset + 1] = glassesColor[1];
+    atlas.rgba[offset + 2] = glassesColor[2];
+    atlas.rgba[offset + 3] = 255;
+  }
 }
 
 /** Build a bounded candidate by changing only head.base.front landmarks. */
@@ -9218,6 +9228,12 @@ export function packFrontViewToAtlas(
   // eyes whose anchors sit close to the head overlay's vertical seams.
   if (!preservedGeneratedFace && faceStyle.glasses === "none") {
     preserveFaceReadability(atlas, faceStyle, hairColor);
+  }
+  // resetPortraitFaceOverlay and the generic hair/glasses passes run after
+  // the initial face plan. Reassert the measured landmarks last so normalized
+  // frame footprints and facial coordinates survive the production pack path.
+  if (!preservedGeneratedFace && options.facePixelPlan) {
+    applyFacePixelPlan(atlas, options.facePixelPlan, hairColor, skinColor, faceStyle);
   }
   if (preservedFacePixels) {
     // No later craft/shading/seam pass may repaint source identity evidence.
