@@ -5,6 +5,16 @@ import type { IdentityGeometryAnalysis } from "../src/identityGeometry";
 import type { RawImage } from "../src/png";
 import { ATLAS_SIZE, BASE_RECTS, OVERLAY_RECTS } from "../src/uvLayout";
 
+export const CLEAR_IDENTITY_DIAGNOSIS = {
+  identityDiagnosis: {
+    samePersonReadability: "clear",
+    strongestPreservedCues: ["fringe", "glasses", "smile"],
+    strongestLostCues: [],
+    genericization: "none",
+    confidence: 0.9,
+  },
+} as const;
+
 export function makeAnalysis(
   overrides: Partial<PhotoAnalysis> = {},
 ): PhotoAnalysis {

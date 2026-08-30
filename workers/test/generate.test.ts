@@ -25,6 +25,7 @@ import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
 import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 import {
+  CLEAR_IDENTITY_DIAGNOSIS,
   makeAnalysis,
   makeFourViewSheet,
   makeFrontBackView,
@@ -350,6 +351,7 @@ describe("generateSkin", () => {
                             outfitScore: 84,
                             consistencyScore: 91,
                             layerScore: 76,
+                            ...CLEAR_IDENTITY_DIAGNOSIS,
                             p5IdentityChecks: P5_PRESENT,
                             defects: [],
                           }
@@ -3431,6 +3433,7 @@ describe("generateSkin", () => {
       outfitScore: 8,
       consistencyScore: 4,
       layerScore: 8,
+      ...CLEAR_IDENTITY_DIAGNOSIS,
       p5IdentityChecks: P5_PRESENT,
       defects: [
         {
@@ -3449,6 +3452,7 @@ describe("generateSkin", () => {
       outfitScore: 82,
       consistencyScore: 84,
       layerScore: 78,
+      ...CLEAR_IDENTITY_DIAGNOSIS,
       p5IdentityChecks: P5_PRESENT,
       defects: [],
     };
@@ -3917,6 +3921,7 @@ describe("generateSkin", () => {
       outfitScore: 82,
       consistencyScore: 80,
       layerScore: 72,
+      ...CLEAR_IDENTITY_DIAGNOSIS,
       p5IdentityChecks: P5_PRESENT,
       defects: [
         {
@@ -3935,6 +3940,7 @@ describe("generateSkin", () => {
       outfitScore: 84,
       consistencyScore: 86,
       layerScore: 76,
+      ...CLEAR_IDENTITY_DIAGNOSIS,
       p5IdentityChecks: P5_PRESENT,
       defects: [],
     };
@@ -4009,6 +4015,7 @@ describe("generateSkin", () => {
         outfitScore: 82,
         consistencyScore: 84,
         layerScore: 72,
+        ...CLEAR_IDENTITY_DIAGNOSIS,
         p5IdentityChecks: P5_PRESENT,
         defects: [
           {
@@ -4095,6 +4102,7 @@ describe("generateSkin", () => {
       outfitScore: 82,
       consistencyScore: 80,
       layerScore: 68,
+      ...CLEAR_IDENTITY_DIAGNOSIS,
       p5IdentityChecks: P5_PRESENT,
       defects: [
         {
@@ -4154,6 +4162,7 @@ describe("generateSkin", () => {
         outfitScore: 99,
         consistencyScore: 99,
         layerScore: 99,
+        ...CLEAR_IDENTITY_DIAGNOSIS,
         p5IdentityChecks: [
           { ...P5_PRESENT[0], status: "wrong", evidence: "the fringe is on the wrong side" },
           P5_PRESENT[1],

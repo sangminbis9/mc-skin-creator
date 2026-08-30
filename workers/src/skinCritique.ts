@@ -25,12 +25,21 @@ export interface SkinCritiqueDefect {
   correction: string;
 }
 
+export interface IdentityDiagnosis {
+  samePersonReadability: "clear" | "probable" | "ambiguous" | "weak";
+  strongestPreservedCues: string[];
+  strongestLostCues: string[];
+  genericization: "none" | "minor" | "moderate" | "severe";
+  confidence: number;
+}
+
 export interface SkinCritique {
   identityScore: number;
   faceHairScore: number;
   outfitScore: number;
   consistencyScore: number;
   layerScore: number;
+  identityDiagnosis: IdentityDiagnosis;
   p5IdentityChecks: Array<{
     feature: string;
     status: "present" | "weak" | "missing" | "wrong";
@@ -54,6 +63,7 @@ export type SkinCritiqueResult =
       critique: SkinCritique;
       approved: boolean;
       correctionPrompt: string;
+      calibrationConflicts: string[];
       neuronsSpent: number;
     }
   | {
@@ -72,6 +82,38 @@ export const SKIN_CRITIQUE_SCHEMA = {
     outfitScore: { type: "integer", minimum: 0, maximum: 100 },
     consistencyScore: { type: "integer", minimum: 0, maximum: 100 },
     layerScore: { type: "integer", minimum: 0, maximum: 100 },
+    identityDiagnosis: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        samePersonReadability: {
+          type: "string",
+          enum: ["clear", "probable", "ambiguous", "weak"],
+        },
+        strongestPreservedCues: {
+          type: "array",
+          maxItems: 8,
+          items: { type: "string" },
+        },
+        strongestLostCues: {
+          type: "array",
+          maxItems: 8,
+          items: { type: "string" },
+        },
+        genericization: {
+          type: "string",
+          enum: ["none", "minor", "moderate", "severe"],
+        },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+      },
+      required: [
+        "samePersonReadability",
+        "strongestPreservedCues",
+        "strongestLostCues",
+        "genericization",
+        "confidence",
+      ],
+    },
     p5IdentityChecks: {
       type: "array",
       maxItems: 8,
@@ -131,6 +173,7 @@ export const SKIN_CRITIQUE_SCHEMA = {
     "outfitScore",
     "consistencyScore",
     "layerScore",
+    "identityDiagnosis",
     "p5IdentityChecks",
     "defects",
   ],
@@ -168,6 +211,38 @@ export function parseSkinCritique(raw: Record<string, unknown>): SkinCritique | 
     layerScore: score("layerScore"),
   };
   if (Object.values(scores).some((value) => value === null)) return null;
+  if (
+    typeof raw.identityDiagnosis !== "object" ||
+    raw.identityDiagnosis === null ||
+    Array.isArray(raw.identityDiagnosis)
+  ) return null;
+  const diagnosis = raw.identityDiagnosis as Record<string, unknown>;
+  if (
+    !["clear", "probable", "ambiguous", "weak"].includes(
+      String(diagnosis.samePersonReadability),
+    ) ||
+    !Array.isArray(diagnosis.strongestPreservedCues) ||
+    !Array.isArray(diagnosis.strongestLostCues) ||
+    !["none", "minor", "moderate", "severe"].includes(
+      String(diagnosis.genericization),
+    ) ||
+    typeof diagnosis.confidence !== "number" ||
+    !Number.isFinite(diagnosis.confidence) ||
+    diagnosis.confidence < 0 ||
+    diagnosis.confidence > 1
+  ) return null;
+  const identityDiagnosis: IdentityDiagnosis = {
+    samePersonReadability:
+      diagnosis.samePersonReadability as IdentityDiagnosis["samePersonReadability"],
+    strongestPreservedCues: diagnosis.strongestPreservedCues
+      .filter((cue): cue is string => typeof cue === "string")
+      .slice(0, 8),
+    strongestLostCues: diagnosis.strongestLostCues
+      .filter((cue): cue is string => typeof cue === "string")
+      .slice(0, 8),
+    genericization: diagnosis.genericization as IdentityDiagnosis["genericization"],
+    confidence: diagnosis.confidence,
+  };
   if (!Array.isArray(raw.p5IdentityChecks)) return null;
   const p5IdentityChecks: SkinCritique["p5IdentityChecks"] = [];
   for (const value of raw.p5IdentityChecks.slice(0, 8)) {
@@ -235,9 +310,70 @@ export function parseSkinCritique(raw: Record<string, unknown>): SkinCritique | 
     outfitScore: scores.outfitScore! * scale,
     consistencyScore: scores.consistencyScore! * scale,
     layerScore: scores.layerScore! * scale,
+    identityDiagnosis,
     p5IdentityChecks,
     defects,
   };
+}
+
+/**
+ * Finds evidence/score contradictions without changing a score or bypassing
+ * the strict release gate. These diagnostics make evaluator failure distinct
+ * from renderer failure.
+ */
+export function findIdentityDiagnosisConflicts(
+  analysis: PhotoAnalysis,
+  critique: SkinCritique,
+): string[] {
+  const conflicts: string[] = [];
+  const diagnosis = critique.identityDiagnosis;
+  const failedP5 = findCriticalIdentityMisses(analysis, critique);
+  const p5Features = analysis.canonicalIdentity.features.filter(
+    (feature) => feature.priority === 5,
+  );
+  const allP5Present =
+    p5Features.length > 0 &&
+    failedP5.length === 0 &&
+    critique.p5IdentityChecks
+      .filter((check) =>
+        p5Features.some(
+          (feature) => normalizeIdentityText(feature.feature) === normalizeIdentityText(check.feature),
+        ),
+      )
+      .every((check) => check.status === "present");
+
+  if (
+    diagnosis.samePersonReadability === "clear" &&
+    diagnosis.genericization === "none" &&
+    allP5Present &&
+    critique.identityScore < SKIN_RELEASE_THRESHOLDS.identityScore
+  ) {
+    conflicts.push("clear same-person diagnosis with no genericization and all P5 cues present scored below 88");
+  }
+  if (
+    (diagnosis.samePersonReadability === "ambiguous" ||
+      diagnosis.samePersonReadability === "weak") &&
+    critique.identityScore >= SKIN_RELEASE_THRESHOLDS.identityScore
+  ) {
+    conflicts.push("ambiguous or weak same-person diagnosis scored at or above 88");
+  }
+  if (
+    (diagnosis.genericization === "moderate" || diagnosis.genericization === "severe") &&
+    critique.identityScore >= SKIN_RELEASE_THRESHOLDS.identityScore
+  ) {
+    conflicts.push("moderate or severe genericization scored at or above 88");
+  }
+  if (
+    diagnosis.samePersonReadability === "clear" &&
+    (diagnosis.genericization === "moderate" || diagnosis.genericization === "severe")
+  ) {
+    conflicts.push("clear same-person readability contradicts moderate or severe genericization");
+  }
+  return conflicts;
+}
+
+function normalizeIdentityText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 export function evaluateSkinReleaseGate(
@@ -280,12 +416,11 @@ export function findCriticalIdentityMisses(
   analysis: PhotoAnalysis,
   critique: SkinCritique,
 ): Array<{ feature: string; status: "missing" | "wrong" }> {
-  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
   return analysis.canonicalIdentity.features
     .filter((feature) => feature.priority === 5)
     .flatMap((feature) => {
       const check = critique.p5IdentityChecks.find(
-        (item) => normalize(item.feature) === normalize(feature.feature),
+        (item) => normalizeIdentityText(item.feature) === normalizeIdentityText(feature.feature),
       );
       if (!check) return [{ feature: feature.feature, status: "missing" as const }];
       return check.status === "missing" || check.status === "wrong"
@@ -370,7 +505,7 @@ Identity calibration anchors for a standard 8x8 Minecraft head:
 - below 80: important identity cues are lost, wrong, or substantially genericized.
 These are calibration anchors, not a request to pass the candidate. P5 presence is necessary but never sufficient for a high identity score. Do not penalize photographic micro-detail that no standard 8x8 head can encode. Use any integer justified by the evidence; do not snap scores to multiples of five.
 
-Score identity and face/hair against the photos, outfit fidelity, cross-view physical consistency, and meaningful second-layer depth. Every score MUST be an integer on a 0-100 scale, never a 0-10 scale. For EVERY P5 cue, emit one p5IdentityChecks entry using the exact feature text and classify it present, weak, missing, or wrong. Missing or wrong P5 cues are hard failures regardless of aggregate score. Penalize generic faces, wrong fringe/part/silhouette, missing accessories, incorrect color blocks, repeated or mirrored views, disconnected seams, hollow shells, random noise and blank surfaces. Report only visible, actionable defects that are achievable within the standard Minecraft skin format. targetRegions must use Minecraft regions such as head.front, head.overlay, torso.front, torso.back, arm.left, arm.right, leg.left or leg.right. Keep corrections narrow and preserve already-correct features.`;
+Score identity and face/hair against the photos, outfit fidelity, cross-view physical consistency, and meaningful second-layer depth. Every score MUST be an integer on a 0-100 scale, never a 0-10 scale. For EVERY P5 cue, emit one p5IdentityChecks entry using the exact feature text and classify it present, weak, missing, or wrong. Missing or wrong P5 cues are hard failures regardless of aggregate score. Separately emit identityDiagnosis as an explanation of the visual evidence: samePersonReadability, the strongest preserved and lost cues, genericization, and confidence from 0 to 1. The diagnosis explains the score but is not a formula for calculating it. Penalize generic faces, wrong fringe/part/silhouette, missing accessories, incorrect color blocks, repeated or mirrored views, disconnected seams, hollow shells, random noise and blank surfaces. Report only visible, actionable defects that are achievable within the standard Minecraft skin format. targetRegions must use Minecraft regions such as head.front, head.overlay, torso.front, torso.back, arm.left, arm.right, leg.left or leg.right. Keep corrections narrow and preserve already-correct features.`;
   const models = [
     env.VISION_MODEL?.trim() || "gemini-3.6-flash",
     env.VISION_FALLBACK_MODEL?.trim(),
@@ -416,8 +551,8 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
         lastError = new Error(`${model}: invalid critique response`);
         continue;
       }
-      const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
       const { approved, failedP5 } = evaluateSkinReleaseGate(analysis, critique);
+      const calibrationConflicts = findIdentityDiagnosisConflicts(analysis, critique);
       const defectCorrections = critique.defects
         .filter((defect) => isActionableCritiqueDefect(critique, defect))
         .slice(0, 4)
@@ -428,8 +563,8 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
         .join("; ");
       const p5Corrections = failedP5
         .map((miss) => {
-          const feature = analysis.canonicalIdentity.features.find((item) => item.priority === 5 && normalize(item.feature) === normalize(miss.feature))!;
-          const check = critique.p5IdentityChecks.find((item) => normalize(item.feature) === normalize(feature.feature));
+          const feature = analysis.canonicalIdentity.features.find((item) => item.priority === 5 && normalizeIdentityText(item.feature) === normalizeIdentityText(miss.feature))!;
+          const check = critique.p5IdentityChecks.find((item) => normalizeIdentityText(item.feature) === normalizeIdentityText(feature.feature));
           return `${feature.targetRegions.join("+")}: restore hard-constraint P5 cue '${feature.feature}' (${check?.evidence || "review did not verify the cue"})`;
         })
         .join("; ");
@@ -439,6 +574,7 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
         critique,
         approved,
         correctionPrompt,
+        calibrationConflicts,
         neuronsSpent,
       };
     } catch (error) {

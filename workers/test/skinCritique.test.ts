@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runSkinCritique } from "../src/skinCritique";
 import type { Env } from "../src/types";
-import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
+import {
+  CLEAR_IDENTITY_DIAGNOSIS,
+  makeAnalysis,
+  makeSyntheticAtlas,
+} from "./helpers";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -39,6 +43,11 @@ describe("Gemini rendered-skin critique", () => {
         expect(prompt).toContain("88-94: clearly the same person at first glance");
         expect(prompt).toContain("Outfit, body, continuity, and outer-layer issues belong only in their named scores");
         expect(prompt).toContain("P5 presence is necessary but never sufficient");
+        expect(prompt).toContain("Separately emit identityDiagnosis");
+        expect(prompt).not.toContain("candidateCost");
+        expect(prompt).not.toContain("expected winner");
+        expect(prompt).not.toContain("A-current");
+        expect(prompt).not.toContain("C-degraded");
         expect(prompt).toContain("Machine-measured atlas facts");
         expect(prompt).toContain("head outer layer:");
         expect(prompt).toContain("opaque RGB colors");
@@ -59,6 +68,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 84,
                       consistencyScore: 91,
                       layerScore: 76,
+                      ...CLEAR_IDENTITY_DIAGNOSIS,
                       p5IdentityChecks: P5_PRESENT,
                       defects: [],
                     }),
@@ -100,6 +110,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 84,
                       consistencyScore: 91,
                       layerScore: 76,
+                      ...CLEAR_IDENTITY_DIAGNOSIS,
                       p5IdentityChecks: P5_PRESENT,
                       defects: [],
                     }),
@@ -131,6 +142,7 @@ describe("Gemini rendered-skin critique", () => {
             outfitScore: 99,
             consistencyScore: 99,
             layerScore: 99,
+            ...CLEAR_IDENTITY_DIAGNOSIS,
             p5IdentityChecks: [
               { ...P5_PRESENT[0], status: "wrong", evidence: "the fringe opens on the opposite side" },
               P5_PRESENT[1],
@@ -163,6 +175,7 @@ describe("Gemini rendered-skin critique", () => {
         outfitScore: 84,
         consistencyScore: 91,
         layerScore: 76,
+        ...CLEAR_IDENTITY_DIAGNOSIS,
         p5IdentityChecks: P5_PRESENT,
         defects: [],
       }) }] } }] });
@@ -217,6 +230,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 84,
                       consistencyScore: 91,
                       layerScore: 76,
+                      ...CLEAR_IDENTITY_DIAGNOSIS,
                       p5IdentityChecks: P5_PRESENT,
                       defects: [],
                     }),
@@ -260,6 +274,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 82,
                       consistencyScore: 80,
                       layerScore: 72,
+                      ...CLEAR_IDENTITY_DIAGNOSIS,
                       p5IdentityChecks: P5_PRESENT,
                       defects: [
                         {
@@ -308,6 +323,7 @@ describe("Gemini rendered-skin critique", () => {
                       outfitScore: 8,
                       consistencyScore: 4,
                       layerScore: 8,
+                      ...CLEAR_IDENTITY_DIAGNOSIS,
                       p5IdentityChecks: P5_PRESENT,
                       defects: [
                         {
@@ -373,6 +389,7 @@ describe("Gemini rendered-skin critique", () => {
                     outfitScore: 84,
                     consistencyScore: 91,
                     layerScore: 76,
+                    ...CLEAR_IDENTITY_DIAGNOSIS,
                     p5IdentityChecks: P5_PRESENT,
                     defects: [],
                   }),

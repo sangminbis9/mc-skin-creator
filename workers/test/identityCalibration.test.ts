@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assessIdentitySensitivity,
+  assessEvaluatorHealth,
   buildIdentityCalibrationAtlases,
   buildScoreHistogram,
   summarizeIdentityScores,
@@ -79,9 +80,44 @@ describe("absolute identity evaluator calibration", () => {
       { level: "A_identical", absolute: { identityScore: 91, faceHairScore: 90 }, pairwise: { winner: "tie", confidence: 0.9 } },
       { level: "B_minor", absolute: { identityScore: 90, faceHairScore: 90 } },
       { level: "C_degraded", absolute: { identityScore: 80, faceHairScore: 78 }, pairwise: { winner: "A", confidence: 0.85 } },
-      { level: "D_generic", absolute: { identityScore: 62, faceHairScore: 68 } },
+      { level: "D_generic", absolute: { identityScore: 62, faceHairScore: 68 }, pairwise: { winner: "A", confidence: 0.9 } },
       { level: "E_improved", pairwise: { winner: "B", confidence: 0.8 } },
     ])).toEqual([]);
+  });
+
+  it("classifies evaluator health without bypassing the release gate", () => {
+    const observations = [
+      { level: "A_identical" as const, absolute: { identityScore: 91, faceHairScore: 90 } },
+      { level: "B_minor" as const, absolute: { identityScore: 90, faceHairScore: 90 } },
+      { level: "C_degraded" as const, absolute: { identityScore: 80, faceHairScore: 78 }, pairwise: { winner: "A" as const, confidence: 0.9 } },
+      { level: "D_generic" as const, absolute: { identityScore: 62, faceHairScore: 68 }, pairwise: { winner: "A" as const, confidence: 0.9 } },
+    ];
+    expect(assessEvaluatorHealth({
+      observations,
+      diagnosisConflictCount: 0,
+      completedPairwiseComparisons: 4,
+      requiredPairwiseComparisons: 4,
+      liveCallFailures: 0,
+      orderBiasDetected: false,
+    })).toMatchObject({ status: "healthy", reasons: [] });
+
+    expect(assessEvaluatorHealth({
+      observations,
+      diagnosisConflictCount: 1,
+      completedPairwiseComparisons: 4,
+      requiredPairwiseComparisons: 4,
+      liveCallFailures: 0,
+      orderBiasDetected: false,
+    })).toMatchObject({ status: "degraded" });
+
+    expect(assessEvaluatorHealth({
+      observations: observations.slice(0, 3),
+      diagnosisConflictCount: 0,
+      completedPairwiseComparisons: 2,
+      requiredPairwiseComparisons: 4,
+      liveCallFailures: 0,
+      orderBiasDetected: false,
+    })).toMatchObject({ status: "unknown" });
   });
 });
 

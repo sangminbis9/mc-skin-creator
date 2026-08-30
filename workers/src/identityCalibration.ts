@@ -232,7 +232,63 @@ export function validateCalibrationBenchmark(
   if (degraded?.absolute && current && degraded.absolute.identityScore >= current.identityScore) failures.push("degraded identity did not reduce absolute identity");
   const generic = byLevel.get("D_generic")?.absolute;
   if (generic && degraded?.absolute && generic.identityScore > degraded.absolute.identityScore) failures.push("generic face scored above the targeted degradation");
+  const genericPairwise = byLevel.get("D_generic")?.pairwise;
+  if (genericPairwise && genericPairwise.winner !== "A") failures.push("current candidate did not beat generic candidate");
   const improved = byLevel.get("E_improved")?.pairwise;
   if (improved && improved.winner !== "B") failures.push("source-informed improvement did not win");
   return failures;
+}
+
+export type EvaluatorHealthStatus = "healthy" | "degraded" | "unknown";
+
+export interface EvaluatorHealthInput {
+  observations: CalibrationBenchmarkObservation[];
+  diagnosisConflictCount: number;
+  completedPairwiseComparisons: number;
+  requiredPairwiseComparisons: number;
+  liveCallFailures: number;
+  orderBiasDetected: boolean;
+}
+
+export interface EvaluatorHealth {
+  status: EvaluatorHealthStatus;
+  reasons: string[];
+  benchmarkFailures: string[];
+}
+
+/** Diagnostic only. This result must never bypass or relax the release gate. */
+export function assessEvaluatorHealth(input: EvaluatorHealthInput): EvaluatorHealth {
+  const absoluteLevels = new Set(
+    input.observations
+      .filter((observation) => observation.absolute)
+      .map((observation) => observation.level),
+  );
+  const benchmarkFailures = validateCalibrationBenchmark(input.observations);
+  const incomplete =
+    !(["A_identical", "B_minor", "C_degraded", "D_generic"] as const)
+      .every((level) => absoluteLevels.has(level)) ||
+    input.completedPairwiseComparisons < input.requiredPairwiseComparisons;
+  if (incomplete) {
+    return {
+      status: "unknown",
+      reasons: ["required controlled calibration observations are incomplete"],
+      benchmarkFailures,
+    };
+  }
+
+  const reasons = [
+    ...benchmarkFailures,
+    ...(input.diagnosisConflictCount > 0
+      ? [`${input.diagnosisConflictCount} score/diagnosis conflict(s)`]
+      : []),
+    ...(input.liveCallFailures > 0
+      ? [`${input.liveCallFailures} live evaluator call(s) failed`]
+      : []),
+    ...(input.orderBiasDetected ? ["pairwise order bias detected"] : []),
+  ];
+  return {
+    status: reasons.length === 0 ? "healthy" : "degraded",
+    reasons,
+    benchmarkFailures,
+  };
 }
