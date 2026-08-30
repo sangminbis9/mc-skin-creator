@@ -108,6 +108,28 @@ describe("deterministic skin renderer", () => {
     expect(centerBodyPixel("right")).toEqual([194, 194, 18, 255]);
   });
 
+  it("projects torso outer-layer texels on the expanded cube instead of the base surface", () => {
+    const rgba = new Uint8Array(64 * 64 * 4);
+    for (const face of Object.values(CLASSIC_LAYOUT.body.base)) fillRect(rgba, face, [70, 70, 76, 255]);
+    const front = CLASSIC_LAYOUT.body.overlay.front;
+    for (let y = 0; y < front.h; y++) {
+      rgba.set([220, 30, 40, 255], ((front.y + y) * 64 + front.x) * 4);
+      rgba.set([220, 30, 40, 255], ((front.y + y) * 64 + front.x + front.w - 1) * 4);
+    }
+    const rendered = renderSkinViews({ width: 64, height: 64, rgba })[0].image;
+    const redXs: number[] = [];
+    const grayXs: number[] = [];
+    for (let y = 35; y < 75; y++) for (let x = 0; x < rendered.width; x++) {
+      const offset = (y * rendered.width + x) * 4;
+      if (rendered.rgba[offset] > 150 && rendered.rgba[offset + 1] < 60) redXs.push(x);
+      if (rendered.rgba[offset] >= 60 && rendered.rgba[offset] < 100 && rendered.rgba[offset + 1] >= 60) grayXs.push(x);
+    }
+    expect(redXs.length).toBeGreaterThan(0);
+    expect(grayXs.length).toBeGreaterThan(0);
+    expect(Math.min(...redXs)).toBeLessThan(Math.min(...grayXs));
+    expect(Math.max(...redXs)).toBeGreaterThan(Math.max(...grayXs));
+  });
+
   it("renders converted Java slim skins with true 3px arm geometry and UVs", () => {
     const classic = new Uint8Array(64 * 64 * 4);
     const rightFront: [number, number, number, number] = [220, 30, 40, 255];

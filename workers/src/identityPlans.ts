@@ -555,19 +555,47 @@ function buildHeadMaskPlan(
     }
     const maximumSideWidth = covering ? 8 : 5;
     const sideScale = covering ? 7 : 3;
+    const hairPriority = analysis.canonicalIdentity.features
+      .filter((feature) => feature.category === "hair" || feature.category === "silhouette")
+      .reduce((maximum, feature) => Math.max(maximum, feature.priority), 1);
+    // Error diffusion preserves the average of sub-pixel contour measurements
+    // across connected rows. High-priority identity hair gets the full residual;
+    // lower-priority hair stays closer to ordinary nearest-cell rounding.
+    const quantizeConnectedWidths = (raw: number[]): number[] => {
+      let residual = 0;
+      const residualWeight = hairPriority / 5;
+      return raw.map((value) => {
+        if (value <= 0) return 0;
+        const bounded = Math.max(1, Math.min(maximumSideWidth, value));
+        const adjusted = bounded + residual * residualWeight;
+        const quantized = Math.max(1, Math.min(maximumSideWidth, Math.round(adjusted)));
+        residual = adjusted - quantized;
+        return quantized;
+      });
+    };
+    const rawLeftWidths = Array(8).fill(0) as number[];
+    const rawRightWidths = Array(8).fill(0) as number[];
     for (let y = crownRow; y <= endpointLeft; y++) {
-      const earTaper = y >= endpointLeft - 1 ? Math.round(geometry.earExposureLeft * 2) : 0;
-      const contourWidth = Math.round((0.5 - leftContour[y]) * 5);
-      const contourDelta = Math.round((leftContour[Math.max(crownRow, y - 1)] - leftContour[y]) * 8);
-      const width = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeLeft * sideScale) + contourWidth + contourDelta - earTaper));
+      const earTaper = y >= endpointLeft - 1 ? geometry.earExposureLeft * 2 : 0;
+      const contourWidth = (0.5 - leftContour[y]) * 5;
+      const contourDelta = (leftContour[Math.max(crownRow, y - 1)] - leftContour[y]) * 8;
+      rawLeftWidths[y] = 1 + geometry.sideVolumeLeft * sideScale + contourWidth + contourDelta - earTaper;
+    }
+    for (let y = crownRow; y <= endpointRight; y++) {
+      const earTaper = y >= endpointRight - 1 ? geometry.earExposureRight * 2 : 0;
+      const contourWidth = (rightContour[y] - 0.5) * 5;
+      const contourDelta = (rightContour[y] - rightContour[Math.max(crownRow, y - 1)]) * 8;
+      rawRightWidths[y] = 1 + geometry.sideVolumeRight * sideScale + contourWidth + contourDelta - earTaper;
+    }
+    const quantizedLeftWidths = quantizeConnectedWidths(rawLeftWidths);
+    const quantizedRightWidths = quantizeConnectedWidths(rawRightWidths);
+    for (let y = crownRow; y <= endpointLeft; y++) {
+      const width = quantizedLeftWidths[y];
       widthByRow.left[y] = width;
       for (let x = 0; x < width; x++) add("left", x, y, role);
     }
     for (let y = crownRow; y <= endpointRight; y++) {
-      const earTaper = y >= endpointRight - 1 ? Math.round(geometry.earExposureRight * 2) : 0;
-      const contourWidth = Math.round((rightContour[y] - 0.5) * 5);
-      const contourDelta = Math.round((rightContour[y] - rightContour[Math.max(crownRow, y - 1)]) * 8);
-      const width = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeRight * sideScale) + contourWidth + contourDelta - earTaper));
+      const width = quantizedRightWidths[y];
       widthByRow.right[y] = width;
       for (let x = 8 - width; x < 8; x++) add("right", x, y, role);
     }

@@ -6,6 +6,7 @@ import {
   HEAD_CANDIDATE_REPLACEMENT_CONFIDENCE,
   measureHeadCandidateStructure,
   buildIdentityDimensionWeights,
+  HEAD_PAIRWISE_BLIND_RULES,
   type HeadCandidate,
   type HeadPairwiseReview,
 } from "../src/headIdentity";
@@ -52,6 +53,14 @@ function review(overrides: Partial<HeadPairwiseReview> = {}): HeadPairwiseReview
 }
 
 describe("head identity candidate selection", () => {
+  it("keeps pairwise evaluation blind to chronology, cost, contracts, and expected winner", () => {
+    expect(HEAD_PAIRWISE_BLIND_RULES).toContain("Neither A nor B communicates chronology");
+    expect(HEAD_PAIRWISE_BLIND_RULES).toContain("candidate cost");
+    expect(HEAD_PAIRWISE_BLIND_RULES).toContain("contract status");
+    expect(HEAD_PAIRWISE_BLIND_RULES).toContain("expected winner");
+    expect(HEAD_PAIRWISE_BLIND_RULES).not.toContain("before(A)");
+    expect(HEAD_PAIRWISE_BLIND_RULES).not.toContain("after(B)");
+  });
   it("parses the bounded pairwise schema", () => {
     const parsed = parseHeadPairwiseReview({
       winner: "B",

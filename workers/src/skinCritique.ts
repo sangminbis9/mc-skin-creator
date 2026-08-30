@@ -40,6 +40,14 @@ export interface SkinCritique {
   defects: SkinCritiqueDefect[];
 }
 
+export const SKIN_RELEASE_THRESHOLDS = {
+  identityScore: 88,
+  faceHairScore: 85,
+  outfitScore: 78,
+  consistencyScore: 82,
+  layerScore: 70,
+} as const;
+
 export type SkinCritiqueResult =
   | {
       ok: true;
@@ -145,7 +153,7 @@ function extractPayload(result: unknown): Record<string, unknown> | null {
   }
 }
 
-function validateCritique(raw: Record<string, unknown>): SkinCritique | null {
+export function parseSkinCritique(raw: Record<string, unknown>): SkinCritique | null {
   const score = (key: keyof SkinCritique): number | null => {
     const value = raw[key];
     return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 100
@@ -229,6 +237,26 @@ function validateCritique(raw: Record<string, unknown>): SkinCritique | null {
     layerScore: scores.layerScore! * scale,
     p5IdentityChecks,
     defects,
+  };
+}
+
+export function evaluateSkinReleaseGate(
+  analysis: PhotoAnalysis,
+  critique: SkinCritique,
+): { approved: boolean; critical: boolean; failedP5: ReturnType<typeof findCriticalIdentityMisses> } {
+  const critical = critique.defects.some((defect) => defect.severity === "critical");
+  const failedP5 = findCriticalIdentityMisses(analysis, critique);
+  return {
+    approved:
+      !critical &&
+      failedP5.length === 0 &&
+      critique.identityScore >= SKIN_RELEASE_THRESHOLDS.identityScore &&
+      critique.faceHairScore >= SKIN_RELEASE_THRESHOLDS.faceHairScore &&
+      critique.outfitScore >= SKIN_RELEASE_THRESHOLDS.outfitScore &&
+      critique.consistencyScore >= SKIN_RELEASE_THRESHOLDS.consistencyScore &&
+      critique.layerScore >= SKIN_RELEASE_THRESHOLDS.layerScore,
+    critical,
+    failedP5,
   };
 }
 
@@ -333,6 +361,15 @@ Minecraft constraint calibration:
 - The overlay is expanded by only 0.35 Minecraft texture pixels in these renders. Use the enlarged head and upper-body rows to distinguish it from the base before claiming that the second layer is unused.
 - At an 8x12 torso, cable knit is represented by repeating alternating light/dark ribs or zigzags on base and overlay. Judge whether that readable construction exists; do not require photoreal woven cables.
 
+Score the five dimensions independently. identityScore is ONLY same-person first-impression resemblance from the head: silhouette, hairline/fringe, exposed face proportions, eye layout, mouth expression, and identity-defining accessories. faceHairScore is the fidelity and craft of the face/hair construction itself. Outfit, body, continuity, and outer-layer issues belong only in their named scores; do not subtract them from identityScore a second time.
+
+Identity calibration anchors for a standard 8x8 Minecraft head:
+- 95-100: exceptionally faithful Minecraft abstraction; nearly every expressible identity cue is specific and immediately readable.
+- 88-94: clearly the same person at first glance; distinctive expressible cues outweigh minor pixel-art omissions.
+- 80-87: major traits are present, but the head remains generic or ambiguous as that person.
+- below 80: important identity cues are lost, wrong, or substantially genericized.
+These are calibration anchors, not a request to pass the candidate. P5 presence is necessary but never sufficient for a high identity score. Do not penalize photographic micro-detail that no standard 8x8 head can encode. Use any integer justified by the evidence; do not snap scores to multiples of five.
+
 Score identity and face/hair against the photos, outfit fidelity, cross-view physical consistency, and meaningful second-layer depth. Every score MUST be an integer on a 0-100 scale, never a 0-10 scale. For EVERY P5 cue, emit one p5IdentityChecks entry using the exact feature text and classify it present, weak, missing, or wrong. Missing or wrong P5 cues are hard failures regardless of aggregate score. Penalize generic faces, wrong fringe/part/silhouette, missing accessories, incorrect color blocks, repeated or mirrored views, disconnected seams, hollow shells, random noise and blank surfaces. Report only visible, actionable defects that are achievable within the standard Minecraft skin format. targetRegions must use Minecraft regions such as head.front, head.overlay, torso.front, torso.back, arm.left, arm.right, leg.left or leg.right. Keep corrections narrow and preserve already-correct features.`;
   const models = [
     env.VISION_MODEL?.trim() || "gemini-3.6-flash",
@@ -374,24 +411,13 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
         NEURONS_VISION_DETAIL_ESTIMATE,
       );
       const payload = extractPayload(result);
-      const critique = payload ? validateCritique(payload) : null;
+      const critique = payload ? parseSkinCritique(payload) : null;
       if (!critique) {
         lastError = new Error(`${model}: invalid critique response`);
         continue;
       }
-      const critical = critique.defects.some(
-        (defect) => defect.severity === "critical",
-      );
       const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-      const failedP5 = findCriticalIdentityMisses(analysis, critique);
-      const approved =
-        !critical &&
-        failedP5.length === 0 &&
-        critique.identityScore >= 88 &&
-        critique.faceHairScore >= 85 &&
-        critique.outfitScore >= 78 &&
-        critique.consistencyScore >= 82 &&
-        critique.layerScore >= 70;
+      const { approved, failedP5 } = evaluateSkinReleaseGate(analysis, critique);
       const defectCorrections = critique.defects
         .filter((defect) => isActionableCritiqueDefect(critique, defect))
         .slice(0, 4)

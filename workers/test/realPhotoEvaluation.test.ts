@@ -31,6 +31,7 @@ import {
 import { runIdentityGeometryAnalysis } from "../src/identityGeometry";
 import { buildSkinPlan } from "../src/skinPlan";
 import { measureHeadCandidateStructure, runHeadPairwiseComparison, shouldAcceptIdentityCorrection } from "../src/headIdentity";
+import { findHairQuantizationCollisions, measureHairInformationFlow } from "../src/hairSilhouetteFidelity";
 import { decodeImage, decodePng, encodePng, type RawImage } from "../src/png";
 import { runSkinCritique } from "../src/skinCritique";
 import { measureAtlasCraft, validateAtlasCraft, validateFinalAtlas } from "../src/skinPost";
@@ -201,6 +202,11 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
     const summaries: Record<string, unknown>[] = [];
     const semanticPlans: FacePixelPlan[] = [];
     const geometryPlans: FacePixelPlan[] = [];
+    const hairSamples: Array<{
+      id: string;
+      plan: ReturnType<typeof buildSkinPlan>["hairPlan"];
+      facePlan: FacePixelPlan;
+    }> = [];
     for (const source of selectedCases) {
       const dataUrl = await fetchCommonsPhoto(source.file);
       const env = {
@@ -233,6 +239,7 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
       analysis = { ...analysis, identityGeometry: geometryResult.geometry };
       const renderAnalysis = normalizeAnalysisForRendering(analysis);
       const skinPlan = buildSkinPlan(renderAnalysis);
+      hairSamples.push({ id: source.id, plan: skinPlan.hairPlan, facePlan: skinPlan.facePixelPlan });
       semanticPlans.push(oldSkinPlan.facePixelPlan);
       geometryPlans.push(skinPlan.facePixelPlan);
       const features = refineFeatureColorsFromAnalysis(
@@ -334,6 +341,12 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
           partColumn: skinPlan.hairPlan.headMask.partColumn,
           earExposure: skinPlan.hairPlan.headMask.earExposure,
         },
+        hairInformationFlow: measureHairInformationFlow(
+          renderAnalysis,
+          skinPlan.hairPlan,
+          skinPlan.facePixelPlan,
+          planned,
+        ),
         deterministicQuantization: {
           old: oldSkinPlan.facePixelPlan.candidateCost,
           next: skinPlan.facePixelPlan.candidateCost,
@@ -390,6 +403,7 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         semanticFallback: measureFacePlanConvergence(semanticPlans),
         normalizedGeometry: measureFacePlanConvergence(geometryPlans),
       },
+      hairQuantizationCollisions: findHairQuantizationCollisions(hairSamples),
     }, null, 2), "utf8");
     expect(summaries).toHaveLength(selectedCases.length);
   }, 900_000);

@@ -252,7 +252,38 @@ export function buildHairStructurePlan(
   }
 
   const textureGroupIds: string[] = [];
-  const textureFaces: HeadMaskFace[] = ["left", "right", "back", "top"];
+  const silhouette = analysis.identityGeometry?.headSilhouette;
+  if (grammar === "curl_lobes") {
+    const leftPeak = silhouette
+      ? silhouette.leftContourByRow.reduce((best, value, row, values) => value < values[best] ? row : best, 1)
+      : 3;
+    const rightPeak = silhouette
+      ? silhouette.rightContourByRow.reduce((best, value, row, values) => value > values[best] ? row : best, 1)
+      : 3;
+    // The outer top mask deliberately keeps its centre transparent. Place the
+    // crown lobe on the source-heavier rim so it changes the visible outline,
+    // rather than inventing an interior highlight that cannot survive packing.
+    const crownX = silhouette
+      ? silhouette.sideVolumeLeft >= silhouette.sideVolumeRight ? 1 : 6
+      : phase % 2 === 0 ? 1 : 6;
+    const lowerY = clamp(Math.round((headMask.endpointRows.left + headMask.endpointRows.right) / 2) - 1, 2, 6);
+    const lobes: Array<{ id: string; face: HeadMaskFace; x: number; y: number; direction: HairDirection }> = [
+      { id: "curl-lobe-crown", face: "top", x: crownX, y: 2, direction: silhouette && silhouette.sideVolumeLeft >= silhouette.sideVolumeRight ? "outward_left" : "outward_right" },
+      { id: "curl-lobe-left", face: "left", x: 2, y: clamp(leftPeak, 1, 6), direction: "outward_left" },
+      { id: "curl-lobe-right", face: "right", x: 5, y: clamp(rightPeak, 1, 6), direction: "outward_right" },
+      { id: "curl-lobe-lower", face: "back", x: crownX <= 3 ? 2 : 5, y: lowerY, direction: "compact" },
+    ];
+    for (const [index, lobe] of lobes.entries()) {
+      const points = clippedPath(headMask, lobe.face, [
+        [lobe.x, lobe.y],
+        [clamp(lobe.x + (lobe.direction === "outward_left" ? -1 : 1), 1, 6), lobe.y],
+        [lobe.x, clamp(lobe.y + 1, 1, 6)],
+      ], index % 2 === 0 ? "light" : "shadow");
+      const id = addGroup({ id: lobe.id, kind: "curl_lobe", direction: lobe.direction, points });
+      if (id) textureGroupIds.push(id);
+    }
+  }
+  const textureFaces: HeadMaskFace[] = grammar === "curl_lobes" ? [] : ["left", "right", "back", "top"];
   for (const face of textureFaces) {
     const rows = headMask.faces[face];
     if (rows.length === 0) continue;
@@ -290,7 +321,7 @@ export function buildHairStructurePlan(
   }
 
   const crownIds: string[] = [];
-  for (const [index, startX] of [1 + (phase % 2), 6 - (phase % 2)].entries()) {
+  for (const [index, startX] of (grammar === "curl_lobes" ? [] : [1 + (phase % 2), 6 - (phase % 2)]).entries()) {
     const coordinates: Array<[number, number]> = [];
     for (let y = 0; y < 8; y++) {
       const x = clamp(startX + (index === 0 ? Math.floor(y / 4) : -Math.floor(y / 4)), 0, 7);

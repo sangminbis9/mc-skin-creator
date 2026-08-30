@@ -54,10 +54,35 @@ export interface HeadStructuralEvidence {
 }
 
 export const HEAD_CANDIDATE_REPLACEMENT_CONFIDENCE = 0.7;
+export const HEAD_PAIRWISE_BLIND_RULES = "Neither A nor B communicates chronology, candidate cost, contract status, structural pass/fail state, or an expected winner.";
 
 export type HeadPairwiseResult =
   | { ok: true; review: HeadPairwiseReview; neuronsSpent: number }
   | { ok: false; quotaExceeded: boolean; detail: string; neuronsSpent: number };
+
+export interface PairwiseOrderBiasAssessment {
+  forwardWinner: "first" | "second" | "tie";
+  reversedWinner: "first" | "second" | "tie";
+  consistent: boolean;
+  biasedTowardLabel: "A" | "B" | null;
+}
+
+export function assessPairwiseOrderBias(
+  forward: Pick<HeadPairwiseReview, "winner">,
+  reversed: Pick<HeadPairwiseReview, "winner">,
+): PairwiseOrderBiasAssessment {
+  const forwardWinner = forward.winner === "A" ? "first" : forward.winner === "B" ? "second" : "tie";
+  const reversedWinner = reversed.winner === "A" ? "second" : reversed.winner === "B" ? "first" : "tie";
+  const biasedTowardLabel = forward.winner === reversed.winner && forward.winner !== "tie"
+    ? forward.winner
+    : null;
+  return {
+    forwardWinner,
+    reversedWinner,
+    consistent: forwardWinner === reversedWinner,
+    biasedTowardLabel,
+  };
+}
 
 const dimensionSchema = {
   type: "object",
@@ -374,7 +399,7 @@ export async function runHeadPairwiseComparison(
   structuralA?: HeadStructuralEvidence,
   structuralB?: HeadStructuralEvidence,
 ): Promise<HeadPairwiseResult> {
-  const prompt = `You are choosing between two Minecraft heads for SAME-PERSON identity preservation. Image 0 is a tight source FACE crop.${sourceHeadCropDataUrl ? " Image 1 is a wider source HEAD crop." : ""} The final two images are Candidate A and Candidate B. Each candidate evidence panel has a nearest-neighbour enlarged front view on top and an ordered front, front-left 3/4, front-right 3/4 strip below; all use identical Minecraft geometry. Ignore outfit quality and background. This is ${purpose === "correction_guard" ? "a before(A) versus after(B) correction guard; choose B only if it is genuinely more like the source" : "a bounded candidate selection"}.
+  const prompt = `You are choosing between two Minecraft heads for SAME-PERSON identity preservation. Image 0 is a tight source FACE crop.${sourceHeadCropDataUrl ? " Image 1 is a wider source HEAD crop." : ""} The final two images are Candidate A and Candidate B. Each candidate evidence panel has a nearest-neighbour enlarged front view on top and an ordered front, front-left 3/4, front-right 3/4 strip below; all use identical Minecraft geometry. Ignore outfit quality and background. This is a blind ${purpose === "correction_guard" ? "identity correction guard" : "bounded candidate selection"}. ${HEAD_PAIRWISE_BLIND_RULES}
 
 Judge in this priority order: hair silhouette; fringe/hairline footprint; exposed forehead; visible face width; eye vertical position; eye spacing; eyebrow position; glasses footprint; mouth height and width; skin/hair contrast; distinctive P5 features; overall first-impression resemblance. Do not reward conventional attractiveness, beautification, extra shading, or generic polish. Preserve visible asymmetry and unusual proportions. A structurally valid Minecraft face can still be the wrong person.
 
@@ -382,7 +407,7 @@ Canonical identity: ${analysis.canonicalIdentity.overallImpression}
 P5 features: ${analysis.canonicalIdentity.features.filter((feature) => feature.priority === 5).map((feature) => feature.feature).join("; ") || "none labelled"}
 Must preserve: ${analysis.canonicalIdentity.mustPreserve.join("; ")}
 
-Structural pixel presence and render-contract satisfaction have already been measured deterministically and are not your task. Evidence A: ${JSON.stringify({ presence: structuralA?.dimensions ?? {}, contracts: structuralA?.contractSatisfaction ?? {} })}. Evidence B: ${JSON.stringify({ presence: structuralB?.dimensions ?? {}, contracts: structuralB?.contractSatisfaction ?? {} })}. For every identityDimensions entry, report only visual readability and which candidate is closer to the source. A present but weakly readable frame is not "missing". Use not_evaluable when the crop cannot support a judgment. Mark p5RegressionInB, structuralRegressionInB, or craftRegressionInB true whenever B loses one of those invariants. Return winner A, B, or tie. Use tie when the evidence is genuinely indistinguishable at 8x8 resolution. confidence is 0..1. reasons must cite visible comparative evidence. failedIdentityFeatures and correctionTargets describe only remaining identity losses, using compact targets such as head.front.eye_row, head.front.mouth, head.overlay.fringe, head.left.hair, head.right.glasses.`;
+Do not infer correctness from the labels and do not assume either candidate is newer. You are not given candidate costs, contract results, structural pass/fail state, or an expected winner. For every identityDimensions entry, report only visual readability and which candidate is closer to the source. A present but weakly readable frame is not "missing". Use not_evaluable when the crop cannot support a judgment. Mark p5RegressionInB, structuralRegressionInB, or craftRegressionInB true only from visible evidence that Candidate B loses one of those invariants. Return winner A, B, or tie. Use tie when the evidence is genuinely indistinguishable at 8x8 resolution. confidence is 0..1. reasons must cite visible comparative evidence. failedIdentityFeatures and correctionTargets describe only remaining identity losses, using compact targets such as head.front.eye_row, head.front.mouth, head.overlay.fringe, head.left.hair, head.right.glasses.`;
   const models = [env.VISION_MODEL?.trim() || "gemini-3.6-flash", env.VISION_FALLBACK_MODEL?.trim()]
     .filter((model, index, all): model is string => Boolean(model) && all.indexOf(model) === index);
   let lastError: unknown;
@@ -395,8 +420,8 @@ Structural pixel presence and render-contract satisfaction have already been mea
         imageLabels: [
           "Tight source face crop (facial geometry truth):",
           ...(sourceHeadCropDataUrl ? ["Wider source head crop (hair silhouette/hairline truth):"] : []),
-          purpose === "correction_guard" ? "Candidate A (before correction):" : "Candidate A:",
-          purpose === "correction_guard" ? "Candidate B (after correction):" : "Candidate B:",
+          "Candidate A (blind label):",
+          "Candidate B (blind label):",
         ],
         prompt,
         responseSchema: HEAD_PAIRWISE_SCHEMA,

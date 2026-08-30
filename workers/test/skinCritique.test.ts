@@ -35,6 +35,10 @@ describe("Gemini rendered-skin critique", () => {
         );
         expect(prompt).toContain("8x12 torso");
         expect(prompt).toContain("0-100 scale, never a 0-10 scale");
+        expect(prompt).toContain("Use any integer justified by the evidence; do not snap scores to multiples of five");
+        expect(prompt).toContain("88-94: clearly the same person at first glance");
+        expect(prompt).toContain("Outfit, body, continuity, and outer-layer issues belong only in their named scores");
+        expect(prompt).toContain("P5 presence is necessary but never sufficient");
         expect(prompt).toContain("Machine-measured atlas facts");
         expect(prompt).toContain("head outer layer:");
         expect(prompt).toContain("opaque RGB colors");
