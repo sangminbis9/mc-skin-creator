@@ -470,7 +470,14 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
   const eyeOpenness: FaceLayoutPlan["eyeOpenness"] = hints.eyeShape === "round" ? "open" : hints.eyeSize === "small" ? "compact" : "readable";
   const eyeTiltOffset: FaceLayoutPlan["eyeTiltOffset"] = hints.eyeTilt === "upturned" ? -1 : hints.eyeTilt === "downturned" ? 1 : 0;
   const browRow = rounded(eyeRow - (hints.eyeSize === "large" ? 2 : 1), 1, 4);
-  const mouthRow: FaceLayoutPlan["mouthRow"] = hints.faceShape === "round" || hints.faceShape === "square" ? 5 : 6;
+  // A readable tooth row needs the lower facial row even on round faces; row
+  // five makes its boundary collide with the nose and turns the legacy broad
+  // smile into a dark lower line after the exact plan is reasserted.
+  const mouthRow: FaceLayoutPlan["mouthRow"] = hints.mouthOpening === "teeth_visible"
+    ? 6
+    : hints.faceShape === "round" || hints.faceShape === "square"
+      ? 5
+      : 6;
   const protectedGeometry = p5ProtectedGeometry(analysis);
   const mouthOpening: FaceLayoutPlan["mouthOpening"] = hints.mouthOpening === "teeth_visible" ? "teeth" : hints.mouthOpening === "slightly_open" ? "open" : "closed";
   const mouthWidth: FaceLayoutPlan["mouthWidth"] = hints.mouthShape === "wide"

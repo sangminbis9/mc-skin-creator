@@ -148,6 +148,32 @@ describe("runPhotoAnalysis", () => {
     expect(prompt).toContain("3 image(s) of the same person");
   });
 
+  it("removes inferred clothing for regions that are visibly supplied by the reference set", async () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      framing: "full_body",
+      visibleRegions: { face: true, hair: true, upperBody: true, lowerBody: true, feet: true },
+      inferred: {
+        ...base.inferred,
+        upperBody: { value: "guessed jacket", rationale: "model duplicated visible evidence" },
+        lowerBody: { value: "guessed trousers", rationale: "model duplicated visible evidence" },
+        lowerBodyDesign: {
+          bottomType: "pants", bottomPattern: "plain", bottomAccent: "none", legwear: "none", legwearAsymmetry: "none",
+          thighAccessory: "none", thighAccessorySide: "none", shoeStyle: "dress_shoes", rationale: "duplicated visible design",
+        },
+        shoes: { value: "guessed shoes", rationale: "model duplicated visible evidence" },
+      },
+    });
+    const result = await runPhotoAnalysis(makeVisionEnv(async () => ({ response: analysis })), [
+      "data:image/jpeg;base64,portrait",
+      "data:image/jpeg;base64,fullbody",
+    ]);
+    expect(result).toMatchObject({
+      ok: true,
+      analysis: { inferred: { upperBody: null, lowerBody: null, lowerBodyDesign: null, shoes: null } },
+    });
+  });
+
   it("bounds a model-selected role to the supplied reference count", async () => {
     const run = vi.fn(async () => ({
       response: makeAnalysis({

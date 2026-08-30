@@ -127,9 +127,13 @@ describe("identity-first architecture", () => {
     });
     expect(packed).not.toBeNull();
     const overlay = CLASSIC_LAYOUT.head.overlay.front;
-    for (const point of plan.facePixelPlan.layout.glassesMask) {
+    for (const point of plan.facePixelPlan.glassesPlan.framePixels.filter((pixel) => pixel.face === "front")) {
       const alpha = packed!.atlas.rgba[((overlay.y + point.y) * packed!.atlas.width + overlay.x + point.x) * 4 + 3];
       expect(alpha).toBe(255);
+    }
+    for (const point of plan.facePixelPlan.glassesPlan.lensOpenings) {
+      const alpha = packed!.atlas.rgba[((overlay.y + point.y) * packed!.atlas.width + overlay.x + point.x) * 4 + 3];
+      expect(alpha).toBe(0);
     }
   });
 

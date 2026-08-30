@@ -13,6 +13,8 @@ export interface FaceContractMeasurement {
   mouthWidth: number;
   teethPixels: number;
   mouthBoundaryPixels: number;
+  glassesTopologyPixels: number;
+  openLensPixels: number;
 }
 
 export interface HairContractMeasurement {
@@ -24,6 +26,11 @@ export interface HairContractMeasurement {
   coverageByFace: Record<"front" | "top" | "left" | "right" | "back", number>;
   missingSilhouettePixels: number;
   unexpectedHairLikePixels: number;
+  requiredStructureGroups: number;
+  preservedStructureGroups: number;
+  hairlineCoverage: number;
+  partChannelPreserved: boolean | null;
+  earExposurePreserved: boolean;
 }
 
 function offset(rect: Rect, x: number, y: number): number {
@@ -54,7 +61,7 @@ function locallyDistinct(atlas: RawImage, rect: Rect, x: number, y: number): boo
 
 export function measureFaceRenderContract(atlas: RawImage, plan?: FacePixelPlan): FaceContractMeasurement {
   if (!plan) {
-    return { status: "not_applicable", violations: [], mouthPresent: false, eyesPresent: false, glassesPresent: null, mouthWidth: 0, teethPixels: 0, mouthBoundaryPixels: 0 };
+    return { status: "not_applicable", violations: [], mouthPresent: false, eyesPresent: false, glassesPresent: null, mouthWidth: 0, teethPixels: 0, mouthBoundaryPixels: 0, glassesTopologyPixels: 0, openLensPixels: 0 };
   }
   const face = CLASSIC_LAYOUT.head.base.front;
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
@@ -73,8 +80,13 @@ export function measureFaceRenderContract(atlas: RawImage, plan?: FacePixelPlan)
   const leftEye = plan.pixels.filter((pixel) => pixel.cluster === "left_eye" && pixel.role !== "brow");
   const rightEye = plan.pixels.filter((pixel) => pixel.cluster === "right_eye" && pixel.role !== "brow");
   const eyePresent = (points: typeof leftEye) => points.some((pixel) => opaque(atlas, face, pixel.x, pixel.y) && locallyDistinct(atlas, face, pixel.x, pixel.y));
-  const glasses = plan.layout.glassesMask;
-  const glassesVisible = glasses.filter((point) => opaque(atlas, overlay, point.x, point.y));
+  const glasses = plan.glassesPlan;
+  const glassesVisible = glasses.framePixels.filter((point) => {
+    const rect = point.face === "front" ? overlay : CLASSIC_LAYOUT.head.overlay[point.face];
+    return opaque(atlas, rect, point.x, point.y) && locallyDistinct(atlas, rect, point.x, point.y);
+  });
+  const visibleArms = glasses.sideArms.filter((point) => opaque(atlas, CLASSIC_LAYOUT.head.overlay[point.face], point.x, point.y));
+  const openLensPixels = glasses.lensOpenings.filter((point) => !opaque(atlas, overlay, point.x, point.y)).length;
   const violations: string[] = [];
   const contract = plan.renderContract;
   if (contract.mouth) {
@@ -89,20 +101,24 @@ export function measureFaceRenderContract(atlas: RawImage, plan?: FacePixelPlan)
   }
   if (contract.eyes && (!eyePresent(leftEye) || !eyePresent(rightEye))) violations.push("eye topology contract violated");
   if (contract.glasses) {
-    const leftLens = glassesVisible.some((point) => point.x <= 3);
-    const rightLens = glassesVisible.some((point) => point.x >= 4);
-    const bridge = glassesVisible.some((point) => point.x === 3 || point.x === 4);
-    if (!leftLens || !rightLens || !bridge || glassesVisible.length < contract.glasses.minimumFootprint) violations.push("glasses footprint contract violated");
+    const leftLens = glassesVisible.some((point) => point.face === "front" && point.x <= 3);
+    const rightLens = glassesVisible.some((point) => point.face === "front" && point.x >= 4);
+    const bridge = glassesVisible.some((point) => point.role === "bridge");
+    const minimum = Math.max(contract.glasses.minimumFootprint, glasses.minimumReadablePixels);
+    if (!leftLens || !rightLens || !bridge || glassesVisible.length < minimum || visibleArms.length < Math.min(2, glasses.sideArms.length)) violations.push("glasses topology contract violated");
+    if (glasses.preserveThinness && openLensPixels < glasses.lensOpenings.length) violations.push("thin glasses lens opening contract violated");
   }
   return {
     status: violations.length === 0 ? "satisfied" : "violated",
     violations,
     mouthPresent: visibleMouth.length >= Math.min(2, mouth.length),
     eyesPresent: eyePresent(leftEye) && eyePresent(rightEye),
-    glassesPresent: contract.glasses ? !violations.includes("glasses footprint contract violated") : null,
+    glassesPresent: contract.glasses ? !violations.some((problem) => /glasses/.test(problem)) : null,
     mouthWidth,
     teethPixels,
     mouthBoundaryPixels,
+    glassesTopologyPixels: glassesVisible.length + visibleArms.length,
+    openLensPixels,
   };
 }
 
@@ -116,6 +132,11 @@ export function measureHairRenderContract(atlas: RawImage, plan?: HairPlan): Hai
     coverageByFace: { front: 1, top: 1, left: 1, right: 1, back: 1 },
     missingSilhouettePixels: 0,
     unexpectedHairLikePixels: 0,
+    requiredStructureGroups: 0,
+    preservedStructureGroups: 0,
+    hairlineCoverage: 1,
+    partChannelPreserved: null,
+    earExposurePreserved: true,
   };
   // Only normalized geometry produces an exact pixel ownership contract.
   // A semantic template is an input to the coarse hair renderer, not a
@@ -150,6 +171,32 @@ export function measureHairRenderContract(atlas: RawImage, plan?: HairPlan): Hai
   }
   const coverageRatio = presentPlannedPixels / Math.max(1, plannedPixels);
   const violations: string[] = [];
+  const requiredGroups = plan.structure.groups.filter((group) => plan.structure.requiredGroupIds.includes(group.id));
+  const groupPreserved = (group: (typeof requiredGroups)[number]) => {
+    const present = group.points.filter((point) => {
+      const rect = point.layer === "base" ? CLASSIC_LAYOUT.head.base[point.face] : CLASSIC_LAYOUT.head.overlay[point.face];
+      return opaque(atlas, rect, point.x, point.y) && (point.layer === "outer" || scalpSamples.some((sample) => distance(sample, color(atlas, rect, point.x, point.y)) <= 105));
+    }).length;
+    return present >= Math.max(1, Math.ceil(group.points.length * 0.5));
+  };
+  const preservedStructureGroups = requiredGroups.filter(groupPreserved).length;
+  const fringePoints = plan.structure.groups.filter((group) => group.kind === "fringe").flatMap((group) => group.points);
+  const visibleFringe = fringePoints.filter((point) => opaque(atlas, CLASSIC_LAYOUT.head.base.front, point.x, point.y) && scalpSamples.some((sample) => distance(sample, color(atlas, CLASSIC_LAYOUT.head.base.front, point.x, point.y)) <= 105)).length;
+  const hairlineCoverage = fringePoints.length === 0 ? 1 : visibleFringe / fringePoints.length;
+  const partPoints = plan.structure.partChannel.points;
+  const partChannelPreserved = partPoints.length === 0 ? null : partPoints.filter((point) => locallyDistinct(atlas, CLASSIC_LAYOUT.head.base.top, point.x, point.y)).length >= Math.ceil(partPoints.length * 0.5);
+  const earExposurePreserved = (["left", "right"] as const).every((faceName) => {
+    if (plan.headMask.earExposure[faceName] < 0.35) return true;
+    const rect = CLASSIC_LAYOUT.head.overlay[faceName];
+    const endpoint = plan.headMask.endpointRows[faceName];
+    let transparent = 0;
+    let samples = 0;
+    for (let y = Math.max(0, endpoint - 1); y < 8; y++) for (let x = 2; x < 6; x++) {
+      samples++;
+      if (!opaque(atlas, rect, x, y)) transparent++;
+    }
+    return transparent >= Math.ceil(samples * 0.25);
+  });
   const fullSideVolume = plan.lengthClass === "long" || plan.template === "curly_volume" || plan.template === "coily_volume";
   const minimumOverall = fullSideVolume ? 0.58 : 0.35;
   const minimumSide = fullSideVolume ? 0.5 : 0.2;
@@ -161,6 +208,10 @@ export function measureHairRenderContract(atlas: RawImage, plan?: HairPlan): Hai
   // accent pixels from being mistaken for missing mask fidelity.
   const unexpectedLimit = Math.max(16, Math.round(plannedPixels * 0.5));
   if (unexpectedHairLikePixels > unexpectedLimit) violations.push(`unexpected hair-like overlay exceeds plan (${unexpectedHairLikePixels})`);
+  if (preservedStructureGroups < requiredGroups.length) violations.push(`required hair structure groups missing (${preservedStructureGroups}/${requiredGroups.length})`);
+  if (hairlineCoverage < 0.5) violations.push(`planned hairline structure missing (${hairlineCoverage.toFixed(3)})`);
+  if (partChannelPreserved === false) violations.push("planned part channel missing");
+  if (!earExposurePreserved) violations.push("planned ear exposure occluded");
   return {
     status: violations.length === 0 ? "satisfied" : "violated",
     violations,
@@ -170,5 +221,10 @@ export function measureHairRenderContract(atlas: RawImage, plan?: HairPlan): Hai
     coverageByFace,
     missingSilhouettePixels: plannedPixels - presentPlannedPixels,
     unexpectedHairLikePixels,
+    requiredStructureGroups: requiredGroups.length,
+    preservedStructureGroups,
+    hairlineCoverage,
+    partChannelPreserved,
+    earExposurePreserved,
   };
 }

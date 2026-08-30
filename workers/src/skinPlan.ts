@@ -19,6 +19,7 @@ import {
   buildIdentityPixelPlans,
   type FacePixelPlan,
   type HairPlan,
+  type HeadIdentityPlan,
   type OutfitPlan,
   type PalettePlan,
 } from "./identityPlans";
@@ -50,6 +51,7 @@ export interface SkinPlan {
   invariants: string[];
   facePixelPlan: FacePixelPlan;
   hairPlan: HairPlan;
+  headIdentityPlan: HeadIdentityPlan;
   palettePlan: PalettePlan;
   outfitPlan: OutfitPlan;
 }
@@ -211,5 +213,5 @@ export function formatSkinPlanForPrompt(plan: SkinPlan): string {
   const hidden = plan.hiddenSurfaces
     .map((surface) => `${surface.part}: ${surface.completion}`)
     .join("; ");
-  return `Explicit surface plan: ${assignments}. Face pixels use named palette roles at fixed 8x8 coordinates (${plan.facePixelPlan.pixels.length} planned cells). Hair template: ${plan.hairPlan.template}, continuous over ${plan.hairPlan.continuousFaces.join("/")}. Palette policy: at most ${plan.palettePlan.maxGlobalColors} global colours with connected local ramps. Hidden-surface completion: ${hidden}. Outfit invention policy: ${plan.outfitPlan.inventionPolicy}. Invariants: ${plan.invariants.join(" ")}`;
+  return `Explicit surface plan: ${assignments}. Face pixels use named palette roles at fixed 8x8 coordinates (${plan.facePixelPlan.pixels.length} planned cells). Hair template: ${plan.hairPlan.template}; structure grammar: ${plan.hairPlan.structure.grammar}; connected groups: ${plan.hairPlan.structure.groups.length}; continuous over ${plan.hairPlan.continuousFaces.join("/")}. Glasses topology: ${plan.headIdentityPlan.glasses.topology}. Palette policy: at most ${plan.palettePlan.maxGlobalColors} global colours with connected local ramps. Hidden-surface completion: ${hidden}. Outfit invention policy: ${plan.outfitPlan.inventionPolicy}. Invariants: ${plan.invariants.join(" ")}`;
 }

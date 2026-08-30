@@ -298,6 +298,23 @@ export function extractRenderedHeadView(
   return { width: outputSize, height: outputSize, rgba };
 }
 
+/** Integer-coordinate nearest-neighbour resize; no interpolated identity pixels. */
+export function scaleNearestNeighbor(source: RawImage, width: number, height: number): RawImage {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error("Nearest-neighbour output dimensions must be positive integers");
+  }
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const sourceY = Math.min(source.height - 1, Math.floor((y * source.height) / height));
+    for (let x = 0; x < width; x++) {
+      const sourceX = Math.min(source.width - 1, Math.floor((x * source.width) / width));
+      const read = (sourceY * source.width + sourceX) * 4;
+      rgba.set(source.rgba.subarray(read, read + 4), (y * width + x) * 4);
+    }
+  }
+  return { width, height, rgba };
+}
+
 /** Front, front-left 3/4 and front-right 3/4 under identical geometry. */
 export function buildHeadViewMontage(views: RenderedSkinView[]): RawImage {
   const selected = ["front", "front_left_three_quarter", "front_right_three_quarter"].map((name) => {
@@ -315,6 +332,17 @@ export function buildHeadViewMontage(views: RenderedSkinView[]): RawImage {
     }
   });
   return { width: size * 3, height: size, rgba };
+}
+
+/** Front-dominant evidence plus equal-geometry context for bounded pairwise QA. */
+export function buildPairwiseHeadEvidence(views: RenderedSkinView[]): RawImage {
+  const strip = buildHeadViewMontage(views);
+  const front = extractRenderedHeadView(views.find((view) => view.name === "front")!);
+  const enlargedFront = scaleNearestNeighbor(front, strip.width, strip.width);
+  const rgba = new Uint8Array(strip.width * (enlargedFront.height + strip.height) * 4);
+  rgba.set(enlargedFront.rgba, 0);
+  rgba.set(strip.rgba, enlargedFront.rgba.length);
+  return { width: strip.width, height: enlargedFront.height + strip.height, rgba };
 }
 
 export function buildSkinViewMontage(views: RenderedSkinView[]): RawImage {

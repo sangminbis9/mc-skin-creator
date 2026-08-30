@@ -47,7 +47,7 @@ import {
   type SkinGenerationResult,
 } from "../src/skinProvider";
 import type { Env } from "../src/types";
-import { writeIdentityEvaluationArtifacts } from "./evaluationArtifacts";
+import { buildHeadLayerDiagnosticViews, writeIdentityEvaluationArtifacts } from "./evaluationArtifacts";
 
 const LIVE = process.env.RUN_LIVE_GEMINI_EVAL === "1";
 const FULL_LIVE = process.env.RUN_LIVE_GEMINI_FULL === "1";
@@ -335,8 +335,8 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
           earExposure: skinPlan.hairPlan.headMask.earExposure,
         },
         deterministicQuantization: {
-          old: oldSkinPlan.facePixelPlan.perceptualScore,
-          next: skinPlan.facePixelPlan.perceptualScore,
+          old: oldSkinPlan.facePixelPlan.candidateCost,
+          next: skinPlan.facePixelPlan.candidateCost,
         },
         planDifference: compareFacePlans(oldSkinPlan.facePixelPlan, skinPlan.facePixelPlan),
         candidateSelected: selectedPlanned ? "geometry-face-plan-primary" : "semantic-face-plan-primary",
@@ -373,6 +373,7 @@ describe.skipIf(!PROCEDURAL_IDENTITY_QA)("live procedural head candidate before/
         candidateA: buildHeadViewMontage(oldViews),
         candidateB: buildHeadViewMontage(plannedViews),
         candidateC: topologyAtlas ? buildHeadViewMontage(renderSkinViews(topologyAtlas)) : undefined,
+        ...buildHeadLayerDiagnosticViews(afterAtlas),
         finalHeadFront: front,
         finalHeadLeft: left,
         finalHeadRight: right,
@@ -540,6 +541,7 @@ describe.skipIf(!IDENTITY_STAGE_QA)("live bounded identity-stage diagnosis", () 
         facePixelPlan: recorded.request.skinPlan.facePixelPlan,
         candidateA,
         candidateB,
+        ...buildHeadLayerDiagnosticViews(finalAtlas),
         finalHeadFront: front,
         finalHeadLeft: left,
         finalHeadRight: right,

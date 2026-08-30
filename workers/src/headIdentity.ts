@@ -204,9 +204,38 @@ export function selectHeadCandidate(
     dimensionSupport;
   if (safeReplacement) return candidateB;
   if (review.confidence >= HEAD_CANDIDATE_REPLACEMENT_CONFIDENCE && review.winner === "A") return candidateA;
+  const deterministicTieWinner = selectDeterministicTieWinner(candidateA, candidateB, review);
+  if (deterministicTieWinner) return deterministicTieWinner;
   // A tie is not evidence that a generated face should be replaced. Preserve
   // the richer source-derived candidate while the absolute gate still judges it.
   return candidateA.kind === "generated" ? candidateA : candidateB.kind === "generated" ? candidateB : candidateA;
+}
+
+function selectDeterministicTieWinner(
+  candidateA: HeadCandidate,
+  candidateB: HeadCandidate,
+  review: HeadPairwiseReview,
+): HeadCandidate | null {
+  if (review.winner !== "tie" || review.p5RegressionInB || review.structuralRegressionInB || review.craftRegressionInB || review.calibrationConflicts.length > 0) return null;
+  const planA = candidateA.facePlan;
+  const planB = candidateB.facePlan;
+  if (!candidateA.structuralValidity || !candidateB.structuralValidity || !planA || !planB) return null;
+  if (planA.source !== "identity_geometry" || planB.source !== "identity_geometry") return null;
+  if (planA.candidateCost.p5ContractViolations !== 0 || planB.candidateCost.p5ContractViolations !== 0) return null;
+  if (planA.candidateCost.violations.length > 0 || planB.candidateCost.violations.length > 0) return null;
+  if ((candidateA.structuralEvidence?.contractViolations.length ?? 0) > 0 || (candidateB.structuralEvidence?.contractViolations.length ?? 0) > 0) return null;
+  const signature = (plan: FacePixelPlan) => JSON.stringify({
+    eyeRows: [plan.layout.leftEyeRow, plan.layout.rightEyeRow],
+    eyeXs: [plan.layout.leftEyeXs, plan.layout.rightEyeXs],
+    mouth: [plan.layout.mouthRow, plan.layout.mouthWidth, plan.layout.mouthTopology],
+    hairline: plan.layout.hairlineDepthByColumn,
+    glasses: plan.glassesPlan.topology,
+  });
+  if (signature(planA) === signature(planB)) return null;
+  const margin = Math.max(planA.candidateCost.meaningfulMargin, planB.candidateCost.meaningfulMargin);
+  const difference = Math.abs(planA.candidateCost.totalCost - planB.candidateCost.totalCost);
+  if (difference < margin) return null;
+  return planA.candidateCost.totalCost < planB.candidateCost.totalCost ? candidateA : candidateB;
 }
 
 function identityDimensionsSupportWinner(review: HeadPairwiseReview, winner: "A" | "B"): boolean {
@@ -345,7 +374,7 @@ export async function runHeadPairwiseComparison(
   structuralA?: HeadStructuralEvidence,
   structuralB?: HeadStructuralEvidence,
 ): Promise<HeadPairwiseResult> {
-  const prompt = `You are choosing between two Minecraft heads for SAME-PERSON identity preservation. Image 0 is a tight source FACE crop.${sourceHeadCropDataUrl ? " Image 1 is a wider source HEAD crop." : ""} The final two images are Candidate A and Candidate B. Each candidate strip is ordered front, front-left 3/4, front-right 3/4 and uses identical Minecraft geometry. Ignore outfit quality and background. This is ${purpose === "correction_guard" ? "a before(A) versus after(B) correction guard; choose B only if it is genuinely more like the source" : "a bounded candidate selection"}.
+  const prompt = `You are choosing between two Minecraft heads for SAME-PERSON identity preservation. Image 0 is a tight source FACE crop.${sourceHeadCropDataUrl ? " Image 1 is a wider source HEAD crop." : ""} The final two images are Candidate A and Candidate B. Each candidate evidence panel has a nearest-neighbour enlarged front view on top and an ordered front, front-left 3/4, front-right 3/4 strip below; all use identical Minecraft geometry. Ignore outfit quality and background. This is ${purpose === "correction_guard" ? "a before(A) versus after(B) correction guard; choose B only if it is genuinely more like the source" : "a bounded candidate selection"}.
 
 Judge in this priority order: hair silhouette; fringe/hairline footprint; exposed forehead; visible face width; eye vertical position; eye spacing; eyebrow position; glasses footprint; mouth height and width; skin/hair contrast; distinctive P5 features; overall first-impression resemblance. Do not reward conventional attractiveness, beautification, extra shading, or generic polish. Preserve visible asymmetry and unusual proportions. A structurally valid Minecraft face can still be the wrong person.
 

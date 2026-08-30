@@ -10,7 +10,7 @@ import {
   type HeadPairwiseReview,
 } from "../src/headIdentity";
 import { buildFacePixelPlanVariants, buildIdentityPixelPlans } from "../src/identityPlans";
-import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
+import { makeAnalysis, makeIdentityGeometry, makeSyntheticAtlas } from "./helpers";
 import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 
 function candidate(id: string, kind: HeadCandidate["kind"]): HeadCandidate {
@@ -105,6 +105,50 @@ describe("head identity candidate selection", () => {
     expect(selectHeadCandidate(before, after, review({ structuralRegressionInB: true })).id).toBe("before");
     expect(selectHeadCandidate(before, after, review({ craftRegressionInB: true })).id).toBe("before");
     expect(selectHeadCandidate(before, after, review({ calibrationConflicts: ["presence/readability conflict"] })).id).toBe("before");
+  });
+
+  it("uses calibrated quantization cost only to break a valid identity-geometry tie", () => {
+    const base = makeAnalysis();
+    const analysis = makeAnalysis({
+      identityGeometry: makeIdentityGeometry(),
+      canonicalIdentity: {
+        ...base.canonicalIdentity,
+        features: base.canonicalIdentity.features.map((feature) => ({ ...feature, confidence: "low" as const })),
+      },
+    });
+    const variants = buildFacePixelPlanVariants(analysis, 3);
+    expect(variants.length).toBeGreaterThan(1);
+    const planA = structuredClone(variants[0]);
+    const planB = structuredClone(variants[1]);
+    planA.candidateCost.totalCost = 0.6;
+    planB.candidateCost.totalCost = 0.6 + planB.candidateCost.meaningfulMargin * 2;
+    const a = { ...candidate("a", "deterministic"), facePlan: planA, structuralEvidence: { dimensions: review().identityDimensions as never, contractSatisfaction: {} as never, contractViolations: [], expectedPixels: 1, presentPixels: 1 } };
+    const b = { ...candidate("b", "deterministic_variant"), facePlan: planB, structuralEvidence: { dimensions: review().identityDimensions as never, contractSatisfaction: {} as never, contractViolations: [], expectedPixels: 1, presentPixels: 1 } };
+    expect(selectHeadCandidate(a, b, review({ winner: "tie", confidence: 0.45 })).id).toBe("a");
+  });
+
+  it("keeps the incumbent when a tie cost difference is below one meaningful cell or a contract fails", () => {
+    const analysis = makeAnalysis({ identityGeometry: makeIdentityGeometry() });
+    const variants = buildFacePixelPlanVariants(analysis, 3);
+    const planA = structuredClone(variants[0]);
+    const planB = structuredClone(variants[1]);
+    planA.candidateCost.totalCost = 0.6;
+    planB.candidateCost.totalCost = 0.6 + planB.candidateCost.meaningfulMargin / 2;
+    const a = { ...candidate("a", "deterministic"), facePlan: planA };
+    const b = { ...candidate("b", "deterministic_variant"), facePlan: planB };
+    expect(selectHeadCandidate(a, b, review({ winner: "tie", confidence: 0.4 })).id).toBe("a");
+    b.structuralEvidence = { dimensions: {} as never, contractSatisfaction: {} as never, contractViolations: ["P5 contract failed"], expectedPixels: 1, presentPixels: 1 };
+    planB.candidateCost.totalCost = 0.1;
+    expect(selectHeadCandidate(a, b, review({ winner: "tie", confidence: 0.4 })).id).toBe("a");
+  });
+
+  it("never lets deterministic tie cost replace a generated candidate", () => {
+    const analysis = makeAnalysis({ identityGeometry: makeIdentityGeometry() });
+    const plan = structuredClone(buildFacePixelPlanVariants(analysis, 1)[0]);
+    plan.candidateCost.totalCost = 0;
+    const generated = candidate("generated", "generated");
+    const deterministic = { ...candidate("plan", "deterministic"), facePlan: plan };
+    expect(selectHeadCandidate(generated, deterministic, review({ winner: "tie", confidence: 0.4 })).id).toBe("generated");
   });
 
   it("rejects an overall B winner when the structured identity dimensions contradict it", () => {

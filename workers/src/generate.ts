@@ -55,7 +55,7 @@ import { applyProceduralCritiqueCorrections } from "./proceduralCorrection";
 import { buildSkinPlan, type SkinPlan } from "./skinPlan";
 import {
   buildSkinViewMontage,
-  buildHeadViewMontage,
+  buildPairwiseHeadEvidence,
   inspectRenderedSkin,
   renderSkinViews,
 } from "./skinRender";
@@ -87,7 +87,7 @@ async function headCandidate(
   facePlan?: FacePixelPlan,
   hairPlan?: SkinPlan["hairPlan"],
 ): Promise<HeadCandidate> {
-  const montage = buildHeadViewMontage(renderSkinViews(atlas));
+  const montage = buildPairwiseHeadEvidence(renderSkinViews(atlas));
   const structuralEvidence = measureHeadCandidateStructure(atlas, facePlan, hairPlan);
   return {
     id,
@@ -1924,11 +1924,12 @@ export function buildProceduralFallbackAtlas(
     {
       faceMode: "deterministic_plan",
       ...(skinPlan ? {
-        // The fallback renderer's composeFace already carries expression and
-        // correction state. FacePixelPlan is applied to the separately ranked
-        // deterministic candidate built from a generated sheet; repainting it
-        // here would erase bounded procedural corrections.
+        // The integrated head contract owns the final deterministic identity
+        // landmarks as well as hair structure. This keeps procedural fallback
+        // on the same measured 8x8 mouth/eye/glasses topology as candidates.
+        facePixelPlan: skinPlan.facePixelPlan,
         hairPlan: skinPlan.hairPlan,
+        headIdentityPlan: skinPlan.headIdentityPlan,
       } : {}),
     },
   );
@@ -1985,6 +1986,7 @@ export async function postprocessGeneratedSheet(
         faceMode: "preserve_generated",
         facePixelPlan: skinPlan.facePixelPlan,
         hairPlan: skinPlan.hairPlan,
+        headIdentityPlan: skinPlan.headIdentityPlan,
       },
     );
     if (!packed) {

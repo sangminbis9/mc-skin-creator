@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSkinViewMontage,
+  buildPairwiseHeadEvidence,
   inspectRenderedSkin,
   renderSkinViews,
+  scaleNearestNeighbor,
 } from "../src/skinRender";
 import { makeSyntheticAtlas } from "./helpers";
 import { ALL_PARTS, CLASSIC_LAYOUT, type Rect } from "../src/uvLayout";
@@ -60,6 +62,21 @@ describe("deterministic skin renderer", () => {
     const inspection = inspectRenderedSkin(views);
     expect(inspection.ok).toBe(false);
     expect(inspection.problems).toHaveLength(12);
+  });
+
+  it("builds front-dominant pairwise evidence with exact nearest-neighbour blocks", () => {
+    const source = { width: 2, height: 2, rgba: new Uint8Array([
+      255, 0, 0, 255, 0, 255, 0, 255,
+      0, 0, 255, 255, 255, 255, 0, 255,
+    ]) };
+    const scaled = scaleNearestNeighbor(source, 4, 4);
+    const pixel = (x: number, y: number) => [...scaled.rgba.subarray((y * 4 + x) * 4, (y * 4 + x) * 4 + 4)];
+    expect(pixel(0, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(1, 1)).toEqual([255, 0, 0, 255]);
+    expect(pixel(2, 0)).toEqual([0, 255, 0, 255]);
+    expect(new Set(Array.from({ length: 16 }, (_, index) => scaled.rgba[index * 4])).size).toBeLessThanOrEqual(2);
+    const evidence = buildPairwiseHeadEvidence(renderSkinViews(makeSyntheticAtlas()));
+    expect([evidence.width, evidence.height]).toEqual([288, 384]);
   });
 
   it("samples the physically correct front/back/left/right UV faces", () => {

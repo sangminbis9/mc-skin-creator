@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseIdentityGeometry } from "../src/identityGeometry";
-import { buildFacePixelPlanVariants, buildIdentityPixelPlans, compareFacePlans, measureFacePlanConvergence, scoreFacePixelPlan } from "../src/identityPlans";
+import { buildFacePixelPlanVariants, buildIdentityPixelPlans, compareFacePlans, measureFacePlanConvergence, measureFacePixelPlanCost } from "../src/identityPlans";
 import { quantizeIdentityGeometry } from "../src/identityQuantization";
 import { makeAnalysis, makeIdentityGeometry } from "./helpers";
 
@@ -76,7 +76,7 @@ describe("normalized identity geometry quantization", () => {
     const variants = buildFacePixelPlanVariants(protectedAnalysis, 3);
     expect(variants.length).toBeGreaterThan(1);
     expect(variants.every((plan) => plan.renderContract.eyes?.protected)).toBe(true);
-    expect(variants.every((plan) => plan.perceptualScore.p5ContractViolations === 0)).toBe(true);
+    expect(variants.every((plan) => plan.candidateCost.p5ContractViolations === 0)).toBe(true);
     expect(variants.every((plan) => Math.min(...plan.layout.rightEyeXs) - Math.max(...plan.layout.leftEyeXs) - 1 >= plan.renderContract.eyes!.minimumInterEyeGap)).toBe(true);
   });
 
@@ -101,7 +101,7 @@ describe("normalized identity geometry quantization", () => {
     expect(mouth.some((pixel) => pixel.role === "mouth_shadow" || pixel.role === "lip")).toBe(true);
     expect(new Set(mouth.map((pixel) => pixel.y)).size).toBeGreaterThan(1);
     expect(Math.max(...mouth.map((pixel) => pixel.x)) - Math.min(...mouth.map((pixel) => pixel.x)) + 1).toBeGreaterThanOrEqual(5);
-    expect(plan.perceptualScore.violations).not.toContain("mouth collapsed to flat white bar");
+    expect(plan.candidateCost.violations).not.toContain("mouth collapsed to flat white bar");
   });
 
   it("never introduces a toothy topology for a closed mouth", () => {
@@ -132,13 +132,13 @@ describe("normalized identity geometry quantization", () => {
     }), 3);
     expect(variants.length).toBeGreaterThan(1);
     expect(new Set(variants.map((plan) => plan.layout.mouthTopology))).toEqual(new Set(["wide_teeth_smile", "teeth_smile"]));
-    expect(variants.every((plan) => plan.perceptualScore.violations.length === 0)).toBe(true);
+    expect(variants.every((plan) => plan.candidateCost.violations.length === 0)).toBe(true);
     const primary = variants.find((plan) => plan.layout.mouthTopology === "wide_teeth_smile")!;
     const alternative = variants.find((plan) => plan.layout.mouthTopology === "teeth_smile")!;
     expect(primary.pixels.filter((pixel) => pixel.cluster === "mouth")).not.toEqual(alternative.pixels.filter((pixel) => pixel.cluster === "mouth"));
     const primaryMouth = primary.pixels.filter((pixel) => pixel.cluster === "mouth");
     expect(Math.min(...primaryMouth.map((pixel) => pixel.y))).toBeLessThan(primary.layout.mouthRow);
-    expect(primary.perceptualScore.total).toBeLessThan(alternative.perceptualScore.total);
+    expect(primary.candidateCost.totalCost).toBeLessThan(alternative.candidateCost.totalCost);
   });
 
   it("keeps brow pixels above rather than overwriting both measured eye apertures", () => {
@@ -181,7 +181,7 @@ describe("normalized identity geometry quantization", () => {
     const variants = buildFacePixelPlanVariants(analysis, 3);
     expect(variants.length).toBeGreaterThan(1);
     expect(new Set(variants.map((plan) => plan.layout.mouthTopology)).size).toBeGreaterThan(1);
-    expect(variants.every((plan) => scoreFacePixelPlan(plan).p5ContractViolations === 0)).toBe(true);
+    expect(variants.every((plan) => measureFacePixelPlanCost(plan).p5ContractViolations === 0)).toBe(true);
     expect(variants.every((plan) => plan.pixels.some((pixel) => pixel.cluster === "mouth" && pixel.role === "teeth"))).toBe(true);
   });
 

@@ -7,7 +7,7 @@
  */
 
 import type { RawImage } from "./png";
-import type { FacePixelPlan, FacePaletteRole, HairPlan } from "./identityPlans";
+import type { FacePixelPlan, FacePaletteRole, HairPlan, HeadIdentityPlan, HairStructureRole } from "./identityPlans";
 import {
   ALL_PARTS,
   ATLAS_SIZE,
@@ -33,6 +33,7 @@ export interface PackOptions {
   faceMode?: "deterministic_plan" | "preserve_generated";
   facePixelPlan?: FacePixelPlan;
   hairPlan?: HairPlan;
+  headIdentityPlan?: HeadIdentityPlan;
 }
 
 /**
@@ -1739,6 +1740,7 @@ function faceRoleColor(
   style: FaceStyle,
 ): Rgb {
   const eye = hexToRgb(style.eyeColor, shadeRgb(hairColor, 0.62));
+  const contrastBoost = style.faceContrastBoost === true;
   const ensureComplexionContrast = (candidate: Rgb, minimum = 55): Rgb => {
     const distance = (color: Rgb) => Math.abs(color[0] - skinColor[0]) + Math.abs(color[1] - skinColor[1]) + Math.abs(color[2] - skinColor[2]);
     if (distance(candidate) >= minimum) return candidate;
@@ -1761,14 +1763,14 @@ function faceRoleColor(
     case "hair_light": return shadeRgb(hairColor, 1.12);
     case "hair_mid": return hairColor;
     case "hair_shadow": return shadeRgb(hairColor, 0.72);
-    case "brow": return shadeRgb(hairColor, 0.7);
+    case "brow": return shadeRgb(hairColor, contrastBoost ? 0.58 : 0.7);
     case "glasses": return hexToRgb(style.glassesColor, shadeRgb(hairColor, 0.52));
-    case "iris": return ensureComplexionContrast(shadeRgb(eye, style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5));
+    case "iris": return ensureComplexionContrast(shadeRgb(eye, contrastBoost ? 0.46 : style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5), contrastBoost ? 92 : 72);
     case "sclera": return mixRgb(skinColor, [236, 232, 218], 0.72);
-    case "nose_shadow": return mixRgb(skinColor, [111, 63, 51], 0.24);
-    case "lip": return lipBase[style.lipColor ?? "natural"] ?? lipBase.natural;
+    case "nose_shadow": return mixRgb(skinColor, [111, 63, 51], contrastBoost ? 0.42 : 0.24);
+    case "lip": return ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.76 : 1), contrastBoost ? 62 : 45);
     case "teeth": return [236, 229, 210];
-    case "mouth_shadow": return shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, 0.6);
+    case "mouth_shadow": return ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.46 : 0.6), contrastBoost ? 74 : 58);
   }
 }
 
@@ -1781,6 +1783,29 @@ function applyFacePixelPlan(
 ): void {
   const face = CLASSIC_LAYOUT.head.base.front;
   const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
+  const contrastBoost = style.faceContrastBoost === true;
+  const landmarkKeys = new Set(plan.pixels.filter((pixel) => pixel.cluster !== "complexion" && pixel.cluster !== "fringe").map((pixel) => `${pixel.x},${pixel.y}`));
+  const localContrast = (candidate: Rgb, x: number, y: number, minimum: number, preferDark = false): Rgb => {
+    const samples: Rgb[] = [];
+    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || nx >= 8 || ny < 0 || ny >= 8 || landmarkKeys.has(`${nx},${ny}`)) continue;
+      const at = ((face.y + ny) * ATLAS_SIZE + face.x + nx) * 4;
+      samples.push([atlas.rgba[at], atlas.rgba[at + 1], atlas.rgba[at + 2]]);
+    }
+    const background: Rgb = samples.length === 0 ? skinColor : [
+      Math.round(samples.reduce((sum, color) => sum + color[0], 0) / samples.length),
+      Math.round(samples.reduce((sum, color) => sum + color[1], 0) / samples.length),
+      Math.round(samples.reduce((sum, color) => sum + color[2], 0) / samples.length),
+    ];
+    const distance = (color: Rgb) => Math.abs(color[0] - background[0]) + Math.abs(color[1] - background[1]) + Math.abs(color[2] - background[2]);
+    if (distance(candidate) >= minimum) return candidate;
+    const dark = shadeRgb(candidate, 0.3);
+    const light = mixRgb(candidate, [242, 238, 224], 0.72);
+    if (preferDark) return dark;
+    return distance(dark) >= distance(light) ? dark : light;
+  };
   if (style.glasses !== "sunglasses") {
     for (const pixel of plan.pixels.filter((item) => item.role === "iris" || item.role === "sclera")) {
       const overlayOffset = ((faceOverlay.y + pixel.y) * ATLAS_SIZE + faceOverlay.x + pixel.x) * 4;
@@ -1793,19 +1818,31 @@ function applyFacePixelPlan(
     if (pixel.cluster === "complexion") continue;
     if (!Number.isInteger(pixel.x) || !Number.isInteger(pixel.y) || pixel.x < 0 || pixel.x >= 8 || pixel.y < 0 || pixel.y >= 8) continue;
     const offset = ((face.y + pixel.y) * ATLAS_SIZE + face.x + pixel.x) * 4;
-    const color = faceRoleColor(pixel.role, hairColor, skinColor, style);
+    const planned = faceRoleColor(pixel.role, hairColor, skinColor, style);
+    const color = pixel.role === "iris" ? localContrast(planned, pixel.x, pixel.y, 90, contrastBoost)
+      : ["lip", "mouth_shadow"].includes(pixel.role) ? localContrast(planned, pixel.x, pixel.y, 62, contrastBoost)
+        : planned;
     atlas.rgba[offset] = color[0];
     atlas.rgba[offset + 1] = color[1];
     atlas.rgba[offset + 2] = color[2];
     atlas.rgba[offset + 3] = 255;
   }
   const glassesColor = faceRoleColor("glasses", hairColor, skinColor, style);
-  for (const point of plan.layout.glassesMask) {
-    if (!Number.isInteger(point.x) || !Number.isInteger(point.y) || point.x < 0 || point.x >= 8 || point.y < 0 || point.y >= 8) continue;
-    const offset = ((faceOverlay.y + point.y) * ATLAS_SIZE + faceOverlay.x + point.x) * 4;
-    atlas.rgba[offset] = glassesColor[0];
-    atlas.rgba[offset + 1] = glassesColor[1];
-    atlas.rgba[offset + 2] = glassesColor[2];
+  const glassesLight = mixRgb(glassesColor, [238, 234, 224], 0.24);
+  const glassesShadow = shadeRgb(glassesColor, 0.64);
+  for (const opening of plan.glassesPlan.lensOpenings) {
+    if (style.glasses === "sunglasses") continue;
+    const offset = ((faceOverlay.y + opening.y) * ATLAS_SIZE + faceOverlay.x + opening.x) * 4;
+    atlas.rgba.fill(0, offset, offset + 4);
+  }
+  for (const point of [...plan.glassesPlan.framePixels, ...plan.glassesPlan.sideArms]) {
+    const rect = point.face === "front" ? faceOverlay : CLASSIC_LAYOUT.head.overlay[point.face];
+    if (!Number.isInteger(point.x) || !Number.isInteger(point.y) || point.x < 0 || point.x >= rect.w || point.y < 0 || point.y >= rect.h) continue;
+    const color = point.role === "rim_light" ? glassesLight : point.role === "rim_shadow" ? glassesShadow : glassesColor;
+    const offset = ((rect.y + point.y) * ATLAS_SIZE + rect.x + point.x) * 4;
+    atlas.rgba[offset] = color[0];
+    atlas.rgba[offset + 1] = color[1];
+    atlas.rgba[offset + 2] = color[2];
     atlas.rgba[offset + 3] = 255;
   }
 }
@@ -1831,12 +1868,13 @@ export function createFacePlanAtlasCandidate(
     const face = CLASSIC_LAYOUT.head.base.front;
     for (const pixel of previousPlan.pixels.filter((item) => item.cluster !== "complexion")) {
       const at = ((face.y + pixel.y) * ATLAS_SIZE + face.x + pixel.x) * 4;
-      const restored = shadeRgb(skinColor, 0.96 + ((pixel.x + pixel.y) % 3) * 0.025);
+      const restored = shadeRgb(skinColor, 0.96 + (pixel.x < 4 ? 0.015 : 0.035));
       candidate.rgba.set([restored[0], restored[1], restored[2], 255], at);
     }
     const overlay = CLASSIC_LAYOUT.head.overlay.front;
-    for (const point of previousPlan.layout.glassesMask) {
-      const at = ((overlay.y + point.y) * ATLAS_SIZE + overlay.x + point.x) * 4;
+    for (const point of [...previousPlan.glassesPlan.framePixels, ...previousPlan.glassesPlan.sideArms]) {
+      const pointOverlay = point.face === "front" ? overlay : CLASSIC_LAYOUT.head.overlay[point.face];
+      const at = ((pointOverlay.y + point.y) * ATLAS_SIZE + pointOverlay.x + point.x) * 4;
       candidate.rgba.fill(0, at, at + 4);
     }
   }
@@ -1930,7 +1968,9 @@ export function applyHeadMaskPlan(
   const faces = ["front", "top", "left", "right", "back"] as const;
   const protectedCoordinates = new Set<string>();
   const protect = (face: (typeof faces)[number], x: number, y: number) => protectedCoordinates.add(`${face}:${x},${y}`);
-  for (const point of facePlan?.layout.glassesMask ?? []) protect("front", point.x, point.y);
+  for (const point of facePlan?.glassesPlan.framePixels ?? []) protect(point.face, point.x, point.y);
+  for (const point of facePlan?.glassesPlan.sideArms ?? []) protect(point.face, point.x, point.y);
+  for (const point of facePlan?.glassesPlan.lensOpenings ?? []) protect("front", point.x, point.y);
   if (style?.glasses && style.glasses !== "none") {
     const frameStarts = style.glasses === "round" ? [1, 4] : [0, 5];
     for (const x0 of frameStarts) for (let y = style.glassesScale === "large" ? 2 : 3; y <= 5; y++) for (let x = x0; x <= x0 + 2; x++) protect("front", x, y);
@@ -1967,13 +2007,87 @@ export function applyHeadMaskPlan(
       // occupies the same low-resolution cell.
       if (atlas.rgba[offset + 3] > 0 && !hairOwned(offset)) continue;
       const base = point.role === "covering" ? coveringColor : hairColor;
-      const color = shadeRgb(base, 0.88 + ((point.x * 3 + point.y * 5) % 4) * 0.045);
+      const edgeDistance = Math.min(point.x, 7 - point.x);
+      const rowFlow = point.y <= mask.endpointRows.left / 2 ? 1.03 : 0.91;
+      const color = shadeRgb(base, Math.max(0.72, Math.min(1.06, rowFlow - edgeDistance * 0.018)));
       atlas.rgba[offset] = color[0];
       atlas.rgba[offset + 1] = color[1];
       atlas.rgba[offset + 2] = color[2];
       atlas.rgba[offset + 3] = 255;
     }
   }
+}
+
+function hairStructureColor(role: HairStructureRole, hairColor: Rgb, skinColor: Rgb): Rgb {
+  switch (role) {
+    case "shadow": return mixRgb(shadeRgb(hairColor, 0.68), [24, 22, 22], 0.08);
+    case "mid": return shadeRgb(hairColor, 0.92);
+    case "light": return mixRgb(hairColor, [190, 176, 164], 0.16);
+    case "tip": return shadeRgb(hairColor, 0.76);
+    case "part_light": return mixRgb(hairColor, skinColor, 0.34);
+    case "part_shadow": return shadeRgb(hairColor, 0.58);
+  }
+}
+
+/** Apply source-derived connected groups without stochastic speckle. */
+export function applyHairStructurePlan(
+  atlas: RawImage,
+  plan: HairPlan | undefined,
+  hairColor: Rgb,
+  skinColor: Rgb,
+  facePlan?: FacePixelPlan,
+): void {
+  const structure = plan?.structure;
+  if (!structure || structure.source !== "identity_geometry" || plan?.lengthClass === "none") return;
+  const protectedBase = new Set((facePlan?.pixels ?? [])
+    .filter((pixel) => pixel.cluster !== "fringe")
+    .map((pixel) => `${pixel.x},${pixel.y}`));
+  const protectedOuter = new Set<string>();
+  for (const pixel of facePlan?.glassesPlan.framePixels ?? []) protectedOuter.add(`${pixel.face}:${pixel.x},${pixel.y}`);
+  for (const pixel of facePlan?.glassesPlan.sideArms ?? []) protectedOuter.add(`${pixel.face}:${pixel.x},${pixel.y}`);
+  for (const pixel of facePlan?.glassesPlan.lensOpenings ?? []) protectedOuter.add(`front:${pixel.x},${pixel.y}`);
+  const base = CLASSIC_LAYOUT.head.base;
+  const overlay = CLASSIC_LAYOUT.head.overlay;
+  const colorDistance = (offset: number, target: Rgb) =>
+    Math.abs(atlas.rgba[offset] - target[0]) + Math.abs(atlas.rgba[offset + 1] - target[1]) + Math.abs(atlas.rgba[offset + 2] - target[2]);
+  const hairOwned = (offset: number) => atlas.rgba[offset + 3] === 0 || colorDistance(offset, hairColor) <= 180;
+  for (const group of structure.groups) {
+    for (const point of group.points) {
+      const rect = point.layer === "base" ? base[point.face] : overlay[point.face];
+      if (point.face === "front" && point.layer === "base" && protectedBase.has(`${point.x},${point.y}`)) continue;
+      if (point.layer === "outer" && protectedOuter.has(`${point.face}:${point.x},${point.y}`)) continue;
+      const offset = ((rect.y + point.y) * ATLAS_SIZE + rect.x + point.x) * 4;
+      if (point.layer === "outer" && atlas.rgba[offset + 3] > 0 && !hairOwned(offset)) continue;
+      const color = hairStructureColor(point.role, hairColor, skinColor);
+      atlas.rgba[offset] = color[0];
+      atlas.rgba[offset + 1] = color[1];
+      atlas.rgba[offset + 2] = color[2];
+      atlas.rgba[offset + 3] = 255;
+    }
+  }
+  // The part channel is a directed two-tone base feature. It is never a
+  // transparent groove, so the inner head cube remains complete.
+  for (const point of structure.partChannel.points) {
+    const rect = base[point.face];
+    const offset = ((rect.y + point.y) * ATLAS_SIZE + rect.x + point.x) * 4;
+    const color = hairStructureColor(point.role, hairColor, skinColor);
+    atlas.rgba.set([color[0], color[1], color[2], 255], offset);
+  }
+}
+
+/** One final composition contract prevents late hair/glasses repair loops. */
+export function applyHeadIdentityPlan(
+  atlas: RawImage,
+  plan: HeadIdentityPlan | undefined,
+  hairPlan: HairPlan | undefined,
+  hairColor: Rgb,
+  skinColor: Rgb,
+  style: FaceStyle,
+  applyFace = true,
+): void {
+  const facePlan = plan?.baseFace;
+  applyHairStructurePlan(atlas, hairPlan, hairColor, skinColor, facePlan);
+  if (applyFace && facePlan) applyFacePixelPlan(atlas, facePlan, hairColor, skinColor, style);
 }
 
 /**
@@ -2375,6 +2489,14 @@ function composeBaldScalp(
   scalp(base.right, 0.96);
   scalp(base.left, 0.94);
 
+  // Bare scalp still follows the head's front-to-back curvature. Use three
+  // connected, deterministic contour bands—not random noise, a checker, or
+  // fake hair strands—so the crown reads as skin with volume rather than one
+  // flat beige tile while the balding silhouette remains unmistakable.
+  for (let x = 1; x <= 6; x++) put(base.top, x, 1, shadeRgb(skinColor, 1.075));
+  for (let x = 2; x <= 5; x++) put(base.top, x, 3, shadeRgb(skinColor, 1.035));
+  for (let x = 1; x <= 6; x++) put(base.top, x, 6, shadeRgb(skinColor, 0.925));
+
   // Rear horseshoe: a low tapered band, never a second full crown.
   for (let y = 4; y < base.back.h; y++) {
     const inset = y === 4 ? 2 : y === 5 ? 1 : 0;
@@ -2418,13 +2540,11 @@ function composeBaldScalp(
     [over.right, false],
     [over.left, true],
   ] as const) {
-    for (const [x, y] of [
-      [0, 4],
-      [1, 5],
-      [6, 6],
-      [7, 5],
+    for (const [x, y, shade] of [
+      [1, 3, 0.92], [1, 4, 0.84], [2, 4, 0.9], [2, 5, 0.8],
+      [5, 4, 0.88], [5, 5, 0.78], [6, 5, 0.86], [6, 6, 0.76],
     ] as const) {
-      hair(rect, mirror ? 7 - x : x, y, 0.84);
+      hair(rect, mirror ? 7 - x : x, y, shade);
     }
   }
 }
@@ -6146,6 +6266,10 @@ function composeHat(atlas: RawImage, hatColor: Rgb, style: FaceStyle): void {
     atlas.rgba[d + 2] = c[2];
     atlas.rgba[d + 3] = 255;
   };
+  const clear = (rect: Rect, x: number, y: number) => {
+    const d = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    atlas.rgba.fill(0, d, d + 4);
+  };
   const fill = (rect: Rect, y0: number, h: number, shade = 1) => {
     for (let y = y0; y < Math.min(rect.h, y0 + h); y++) {
       for (let x = 0; x < rect.w; x++) {
@@ -6213,6 +6337,13 @@ function composeHat(atlas: RawImage, hatColor: Rgb, style: FaceStyle): void {
     paintAll(over.back, 0.88);
     paintAll(over.right, 0.92);
     paintAll(over.left, 0.96);
+    // Hair and the generic eyewear pass run before headwear. Reset the front
+    // cloth layer before authoring its frame so the face opening is an actual
+    // transparent aperture, not merely an area the scarf chooses not to paint.
+    // The measured glasses topology, when present, is reasserted after this.
+    for (let y = 0; y < over.front.h; y++) {
+      for (let x = 0; x < over.front.w; x++) clear(over.front, x, y);
+    }
     paintFrame(over.front, true);
 
     if (patterned) {
@@ -6886,9 +7017,9 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
       }
     }
     if (outerGarment === "open_jacket") {
-      const lapelLight = mixRgb(panelColor, [224, 226, 230], 0.38);
+      const lapelLight = mixRgb(panelColor, [224, 226, 230], 0.52);
       const lapelMid = mixRgb(panelColor, [176, 180, 186], 0.22);
-      const lapelDark = shadeRgb(panelColor, 0.54);
+      const lapelDark = shadeRgb(panelColor, 0.42);
       // An open tailored jacket needs to occupy a meaningful part of the
       // enlarged torso cube. Sparse piping alone reads as a flat dark shirt
       // in a six-view render, so build two raised front panels while leaving
@@ -6921,8 +7052,24 @@ function composeGarmentLayers(atlas: RawImage, style: FaceStyle): void {
         [5, 5, shadeRgb(lapelDark, 0.86)],
         [1, 7, shadeRgb(lapelLight, 0.7)],
         [6, 7, shadeRgb(lapelLight, 0.64)],
+        // Connected two-tone pocket welts and lower darts make tailored
+        // construction physical on the enlarged layer instead of painted
+        // base-only lines. They stay symmetric and seam-safe.
+        [1, 8, shadeRgb(lapelLight, 0.82)],
+        [2, 8, lapelDark],
+        [5, 8, shadeRgb(lapelDark, 0.9)],
+        [6, 8, shadeRgb(lapelLight, 0.72)],
+        [1, 9, shadeRgb(panelColor, 0.76)],
+        [6, 9, shadeRgb(panelColor, 0.7)],
       ] as const) {
         if (y >= shoulderHairRows) put(front, x, y, color);
+      }
+      // A restrained directional twill cue: two connected diagonal stitches,
+      // not coordinate noise, carried on the jacket's base panels.
+      for (const [x, y, shade] of [
+        [0, 5, 0.78], [1, 6, 0.88], [7, 5, 0.72], [6, 6, 0.82],
+      ] as const) {
+        put(baseFront, x, y, shadeRgb(sample(baseFront, x, y), shade));
       }
     }
 
@@ -9285,6 +9432,11 @@ export function packFrontViewToAtlas(
   composeGlassesOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);
   applyHeadMaskPlan(atlas, options.hairPlan, hairColor, hatColor, faceStyle, options.facePixelPlan);
+  if (options.headIdentityPlan) {
+    applyHeadIdentityPlan(atlas, options.headIdentityPlan, options.hairPlan, hairColor, skinColor, faceStyle, false);
+  } else {
+    applyHairStructurePlan(atlas, options.hairPlan, hairColor, skinColor, options.facePixelPlan);
+  }
   // With no fringe in front of the face, prescription frames physically sit
   // above the hair/temple layer. Coily and full-volume passes otherwise erase
   // the entire frame even though the analysis explicitly detected glasses.

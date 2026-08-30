@@ -259,6 +259,42 @@ describe("packFrontViewToAtlas", () => {
     expect(validateFinalAtlas(atlas).ok).toBe(true);
   });
 
+  it("open jacket keeps raised lapels and connected pocket welts over directional base twill", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      topColor: "#585858",
+      topType: "jacket",
+      outerGarment: "open_jacket",
+      outerLayer: "heavy",
+      garmentTexture: "plain",
+    })!.atlas;
+    const front = CLASSIC_LAYOUT.body.overlay.front;
+    const baseFront = CLASSIC_LAYOUT.body.base.front;
+    const offset = (rect: { x: number; y: number }, x: number, y: number) =>
+      ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+    const lapelLight = offset(front, 2, 1);
+    const lapelDark = offset(front, 5, 2);
+    const pocketLight = offset(front, 1, 8);
+    const pocketDark = offset(front, 2, 8);
+    const pocketDart = offset(front, 1, 9);
+    const openCenter = offset(front, 3, 8);
+    const twillStart = offset(baseFront, 0, 5);
+    const twillNext = offset(baseFront, 1, 6);
+    const untouchedBase = offset(baseFront, 0, 6);
+
+    for (const pixel of [lapelLight, lapelDark, pocketLight, pocketDark, pocketDart]) {
+      expect(atlas.rgba[pixel + 3]).toBe(255);
+    }
+    expect(atlas.rgba[openCenter + 3]).toBe(0);
+    expect(atlas.rgba[lapelLight]).toBeGreaterThan(atlas.rgba[lapelDark]);
+    expect(atlas.rgba[pocketLight]).toBeGreaterThan(atlas.rgba[pocketDark]);
+    expect(atlas.rgba[twillStart]).not.toBe(atlas.rgba[untouchedBase]);
+    expect(atlas.rgba[twillNext]).not.toBe(atlas.rgba[untouchedBase]);
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
   it("outerGarment=cardigan keeps an open front and connected side/back/sleeve layers", () => {
     const packed = packFrontViewToAtlas(makeFrontView(), {
       ...DEFAULT_FACE_STYLE,
@@ -844,6 +880,37 @@ describe("packFrontViewToAtlas", () => {
     expect(redAt(atlas, face, 1, 5)).toBe(redAt(atlas, face, 6, 5));
     expect(redAt(atlas, face, 1, 5)).toBeGreaterThan(redAt(atlas, face, 0, 5));
     expect(redAt(atlas, face, 1, 5)).toBeGreaterThan(redAt(atlas, face, 1, 7));
+
+    applyUvMask(atlas);
+    expect(validateFinalAtlas(atlas).ok).toBe(true);
+  });
+
+  it("shades a bald crown with connected contour bands without adding hair noise", () => {
+    const atlas = packFrontViewToAtlas(makeFrontView(), {
+      ...DEFAULT_FACE_STYLE,
+      hairstyle: "bald",
+      bangs: "none",
+      bangsLength: "none",
+      hairColor: "#4a4038",
+      skinTone: "#c88f72",
+    })!.atlas;
+    const top = CLASSIC_LAYOUT.head.base.top;
+    const red = (x: number, y: number) =>
+      atlas.rgba[((top.y + y) * ATLAS_SIZE + top.x + x) * 4];
+    const outer = CLASSIC_LAYOUT.head.overlay.top;
+
+    expect(red(2, 1)).toBeGreaterThan(red(2, 3));
+    expect(red(2, 3)).toBeGreaterThan(red(2, 6));
+    for (const [start, end, y] of [[1, 6, 1], [2, 5, 3], [1, 6, 6]] as const) {
+      for (let x = start; x <= end; x++) {
+        expect(atlas.rgba[((top.y + y) * ATLAS_SIZE + top.x + x) * 4 + 3]).toBe(255);
+      }
+    }
+    for (let y = 0; y < outer.h; y++) {
+      for (let x = 0; x < outer.w; x++) {
+        expect(atlas.rgba[((outer.y + y) * ATLAS_SIZE + outer.x + x) * 4 + 3]).toBe(0);
+      }
+    }
 
     applyUvMask(atlas);
     expect(validateFinalAtlas(atlas).ok).toBe(true);

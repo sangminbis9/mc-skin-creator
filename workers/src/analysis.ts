@@ -1464,6 +1464,15 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
     ),
     shoes: parseInferredItem("inferred.shoes", inf.shoes, true),
   };
+  // Observation owns visible regions. A structurally valid model response may
+  // still repeat visible clothing under `inferred`; remove that contradiction
+  // at the analysis boundary so later completion cannot overwrite evidence.
+  if (visibleRegions.upperBody) inferred.upperBody = null;
+  if (visibleRegions.lowerBody) {
+    inferred.lowerBody = null;
+    inferred.lowerBodyDesign = null;
+  }
+  if (visibleRegions.feet) inferred.shoes = null;
 
   const enumValue = <T extends string>(
     path: string,

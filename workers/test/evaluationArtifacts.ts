@@ -9,6 +9,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { FacePixelPlan } from "../src/identityPlans";
 import { encodePng, type RawImage } from "../src/png";
+import { extractRenderedHeadView, renderSkinViews } from "../src/skinRender";
+import { CLASSIC_LAYOUT, type Rect } from "../src/uvLayout";
 
 export interface IdentityEvaluationArtifacts {
   sourceFace: RawImage;
@@ -20,12 +22,33 @@ export interface IdentityEvaluationArtifacts {
   candidateA?: RawImage;
   candidateB?: RawImage;
   candidateC?: RawImage;
+  baseHeadOnly?: RawImage;
+  outerHeadOnly?: RawImage;
+  baseOuterHead?: RawImage;
   finalHeadFront: RawImage;
   finalHeadLeft: RawImage;
   finalHeadRight: RawImage;
   finalSkin: RawImage;
   critique: unknown;
   metrics: Record<string, unknown>;
+}
+
+function clearRects(atlas: RawImage, rects: Rect[]): RawImage {
+  const copy = { ...atlas, rgba: new Uint8Array(atlas.rgba) };
+  for (const rect of rects) for (let y = rect.y; y < rect.y + rect.h; y++) for (let x = rect.x; x < rect.x + rect.w; x++) {
+    copy.rgba.fill(0, (y * copy.width + x) * 4, (y * copy.width + x) * 4 + 4);
+  }
+  return copy;
+}
+
+/** Pixel-perfect diagnostic renders for base/outer cooperation. */
+export function buildHeadLayerDiagnosticViews(atlas: RawImage): Pick<IdentityEvaluationArtifacts, "baseHeadOnly" | "outerHeadOnly" | "baseOuterHead"> {
+  const front = (candidate: RawImage) => extractRenderedHeadView(renderSkinViews(candidate)[0]);
+  return {
+    baseHeadOnly: front(clearRects(atlas, Object.values(CLASSIC_LAYOUT.head.overlay))),
+    outerHeadOnly: front(clearRects(atlas, Object.values(CLASSIC_LAYOUT.head.base))),
+    baseOuterHead: front(atlas),
+  };
 }
 
 const ROLE_COLORS: Record<FacePixelPlan["pixels"][number]["role"], [number, number, number, number]> = {
@@ -79,6 +102,9 @@ export async function writeIdentityEvaluationArtifacts(
     ["05-candidate-a.png", artifacts.candidateA],
     ["06-candidate-b.png", artifacts.candidateB],
     ["06b-candidate-c.png", artifacts.candidateC],
+    ["06c-base-head-only.png", artifacts.baseHeadOnly],
+    ["06d-outer-head-only.png", artifacts.outerHeadOnly],
+    ["06e-base-plus-outer-head.png", artifacts.baseOuterHead],
     ["07-final-head-front.png", artifacts.finalHeadFront],
     ["08-final-head-left.png", artifacts.finalHeadLeft],
     ["09-final-head-right.png", artifacts.finalHeadRight],

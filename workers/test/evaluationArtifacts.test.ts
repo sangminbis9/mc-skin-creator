@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildSkinPlan } from "../src/skinPlan";
 import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
-import { writeIdentityEvaluationArtifacts } from "./evaluationArtifacts";
+import { buildHeadLayerDiagnosticViews, writeIdentityEvaluationArtifacts } from "./evaluationArtifacts";
 
 describe("evaluation-only identity artifacts", () => {
   it("writes the fixed stage set only under an explicit case directory", async () => {
@@ -17,6 +17,7 @@ describe("evaluation-only identity artifacts", () => {
       facePixelPlan: buildSkinPlan(makeAnalysis()).facePixelPlan,
       candidateA: image,
       candidateB: image,
+      ...buildHeadLayerDiagnosticViews(image),
       finalHeadFront: image,
       finalHeadLeft: image,
       finalHeadRight: image,
@@ -32,6 +33,9 @@ describe("evaluation-only identity artifacts", () => {
       "04-face-pixel-plan.png",
       "05-candidate-a.png",
       "06-candidate-b.png",
+      "06c-base-head-only.png",
+      "06d-outer-head-only.png",
+      "06e-base-plus-outer-head.png",
       "07-final-head-front.png",
       "08-final-head-left.png",
       "09-final-head-right.png",

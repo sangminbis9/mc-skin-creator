@@ -12,6 +12,26 @@ import {
   type IdentityRenderContract,
   type ProtectedGeometry,
 } from "./identityQuantization";
+import {
+  buildGlassesStructurePlan,
+  buildHairStructurePlan,
+  type GlassesStructurePlan,
+  type HairStructurePlan,
+} from "./headStructure";
+
+export type {
+  GlassesPixelRole,
+  GlassesStructurePixel,
+  GlassesStructurePlan,
+  GlassesTopology,
+  HairDirection,
+  HairStructureGroup,
+  HairStructureKind,
+  HairStructurePlan,
+  HairStructurePoint,
+  HairStructureRole,
+  HairTextureGrammar,
+} from "./headStructure";
 
 export type { EyeTopology, FaceLayoutPlan, IdentityRenderContract, MouthTopology, ProtectedGeometry, QuantizationAxis } from "./identityQuantization";
 
@@ -52,17 +72,20 @@ export interface FacePixelPlan {
   source: "identity_geometry" | "semantic_fallback";
   protectedGeometry: ProtectedGeometry[];
   renderContract: IdentityRenderContract;
-  perceptualScore: PerceptualQuantizationScore;
+  glassesPlan: GlassesStructurePlan;
+  candidateCost: PerceptualQuantizationCost;
 }
 
-export interface PerceptualQuantizationScore {
+export interface PerceptualQuantizationCost {
+  direction: "lower_is_better";
   geometryError: number;
   p5ContractViolations: number;
   clusterPenalty: number;
   isolatedPixelPenalty: number;
   expressionPenalty: number;
   overlayConflictPenalty: number;
-  total: number;
+  totalCost: number;
+  meaningfulMargin: number;
   violations: string[];
 }
 
@@ -87,6 +110,7 @@ export interface HeadMaskPlan {
   faces: Record<HeadMaskFace, HeadMaskPoint[]>;
   partColumn: number | null;
   endpointRows: { left: number; right: number };
+  widthByRow: { left: number[]; right: number[]; back: number[] };
   foreheadExposure: number;
   earExposure: { left: number; right: number };
 }
@@ -107,9 +131,21 @@ export interface HairPlan {
     | "body.left"
     | "body.right"
   >;
-  overlayPolicy: "silhouette_only";
+  overlayPolicy: "structure_aware";
   minimumInvention: true;
   headMask: HeadMaskPlan;
+  structure: HairStructurePlan;
+}
+
+export interface HeadIdentityPlan {
+  baseFace: FacePixelPlan;
+  baseHairGroupIds: string[];
+  outerHairGroupIds: string[];
+  glasses: GlassesStructurePlan;
+  protectedBaseFront: Array<{ x: number; y: number }>;
+  protectedOuter: Array<{ face: "front" | "left" | "right"; x: number; y: number }>;
+  p5Contracts: IdentityRenderContract;
+  compositionOrder: ["base_hair", "outer_hair", "face_landmarks", "glasses", "accessories"];
 }
 
 export type PaletteMaterial = "skin" | "hair" | "top" | "bottom" | "shoes" | "accent";
@@ -140,6 +176,7 @@ export interface OutfitPlan {
 export interface IdentityPixelPlans {
   facePixelPlan: FacePixelPlan;
   hairPlan: HairPlan;
+  headIdentityPlan: HeadIdentityPlan;
   palettePlan: PalettePlan;
   outfitPlan: OutfitPlan;
 }
@@ -245,7 +282,7 @@ function connectedComponents(points: Array<{ x: number; y: number }>): number {
   return components;
 }
 
-export function scoreFacePixelPlan(plan: Omit<FacePixelPlan, "perceptualScore"> | FacePixelPlan): PerceptualQuantizationScore {
+export function measureFacePixelPlanCost(plan: Omit<FacePixelPlan, "candidateCost"> | FacePixelPlan): PerceptualQuantizationCost {
   const layout = plan.layout;
   const mouth = plan.pixels.filter((pixel) => pixel.cluster === "mouth");
   const violations: string[] = [];
@@ -270,12 +307,13 @@ export function scoreFacePixelPlan(plan: Omit<FacePixelPlan, "perceptualScore"> 
     if (contract.eyes.preserveAsymmetry && layout.eyeTopology !== "asymmetric") violations.push("distinctive eye asymmetry lost");
   }
   if (contract.glasses) {
-    const left = layout.glassesMask.filter((point) => point.x <= 3);
-    const right = layout.glassesMask.filter((point) => point.x >= 4);
-    const bridge = layout.glassesMask.filter((point) => point.x === 3 || point.x === 4);
+    const frontFrame = plan.glassesPlan.framePixels.filter((point) => point.face === "front");
+    const left = frontFrame.filter((point) => point.x <= 3);
+    const right = frontFrame.filter((point) => point.x >= 4);
+    const bridge = frontFrame.filter((point) => point.role === "bridge");
     if (left.length === 0 || right.length === 0) violations.push("glasses lens footprint missing");
     if (bridge.length === 0) violations.push("glasses bridge missing");
-    if (layout.glassesMask.length < contract.glasses.minimumFootprint) violations.push("glasses footprint below contract");
+    if (frontFrame.length < Math.max(contract.glasses.minimumFootprint, plan.glassesPlan.minimumReadablePixels)) violations.push("glasses footprint below contract");
   }
   const clusterPenalty = Math.max(0, connectedComponents(mouth) - 1) * 0.2;
   const isolated = mouth.filter((pixel) => !mouth.some((other) => other !== pixel && Math.abs(other.x - pixel.x) <= 1 && Math.abs(other.y - pixel.y) <= 1)).length;
@@ -299,15 +337,20 @@ export function scoreFacePixelPlan(plan: Omit<FacePixelPlan, "perceptualScore"> 
   const expressionPenalty =
     violations.filter((violation) => /mouth|teeth|smile/.test(violation)).length * 0.3 +
     (contract.mouth && layout.mouthTopology !== contract.mouth.preferredTopology ? 0.18 : 0);
-  const overlayConflictPenalty = layout.glassesMask.filter((point) => point.y < layout.hairlineDepthByColumn[point.x]).length / Math.max(1, layout.glassesMask.length);
+  const overlayConflictPenalty = plan.glassesPlan.framePixels.filter((point) => point.face === "front" && point.y < layout.hairlineDepthByColumn[point.x]).length / Math.max(1, plan.glassesPlan.framePixels.length);
+  // One mouth-width cell is the smallest normalized geometry change in the
+  // six-term cost. This is the measurement resolution, not a tuned score.
+  const meaningfulMargin = 1 / (5 * 6);
   return {
+    direction: "lower_is_better",
     geometryError,
     p5ContractViolations,
     clusterPenalty,
     isolatedPixelPenalty,
     expressionPenalty,
     overlayConflictPenalty,
-    total: geometryError + p5ContractViolations * 10 + clusterPenalty + isolatedPixelPenalty + expressionPenalty + overlayConflictPenalty * 0.4,
+    totalCost: geometryError + p5ContractViolations * 10 + clusterPenalty + isolatedPixelPenalty + expressionPenalty + overlayConflictPenalty * 0.4,
+    meaningfulMargin,
     violations,
   };
 }
@@ -373,7 +416,9 @@ function facePixelPlan(
 
   for (let x = 0; x < 8; x++) {
     for (let y = 0; y < layout.hairlineDepthByColumn[x]; y++) {
-      pushPixel(pixels, x, y, (x + y) % 3 === 0 ? "hair_shadow" : "hair_mid", "fringe");
+      const isTip = y === layout.hairlineDepthByColumn[x] - 1;
+      const fallsAwayFromPart = analysis.renderHints.hairPart === "left" ? x <= 2 : analysis.renderHints.hairPart === "right" ? x >= 5 : x >= 4;
+      pushPixel(pixels, x, y, isTip || fallsAwayFromPart ? "hair_shadow" : "hair_mid", "fringe");
     }
   }
   const sideMargin = Math.floor((8 - layout.exposedFaceWidth) / 2);
@@ -384,7 +429,7 @@ function facePixelPlan(
     }
   }
 
-  const plan: Omit<FacePixelPlan, "perceptualScore"> = {
+  const plan: Omit<FacePixelPlan, "candidateCost"> = {
     width: 8,
     height: 8,
     coordinateSpace: "head.base.front",
@@ -405,26 +450,40 @@ function facePixelPlan(
     source: analysis.identityGeometry ? "identity_geometry" : "semantic_fallback",
     protectedGeometry: [...layout.protectedGeometry],
     renderContract: structuredClone(layout.renderContract),
+    glassesPlan: buildGlassesStructurePlan(analysis, layout),
   };
-  return { ...plan, perceptualScore: scoreFacePixelPlan(plan) };
+  return { ...plan, candidateCost: measureFacePixelPlanCost(plan) };
 }
 
 export function buildFacePixelPlanVariants(
   analysis: PhotoAnalysis,
   maximum = 3,
 ): FacePixelPlan[] {
-  const plans = buildQuantizedLayoutVariants(analysis, maximum)
-    .map((variant) => facePixelPlan(analysis, variant.layout, variant.id))
-    .filter((plan) => plan.perceptualScore.violations.length === 0);
+  const explicitNoGlasses = /\b(?:no|without|not wearing)\s+(?:any\s+)?(?:eye)?glasses\b/.test(
+    `${analysis.observed.accessories} ${analysis.negativePrompt}`.toLowerCase(),
+  );
+  // Observation/explicit absence outranks the coarse fallback enum before the
+  // render contract is built. Normalizing only the final glasses painter is
+  // too late: it leaves a protected glasses contract with no valid footprint.
+  const planningAnalysis = explicitNoGlasses && analysis.fallbackFeatures.glasses !== "none"
+    ? {
+        ...analysis,
+        fallbackFeatures: { ...analysis.fallbackFeatures, glasses: "none" as const },
+      }
+    : analysis;
+  const plans = buildQuantizedLayoutVariants(planningAnalysis, maximum)
+    .map((variant) => facePixelPlan(planningAnalysis, variant.layout, variant.id))
+    .filter((plan) => plan.candidateCost.violations.length === 0);
   if (plans.length <= 1) return plans;
   const primary = plans.find((plan) => plan.variantId === "primary");
-  const alternatives = plans.filter((plan) => plan !== primary).sort((first, second) => first.perceptualScore.total - second.perceptualScore.total);
+  const alternatives = plans.filter((plan) => plan !== primary).sort((first, second) => first.candidateCost.totalCost - second.candidateCost.totalCost);
   return [...(primary ? [primary] : []), ...alternatives].slice(0, Math.max(1, Math.min(3, maximum)));
 }
 
-function hairPlan(analysis: PhotoAnalysis): HairPlan {
+function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
   const hints = analysis.renderHints;
-  const bald = analysis.fallbackFeatures.hairstyle === "bald";
+  const hairEvidence = `${analysis.observed.hair} ${analysis.identityPrompt} ${analysis.canonicalIdentity.overallImpression} ${analysis.canonicalIdentity.mustPreserve.join(" ")}`.toLowerCase();
+  const bald = analysis.fallbackFeatures.hairstyle === "bald" || /\b(?:bald|balding|bald top|bare scalp|receding hairline)\b/.test(hairEvidence);
   const lengthClass: HairPlan["lengthClass"] = bald
     ? "none"
     : ["cropped", "ear"].includes(hints.overallHairLength)
@@ -448,6 +507,7 @@ function hairPlan(analysis: PhotoAnalysis): HairPlan {
       ? ["head.front", "head.top", "head.left", "head.right", "head.back", "body.back", "body.left", "body.right"]
       : ["head.front", "head.top", "head.left", "head.right", "head.back"];
   const headMask = buildHeadMaskPlan(analysis, template, lengthClass);
+  const structure = buildHairStructurePlan(analysis, facePlan.layout, headMask);
   return {
     template,
     lengthClass,
@@ -455,9 +515,10 @@ function hairPlan(analysis: PhotoAnalysis): HairPlan {
     fringe: hints.bangs,
     part: hints.hairPart,
     continuousFaces,
-    overlayPolicy: "silhouette_only",
+    overlayPolicy: "structure_aware",
     minimumInvention: true,
     headMask,
+    structure,
   };
 }
 
@@ -469,12 +530,13 @@ function buildHeadMaskPlan(
   const geometry = analysis.identityGeometry?.headSilhouette;
   const useGeometry = Boolean(geometry && geometry.confidence >= 0.55 && analysis.identityGeometry!.confidence.headSilhouette >= 0.55);
   const faces: HeadMaskPlan["faces"] = { front: [], top: [], left: [], right: [], back: [] };
+  const widthByRow: HeadMaskPlan["widthByRow"] = { left: Array(8).fill(0), right: Array(8).fill(0), back: Array(8).fill(0) };
   const add = (face: HeadMaskFace, x: number, y: number, role: HeadMaskPoint["role"] = "hair") => {
     if (x < 0 || x > 7 || y < 0 || y > 7 || faces[face].some((point) => point.x === x && point.y === y)) return;
     faces[face].push({ x, y, role });
   };
   if (template === "bald") {
-    return { coordinateSpace: "head.overlay", source: useGeometry ? "identity_geometry" : "semantic_template", faces, partColumn: null, endpointRows: { left: 0, right: 0 }, foreheadExposure: 1, earExposure: { left: 1, right: 1 } };
+    return { coordinateSpace: "head.overlay", source: useGeometry ? "identity_geometry" : "semantic_template", faces, partColumn: null, endpointRows: { left: 0, right: 0 }, widthByRow, foreheadExposure: 1, earExposure: { left: 1, right: 1 } };
   }
   if (useGeometry && geometry) {
     const covering = geometry.covering;
@@ -492,19 +554,21 @@ function buildHeadMaskPlan(
       }
     }
     const maximumSideWidth = covering ? 8 : 5;
-    const sideScale = covering ? 7 : 4;
-    const baseLeftWidth = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeLeft * sideScale)));
-    const baseRightWidth = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeRight * sideScale)));
+    const sideScale = covering ? 7 : 3;
     for (let y = crownRow; y <= endpointLeft; y++) {
       const earTaper = y >= endpointLeft - 1 ? Math.round(geometry.earExposureLeft * 2) : 0;
-      const contourTaper = Math.round(Math.max(0, leftContour[y] - leftContour[Math.max(crownRow, y - 1)]) * 8);
-      const width = Math.max(1, baseLeftWidth - earTaper - contourTaper);
+      const contourWidth = Math.round((0.5 - leftContour[y]) * 5);
+      const contourDelta = Math.round((leftContour[Math.max(crownRow, y - 1)] - leftContour[y]) * 8);
+      const width = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeLeft * sideScale) + contourWidth + contourDelta - earTaper));
+      widthByRow.left[y] = width;
       for (let x = 0; x < width; x++) add("left", x, y, role);
     }
     for (let y = crownRow; y <= endpointRight; y++) {
       const earTaper = y >= endpointRight - 1 ? Math.round(geometry.earExposureRight * 2) : 0;
-      const contourTaper = Math.round(Math.max(0, rightContour[Math.max(crownRow, y - 1)] - rightContour[y]) * 8);
-      const width = Math.max(1, baseRightWidth - earTaper - contourTaper);
+      const contourWidth = Math.round((rightContour[y] - 0.5) * 5);
+      const contourDelta = Math.round((rightContour[y] - rightContour[Math.max(crownRow, y - 1)]) * 8);
+      const width = Math.max(1, Math.min(maximumSideWidth, Math.round(1 + geometry.sideVolumeRight * sideScale) + contourWidth + contourDelta - earTaper));
+      widthByRow.right[y] = width;
       for (let x = 8 - width; x < 8; x++) add("right", x, y, role);
     }
     for (let y = crownRow; y <= Math.max(endpointLeft, endpointRight); y++) {
@@ -519,6 +583,7 @@ function buildHeadMaskPlan(
         const endpointBand = y >= Math.max(endpointLeft, endpointRight) - 1;
         if (covering || silhouetteEdge || endpointBand) add("back", x, y, role);
       }
+      widthByRow.back[y] = faces.back.filter((point) => point.y === y).length;
     }
     for (let y = 0; y < 8; y++) {
       const contourIndex = Math.min(7, y);
@@ -539,7 +604,7 @@ function buildHeadMaskPlan(
     }
     return {
       coordinateSpace: "head.overlay", source: "identity_geometry", faces, partColumn,
-      endpointRows: { left: endpointLeft, right: endpointRight }, foreheadExposure: geometry.foreheadExposure,
+      endpointRows: { left: endpointLeft, right: endpointRight }, widthByRow, foreheadExposure: geometry.foreheadExposure,
       earExposure: { left: geometry.earExposureLeft, right: geometry.earExposureRight },
     };
   }
@@ -550,11 +615,19 @@ function buildHeadMaskPlan(
     if (x < (lengthClass === "short" ? 4 : 6)) add("left", x, y);
     if (x >= (lengthClass === "short" ? 4 : 2)) add("right", x, y);
   }
+  for (let y = 0; y <= endpoint; y++) {
+    const taper = y >= endpoint - 1 ? 1 : 0;
+    widthByRow.left[y] = Math.max(1, (lengthClass === "short" ? 4 : 6) - taper);
+    widthByRow.right[y] = Math.max(1, (lengthClass === "short" ? 4 : 6) - taper);
+    widthByRow.back[y] = 8 - taper * 2;
+  }
   for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y);
-  return { coordinateSpace: "head.overlay", source: "semantic_template", faces, partColumn: null, endpointRows: { left: endpoint, right: endpoint }, foreheadExposure: 0.4, earExposure: { left: 0.5, right: 0.5 } };
+  return { coordinateSpace: "head.overlay", source: "semantic_template", faces, partColumn: null, endpointRows: { left: endpoint, right: endpoint }, widthByRow, foreheadExposure: 0.4, earExposure: { left: 0.5, right: 0.5 } };
 }
 
 export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelPlans {
+  const facePixelPlan = buildFacePixelPlanVariants(analysis, 1)[0];
+  const plannedHair = hairPlan(analysis, facePixelPlan);
   const hueShift: PaletteRampPlan["hueShift"] =
     analysis.renderHints.skinUndertone === "warm"
       ? "warm_lights_cool_shadows"
@@ -579,9 +652,33 @@ export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelP
   const outerLayerRegions = analysis.canonicalIdentity.features
     .filter((feature) => feature.category === "hair" || feature.category === "accessory" || feature.category === "silhouette")
     .flatMap((feature) => feature.targetRegions);
+  const baseHairGroupIds = plannedHair.structure.groups
+    .filter((group) => group.points.some((point) => point.layer === "base"))
+    .map((group) => group.id);
+  const outerHairGroupIds = plannedHair.structure.groups
+    .filter((group) => group.points.some((point) => point.layer === "outer"))
+    .map((group) => group.id);
+  const protectedBaseFront = facePixelPlan.pixels
+    .filter((pixel) => pixel.cluster !== "fringe")
+    .map((pixel) => ({ x: pixel.x, y: pixel.y }));
+  const protectedOuter = [
+    ...facePixelPlan.glassesPlan.framePixels,
+    ...facePixelPlan.glassesPlan.sideArms,
+  ].map((pixel) => ({ face: pixel.face, x: pixel.x, y: pixel.y }));
+  const headIdentityPlan: HeadIdentityPlan = {
+    baseFace: facePixelPlan,
+    baseHairGroupIds,
+    outerHairGroupIds,
+    glasses: facePixelPlan.glassesPlan,
+    protectedBaseFront,
+    protectedOuter,
+    p5Contracts: structuredClone(facePixelPlan.renderContract),
+    compositionOrder: ["base_hair", "outer_hair", "face_landmarks", "glasses", "accessories"],
+  };
   return {
-    facePixelPlan: buildFacePixelPlanVariants(analysis, 1)[0],
-    hairPlan: hairPlan(analysis),
+    facePixelPlan,
+    hairPlan: plannedHair,
+    headIdentityPlan,
     palettePlan: {
       observedColors: analysis.observed.colorPalette.slice(0, 12),
       ramps,
