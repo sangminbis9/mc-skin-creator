@@ -20,10 +20,13 @@ import {
   validateCalibrationBenchmark,
 } from "../src/identityCalibration";
 import {
+  assessPairwiseDecision,
   assessPairwiseOrderBias,
   runHeadPairwiseComparison,
   type HeadPairwiseReview,
   type HeadPairwiseResult,
+  type PairwiseActionableVerdict,
+  type PairwiseDecision,
 } from "../src/headIdentity";
 import type { FacePixelPlan } from "../src/identityPlans";
 import { decodePng, encodePng, type RawImage } from "../src/png";
@@ -39,10 +42,24 @@ import {
   type SkinCritiqueResult,
 } from "../src/skinCritique";
 import type { Env } from "../src/types";
+import {
+  evaluatorEvidence,
+  immutableRequestMatches,
+  migrateCalibrationRequest,
+  selectCalibrationBatch,
+  type CalibrationAttemptHistoryEntry,
+  type ObservationStatus,
+  type ResumableCalibrationRequest,
+} from "./calibrationExperiment";
 import { makeAnalysis } from "./helpers";
 
 const LIVE = process.env.RUN_LIVE_IDENTITY_CALIBRATION === "1";
+const REPAIR_LIVE = process.env.RUN_LIVE_PAIRWISE_REPAIR_VALIDATION === "1";
+const PREFLIGHT = process.env.RUN_IDENTITY_CALIBRATION_PREFLIGHT === "1";
 const MODEL = process.env.LIVE_GEMINI_VISION_MODEL?.trim() || "gemini-3.6-flash";
+const MAX_LIVE_REQUESTS = Number(process.env.MAX_LIVE_CALIBRATION_REQUESTS || "0");
+const ALLOW_QUOTA_BLOCKED_RESUME =
+  process.env.ALLOW_QUOTA_BLOCKED_CALIBRATION_RESUME === "1";
 const INTER_CALL_DELAY_MS = Number(
   process.env.IDENTITY_CALIBRATION_INTER_CALL_DELAY_MS || "3500",
 );
@@ -86,6 +103,28 @@ export const LIVE_CALIBRATION_REQUEST_SPECS: readonly RequestSpec[] = [
   { id: "14-short-pairwise-A-D", case: "short-hair-red-shirt", type: "pairwise", candidates: ["A", "D"] },
 ] as const;
 
+export const PAIRWISE_REPAIR_VALIDATION_SPECS = [
+  { id: "repair-01-forward-A-C", direction: "forward", candidates: ["A", "C"] as const },
+  { id: "repair-02-reverse-C-A", direction: "reverse", candidates: ["C", "A"] as const },
+] as const;
+
+const EXECUTION_PRIORITY: Record<string, number> = {
+  "01-glasses-absolute-A": 1,
+  "03-glasses-absolute-C": 2,
+  "04-glasses-absolute-D": 3,
+  "05-glasses-pairwise-A-C": 4,
+  "07-glasses-pairwise-A-D": 5,
+  "09-short-absolute-A": 6,
+  "11-short-absolute-C": 7,
+  "12-short-absolute-D": 8,
+  "13-short-pairwise-A-C": 9,
+  "14-short-pairwise-A-D": 10,
+  "02-glasses-absolute-B": 11,
+  "10-short-absolute-B": 12,
+  "06-glasses-pairwise-C-A": 13,
+  "08-glasses-pairwise-D-A": 14,
+};
+
 interface SavedMetrics {
   sourceGeometryAfter: IdentityGeometryAnalysis;
   newFacePixelPlan: FacePixelPlan;
@@ -120,10 +159,6 @@ interface ReplayCase {
 
 function bytesToDataUrl(bytes: Uint8Array): string {
   return `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
-}
-
-async function imageToDataUrl(image: RawImage): Promise<string> {
-  return bytesToDataUrl(await encodePng(image));
 }
 
 function featureCategory(feature: string, regions: string[]): IdentityFeatureCategory {
@@ -227,6 +262,13 @@ function candidateWinner(
   return review.winner === "A" ? labels[0] : review.winner === "B" ? labels[1] : "tie";
 }
 
+function normalizedActionableVerdict(
+  verdict: PairwiseActionableVerdict,
+  labels: readonly [CandidateLabel, CandidateLabel],
+): CandidateLabel | PairwiseActionableVerdict {
+  return verdict === "A" ? labels[0] : verdict === "B" ? labels[1] : verdict;
+}
+
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, JSON.stringify(value, null, 2), "utf8");
 }
@@ -279,7 +321,7 @@ interface PreparedCase {
   pairwiseResults: PairwiseArtifact[];
 }
 
-interface ManifestRequest {
+interface ManifestRequest extends ResumableCalibrationRequest {
   id: string;
   requestNumber: number;
   case: CaseId;
@@ -292,6 +334,13 @@ interface ManifestRequest {
   requestedAt?: string;
   completedAt?: string;
   detail?: string;
+  observationStatus: ObservationStatus;
+  attemptHistory: CalibrationAttemptHistoryEntry[];
+  executionPriority: number;
+  requestedModel: string;
+  effectiveModel?: string;
+  promptHash: string;
+  inFlightAttempt?: { requestedAt: string; requestedModel: string };
 }
 
 interface CalibrationManifest {
@@ -299,6 +348,9 @@ interface CalibrationManifest {
   createdAt: string;
   head: string;
   model: string;
+  evaluatorVersion?: string;
+  promptHashAlgorithm?: "sha256-template-source";
+  promptHashBackfilledAt?: string;
   plannedRequests: 14;
   priorPreCheckpointAttempts: {
     attempted: 2;
@@ -348,6 +400,41 @@ interface PairwiseArtifact {
   status: RequestStatus;
   result: HeadPairwiseResult;
   normalizedWinner?: CandidateLabel | "tie";
+  decision?: PairwiseDecision;
+  normalizedActionableVerdict?: CandidateLabel | PairwiseActionableVerdict;
+}
+
+interface PairwiseRepairValidationRequest {
+  id: string;
+  direction: "forward" | "reverse";
+  candidates: [CandidateLabel, CandidateLabel];
+  candidateSha256: [string, string];
+  requestImageSha256: [string, string];
+  promptHash: string;
+  requestedModel: string;
+  effectiveModel?: string;
+  status: RequestStatus;
+  requestedAt?: string;
+  completedAt?: string;
+  inFlight?: boolean;
+  result?: HeadPairwiseResult;
+  rawWinner?: HeadPairwiseReview["winner"];
+  normalizedWinner?: CandidateLabel | "tie";
+  decision?: PairwiseDecision;
+  normalizedActionableVerdict?: CandidateLabel | PairwiseActionableVerdict;
+}
+
+interface PairwiseRepairValidationManifest {
+  experiment: "controlled-20260830-01";
+  validation: "source-fidelity-pairwise-repair";
+  baseHead: string;
+  model: string;
+  promptHash: string;
+  priorPairwisePromptHash: string;
+  sourceFaceSha256: string;
+  sourceHeadSha256: string;
+  authorizedRequests: 2;
+  requests: PairwiseRepairValidationRequest[];
 }
 
 async function prepareCase(id: CaseId): Promise<PreparedCase> {
@@ -391,7 +478,36 @@ async function prepareCase(id: CaseId): Promise<PreparedCase> {
   };
 }
 
-function buildManifest(cases: Map<CaseId, PreparedCase>, head: string): CalibrationManifest {
+async function evaluatorPromptHashes(): Promise<{
+  absolute: string;
+  pairwise: string;
+  version: string;
+}> {
+  const [absoluteSource, pairwiseSource] = await Promise.all([
+    readFile(resolve("src/skinCritique.ts"), "utf8"),
+    readFile(resolve("src/headIdentity.ts"), "utf8"),
+  ]);
+  const template = (source: string, label: string): string => {
+    const match = /const prompt = `([\s\S]*?)`;\r?\n\s*const models/.exec(source);
+    if (!match) throw new Error(`Unable to fingerprint ${label} evaluator prompt`);
+    return sha256(Buffer.from(match[1], "utf8"));
+  };
+  const absolute = template(absoluteSource, "absolute");
+  const pairwiseBlock = /export function buildHeadPairwisePrompt\([\s\S]*?\r?\n}\r?\n\r?\nexport async function runHeadPairwiseComparison/.exec(pairwiseSource)?.[0];
+  if (!pairwiseBlock) throw new Error("Unable to fingerprint pairwise evaluator prompt builder");
+  const pairwise = sha256(Buffer.from(pairwiseBlock, "utf8"));
+  return {
+    absolute,
+    pairwise,
+    version: `absolute:${absolute};pairwise:${pairwise}`,
+  };
+}
+
+function buildManifest(
+  cases: Map<CaseId, PreparedCase>,
+  head: string,
+  promptHashes: Awaited<ReturnType<typeof evaluatorPromptHashes>>,
+): CalibrationManifest {
   const requests = LIVE_CALIBRATION_REQUEST_SPECS.map((spec, index): ManifestRequest => {
     const prepared = cases.get(spec.case)!;
     const candidates = spec.type === "absolute" ? [spec.candidate] : [...spec.candidates];
@@ -408,6 +524,11 @@ function buildManifest(cases: Map<CaseId, PreparedCase>, head: string): Calibrat
       requestImageSha256: candidates.map((candidate) => images.get(candidate)!.sha256),
       status: "pending",
       attempts: 0,
+      observationStatus: "not_observed",
+      attemptHistory: [],
+      executionPriority: EXECUTION_PRIORITY[spec.id],
+      requestedModel: MODEL,
+      promptHash: spec.type === "absolute" ? promptHashes.absolute : promptHashes.pairwise,
     };
   });
   return {
@@ -415,6 +536,8 @@ function buildManifest(cases: Map<CaseId, PreparedCase>, head: string): Calibrat
     createdAt: new Date().toISOString(),
     head,
     model: MODEL,
+    evaluatorVersion: promptHashes.version,
+    promptHashAlgorithm: "sha256-template-source",
     plannedRequests: 14,
     priorPreCheckpointAttempts: {
       attempted: 2,
@@ -455,7 +578,6 @@ async function loadOrCreateManifest(
   if (
     manifest.experiment !== planned.experiment ||
     manifest.model !== planned.model ||
-    manifest.head !== planned.head ||
     manifest.requests.length !== planned.requests.length ||
     manifest.requests.some((request, index) =>
       request.id !== planned.requests[index].id ||
@@ -465,13 +587,36 @@ async function loadOrCreateManifest(
   ) {
     throw new Error("Existing manifest does not match the frozen calibration plan");
   }
-  for (const request of manifest.requests) {
-    if (request.status === "pending" && request.attempts > 0) {
-      request.status = "failed";
-      request.completedAt = new Date().toISOString();
-      request.detail = "Process ended after dispatch; slot sealed without retry";
+  const backfilledPromptHash = manifest.requests.some((request) => !request.promptHash);
+  manifest.requests = manifest.requests.map((request, index) => {
+    const frozen = planned.requests[index];
+    const migrated = migrateCalibrationRequest({
+      ...request,
+      executionPriority: frozen.executionPriority,
+      requestedModel: frozen.requestedModel,
+      promptHash: request.promptHash || frozen.promptHash,
+    }, MODEL) as ManifestRequest;
+    if (migrated.inFlightAttempt) {
+      migrated.attemptHistory.push({
+        requestedAt: migrated.inFlightAttempt.requestedAt,
+        completedAt: new Date().toISOString(),
+        outcome: "failed",
+        requestedModel: migrated.inFlightAttempt.requestedModel,
+      });
+      migrated.attempts = migrated.attemptHistory.length;
+      migrated.status = "failed";
+      migrated.observationStatus = "not_observed";
+      migrated.detail = "Process ended after dispatch; historical attempt preserved without automatic retry";
+      delete migrated.inFlightAttempt;
     }
-  }
+    if (!immutableRequestMatches(migrated, frozen)) {
+      throw new Error(`Frozen candidate, render, prompt, or model changed for ${request.id}`);
+    }
+    return migrated;
+  });
+  manifest.evaluatorVersion ||= planned.evaluatorVersion;
+  manifest.promptHashAlgorithm ||= "sha256-template-source";
+  if (backfilledPromptHash) manifest.promptHashBackfilledAt = new Date().toISOString();
   await saveManifest(manifest);
   return { manifest, fresh: false };
 }
@@ -502,19 +647,28 @@ function manifestIntegrity(
       return atlasMatches && imageMatches ? [] : [`${request.id}:${candidate}`];
     });
   });
+  const duplicateCompletedObservations = manifest.requests
+    .filter((request) => request.attemptHistory.filter((attempt) =>
+      attempt.outcome === "success" &&
+      attempt.requestedModel === MODEL &&
+      attempt.effectiveModel === MODEL,
+    ).length > 1)
+    .map((request) => request.id);
   return {
     plannedRequests: manifest.requests.length,
     absoluteRequests: manifest.requests.filter((request) => request.type === "absolute").length,
     pairwiseRequests: manifest.requests.filter((request) => request.type === "pairwise").length,
-    attempted: manifest.requests.filter((request) => request.attempts === 1).length,
+    attempted: manifest.requests.reduce((sum, request) => sum + request.attemptHistory.length, 0),
+    completedObservations: manifest.requests.filter((request) => request.observationStatus === "completed").length,
     duplicateIds,
-    attemptsAboveOne: manifest.requests.filter((request) => request.attempts > 1).map((request) => request.id),
+    duplicateCompletedObservations,
     hashMismatches,
     valid:
       manifest.requests.length === 14 &&
       duplicateIds.length === 0 &&
       hashMismatches.length === 0 &&
-      manifest.requests.every((request) => request.attempts <= 1),
+      duplicateCompletedObservations.length === 0 &&
+      manifest.requests.every((request) => Boolean(request.promptHash && request.requestedModel)),
   };
 }
 
@@ -526,6 +680,48 @@ function findPairwise(
   return entries.find((entry) => entry.candidates[0] === first && entry.candidates[1] === second);
 }
 
+async function prepareExperiment(): Promise<{
+  preparedList: PreparedCase[];
+  cases: Map<CaseId, PreparedCase>;
+  manifest: CalibrationManifest;
+  plannedManifest: CalibrationManifest;
+  fresh: boolean;
+  integrity: Record<string, unknown>;
+}> {
+  const preparedList = await Promise.all(CASE_IDS.map((id) => prepareCase(id)));
+  const cases = new Map(preparedList.map((prepared) => [prepared.replay.id, prepared]));
+  const promptHashes = await evaluatorPromptHashes();
+  const plannedManifest = buildManifest(
+    cases,
+    process.env.IDENTITY_CALIBRATION_HEAD || "37914d7",
+    promptHashes,
+  );
+  const { manifest, fresh } = await loadOrCreateManifest(plannedManifest);
+  for (const prepared of preparedList) {
+    if (fresh) {
+      await writeCaseImages(
+        prepared.replay,
+        new Map([...prepared.montages].map(([label, image]) => [label, image.image])),
+      );
+    } else {
+      prepared.absoluteResults = await loadResultArray<AbsoluteArtifact>(
+        join(prepared.directory, "absolute-results.json"),
+      );
+      prepared.pairwiseResults = await loadResultArray<PairwiseArtifact>(
+        join(prepared.directory, "pairwise-results.json"),
+      );
+    }
+  }
+  return {
+    preparedList,
+    cases,
+    manifest,
+    plannedManifest,
+    fresh,
+    integrity: manifestIntegrity(manifest, cases),
+  };
+}
+
 describe("live calibration request manifest", () => {
   it("predefines exactly eight absolute and six unique pairwise request slots", () => {
     expect(LIVE_CALIBRATION_REQUEST_SPECS).toHaveLength(14);
@@ -533,6 +729,104 @@ describe("live calibration request manifest", () => {
     expect(LIVE_CALIBRATION_REQUEST_SPECS.filter((request) => request.type === "pairwise")).toHaveLength(6);
     expect(new Set(LIVE_CALIBRATION_REQUEST_SPECS.map((request) => request.id)).size).toBe(14);
   });
+
+  it("pins the repair validation to A/C forward then reverse only", () => {
+    expect(PAIRWISE_REPAIR_VALIDATION_SPECS).toEqual([
+      { id: "repair-01-forward-A-C", direction: "forward", candidates: ["A", "C"] },
+      { id: "repair-02-reverse-C-A", direction: "reverse", candidates: ["C", "A"] },
+    ]);
+  });
+});
+
+describe.skipIf(!PREFLIGHT)("API-free calibration preflight", () => {
+  it("migrates and audits the existing controlled experiment without a provider call", async () => {
+    const { manifest, plannedManifest, integrity } = await prepareExperiment();
+    const quotaBlocked = manifest.requests.filter((request) =>
+      request.observationStatus === "not_observed" &&
+      request.attemptHistory.at(-1)?.outcome === "quota_failed",
+    );
+    const neverAttempted = manifest.requests.filter((request) => request.attemptHistory.length === 0);
+    const completed = manifest.requests.filter((request) => request.observationStatus === "completed");
+    const selectable = selectCalibrationBatch(manifest.requests, 14, true);
+    const promptUnchanged = manifest.requests.every((request, index) =>
+      immutableRequestMatches(request, plannedManifest.requests[index]),
+    );
+    const fallbackContamination = manifest.requests.some((request) =>
+      request.attemptHistory.some((attempt) =>
+        attempt.outcome === "success" &&
+        (attempt.requestedModel !== MODEL || attempt.effectiveModel !== MODEL),
+      ),
+    );
+    const evidence = evaluatorEvidence(manifest.requests);
+    const report = {
+      experiment: "controlled-20260830-01",
+      evaluatorModel: MODEL,
+      absoluteEvaluatorModel: MODEL,
+      pairwiseEvaluatorModel: MODEL,
+      calibrationFallbackModel: MODEL,
+      evaluatorVersion: manifest.evaluatorVersion,
+      observations: {
+        completed: completed.length,
+        quotaBlocked: quotaBlocked.length,
+        neverAttempted: neverAttempted.length,
+        resumeEligible: selectable.length,
+      },
+      candidateIntegrity: {
+        validRequests: integrity.valid ? 14 : 0,
+        plannedRequests: 14,
+        hashMismatches: integrity.hashMismatches,
+      },
+      prompt: {
+        unchanged: promptUnchanged,
+        algorithm: manifest.promptHashAlgorithm,
+        backfilledAt: manifest.promptHashBackfilledAt,
+      },
+      modelPinning: {
+        requestedModel: MODEL,
+        fallbackDeDuplicatedToSameModel: true,
+        workersAiBindingPresentInCalibrationEnv: false,
+        fallbackContamination,
+      },
+      evidence,
+      readyToResume: Boolean(integrity.valid && promptUnchanged && selectable.length > 0),
+      blockingReason:
+        "A new explicit live approval and positive MAX_LIVE_CALIBRATION_REQUESTS are required; quota availability remains unknown until the first real observation.",
+      recommendedNextRequestBudget: 2,
+      checkpointPath: join(OUTPUT_ROOT, "manifest.json"),
+      historicalQuotaFailures: quotaBlocked.map((request) => ({
+        requestId: request.id,
+        failure: request.attemptHistory.at(-1)?.failure,
+      })),
+      liveApiCalls: 0,
+    };
+    await writeJson(join(OUTPUT_ROOT, "preflight.json"), report);
+    console.log([
+      "Experiment: controlled-20260830-01",
+      `Evaluator model: ${MODEL}`,
+      `Observations: completed ${completed.length}, quota-blocked ${quotaBlocked.length}, never-attempted ${neverAttempted.length}`,
+      `Candidate integrity: ${integrity.valid ? "14/14 valid" : "invalid"}`,
+      `Prompt: ${promptUnchanged ? "unchanged" : "changed"}`,
+      `Evidence tier: ${evidence.evidenceTier}`,
+      `Ready to resume: ${integrity.valid && promptUnchanged && selectable.length > 0 ? "yes" : "no"}`,
+      `Blocking reason: ${report.blockingReason}`,
+    ].join("\n"));
+    expect(report).toMatchObject({
+      candidateIntegrity: { validRequests: 14, plannedRequests: 14 },
+      prompt: { unchanged: true },
+      modelPinning: { fallbackContamination: false },
+      readyToResume: true,
+      liveApiCalls: 0,
+    });
+    expect(report.observations).toEqual({
+      completed: completed.length,
+      quotaBlocked: quotaBlocked.length,
+      neverAttempted: neverAttempted.length,
+      resumeEligible: selectable.length,
+    });
+    expect(report.evidence.completedObservations).toBe(completed.length);
+    expect(report.evidence.evidenceTier).toBeGreaterThanOrEqual(0);
+    expect(report.evidence.evidenceTier).toBeLessThanOrEqual(4);
+  }, 120_000);
 });
 
 describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
@@ -549,53 +843,41 @@ describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
         process.env.LIVE_GEMINI_STRUCTURED_TIMEOUT_MS || "90000",
     } as Env;
 
-    // Freeze both cases and every A/B/C/D atlas before the first live request.
-    const preparedList = await Promise.all(CASE_IDS.map((id) => prepareCase(id)));
-    const cases = new Map(preparedList.map((prepared) => [prepared.replay.id, prepared]));
-    const plannedManifest = buildManifest(cases, process.env.IDENTITY_CALIBRATION_HEAD || "f7c9ec6");
-    const { manifest, fresh } = await loadOrCreateManifest(plannedManifest);
-    for (const prepared of preparedList) {
-      if (fresh) {
-        await writeCaseImages(
-          prepared.replay,
-          new Map(
-            [...prepared.montages].map(([label, image]) => [label, image.image]),
-          ),
-        );
-      } else {
-        prepared.absoluteResults = await loadResultArray<AbsoluteArtifact>(
-          join(prepared.directory, "absolute-results.json"),
-        );
-        prepared.pairwiseResults = await loadResultArray<PairwiseArtifact>(
-          join(prepared.directory, "pairwise-results.json"),
-        );
-      }
+    if (!Number.isInteger(MAX_LIVE_REQUESTS) || MAX_LIVE_REQUESTS <= 0) {
+      throw new Error("A positive MAX_LIVE_CALIBRATION_REQUESTS is required for an explicitly authorized live batch");
     }
-    const preflight = manifestIntegrity(manifest, cases);
+    // Freeze both cases and every A/B/C/D atlas before the first live request.
+    const { preparedList, cases, manifest, integrity: preflight } = await prepareExperiment();
     await writeJson(join(OUTPUT_ROOT, "manifest-integrity-preflight.json"), preflight);
     expect(preflight).toMatchObject({
       plannedRequests: 14,
       absoluteRequests: 8,
       pairwiseRequests: 6,
       duplicateIds: [],
-      attemptsAboveOne: [],
+      duplicateCompletedObservations: [],
       hashMismatches: [],
       valid: true,
     });
 
+    const selectedRequests = selectCalibrationBatch(
+      manifest.requests,
+      MAX_LIVE_REQUESTS,
+      ALLOW_QUOTA_BLOCKED_RESUME,
+    );
     let attempted = 0;
-    let consecutiveQuotaFailures = 0;
-    for (const request of manifest.requests) {
-      if (consecutiveQuotaFailures >= 2) break;
-      if (request.status !== "pending" || request.attempts !== 0) continue;
+    let stoppedAfterFailure = false;
+    for (const request of selectedRequests) {
       await paceLiveCalls(attempted);
       const prepared = cases.get(request.case)!;
-      request.attempts = 1;
       request.requestedAt = new Date().toISOString();
-      // Persist dispatch before the request. A process restart sees attempts=1
-      // and must never return this slot to pending for a second sample.
+      request.inFlightAttempt = { requestedAt: request.requestedAt, requestedModel: MODEL };
+      request.attempts = request.attemptHistory.length + 1;
+      // Persist dispatch before the request. A process restart turns this into
+      // historical failure and never auto-retries it.
       await saveManifest(manifest);
       attempted++;
+      let effectiveModel: string | undefined;
+      let attemptFailure: CalibrationAttemptHistoryEntry["failure"];
 
       if (request.type === "absolute") {
         const candidate = request.candidates[0];
@@ -645,7 +927,12 @@ describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
         await writeJson(join(prepared.directory, "absolute-results.json"), prepared.absoluteResults);
         request.status = status;
         request.completedAt = completedAt;
-        if (!result.ok) request.detail = result.detail;
+        if (result.ok) effectiveModel = MODEL;
+        else {
+          request.detail = result.detail;
+          attemptFailure = result.quotaFailure;
+          effectiveModel = result.quotaFailure?.model;
+        }
       } else {
         const candidates = request.candidates as [CandidateLabel, CandidateLabel];
         const result = await runHeadPairwiseComparison(
@@ -659,6 +946,7 @@ describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
         );
         const completedAt = new Date().toISOString();
         const status = statusFor(result);
+        const decision = result.ok ? assessPairwiseDecision(result.review) : undefined;
         const artifact: PairwiseArtifact = {
           requestId: request.id,
           requestNumber: request.requestNumber,
@@ -675,19 +963,60 @@ describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
           status,
           result,
           ...(result.ok ? { normalizedWinner: candidateWinner(result.review, candidates) } : {}),
+          ...(decision
+            ? {
+                decision,
+                normalizedActionableVerdict: normalizedActionableVerdict(
+                  decision.actionableVerdict,
+                  candidates,
+                ),
+              }
+            : {}),
         };
         prepared.pairwiseResults.push(artifact);
         await writeJson(join(prepared.directory, "pairwise-results.json"), prepared.pairwiseResults);
         request.status = status;
         request.completedAt = completedAt;
-        if (!result.ok) request.detail = result.detail;
+        if (result.ok) effectiveModel = MODEL;
+        else {
+          request.detail = result.detail;
+          attemptFailure = result.quotaFailure;
+          effectiveModel = result.quotaFailure?.model;
+        }
       }
 
-      // Persist terminal status immediately. Failed/quota slots are never
-      // returned to pending and therefore can never be retried by this run.
+      const outcome = request.status === "success"
+        ? "success"
+        : request.status === "quota_failed"
+          ? "quota_failed"
+          : "failed";
+      request.attemptHistory.push({
+        requestedAt: request.requestedAt,
+        completedAt: request.completedAt,
+        outcome,
+        requestedModel: MODEL,
+        ...(effectiveModel ? { effectiveModel } : {}),
+        ...(attemptFailure ? { failure: attemptFailure } : {}),
+      });
+      request.attempts = request.attemptHistory.length;
+      request.effectiveModel = effectiveModel;
+      request.observationStatus = outcome === "success" && effectiveModel === MODEL
+        ? "completed"
+        : "not_observed";
+      if (outcome === "success" && effectiveModel !== MODEL) {
+        request.status = "failed";
+        request.detail = "Observation excluded because effective model did not match the pinned evaluator model";
+      }
+      delete request.inFlightAttempt;
+      // Persist terminal status immediately. This batch never selects the
+      // same observation twice; later quota resume requires new user approval.
       await saveManifest(manifest);
-      if (request.status === "quota_failed") consecutiveQuotaFailures++;
-      else consecutiveQuotaFailures = 0;
+      // A live calibration batch is measurement-only. Any non-observation
+      // ends the authorized batch without retrying or advancing to another slot.
+      if (outcome !== "success") {
+        stoppedAfterFailure = true;
+        break;
+      }
     }
 
     const aggregate: Record<string, unknown>[] = [];
@@ -703,7 +1032,18 @@ describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
         const forward = entry.candidate === "C" || entry.candidate === "D"
           ? findPairwise(successfulPairwise, "A", entry.candidate)?.result.review
           : undefined;
-        return { level, absolute: entry.result.critique, ...(forward ? { pairwise: forward } : {}) };
+        return {
+          level,
+          absolute: entry.result.critique,
+          ...(forward
+            ? {
+                pairwise: {
+                  ...forward,
+                  actionableVerdict: assessPairwiseDecision(forward).actionableVerdict,
+                },
+              }
+            : {}),
+        };
       });
       const orderAssessments = (["C", "D"] as const).flatMap((candidate) => {
         const forward = findPairwise(successfulPairwise, "A", candidate);
@@ -745,11 +1085,17 @@ describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
         },
         calls: {
           planned: caseRequests.length,
-          attempted: caseRequests.filter((request) => request.attempts === 1).length,
-          success: caseRequests.filter((request) => request.status === "success").length,
-          quotaFailed: caseRequests.filter((request) => request.status === "quota_failed").length,
-          failed: caseRequests.filter((request) => request.status === "failed").length,
-          repeatsPerSlot: 0,
+          attempted: caseRequests.reduce((sum, request) => sum + request.attemptHistory.length, 0),
+          success: caseRequests.filter((request) => request.observationStatus === "completed").length,
+          quotaFailed: caseRequests.reduce(
+            (sum, request) => sum + request.attemptHistory.filter((attempt) => attempt.outcome === "quota_failed").length,
+            0,
+          ),
+          failed: caseRequests.reduce(
+            (sum, request) => sum + request.attemptHistory.filter((attempt) => attempt.outcome === "failed").length,
+            0,
+          ),
+          completedObservations: caseRequests.filter((request) => request.observationStatus === "completed").length,
         },
         sensitivity: successfulAbsolute.length === 4
           ? assessIdentitySensitivity(
@@ -781,19 +1127,159 @@ describe.skipIf(!LIVE)("live blind identity evaluator calibration", () => {
     await writeJson(join(OUTPUT_ROOT, "manifest-integrity.json"), integrity);
     await writeJson(join(OUTPUT_ROOT, "calibration-summary.json"), {
       planned: 14,
-      attempted: manifest.requests.filter((request) => request.attempts === 1).length,
-      success: manifest.requests.filter((request) => request.status === "success").length,
-      quotaFailed: manifest.requests.filter((request) => request.status === "quota_failed").length,
-      otherFailed: manifest.requests.filter((request) => request.status === "failed").length,
-      stoppedAfterConsecutiveQuotaFailures: consecutiveQuotaFailures >= 2,
+      attempted: manifest.requests.reduce((sum, request) => sum + request.attemptHistory.length, 0),
+      success: manifest.requests.filter((request) => request.observationStatus === "completed").length,
+      quotaFailed: manifest.requests.reduce(
+        (sum, request) => sum + request.attemptHistory.filter((attempt) => attempt.outcome === "quota_failed").length,
+        0,
+      ),
+      otherFailed: manifest.requests.reduce(
+        (sum, request) => sum + request.attemptHistory.filter((attempt) => attempt.outcome === "failed").length,
+        0,
+      ),
+      stoppedAfterFailure,
       cases: aggregate,
     });
     expect(integrity).toMatchObject({
       duplicateIds: [],
-      attemptsAboveOne: [],
+      duplicateCompletedObservations: [],
       hashMismatches: [],
       valid: true,
     });
-    expect(attempted).toBeLessThanOrEqual(14);
+    expect(attempted).toBeLessThanOrEqual(MAX_LIVE_REQUESTS);
   }, 1_500_000);
+});
+
+describe.skipIf(!REPAIR_LIVE)("live source-fidelity pairwise repair validation", () => {
+  it("runs A/C forward then reverse exactly once with durable checkpoints", async () => {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) throw new Error("GEMINI_API_KEY is required");
+    if (!Number.isInteger(MAX_LIVE_REQUESTS) || MAX_LIVE_REQUESTS <= 0 || MAX_LIVE_REQUESTS > 2) {
+      throw new Error("Pairwise repair validation requires a positive request budget no greater than 2");
+    }
+    if (!OUTPUT_ROOT.endsWith("controlled-20260830-01")) {
+      throw new Error("Pairwise repair validation must run inside controlled-20260830-01");
+    }
+
+    const prepared = await prepareCase("glasses-monochrome");
+    const baseManifest = JSON.parse(
+      await readFile(join(OUTPUT_ROOT, "manifest.json"), "utf8"),
+    ) as CalibrationManifest;
+    const promptHash = (await evaluatorPromptHashes()).pairwise;
+    const originalForward = baseManifest.requests.find((request) => request.id === "05-glasses-pairwise-A-C");
+    const originalReverse = baseManifest.requests.find((request) => request.id === "06-glasses-pairwise-C-A");
+    if (!originalForward || !originalReverse) throw new Error("Frozen A/C pairwise requests are missing");
+    if (promptHash === originalForward.promptHash) {
+      throw new Error("Repair validation requires a new source-fidelity evaluator prompt hash");
+    }
+
+    const requests = PAIRWISE_REPAIR_VALIDATION_SPECS.map((spec): PairwiseRepairValidationRequest => {
+      const candidates = [...spec.candidates] as [CandidateLabel, CandidateLabel];
+      const frozen = spec.direction === "forward" ? originalForward : originalReverse;
+      const candidateSha256 = candidates.map((candidate) => prepared.atlasSha256.get(candidate)!) as [string, string];
+      const requestImageSha256 = candidates.map((candidate) => prepared.headPanels.get(candidate)!.sha256) as [string, string];
+      if (
+        JSON.stringify(candidateSha256) !== JSON.stringify(candidates.map((candidate) => frozen.candidateSha256[candidate])) ||
+        JSON.stringify(requestImageSha256) !== JSON.stringify(frozen.requestImageSha256)
+      ) {
+        throw new Error(`Frozen candidate or evidence hash changed for ${spec.id}`);
+      }
+      return {
+        id: spec.id,
+        direction: spec.direction,
+        candidates,
+        candidateSha256,
+        requestImageSha256,
+        promptHash,
+        requestedModel: MODEL,
+        status: "pending",
+      };
+    });
+    const manifest: PairwiseRepairValidationManifest = {
+      experiment: "controlled-20260830-01",
+      validation: "source-fidelity-pairwise-repair",
+      baseHead: baseManifest.head,
+      model: MODEL,
+      promptHash,
+      priorPairwisePromptHash: originalForward.promptHash,
+      sourceFaceSha256: sha256(prepared.replay.sourceFaceBytes),
+      sourceHeadSha256: sha256(prepared.replay.sourceHeadBytes),
+      authorizedRequests: 2,
+      requests,
+    };
+    const validationPath = join(OUTPUT_ROOT, "pairwise-repair-validation.json");
+    await writeFile(validationPath, JSON.stringify(manifest, null, 2), { encoding: "utf8", flag: "wx" });
+
+    const env = {
+      GEMINI_API_KEY: key,
+      VISION_MODEL: MODEL,
+      VISION_FALLBACK_MODEL: MODEL,
+      GEMINI_STRUCTURED_TIMEOUT_MS:
+        process.env.LIVE_GEMINI_STRUCTURED_TIMEOUT_MS || "90000",
+    } as Env;
+    let attempted = 0;
+    for (const request of manifest.requests.slice(0, MAX_LIVE_REQUESTS)) {
+      await paceLiveCalls(attempted);
+      request.requestedAt = new Date().toISOString();
+      request.inFlight = true;
+      await writeJson(validationPath, manifest);
+      attempted++;
+      const result = await runHeadPairwiseComparison(
+        env,
+        prepared.replay.analysis,
+        prepared.replay.sourceFaceDataUrl,
+        prepared.headPanels.get(request.candidates[0])!.dataUrl,
+        prepared.headPanels.get(request.candidates[1])!.dataUrl,
+        "candidate_selection",
+        prepared.replay.sourceHeadDataUrl,
+      );
+      request.completedAt = new Date().toISOString();
+      request.status = statusFor(result);
+      request.result = result;
+      delete request.inFlight;
+      if (result.ok) {
+        const decision = assessPairwiseDecision(result.review);
+        request.effectiveModel = MODEL;
+        request.rawWinner = result.review.winner;
+        request.normalizedWinner = candidateWinner(result.review, request.candidates);
+        request.decision = decision;
+        request.normalizedActionableVerdict = normalizedActionableVerdict(
+          decision.actionableVerdict,
+          request.candidates,
+        );
+      } else {
+        request.effectiveModel = result.quotaFailure?.model;
+      }
+      await writeJson(validationPath, manifest);
+      if (request.status !== "success") break;
+    }
+
+    const completed = manifest.requests.filter((request) => request.status === "success");
+    await writeJson(join(OUTPUT_ROOT, "pairwise-repair-summary.json"), {
+      experiment: manifest.experiment,
+      validation: manifest.validation,
+      authorized: 2,
+      attempted,
+      success: completed.length,
+      quotaFailed: manifest.requests.filter((request) => request.status === "quota_failed").length,
+      otherFailed: manifest.requests.filter((request) => request.status === "failed").length,
+      results: completed.map((request) => ({
+        id: request.id,
+        direction: request.direction,
+        candidates: request.candidates,
+        rawWinner: request.rawWinner,
+        normalizedWinner: request.normalizedWinner,
+        confidence: request.decision?.confidence,
+        actionableVerdict: request.decision?.actionableVerdict,
+        normalizedActionableVerdict: request.normalizedActionableVerdict,
+        replacementSafe: request.decision?.replacementSafe,
+      })),
+    });
+    expect(attempted).toBeLessThanOrEqual(2);
+    expect(new Set(manifest.requests.map((request) => request.id)).size).toBe(2);
+    expect(manifest.requests.every((request) =>
+      request.status !== "success" ||
+      (request.requestedModel === MODEL && request.effectiveModel === MODEL)
+    )).toBe(true);
+  }, 600_000);
 });

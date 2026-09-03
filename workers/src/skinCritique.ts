@@ -1,4 +1,5 @@
 import type { PhotoAnalysis } from "./analysis";
+import { classifyEvaluatorQuotaFailure, type EvaluatorQuotaFailure } from "./evaluatorQuota";
 import { generateGeminiStructuredJson, isGeminiQuotaError } from "./gemini";
 import type { RawImage } from "./png";
 import {
@@ -69,6 +70,7 @@ export type SkinCritiqueResult =
   | {
       ok: false;
       quotaExceeded: boolean;
+      quotaFailure?: EvaluatorQuotaFailure;
       detail: string;
       neuronsSpent: number;
     };
@@ -582,9 +584,11 @@ Score identity and face/hair against the photos, outfit fidelity, cross-view phy
       neuronsSpent += NEURONS_VISION_DETAIL_ESTIMATE;
     }
   }
+  const quotaFailure = classifyEvaluatorQuotaFailure(lastError);
   return {
     ok: false,
     quotaExceeded: isGeminiQuotaError(lastError),
+    ...(quotaFailure ? { quotaFailure } : {}),
     detail: lastError instanceof Error ? lastError.message : String(lastError),
     neuronsSpent,
   };

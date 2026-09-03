@@ -417,4 +417,58 @@ describe("Gemini rendered-skin critique", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("fallback-model");
   });
+
+  it("returns structured quota diagnostics when the pinned evaluator is exhausted", async () => {
+    const fetchMock = vi.fn(async () => Response.json(
+      {
+        error: {
+          code: 429,
+          status: "RESOURCE_EXHAUSTED",
+          message: "You exceeded your current quota, please check your plan and billing details. Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: pinned-model. Please retry in 20s.",
+          details: [
+            {
+              retryDelay: "20s",
+              violations: [
+                {
+                  quotaId: "GenerateRequestsPerMinutePerProjectPerModel-FreeTier",
+                  quotaValue: "20",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      { status: 429 },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runSkinCritique(
+      {
+        GEMINI_API_KEY: "test",
+        VISION_MODEL: "pinned-model",
+        VISION_FALLBACK_MODEL: "pinned-model",
+      } as Env,
+      makeAnalysis(),
+      ["data:image/png;base64,AQID"],
+      "data:image/png;base64,BAUG",
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      quotaExceeded: true,
+      quotaFailure: {
+        category: "rate_limit",
+        retryable: true,
+        retryAfterSeconds: 20,
+        httpStatus: 429,
+        providerCode: "RESOURCE_EXHAUSTED",
+        quotaLimit: 20,
+        model: "pinned-model",
+        modelSpecific: true,
+        projectSpecific: true,
+        quotaIds: ["GenerateRequestsPerMinutePerProjectPerModel-FreeTier"],
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

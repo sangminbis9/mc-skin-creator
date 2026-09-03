@@ -19,6 +19,19 @@ import {
   validatePortraitRegion,
 } from "./analysis";
 import {
+  conservativeFaceHeadFallback,
+  emptyCropDirections,
+  planAdaptiveHeadCrop,
+  type AdaptiveHeadCropContext,
+  type AdaptiveHeadCropPlan,
+  type CropDirections,
+  type CropMargins,
+  type HeadCropBoundaryAdjustments,
+  type HeadCropCoverage,
+  type HeadCropRisk,
+  type IdentityCropQuality,
+} from "./adaptiveHeadCrop";
+import {
   base64ToBytes,
   bytesToBase64,
   decodeImage,
@@ -61,10 +74,15 @@ import {
 } from "./skinRender";
 import {
   runHeadPairwiseComparison,
+  runHeadPairwiseIfAdmissible,
+  assessCandidateAdmissibility,
+  assessPairwiseDecision,
   measureHeadCandidateStructure,
   selectHeadCandidate,
   shouldAcceptIdentityCorrection,
   type HeadCandidate,
+  type CandidateAdmissibility,
+  type HeadPairwiseGateResult,
   type HeadPairwiseReview,
 } from "./headIdentity";
 import { buildFacePixelPlanVariants, type FacePixelPlan } from "./identityPlans";
@@ -82,6 +100,7 @@ async function headCandidate(
   id: string,
   kind: HeadCandidate["kind"],
   atlas: RawImage,
+  faceStyle: FaceStyle,
   structuralValidity: boolean,
   facePlanVariant?: string,
   facePlan?: FacePixelPlan,
@@ -89,12 +108,26 @@ async function headCandidate(
 ): Promise<HeadCandidate> {
   const montage = buildPairwiseHeadEvidence(renderSkinViews(atlas));
   const structuralEvidence = measureHeadCandidateStructure(atlas, facePlan, hairPlan);
+  const finalValidation = validateFinalAtlas(atlas);
+  const craftValidation = facePlan && hairPlan
+    ? validateAtlasCraft(atlas, faceStyle, facePlan, hairPlan)
+    : { ok: false, problems: ["candidate craft contract could not be established"] };
+  const p5Valid = Boolean(facePlan) &&
+    facePlan!.candidateCost.p5ContractViolations === 0 &&
+    structuralEvidence.contractViolations.length === 0;
   return {
     id,
     kind,
     atlas,
-    structuralValidity: structuralValidity && structuralEvidence.contractViolations.length === 0,
+    structuralValidity,
     structuralEvidence,
+    admissibilityEvidence: {
+      p5Valid,
+      craftValid: craftValidation.ok,
+      renderContractValid: finalValidation.ok && structuralEvidence.contractViolations.length === 0,
+      criticalDefects: [],
+      calibrationConflicts: [],
+    },
     ...(facePlan ? { facePlan } : {}),
     ...(hairPlan ? { hairPlan } : {}),
     headMontageDataUrl: `data:image/png;base64,${bytesToBase64(await encodePng(montage))}`,
@@ -105,7 +138,66 @@ async function headCandidate(
 interface HeadCandidateComparison {
   candidateA: string;
   candidateB: string;
+  candidateAdmissibility: {
+    candidateA: CandidateAdmissibility;
+    candidateB: CandidateAdmissibility;
+  };
+  pairwise: {
+    executed: true;
+    rawPreference: HeadPairwiseReview["winner"];
+    confidence: number;
+  };
+  replacement: ReturnType<typeof assessPairwiseDecision>;
   review: HeadPairwiseReview;
+}
+
+interface HeadCandidateAdmissibilityDiagnostic {
+  candidate: string;
+  admissibility: CandidateAdmissibility;
+}
+
+async function runProductionHeadPairwise(
+  env: Env,
+  analysis: PhotoAnalysis,
+  sourceFaceCropDataUrl: string,
+  sourceHeadCropDataUrl: string | undefined,
+  candidateA: HeadCandidate,
+  candidateB: HeadCandidate,
+  purpose: "candidate_selection" | "correction_guard",
+): Promise<HeadPairwiseGateResult> {
+  return runHeadPairwiseIfAdmissible(candidateA, candidateB, () => runHeadPairwiseComparison(
+    env,
+    analysis,
+    sourceFaceCropDataUrl,
+    candidateA.headMontageDataUrl,
+    candidateB.headMontageDataUrl,
+    purpose,
+    sourceHeadCropDataUrl,
+    candidateA.structuralEvidence,
+    candidateB.structuralEvidence,
+  ));
+}
+
+function pairwiseGateDiagnostic(gate: HeadPairwiseGateResult | undefined): Record<string, unknown> {
+  if (!gate) return { skipped: true };
+  if (!gate.pairwiseExecuted) {
+    return {
+      executed: false,
+      status: "unnecessary",
+      replacement: "rejected_before_pairwise",
+      eligibility: gate.eligibility,
+    };
+  }
+  if (!gate.result.ok) {
+    return { executed: true, failed: true, detail: gate.result.detail.slice(0, 500) };
+  }
+  return {
+    executed: true,
+    winner: gate.result.review.winner,
+    confidence: gate.result.review.confidence,
+    decision: assessPairwiseDecision(gate.result.review),
+    reasons: gate.result.review.reasons,
+  };
 }
 
 async function selectBoundedHeadCandidates(
@@ -118,41 +210,51 @@ async function selectBoundedHeadCandidates(
   selected: HeadCandidate;
   comparisons: HeadCandidateComparison[];
   failures: string[];
+  admissibility: HeadCandidateAdmissibilityDiagnostic[];
   neuronsSpent: number;
 }> {
   // Keep the tournament deliberately small: the baseline plus at most two
   // uncertainty-driven FacePixelPlan alternatives (A/B/C total).
   const bounded = candidates.slice(0, 3);
-  let selected = bounded[0];
+  const admissibility = bounded.map((candidate) => ({
+    candidate: candidate.id,
+    admissibility: assessCandidateAdmissibility(candidate),
+  }));
+  const eligible = bounded.filter((_candidate, index) => admissibility[index].admissibility.admissible);
+  let selected = eligible[0] ?? bounded[0];
   const comparisons: HeadCandidateComparison[] = [];
   const failures: string[] = [];
   let neuronsSpent = 0;
-  for (const challenger of bounded.slice(1)) {
+  for (const challenger of eligible.slice(1)) {
     const incumbent = selected;
-    const pairwise = await runHeadPairwiseComparison(
-      env,
-      analysis,
-      sourceFaceCropDataUrl,
-      incumbent.headMontageDataUrl,
-      challenger.headMontageDataUrl,
-      "candidate_selection",
-      sourceHeadCropDataUrl,
-      incumbent.structuralEvidence,
-      challenger.structuralEvidence,
+    const gate = await runProductionHeadPairwise(
+      env, analysis, sourceFaceCropDataUrl, sourceHeadCropDataUrl,
+      incumbent, challenger, "candidate_selection",
     );
-    neuronsSpent += pairwise.neuronsSpent;
-    if (!pairwise.ok) {
-      failures.push(pairwise.detail.slice(0, 1000));
+    neuronsSpent += gate.neuronsSpent;
+    if (!gate.pairwiseExecuted) continue;
+    if (!gate.result.ok) {
+      failures.push(gate.result.detail.slice(0, 1000));
       continue;
     }
     comparisons.push({
       candidateA: incumbent.id,
       candidateB: challenger.id,
-      review: pairwise.review,
+      candidateAdmissibility: {
+        candidateA: gate.eligibility.candidateA,
+        candidateB: gate.eligibility.candidateB,
+      },
+      pairwise: {
+        executed: true,
+        rawPreference: gate.result.review.winner,
+        confidence: gate.result.review.confidence,
+      },
+      replacement: assessPairwiseDecision(gate.result.review),
+      review: gate.result.review,
     });
-    selected = selectHeadCandidate(incumbent, challenger, pairwise.review);
+    selected = selectHeadCandidate(incumbent, challenger, gate.result.review);
   }
-  return { selected, comparisons, failures, neuronsSpent };
+  return { selected, comparisons, failures, admissibility, neuronsSpent };
 }
 
 function buildValidFacePlanCandidateAtlases(
@@ -360,9 +462,17 @@ export async function generateSkin(
   const identityCrops = await createIdentityCrops(
     portraitAnalysisDataUrl,
     analysis.sourceSelection.portraitRegion,
+    {
+      hairVolume: analysis.renderHints.hairVolume,
+      hairTexture: analysis.renderHints.hairTexture,
+      overallHairLength: analysis.renderHints.overallHairLength,
+      sideHairAsymmetry: analysis.renderHints.sideHairAsymmetry,
+      headCovering: analysis.fallbackFeatures.hat !== "none" || /headscarf|hood|hat/i.test(analysis.observed.accessories),
+    },
   );
   const upperBodyDetailCrop = identityCrops?.headDataUrl ?? null;
   const faceIdentityCrop = identityCrops?.faceDataUrl ?? upperBodyDetailCrop;
+  const identityCropDiagnostics = identityCrops?.diagnostics ?? null;
   const focusedIdentityCallDiagnostics: Array<{
     call: "portrait_detail" | "identity_geometry";
     durationMs: number;
@@ -411,18 +521,26 @@ export async function generateSkin(
     }
   }
 
-  if (faceIdentityCrop && upperBodyDetailCrop && analysis.visibleRegions.face && !(focusedIdentityQuotaExceeded && !env.GEMINI_API_KEY)) {
+  if (faceIdentityCrop && upperBodyDetailCrop && identityCropDiagnostics && analysis.visibleRegions.face && !(focusedIdentityQuotaExceeded && !env.GEMINI_API_KEY)) {
     const startedAt = Date.now();
     const geometryResult = await runIdentityGeometryAnalysis(
       env,
       faceIdentityCrop,
       upperBodyDetailCrop,
       analysis,
+      {
+        crownClipped: identityCropDiagnostics.crownClipped,
+        leftHairClipped: identityCropDiagnostics.leftHairClipped,
+        rightHairClipped: identityCropDiagnostics.rightHairClipped,
+        chinClipped: identityCropDiagnostics.chinClipped,
+        leftEarClipped: identityCropDiagnostics.leftEarClipped,
+        rightEarClipped: identityCropDiagnostics.rightEarClipped,
+      },
     );
     focusedIdentityCallDiagnostics.push({
       call: "identity_geometry", durationMs: Date.now() - startedAt,
       neuronsSpent: geometryResult.neuronsSpent, ok: geometryResult.ok,
-      uniqueOutputs: ["normalized_face_landmarks", "hairline_profile", "head_silhouette", "glasses_footprint"],
+      uniqueOutputs: ["normalized_face_landmarks", "fringe_peaks", "temple_recession", "crown_contour", "major_volume_peaks", "face_window", "face_shape", "crop_visibility", "glasses_footprint"],
     });
     spent += geometryResult.neuronsSpent;
     if (geometryResult.ok) {
@@ -626,6 +744,7 @@ export async function generateSkin(
             "generated",
             "generated",
             processed.atlas,
+            faceStyle,
             true,
             undefined,
             skinPlan.facePixelPlan,
@@ -637,6 +756,7 @@ export async function generateSkin(
                 `face-plan-${plan.variantId}`,
                 index === 0 ? "deterministic" : "deterministic_variant",
                 atlas,
+                faceStyle,
                 true,
                 plan.variantId,
                 plan,
@@ -651,10 +771,12 @@ export async function generateSkin(
             [generatedCandidate, ...plannedCandidates],
           );
           spent += selection.neuronsSpent;
-          if (selection.comparisons.length > 0) {
-            const selected = selection.selected;
+          const selected = selection.selected;
+          if (selected) {
             candidateAtlas = selected.atlas;
             candidateBase64 = bytesToBase64(await encodePng(candidateAtlas));
+          }
+          if (selection.comparisons.length > 0 || selection.admissibility.some((item) => !item.admissibility.admissible)) {
             await env.MCSKIN_KV.put(
               "diagnostic:last-head-candidate-selection",
               JSON.stringify({
@@ -664,6 +786,7 @@ export async function generateSkin(
                   id: candidate.id,
                   kind: candidate.kind,
                   structuralValidity: candidate.structuralValidity,
+                  admissibility: selection.admissibility.find((item) => item.candidate === candidate.id)?.admissibility,
                   facePlanVariant: candidate.facePlanVariant,
                 })),
                 comparisons: selection.comparisons,
@@ -712,23 +835,18 @@ export async function generateSkin(
             continue;
           }
           let acceptCorrection = true;
-          let correctionReview: Awaited<ReturnType<typeof runHeadPairwiseComparison>> | undefined;
+          let correctionGate: HeadPairwiseGateResult | undefined;
           if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && faceIdentityCrop) {
-            const before = await headCandidate("before-correction", "generated", correctionBaseAtlas, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
-            const after = await headCandidate("after-correction", "corrected", merged.atlas, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
-            correctionReview = await runHeadPairwiseComparison(
-              env,
-              renderAnalysis,
-              faceIdentityCrop,
-              before.headMontageDataUrl,
-              after.headMontageDataUrl,
-              "correction_guard",
-              upperBodyDetailCrop ?? undefined,
-              before.structuralEvidence,
-              after.structuralEvidence,
+            const before = await headCandidate("before-correction", "generated", correctionBaseAtlas, faceStyle, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
+            const after = await headCandidate("after-correction", "corrected", merged.atlas, faceStyle, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
+            correctionGate = await runProductionHeadPairwise(
+              env, renderAnalysis, faceIdentityCrop, upperBodyDetailCrop ?? undefined,
+              before, after, "correction_guard",
             );
-            spent += correctionReview.neuronsSpent;
-            acceptCorrection = correctionReview.ok && shouldAcceptIdentityCorrection(correctionReview.review);
+            spent += correctionGate.neuronsSpent;
+            acceptCorrection = correctionGate.pairwiseExecuted &&
+              correctionGate.result.ok &&
+              shouldAcceptIdentityCorrection(correctionGate.result.review);
           }
           candidateAtlas = acceptCorrection ? merged.atlas : correctionBaseAtlas;
           candidateBase64 = bytesToBase64(await encodePng(candidateAtlas));
@@ -739,15 +857,7 @@ export async function generateSkin(
               attempt: attempt + 1,
               mode: acceptCorrection ? "targeted_uv_merge" : "pairwise_rollback",
               accepted: acceptCorrection,
-              pairwise: correctionReview?.ok
-                ? {
-                    winner: correctionReview.review.winner,
-                    confidence: correctionReview.review.confidence,
-                    reasons: correctionReview.review.reasons,
-                  }
-                : correctionReview
-                  ? { failed: true, detail: correctionReview.detail.slice(0, 500) }
-                  : { skipped: true },
+              pairwise: pairwiseGateDiagnostic(correctionGate),
               targets: merged.plan.targets.map(
                 (target) => `${target.part}.${target.layer}.${target.face}`,
               ),
@@ -907,12 +1017,13 @@ export async function generateSkin(
     ) {
       const plannedAtlases = buildValidFacePlanCandidateAtlases(proceduralAtlas, renderAnalysis, faceStyle, skinPlan.hairPlan);
       if (plannedAtlases.length > 0) {
-        const composedCandidate = await headCandidate("procedural-compose", "deterministic", proceduralAtlas, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
+        const composedCandidate = await headCandidate("procedural-compose", "deterministic", proceduralAtlas, faceStyle, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
         const plannedCandidates = await Promise.all(
           plannedAtlases.map(({ plan, atlas }) => headCandidate(
             `face-plan-${plan.variantId}`,
             "deterministic_variant",
             atlas,
+            faceStyle,
             true,
             plan.variantId,
             plan,
@@ -927,9 +1038,11 @@ export async function generateSkin(
           [composedCandidate, ...plannedCandidates],
         );
         spent += selection.neuronsSpent;
-        if (selection.comparisons.length > 0) {
-          const selected = selection.selected;
+        const selected = selection.selected;
+        if (selected) {
           proceduralAtlas = selected.atlas;
+        }
+        if (selection.comparisons.length > 0 || selection.admissibility.some((item) => !item.admissibility.admissible)) {
           await env.MCSKIN_KV.put(
             "diagnostic:last-head-candidate-selection",
             JSON.stringify({
@@ -939,6 +1052,7 @@ export async function generateSkin(
                 id: candidate.id,
                 kind: candidate.kind,
                 structuralValidity: candidate.structuralValidity,
+                admissibility: selection.admissibility.find((item) => item.candidate === candidate.id)?.admissibility,
                 facePlanVariant: candidate.facePlanVariant,
               })),
               comparisons: selection.comparisons,
@@ -1027,23 +1141,18 @@ export async function generateSkin(
               );
               if (correctedInspection.ok) {
                 let acceptCorrection = true;
-                let pairwise: Awaited<ReturnType<typeof runHeadPairwiseComparison>> | undefined;
+                let pairwiseGate: HeadPairwiseGateResult | undefined;
                 if (env.HEAD_CANDIDATE_SELECTION_ENABLED === "true" && faceIdentityCrop) {
-                  const before = await headCandidate("procedural-before", "deterministic", proceduralAtlas, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
-                  const after = await headCandidate("procedural-after", "corrected", correctedAtlas, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
-                  pairwise = await runHeadPairwiseComparison(
-                    env,
-                    renderAnalysis,
-                    faceIdentityCrop,
-                    before.headMontageDataUrl,
-                    after.headMontageDataUrl,
-                    "correction_guard",
-                    upperBodyDetailCrop ?? undefined,
-                    before.structuralEvidence,
-                    after.structuralEvidence,
+                  const before = await headCandidate("procedural-before", "deterministic", proceduralAtlas, faceStyle, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
+                  const after = await headCandidate("procedural-after", "corrected", correctedAtlas, faceStyle, true, undefined, skinPlan.facePixelPlan, skinPlan.hairPlan);
+                  pairwiseGate = await runProductionHeadPairwise(
+                    env, renderAnalysis, faceIdentityCrop, upperBodyDetailCrop ?? undefined,
+                    before, after, "correction_guard",
                   );
-                  spent += pairwise.neuronsSpent;
-                  acceptCorrection = pairwise.ok && shouldAcceptIdentityCorrection(pairwise.review);
+                  spent += pairwiseGate.neuronsSpent;
+                  acceptCorrection = pairwiseGate.pairwiseExecuted &&
+                    pairwiseGate.result.ok &&
+                    shouldAcceptIdentityCorrection(pairwiseGate.result.review);
                 }
                 if (acceptCorrection) proceduralAtlas = correctedAtlas;
                 await env.MCSKIN_KV.put(
@@ -1052,11 +1161,7 @@ export async function generateSkin(
                     at: new Date().toISOString(),
                     mode: acceptCorrection ? "analysis_grounded_style_reinforcement" : "pairwise_rollback",
                     accepted: acceptCorrection,
-                    pairwise: pairwise?.ok
-                      ? { winner: pairwise.review.winner, confidence: pairwise.review.confidence, reasons: pairwise.review.reasons }
-                      : pairwise
-                        ? { failed: true, detail: pairwise.detail.slice(0, 500) }
-                        : { skipped: true },
+                    pairwise: pairwiseGateDiagnostic(pairwiseGate),
                     applied: correction.applied,
                   }),
                   { expirationTtl: 60 * 60 * 48 },
@@ -1186,7 +1291,7 @@ export interface IdentityCropSet {
   faceDataUrl: string;
   headDataUrl: string;
   diagnostics: {
-    cropMode: "subject_aware" | "center_fallback";
+    cropMode: "subject_aware" | "face_fallback" | "center_fallback";
     subjectBox: PortraitRegion["subjectBox"] | null;
     faceBox: PortraitRegion["faceBox"] | null;
     headBox: PortraitRegion["headBox"] | null;
@@ -1194,7 +1299,27 @@ export interface IdentityCropSet {
     faceCropDimensions: { width: number; height: number };
     headCropDimensions: { width: number; height: number };
     faceCoverageRatio: number;
+    desiredExpandedHeadBox: PortraitRegion["headBox"] | null;
+    finalHeadBox: PortraitRegion["headBox"] | null;
+    margins: CropMargins | null;
+    requestedMargins: CropMargins | null;
+    anchor: { x: number; y: number } | null;
+    headOccupancyRatio: number | null;
+    estimatedCoverage: number | null;
+    coverage: HeadCropCoverage | null;
+    aspectRatioAdjusted: boolean;
+    predictedRisk: HeadCropRisk | null;
+    sourceClipping: CropDirections;
+    cropClipping: CropDirections;
+    sourceBoundaryAdjustments: HeadCropBoundaryAdjustments | null;
+    quality: IdentityCropQuality;
     clippingRisk: boolean;
+    crownClipped: boolean;
+    leftHairClipped: boolean;
+    rightHairClipped: boolean;
+    chinClipped: boolean;
+    leftEarClipped: boolean;
+    rightEarClipped: boolean;
     fallbackReason: string | null;
     /** Backward-compatible aliases retained for evaluation consumers. */
     original: { width: number; height: number };
@@ -1215,6 +1340,13 @@ interface ResolvedIdentityBounds {
   head: PixelCropBounds;
   faceCoverageRatio: number;
   clippingRisk: boolean;
+  crownClipped: boolean;
+  leftHairClipped: boolean;
+  rightHairClipped: boolean;
+  chinClipped: boolean;
+  leftEarClipped: boolean;
+  rightEarClipped: boolean;
+  adaptivePlan: AdaptiveHeadCropPlan | null;
 }
 
 async function encodeBoundedCrop(
@@ -1281,18 +1413,24 @@ function toPixelBounds(
 function detectedIdentityBounds(
   source: RawImage,
   portraitRegion: PortraitRegion | null | undefined,
-): { ok: true; bounds: ResolvedIdentityBounds; region: PortraitRegion } | { ok: false; reason: string } {
+  context: AdaptiveHeadCropContext,
+): { ok: true; bounds: ResolvedIdentityBounds; region: PortraitRegion; mode: "subject_aware" | "face_fallback"; recoveryReason: string | null } | { ok: false; reason: string } {
   const validation = validatePortraitRegion(portraitRegion);
-  if (!validation.ok) return validation;
-  const region = validation.region;
+  const recoveredRegion = validation.ok ? null : conservativeFaceHeadFallback(portraitRegion);
+  const region = validation.ok ? validation.region : recoveredRegion;
+  if (!region) return validation.ok ? { ok: false, reason: "portrait_region_missing" } : validation;
   if (region.confidence < 0.6) return { ok: false, reason: "localization_confidence_below_0.6" };
   const rawFace = toPixelBounds(region.faceBox, source);
   const rawHead = toPixelBounds(region.headBox, source);
   if (rawFace.width < 36 || rawFace.height < 44) return { ok: false, reason: "localized_face_resolution_too_small" };
   if (rawHead.width < 48 || rawHead.height < 56) return { ok: false, reason: "localized_head_resolution_too_small" };
 
-  const subjectLimit = clampedBox(expandedBox(region.subjectBox, 0.025, 0.025, 0.025));
-  const expandedHead = clampedBox(expandedBox(region.headBox, 0.14, 0.16, 0.22), subjectLimit);
+  const adaptivePlan = planAdaptiveHeadCrop(
+    { width: source.width, height: source.height },
+    region,
+    context,
+  );
+  const expandedHead = adaptivePlan.cropBox;
   const expandedFace = clampedBox(expandedBox(region.faceBox, 0.2, 0.22, 0.2), expandedHead);
   const face = toPixelBounds(expandedFace, source);
   const head = toPixelBounds(expandedHead, source);
@@ -1303,29 +1441,50 @@ function detectedIdentityBounds(
   const faceCropArea = Math.max(1, face.width * face.height);
   const faceCoverageRatio = rawFaceArea / faceCropArea;
   if (faceCoverageRatio < 0.22) return { ok: false, reason: "face_crop_margin_excessive" };
-  const clippingRisk =
-    region.headBox.left <= 0.01 || region.headBox.top <= 0.01 ||
-    region.headBox.right >= 0.99 || region.headBox.bottom >= 0.99 ||
-    region.faceBox.left <= 0.005 || region.faceBox.top <= 0.005 ||
-    region.faceBox.right >= 0.995 || region.faceBox.bottom >= 0.995;
-  return { ok: true, bounds: { face, head, faceCoverageRatio, clippingRisk }, region };
+  const sourceClipping = adaptivePlan.quality.sourceClipping;
+  const cropClipping = adaptivePlan.quality.cropClipping;
+  const crownClipped = sourceClipping.top || cropClipping.top;
+  const leftHairClipped = sourceClipping.left || cropClipping.left;
+  const rightHairClipped = sourceClipping.right || cropClipping.right;
+  const chinClipped = sourceClipping.bottom || cropClipping.bottom || region.faceBox.bottom >= 0.995;
+  const leftEarClipped = leftHairClipped || region.faceBox.left <= region.headBox.left + 0.01;
+  const rightEarClipped = rightHairClipped || region.faceBox.right >= region.headBox.right - 0.01;
+  const clippingRisk = crownClipped || leftHairClipped || rightHairClipped || chinClipped || leftEarClipped || rightEarClipped;
+  return {
+    ok: true,
+    bounds: { face, head, faceCoverageRatio, clippingRisk, crownClipped, leftHairClipped, rightHairClipped, chinClipped, leftEarClipped, rightEarClipped, adaptivePlan },
+    region,
+    mode: validation.ok ? "subject_aware" : "face_fallback",
+    recoveryReason: validation.ok ? null : validation.reason,
+  };
 }
 
-function heuristicIdentityBounds(source: RawImage): ResolvedIdentityBounds | null {
+function heuristicIdentityBounds(source: RawImage, context: AdaptiveHeadCropContext): ResolvedIdentityBounds | null {
   const tallPortrait = source.height > source.width * 1.15;
   if (!tallPortrait && Math.max(source.width, source.height) < 320) return null;
-  const headWidth = Math.max(32, Math.round(source.width * 0.82));
+  const expandedPortraitFallback = tallPortrait && (
+    context.hairVolume === "full" || context.hairTexture === "curly" ||
+    context.hairTexture === "coily" || context.headCovering
+  );
+  const headWidthRatio = expandedPortraitFallback ? 0.96 : 0.82;
+  const headWidth = Math.max(32, Math.round(source.width * headWidthRatio));
+  const faceAnchorWidth = Math.max(32, Math.round(source.width * 0.82));
   const headHeight = Math.max(48, Math.round(source.height * (tallPortrait ? 0.56 : 0.92)));
+  const asymmetryOffset = expandedPortraitFallback
+    ? context.sideHairAsymmetry === "left" ? -source.width * 0.02
+      : context.sideHairAsymmetry === "right" ? source.width * 0.02 : 0
+    : 0;
   const head = {
-    x: Math.max(0, Math.floor((source.width - headWidth) / 2)),
+    x: Math.max(0, Math.min(source.width - headWidth, Math.floor((source.width - headWidth) / 2 + asymmetryOffset))),
     y: 0,
     width: Math.min(source.width, headWidth),
     height: Math.min(source.height, headHeight),
   };
-  const faceWidth = Math.max(32, Math.round(head.width * 0.7));
+  // Tight-face resolution is independent from the wide-head safety margin.
+  const faceWidth = Math.max(32, Math.round(faceAnchorWidth * 0.7));
   const faceHeight = Math.max(48, Math.min(source.height, Math.round(head.height * 0.76)));
   const face = {
-    x: Math.max(0, head.x + Math.floor((head.width - faceWidth) / 2)),
+    x: Math.max(0, Math.floor((source.width - faceWidth) / 2)),
     y: Math.max(0, Math.min(source.height - faceHeight, head.y + Math.round(head.height * 0.08))),
     width: Math.min(source.width, faceWidth),
     height: Math.min(source.height, faceHeight),
@@ -1335,15 +1494,26 @@ function heuristicIdentityBounds(source: RawImage): ResolvedIdentityBounds | nul
     head,
     faceCoverageRatio: (face.width * face.height) / Math.max(1, head.width * head.height),
     clippingRisk: head.y === 0,
+    // Without a localized head boundary, touching the source edge is unknown,
+    // not proof that either the source or this crop cut the feature. Let the
+    // existing geometry pass classify visible clipping from the pixels.
+    crownClipped: false,
+    leftHairClipped: false,
+    rightHairClipped: false,
+    chinClipped: false,
+    leftEarClipped: false,
+    rightEarClipped: false,
+    adaptivePlan: null,
   };
 }
 
 async function identityCropsFromDecoded(
   source: RawImage,
   detected: ReturnType<typeof detectedIdentityBounds>,
+  context: AdaptiveHeadCropContext,
 ): Promise<IdentityCropSet | null> {
-  const fallbackReason = detected.ok ? null : detected.reason;
-  const bounds = detected.ok ? detected.bounds : heuristicIdentityBounds(source);
+  const fallbackReason = detected.ok ? detected.recoveryReason : detected.reason;
+  const bounds = detected.ok ? detected.bounds : heuristicIdentityBounds(source, context);
   if (!bounds) return null;
   const [head, face] = await Promise.all([
     encodeBoundedCrop(source, bounds.head),
@@ -1353,11 +1523,37 @@ async function identityCropsFromDecoded(
   const sourceDimensions = { width: source.width, height: source.height };
   const faceCropDimensions = { width: face.width, height: face.height };
   const headCropDimensions = { width: head.width, height: head.height };
+  const adaptive = bounds.adaptivePlan;
+  const fallbackBoundaryUnknown: CropDirections = bounds.adaptivePlan ? emptyCropDirections() : {
+    top: bounds.head.y === 0,
+    left: bounds.head.x === 0,
+    right: bounds.head.x + bounds.head.width >= source.width,
+    bottom: bounds.head.y + bounds.head.height >= source.height,
+  };
+  const fallbackSourceClipping = emptyCropDirections();
+  // With no localized head box we cannot prove where hair ends. A crop edge
+  // that is also the source edge is therefore source-limited, never blamed on
+  // the crop. The explicit warning keeps downstream confidence conservative.
+  const fallbackCropClipping = emptyCropDirections();
+  const sourceClipping = adaptive?.quality.sourceClipping ?? fallbackSourceClipping;
+  const cropClipping = adaptive?.quality.cropClipping ?? fallbackCropClipping;
+  const fallbackQuality: IdentityCropQuality = {
+    faceResolutionAdequate: face.width >= 36 && face.height >= 44,
+    headCoverageAdequate: false,
+    sourceClippingKnown: false,
+    sourceClipping,
+    cropClipping,
+    usableForFaceGeometry: face.width >= 36 && face.height >= 44,
+    usableForHairGeometry: true,
+    warnings: ["portrait_region_unavailable", ...Object.entries(fallbackBoundaryUnknown)
+      .filter(([, clipped]) => clipped)
+      .map(([direction]) => `source_${direction}_extent_unknown`)],
+  };
   return {
     faceDataUrl: face.dataUrl,
     headDataUrl: head.dataUrl,
     diagnostics: {
-      cropMode: detected.ok ? "subject_aware" : "center_fallback",
+      cropMode: detected.ok ? detected.mode : "center_fallback",
       subjectBox: detected.ok ? detected.region.subjectBox : null,
       faceBox: detected.ok ? detected.region.faceBox : null,
       headBox: detected.ok ? detected.region.headBox : null,
@@ -1365,7 +1561,32 @@ async function identityCropsFromDecoded(
       faceCropDimensions,
       headCropDimensions,
       faceCoverageRatio: bounds.faceCoverageRatio,
+      desiredExpandedHeadBox: adaptive?.desiredBox ?? null,
+      finalHeadBox: adaptive?.cropBox ?? {
+        left: bounds.head.x / source.width,
+        top: bounds.head.y / source.height,
+        right: (bounds.head.x + bounds.head.width) / source.width,
+        bottom: (bounds.head.y + bounds.head.height) / source.height,
+      },
+      margins: adaptive?.margins ?? null,
+      requestedMargins: adaptive?.requestedMargins ?? null,
+      anchor: adaptive?.anchor ?? null,
+      headOccupancyRatio: adaptive?.diagnostics.headOccupancyRatio ?? null,
+      estimatedCoverage: adaptive?.diagnostics.estimatedCoverage ?? null,
+      coverage: adaptive?.diagnostics.coverage ?? null,
+      aspectRatioAdjusted: adaptive?.diagnostics.aspectRatioAdjusted ?? false,
+      predictedRisk: adaptive?.risk ?? null,
+      sourceClipping,
+      cropClipping,
+      sourceBoundaryAdjustments: adaptive?.diagnostics.sourceBoundaryAdjustments ?? null,
+      quality: adaptive?.quality ?? fallbackQuality,
       clippingRisk: bounds.clippingRisk,
+      crownClipped: bounds.crownClipped,
+      leftHairClipped: bounds.leftHairClipped,
+      rightHairClipped: bounds.rightHairClipped,
+      chinClipped: bounds.chinClipped,
+      leftEarClipped: bounds.leftEarClipped,
+      rightEarClipped: bounds.rightEarClipped,
       fallbackReason,
       original: sourceDimensions,
       face: faceCropDimensions,
@@ -1378,6 +1599,7 @@ async function identityCropsFromDecoded(
 export async function createIdentityCrops(
   imageDataUrl: string,
   portraitRegion?: PortraitRegion | null,
+  context: AdaptiveHeadCropContext = {},
 ): Promise<IdentityCropSet | null> {
   const match = /^data:image\/(?:png|jpe?g);base64,([a-z0-9+/=\r\n]+)$/i.exec(
     imageDataUrl,
@@ -1391,7 +1613,7 @@ export async function createIdentityCrops(
       return null;
     }
 
-    return identityCropsFromDecoded(source, detectedIdentityBounds(source, portraitRegion));
+    return identityCropsFromDecoded(source, detectedIdentityBounds(source, portraitRegion, context), context);
   } catch (error) {
     console.log(
       "identity crop creation failed:",
@@ -1403,7 +1625,7 @@ export async function createIdentityCrops(
 
 /** Explicit evaluation/recovery entrypoint for controlled old-crop comparisons. */
 export async function createHeuristicIdentityCrops(imageDataUrl: string): Promise<IdentityCropSet | null> {
-  return createIdentityCrops(imageDataUrl, null);
+  return createIdentityCrops(imageDataUrl, null, {});
 }
 
 /** Backward-compatible wider crop used by existing callers and tests. */

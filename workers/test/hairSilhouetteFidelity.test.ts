@@ -80,17 +80,18 @@ describe("source to plan to atlas hair information", () => {
     ]);
   });
 
-  it("uses four source-positioned connected major lobes for curly hair", () => {
+  it("uses source-positioned connected major lobes whose lower masses follow the measured endpoint", () => {
     const curly = geometryCase("curly", "curly", 0.82, 0.61, 0.9, 0.82);
     const lobes = curly.plans.hairPlan.structure.groups.filter((group) => group.kind === "curl_lobe");
-    expect(lobes.map((group) => group.id).sort()).toEqual([
-      "curl-lobe-crown",
-      "curl-lobe-left",
-      "curl-lobe-lower",
-      "curl-lobe-right",
-    ]);
-    expect(lobes.every((group) => group.points.length >= 2)).toBe(true);
-    expect(new Set(lobes.map((group) => group.points[0].face))).toEqual(new Set(["top", "left", "right", "back"]));
+    expect(lobes.map((group) => group.id)).toEqual(expect.arrayContaining([
+      "curl-lobe-crown-left",
+      "curl-lobe-side-left",
+      "curl-lobe-side-right",
+    ]));
+    expect(lobes.length).toBeGreaterThanOrEqual(3);
+    expect(lobes.every((group) => group.points.length >= 1)).toBe(true);
+    expect(lobes.every((group) => group.sourceAnchor)).toBe(true);
+    expect(new Set(lobes.map((group) => group.points[0].face))).toEqual(new Set(["top", "left", "right"]));
   });
 
   it("keeps glasses, head-covering face window, and long-hair continuity as regression sentinels", () => {

@@ -6,7 +6,6 @@ import {
   buildProceduralFallbackAtlas,
   buildProceduralGenerationReference,
   createIdentityCrops,
-  createHeuristicIdentityCrops,
   createUpperBodyDetailCrop,
   fallbackFeaturesToHex,
   generateSkin,
@@ -190,6 +189,26 @@ describe("generateSkin", () => {
     expect(crops!.diagnostics.face.width).toBeLessThan(crops!.diagnostics.head.width);
     expect(crops!.diagnostics.face.height).toBeLessThan(crops!.diagnostics.head.height);
     expect(crops!.faceDataUrl).not.toBe(crops!.headDataUrl);
+    expect(crops!.diagnostics.cropMode).toBe("center_fallback");
+    expect(crops!.diagnostics.crownClipped).toBe(false);
+    expect(crops!.diagnostics.quality.sourceClippingKnown).toBe(false);
+    expect(crops!.diagnostics.quality.warnings).toContain("source_top_extent_unknown");
+    expect(typeof crops!.diagnostics.leftHairClipped).toBe("boolean");
+    expect(typeof crops!.diagnostics.rightHairClipped).toBe("boolean");
+  });
+
+  it("widens a curly fallback head crop without reducing the independent face crop", async () => {
+    const source = await portraitPhotoDataUrl();
+    const ordinary = await createIdentityCrops(source);
+    const curly = await createIdentityCrops(source, null, {
+      hairVolume: "full",
+      hairTexture: "curly",
+      overallHairLength: "jaw",
+      sideHairAsymmetry: "left",
+    });
+    expect(curly!.diagnostics.headCropDimensions.width).toBeGreaterThan(ordinary!.diagnostics.headCropDimensions.width);
+    expect(curly!.diagnostics.faceCropDimensions).toEqual(ordinary!.diagnostics.faceCropDimensions);
+    expect(curly!.diagnostics.finalHeadBox!.left).toBe(0);
   });
 
   it.each([
@@ -210,9 +229,15 @@ describe("generateSkin", () => {
     expect(crops?.diagnostics.subjectBox).toEqual(subjectBox);
     expect(crops?.diagnostics.faceCoverageRatio).toBeGreaterThanOrEqual(0.22);
     expect(crops?.diagnostics.fallbackReason).toBeNull();
+    expect(crops?.diagnostics).toMatchObject({
+      crownClipped: false,
+      leftHairClipped: false,
+      rightHairClipped: false,
+      chinClipped: false,
+    });
   });
 
-  it("falls back to the old centered crop only when detected bounds are invalid", async () => {
+  it("uses the selected face and subject conservatively when only head bounds are invalid", async () => {
     const width = 640;
     const height = 400;
     const rgba = new Uint8Array(width * height * 4).fill(180);
@@ -225,10 +250,22 @@ describe("generateSkin", () => {
       faceBox: { left: 0.8, top: 0.2, right: 0.9, bottom: 0.5 },
       confidence: 0.9,
     });
-    const heuristic = await createHeuristicIdentityCrops(url);
-    expect(invalid?.diagnostics.cropMode).toBe("center_fallback");
+    expect(invalid?.diagnostics.cropMode).toBe("face_fallback");
     expect(invalid?.diagnostics.fallbackReason).toMatch(/face|head/);
-    expect(invalid?.diagnostics.faceCropDimensions).toEqual(heuristic?.diagnostics.faceCropDimensions);
+    expect(invalid?.diagnostics.subjectBox).toEqual({ left: 0.1, top: 0.1, right: 0.9, bottom: 0.95 });
+    expect(invalid?.diagnostics.quality.usableForFaceGeometry).toBe(true);
+  });
+
+  it("uses centered recovery only when selected subject and face bounds are unusable", async () => {
+    const url = await portraitPhotoDataUrl();
+    const invalid = await createIdentityCrops(url, {
+      subjectBox: { left: 0.1, top: 0.1, right: 0.9, bottom: 0.95 },
+      headBox: { left: 0.2, top: 0.12, right: 0.7, bottom: 0.65 },
+      faceBox: { left: 0.92, top: 0.2, right: 0.99, bottom: 0.5 },
+      confidence: 0.9,
+    });
+    expect(invalid?.diagnostics.cropMode).toBe("center_fallback");
+    expect(invalid?.diagnostics.quality.warnings).toContain("portrait_region_unavailable");
   });
 
   it("bounds a large landscape portrait for the focused identity pass", async () => {
@@ -1307,10 +1344,6 @@ describe("generateSkin", () => {
       clothing,
       topType,
       garmentTexture,
-      bottomType,
-      bottomAccent,
-      legwear,
-      legwearAsymmetry,
       promptCue,
     }) => {
       const base = makeAnalysis();

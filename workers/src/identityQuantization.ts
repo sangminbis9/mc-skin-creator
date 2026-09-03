@@ -1,5 +1,6 @@
 import type { PhotoAnalysis } from "./analysis";
 import type { IdentityGeometryAnalysis } from "./identityGeometry";
+import { buildHairIdentitySaliencePlan, hairSalienceScore } from "./hairIdentitySalience";
 
 export type ProtectedGeometry = "glasses" | "hairline" | "head_silhouette" | "eye_layout" | "mouth" | "face_window";
 export type MouthTopology = "closed_compact" | "closed_wide" | "open_compact" | "open_wide" | "teeth_smile" | "wide_teeth_smile" | "asymmetric_smile";
@@ -85,6 +86,13 @@ export interface FaceLayoutPlan {
   hairlineDepth: 0 | 1 | 2 | 3;
   hairlineDepthByColumn: [number, number, number, number, number, number, number, number];
   fringeOpening: PhotoAnalysis["renderHints"]["fringeOpening"];
+  fringePeaks: Array<{ column: number; row: number; prominence: number }>;
+  fringeDirection: IdentityGeometryAnalysis["fringe"]["direction"];
+  templeGeometry: { leftRecession: number; rightRecession: number; leftStartRow: number; rightStartRow: number };
+  crownGeometry: { leftRow: number; centerRow: number; rightRow: number; leftWidth: number; rightWidth: number; apexColumn: number };
+  majorVolumePeaks: Array<{ region: IdentityGeometryAnalysis["majorVolumePeaks"][number]["region"]; row: number; height: number; width: number; protrusion: number }>;
+  faceWindow: { foreheadRows: number; leftTempleWidth: number; rightTempleWidth: number; visibleWidthAtEyes: 5 | 6 | 7 | 8; visibleWidthAtCheeks: 5 | 6 | 7 | 8; leftEyeToHairRows: number; rightEyeToHairRows: number; leftEarExposure: number; rightEarExposure: number };
+  faceShape: { upperWidth: number; cheekWidth: number; jawWidth: number; verticalLength: number; asymmetryOffset: -1 | 0 | 1 };
   exposedFaceWidth: 5 | 6 | 7 | 8;
   noseX: number;
   noseY: number;
@@ -110,6 +118,12 @@ export interface FaceLayoutPlan {
     mouth: boolean;
     hairline: boolean;
     glasses: boolean;
+    fringePeaks: boolean;
+    temple: boolean;
+    crown: boolean;
+    majorVolumePeaks: boolean;
+    faceWindow: boolean;
+    faceShape: boolean;
   };
 }
 
@@ -124,6 +138,15 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function rounded<T extends number>(value: number, minimum: T, maximum: T): T {
   return clamp(Math.round(value), minimum, maximum) as T;
+}
+
+function evidenceUsable(
+  evidence: IdentityGeometryAnalysis["fringe"]["evidence"],
+  confidence: number,
+  clipped = false,
+): boolean {
+  if (clipped || evidence === "unknown") return false;
+  return confidence >= (evidence === "observed" ? 0.55 : 0.78);
 }
 
 function boundaryAlternative(raw: number, minimum: number, maximum: number): { value: number; alternate?: number; distance: number } {
@@ -284,6 +307,58 @@ function smoothHairline(values: number[]): FaceLayoutPlan["hairlineDepthByColumn
   return median.map((value) => rounded(value, 0, 3)) as FaceLayoutPlan["hairlineDepthByColumn"];
 }
 
+/**
+ * Quantize the whole fringe profile, retaining meaningful accumulated residual
+ * instead of independently rounding every source column to the same row.
+ */
+export function quantizeHairlineProfile(
+  analysis: PhotoAnalysis,
+  normalizedDepths: readonly number[],
+): FaceLayoutPlan["hairlineDepthByColumn"] {
+  const salience = buildHairIdentitySaliencePlan(analysis);
+  const fringeScore = hairSalienceScore(salience, "fringe_shape");
+  const scaled = normalizedDepths.slice(0, 8).map((value) => clamp(value, 0, 1) * 3);
+  while (scaled.length < 8) scaled.push(0);
+  const result: number[] = scaled.map((value) => Math.round(clamp(value, 0, 3)));
+  const targetTotal = Math.round(scaled.reduce((sum, value) => sum + value, 0));
+  let delta = targetTotal - result.reduce((sum, value) => sum + value, 0);
+  // A one-cell global residual is below the resolution of an eight-column
+  // silhouette unless a distinctive edge or side sweep makes it meaningful.
+  const meaningfulResidual = Math.abs(delta) >= 2 || fringeScore >= 0.72 || analysis.renderHints.bangs === "side";
+  if (meaningfulResidual && delta !== 0) {
+    const sideDirection = analysis.renderHints.hairPart === "left" ? 1 : analysis.renderHints.hairPart === "right" ? -1 : 0;
+    const ranked = scaled.map((value, column) => {
+      const roundedValue = result[column];
+      const residual = value - roundedValue;
+      const previous = scaled[Math.max(0, column - 1)];
+      const next = scaled[Math.min(7, column + 1)];
+      const contour = Math.abs(value - previous) + Math.abs(value - next);
+      const sourceSideBias = sideDirection === 0 ? 0 : (sideDirection > 0 ? column : 7 - column) * 0.025;
+      return { column, priority: (delta > 0 ? residual : -residual) + contour * 0.16 + sourceSideBias };
+    }).sort((first, second) => second.priority - first.priority || first.column - second.column);
+    for (const { column } of ranked) {
+      if (delta === 0) break;
+      const step = delta > 0 ? 1 : -1;
+      if (result[column] + step < 0 || result[column] + step > 3) continue;
+      result[column] += step;
+      delta -= step;
+    }
+  }
+  const opening = analysis.renderHints.fringeOpening;
+  const openingColumns = opening === "center" ? [3, 4] : opening === "left" ? [2] : opening === "right" ? [5] : [];
+  for (const column of openingColumns) result[column] = 0;
+  // Only repair impossible two-row jumps. Median filtering erased genuine
+  // source peaks; a one-row step is a useful fringe silhouette at 8x8.
+  for (let index = 1; index < result.length; index++) {
+    result[index] = clamp(result[index], result[index - 1] - 1, result[index - 1] + 1);
+  }
+  for (let index = result.length - 2; index >= 0; index--) {
+    result[index] = clamp(result[index], result[index + 1] - 1, result[index + 1] + 1);
+  }
+  for (const column of openingColumns) result[column] = 0;
+  return result as FaceLayoutPlan["hairlineDepthByColumn"];
+}
+
 function glassesMaskFromGeometry(
   geometry: IdentityGeometryAnalysis,
   faceLeft: number,
@@ -333,6 +408,27 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const hairlineFromGeometry = geometry.confidence.hairline >= 0.55;
   const faceFromGeometry = geometry.confidence.faceBounds >= 0.55;
   const glassesFromGeometry = geometry.confidence.glasses >= 0.55;
+  const clippingKnown = geometry.visibility.cropClippingKnown;
+  const fringeFromGeometry = evidenceUsable(geometry.fringe.evidence, geometry.fringe.confidence, false);
+  const leftTempleFromGeometry = evidenceUsable(geometry.temple.leftEvidence, geometry.temple.confidence, clippingKnown && (geometry.visibility.leftHairClipped || geometry.visibility.leftEarClipped));
+  const rightTempleFromGeometry = evidenceUsable(geometry.temple.rightEvidence, geometry.temple.confidence, clippingKnown && (geometry.visibility.rightHairClipped || geometry.visibility.rightEarClipped));
+  const templeFromGeometry = leftTempleFromGeometry || rightTempleFromGeometry;
+  const crownFromGeometry = evidenceUsable(geometry.crown.evidence, geometry.crown.confidence, clippingKnown && geometry.visibility.crownClipped);
+  const leftFaceWindowFromGeometry = evidenceUsable(geometry.faceWindow.leftEvidence, geometry.faceWindow.confidence, clippingKnown && (geometry.visibility.leftHairClipped || geometry.visibility.leftEarClipped));
+  const rightFaceWindowFromGeometry = evidenceUsable(geometry.faceWindow.rightEvidence, geometry.faceWindow.confidence, clippingKnown && (geometry.visibility.rightHairClipped || geometry.visibility.rightEarClipped));
+  const faceWindowFromGeometry = leftFaceWindowFromGeometry || rightFaceWindowFromGeometry;
+  const completeFaceWindowFromGeometry = leftFaceWindowFromGeometry && rightFaceWindowFromGeometry;
+  const faceShapeFromGeometry = evidenceUsable(geometry.faceShape.evidence, geometry.faceShape.confidence, clippingKnown && geometry.visibility.chinClipped);
+  const volumePeaks = geometry.majorVolumePeaks.filter((peak) => evidenceUsable(
+    peak.evidence,
+    peak.confidence,
+    clippingKnown && (
+      peak.region.startsWith("crown")
+        ? geometry.visibility.crownClipped || (peak.region.endsWith("left") ? geometry.visibility.leftHairClipped : geometry.visibility.rightHairClipped)
+        : peak.region.endsWith("left") ? geometry.visibility.leftHairClipped : geometry.visibility.rightHairClipped
+    ),
+  ));
+  const majorVolumePeaksFromGeometry = volumePeaks.length > 0;
   const leftEyeWidth = eyesFromGeometry ? rounded((geometry.eyes.leftWidth / faceWidth) * 8, 1, 3) : fallback.leftEyeWidth;
   const rightEyeWidth = eyesFromGeometry ? rounded((geometry.eyes.rightWidth / faceWidth) * 8, 1, 3) : fallback.rightEyeWidth;
   const eyeWidth = rounded((leftEyeWidth + rightEyeWidth) / 2, 1, 3);
@@ -343,7 +439,7 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const mouthRowChoice = boundaryAlternative(facialYRaw(geometry.mouth.centerY), 5, 6);
   const mouthWidthChoice = boundaryAlternative((geometry.mouth.width / faceWidth) * 8, 2, 5);
   const hairlineRaw = geometry.hairline.depthByColumn.map((depth) => depth * 3);
-  const hairlineDepthByColumn = hairlineFromGeometry ? smoothHairline(hairlineRaw.map((value) => Math.round(value))) : fallback.hairlineDepthByColumn;
+  const hairlineDepthByColumn = hairlineFromGeometry ? quantizeHairlineProfile(analysis, geometry.hairline.depthByColumn) : fallback.hairlineDepthByColumn;
   const addAmbiguity = (axis: QuantizationAxis, choice: { alternate?: number; distance: number }, identityWeight: number) => {
     if (choice.alternate === undefined) return;
     ambiguities.push({ axis, alternateValue: choice.alternate, distanceToBoundary: choice.distance, identityWeight });
@@ -367,10 +463,16 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const cornerOffset = (value: number) => rounded((value - geometry.mouth.centerY) / Math.max(0.015, faceHeight / 8), -1, 1);
   const depths = hairlineDepthByColumn.filter((depth) => depth > 0);
   const hairlineDepth = rounded(depths.length ? Math.max(...depths) : 0, 0, 3);
-  const geometryFringeOpening = geometry.hairline.foreheadOpeningRight - geometry.hairline.foreheadOpeningLeft >= 0.12
-    ? Math.abs(((geometry.hairline.foreheadOpeningLeft + geometry.hairline.foreheadOpeningRight) / 2) - 0.5) <= 0.12
+  const openingLeft = fringeFromGeometry && geometry.fringe.openingCenterX !== null && geometry.fringe.openingWidth !== null
+    ? geometry.fringe.openingCenterX - geometry.fringe.openingWidth / 2
+    : geometry.hairline.foreheadOpeningLeft;
+  const openingRight = fringeFromGeometry && geometry.fringe.openingCenterX !== null && geometry.fringe.openingWidth !== null
+    ? geometry.fringe.openingCenterX + geometry.fringe.openingWidth / 2
+    : geometry.hairline.foreheadOpeningRight;
+  const geometryFringeOpening = openingRight - openingLeft >= 0.12
+    ? Math.abs(((openingLeft + openingRight) / 2) - 0.5) <= 0.12
       ? "center"
-      : ((geometry.hairline.foreheadOpeningLeft + geometry.hairline.foreheadOpeningRight) / 2) < 0.5 ? "left" : "right"
+      : ((openingLeft + openingRight) / 2) < 0.5 ? "left" : "right"
     : "none";
   const eyeOpenness: FaceLayoutPlan["eyeOpenness"] = eyesFromGeometry
     ? geometry.eyes.openness >= 0.68 ? "open" : geometry.eyes.openness <= 0.34 ? "compact" : "readable"
@@ -399,6 +501,51 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const eyeTopology = eyeTopologyFor(eyeOpenness, preserveEyeAsymmetry, sourceP5Text);
   const glassesMask = glassesFromGeometry ? glassesMaskFromGeometry(geometry, faceLeft, faceWidth, forehead, faceHeight) : fallback.glassesMask;
   const fringeOpening = hairlineFromGeometry ? geometryFringeOpening : fallback.fringeOpening;
+  const fringePeaks = fringeFromGeometry
+    ? geometry.fringe.peaks.map((peak) => ({ column: rounded(peak.x * 7, 0, 7), row: rounded(peak.depthY * 3, 1, 4), prominence: peak.prominence }))
+      .filter((peak, index, all) => all.findIndex((candidate) => candidate.column === peak.column) === index)
+      .slice(0, 3)
+    : fallback.fringePeaks;
+  const fringeDirection = fringeFromGeometry ? geometry.fringe.direction : fallback.fringeDirection;
+  const templeGeometry = templeFromGeometry ? {
+    leftRecession: leftTempleFromGeometry ? rounded(geometry.temple.leftRecession * 3, 0, 3) : fallback.templeGeometry.leftRecession,
+    rightRecession: rightTempleFromGeometry ? rounded(geometry.temple.rightRecession * 3, 0, 3) : fallback.templeGeometry.rightRecession,
+    leftStartRow: leftTempleFromGeometry ? rounded(geometry.temple.leftStartY * 7, 1, 6) : fallback.templeGeometry.leftStartRow,
+    rightStartRow: rightTempleFromGeometry ? rounded(geometry.temple.rightStartY * 7, 1, 6) : fallback.templeGeometry.rightStartRow,
+  } : fallback.templeGeometry;
+  const crownGeometry = crownFromGeometry ? {
+    leftRow: rounded(geometry.crown.leftY * 7, 0, 2),
+    centerRow: rounded(geometry.crown.centerY * 7, 0, 2),
+    rightRow: rounded(geometry.crown.rightY * 7, 0, 2),
+    leftWidth: rounded(1 + geometry.crown.leftWidth * 2, 1, 3),
+    rightWidth: rounded(1 + geometry.crown.rightWidth * 2, 1, 3),
+    apexColumn: rounded(geometry.crown.apexX * 7, 0, 7),
+  } : fallback.crownGeometry;
+  const majorVolumePeaks = majorVolumePeaksFromGeometry ? volumePeaks.map((peak) => ({
+    region: peak.region,
+    row: rounded(peak.verticalCenter * 7, 1, 6),
+    height: rounded(1 + peak.verticalExtent * 3, 1, 4),
+    width: rounded(1 + peak.protrusion * 3, 1, 4),
+    protrusion: peak.protrusion,
+  })) : fallback.majorVolumePeaks;
+  const faceWindow = faceWindowFromGeometry ? {
+    foreheadRows: completeFaceWindowFromGeometry ? rounded(geometry.faceWindow.foreheadHeight * 4, 1, 4) : fallback.faceWindow.foreheadRows,
+    leftTempleWidth: leftFaceWindowFromGeometry ? rounded(geometry.faceWindow.leftTempleWidth * 3, 0, 3) : fallback.faceWindow.leftTempleWidth,
+    rightTempleWidth: rightFaceWindowFromGeometry ? rounded(geometry.faceWindow.rightTempleWidth * 3, 0, 3) : fallback.faceWindow.rightTempleWidth,
+    visibleWidthAtEyes: completeFaceWindowFromGeometry ? rounded(geometry.faceWindow.visibleFaceWidthAtEyes * 8, 5, 8) : fallback.faceWindow.visibleWidthAtEyes,
+    visibleWidthAtCheeks: completeFaceWindowFromGeometry ? rounded(geometry.faceWindow.visibleFaceWidthAtCheeks * 8, 5, 8) : fallback.faceWindow.visibleWidthAtCheeks,
+    leftEyeToHairRows: leftFaceWindowFromGeometry ? rounded(geometry.faceWindow.leftEyeToHairDistance * 7, 1, 5) : fallback.faceWindow.leftEyeToHairRows,
+    rightEyeToHairRows: rightFaceWindowFromGeometry ? rounded(geometry.faceWindow.rightEyeToHairDistance * 7, 1, 5) : fallback.faceWindow.rightEyeToHairRows,
+    leftEarExposure: leftFaceWindowFromGeometry ? geometry.faceWindow.leftEarExposure : fallback.faceWindow.leftEarExposure,
+    rightEarExposure: rightFaceWindowFromGeometry ? geometry.faceWindow.rightEarExposure : fallback.faceWindow.rightEarExposure,
+  } : fallback.faceWindow;
+  const faceShape = faceShapeFromGeometry ? {
+    upperWidth: rounded(geometry.faceShape.upperWidth * 8, 4, 8),
+    cheekWidth: rounded(geometry.faceShape.cheekWidth * 8, 4, 8),
+    jawWidth: rounded(geometry.faceShape.jawWidth * 8, 4, 8),
+    verticalLength: rounded(geometry.faceShape.verticalLength * 7, 4, 7),
+    asymmetryOffset: rounded(geometry.faceShape.leftRightAsymmetry * 4, -1, 1),
+  } : fallback.faceShape;
   const renderContract = buildRenderContract(
     analysis,
     protectedGeometry,
@@ -439,8 +586,8 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
     mouthOpening,
     mouthTopology,
     hairlineDepth: hairlineFromGeometry ? hairlineDepth : fallback.hairlineDepth, hairlineDepthByColumn,
-    fringeOpening,
-    exposedFaceWidth: faceFromGeometry ? rounded(5 + geometry.face.widthWithinHead * 3, 5, 8) : fallback.exposedFaceWidth,
+    fringeOpening, fringePeaks, fringeDirection, templeGeometry, crownGeometry, majorVolumePeaks, faceWindow, faceShape,
+    exposedFaceWidth: completeFaceWindowFromGeometry ? faceWindow.visibleWidthAtEyes : faceFromGeometry ? rounded(5 + geometry.face.widthWithinHead * 3, 5, 8) : fallback.exposedFaceWidth,
     noseX: noseFromGeometry ? rounded(xRaw(geometry.nose.centerX) + geometry.nose.leftRightBias * 0.45, 2, 5) : fallback.noseX,
     noseY: noseFromGeometry ? rounded(facialYRaw(geometry.nose.contrastY), 4, 6) : fallback.noseY,
     noseStrength: noseFromGeometry ? geometry.nose.visibleStrength : fallback.noseStrength,
@@ -457,7 +604,7 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
       mouthRow: mouthFromGeometry ? facialYRaw(geometry.mouth.centerY) : fallback.mouthRow,
       mouthWidth: mouthFromGeometry ? (geometry.mouth.width / faceWidth) * 8 : fallback.mouthWidth,
     },
-    geometryUsage: { faceBounds: faceFromGeometry, eyes: eyesFromGeometry, brows: browsFromGeometry, nose: noseFromGeometry, mouth: mouthFromGeometry, hairline: hairlineFromGeometry, glasses: glassesFromGeometry },
+    geometryUsage: { faceBounds: faceFromGeometry, eyes: eyesFromGeometry, brows: browsFromGeometry, nose: noseFromGeometry, mouth: mouthFromGeometry, hairline: hairlineFromGeometry, glasses: glassesFromGeometry, fringePeaks: fringeFromGeometry, temple: templeFromGeometry, crown: crownFromGeometry, majorVolumePeaks: majorVolumePeaksFromGeometry, faceWindow: faceWindowFromGeometry, faceShape: faceShapeFromGeometry },
   };
 }
 
@@ -489,6 +636,15 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
   const hairlineDepth: FaceLayoutPlan["hairlineDepth"] = hints.bangs === "none" || hints.bangsLength === "none" ? 0 : hints.bangsLength === "eye" ? 3 : hints.bangsLength === "brow" ? 2 : 1;
   const hairlineDepthByColumn = Array.from({ length: 8 }, (_, x) => hints.fringeOpening === "center" && (x === 3 || x === 4) ? 0 : hairlineDepth) as FaceLayoutPlan["hairlineDepthByColumn"];
   const exposedFaceWidth: FaceLayoutPlan["exposedFaceWidth"] = hints.sideHairShape === "face_framing" || hints.earExposure === "covered" ? 5 : hints.earExposure === "partial" || hints.hairVolume === "full" ? 6 : hints.faceShape === "round" || hints.faceShape === "square" ? 8 : 7;
+  const fringePeaks = hairlineDepth > 0 ? [{ column: hints.hairPart === "left" ? 5 : hints.hairPart === "right" ? 2 : 4, row: hairlineDepth, prominence: 0.35 }] : [];
+  const fringeDirection: FaceLayoutPlan["fringeDirection"] = hints.bangs !== "side" ? "irregular" : hints.hairPart === "left" ? "right_swept" : "left_swept";
+  const semanticEarExposure = hints.earExposure === "visible" ? 0.8 : hints.earExposure === "partial" ? 0.5 : 0.15;
+  const templeGeometry: FaceLayoutPlan["templeGeometry"] = { leftRecession: Math.round(semanticEarExposure * 2), rightRecession: Math.round(semanticEarExposure * 2), leftStartRow: 3, rightStartRow: 3 };
+  const crownGeometry: FaceLayoutPlan["crownGeometry"] = { leftRow: 0, centerRow: 0, rightRow: 0, leftWidth: hints.hairVolume === "full" ? 3 : 2, rightWidth: hints.hairVolume === "full" ? 3 : 2, apexColumn: hints.hairPart === "left" ? 2 : hints.hairPart === "right" ? 5 : 4 };
+  const majorVolumePeaks: FaceLayoutPlan["majorVolumePeaks"] = [];
+  const faceWindow: FaceLayoutPlan["faceWindow"] = { foreheadRows: Math.max(1, 4 - hairlineDepth), leftTempleWidth: templeGeometry.leftRecession, rightTempleWidth: templeGeometry.rightRecession, visibleWidthAtEyes: exposedFaceWidth, visibleWidthAtCheeks: exposedFaceWidth, leftEyeToHairRows: Math.max(1, eyeRow - hairlineDepth), rightEyeToHairRows: Math.max(1, eyeRow - hairlineDepth), leftEarExposure: semanticEarExposure, rightEarExposure: semanticEarExposure };
+  const semanticFaceWidth = hints.faceShape === "round" || hints.faceShape === "square" ? 8 : hints.faceShape === "angular" ? 7 : 6;
+  const faceShape: FaceLayoutPlan["faceShape"] = { upperWidth: semanticFaceWidth, cheekWidth: hints.faceShape === "round" ? 8 : semanticFaceWidth, jawWidth: hints.faceShape === "angular" ? 5 : hints.faceShape === "square" ? 8 : 6, verticalLength: hints.faceShape === "long" ? 7 : 6, asymmetryOffset: 0 };
   const glassesMask: Array<{ x: number; y: number }> = [];
   if (analysis.fallbackFeatures.glasses !== "none") {
     for (const x of [...leftEyeXs, ...rightEyeXs]) glassesMask.push({ x, y: eyeRow });
@@ -516,7 +672,7 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
     browRow, leftBrowRow: browRow, rightBrowRow: browRow,
     browThickness: "subtle", browTiltOffset: 0,
     mouthRow, mouthWidth, mouthCenterX: 4, mouthCornerOffsets, mouthOpening, mouthTopology,
-    hairlineDepth, hairlineDepthByColumn, fringeOpening: hints.fringeOpening, exposedFaceWidth,
+    hairlineDepth, hairlineDepthByColumn, fringeOpening: hints.fringeOpening, fringePeaks, fringeDirection, templeGeometry, crownGeometry, majorVolumePeaks, faceWindow, faceShape, exposedFaceWidth,
     noseX: hints.noseShape === "prominent" ? 3 : 4, noseY: Math.min(6, eyeRow + 1), noseStrength: hints.noseShape === "small" ? 0.25 : 0.7,
     glassesMask, uncertainAxes,
     quantizationAmbiguities,
@@ -530,7 +686,7 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
       mouthRow,
       mouthWidth,
     },
-    geometryUsage: { faceBounds: false, eyes: false, brows: false, nose: false, mouth: false, hairline: false, glasses: false },
+    geometryUsage: { faceBounds: false, eyes: false, brows: false, nose: false, mouth: false, hairline: false, glasses: false, fringePeaks: false, temple: false, crown: false, majorVolumePeaks: false, faceWindow: false, faceShape: false },
   };
 }
 

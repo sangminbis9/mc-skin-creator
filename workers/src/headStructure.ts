@@ -1,6 +1,7 @@
 import type { PhotoAnalysis } from "./analysis";
 import type { FaceLayoutPlan } from "./identityQuantization";
 import type { HeadMaskFace, HeadMaskPlan } from "./identityPlans";
+import { hairSalienceScore, type HairIdentitySaliencePlan } from "./hairIdentitySalience";
 
 export type HairTextureGrammar = "straight_bands" | "wavy_bands" | "curl_lobes" | "coily_clusters" | "lock_groups";
 export type HairStructureKind = "foundation" | "fringe" | "temple" | "side_lock" | "strand_band" | "curl_lobe" | "coily_cluster" | "lock_group" | "crown_flow";
@@ -20,6 +21,13 @@ export interface HairStructureGroup {
   kind: HairStructureKind;
   direction: HairDirection;
   identityImportance: 1 | 2 | 3 | 4 | 5;
+  sourceAnchor?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    protrusion: number;
+  };
   points: HairStructurePoint[];
 }
 
@@ -30,6 +38,9 @@ export interface HairStructurePlan {
     groupIds: string[];
     openingColumns: number[];
     irregularity: "none" | "measured_step" | "wispy_endpoints";
+    baseDepthByColumn: number[];
+    tipPoints: Array<{ x: number; y: number }>;
+    templeTransitionPoints: Array<{ x: number; y: number }>;
   };
   temples: { leftGroupId: string | null; rightGroupId: string | null };
   sideLocks: { leftGroupIds: string[]; rightGroupIds: string[] };
@@ -179,6 +190,7 @@ export function buildHairStructurePlan(
   analysis: PhotoAnalysis,
   layout: FaceLayoutPlan,
   headMask: HeadMaskPlan,
+  salience: HairIdentitySaliencePlan,
 ): HairStructurePlan {
   const grammar = textureGrammar(analysis);
   const phase = geometryPhase(analysis);
@@ -186,7 +198,9 @@ export function buildHairStructurePlan(
   const groups: HairStructureGroup[] = [];
   const addGroup = (group: Omit<HairStructureGroup, "identityImportance" | "points"> & { points: HairStructurePoint[] }) => {
     const points = largestConnectedComponent(uniquePoints(group.points));
-    if (points.length < 2) return null;
+    const singlePixelIdentityTip = points.length === 1 && importance >= 4 &&
+      (group.kind === "fringe" || group.kind === "temple" || group.kind === "curl_lobe");
+    if (points.length < 2 && !singlePixelIdentityTip) return null;
     groups.push({ ...group, identityImportance: importance, points });
     return group.id;
   };
@@ -198,7 +212,7 @@ export function buildHairStructurePlan(
       ? [2]
       : analysis.renderHints.fringeOpening === "right"
         ? [5]
-        : partColumn === null ? [] : [partColumn];
+        : [];
   const fringeColumns = Array.from({ length: 8 }, (_, x) => x)
     .filter((x) => layout.hairlineDepthByColumn[x] > 0 && !openingColumns.includes(x));
   const fringeGroupIds = runGroups(fringeColumns).flatMap((columns, index) => {
@@ -209,13 +223,68 @@ export function buildHairStructurePlan(
       y,
       role: y === layout.hairlineDepthByColumn[x] - 1 ? "tip" as const : x < 4 ? "mid" as const : "shadow" as const,
     })));
-    const id = addGroup({ id: `fringe-${index + 1}`, kind: "fringe", direction: columns.every((x) => x < 4) ? "down_right" : "down_left", points });
+    const id = addGroup({ id: `fringe-base-${index + 1}`, kind: "fringe", direction: columns.every((x) => x < 4) ? "down_right" : "down_left", points });
     return id ? [id] : [];
   });
 
+  const fringeScore = hairSalienceScore(salience, "fringe_shape");
+  const fringeTipPoints: Array<{ x: number; y: number }> = [];
+  if ((analysis.renderHints.bangs !== "none" || layout.fringePeaks.length > 0) && fringeColumns.length > 0) {
+    const tipBudget = layout.geometryUsage.fringePeaks
+      ? Math.max(1, Math.min(4, layout.fringePeaks.length))
+      : Math.max(2, Math.min(4, Math.round(1 + fringeScore * 4)));
+    const sideDirection = analysis.renderHints.hairPart === "left" ? 1 : analysis.renderHints.hairPart === "right" ? -1 : 0;
+    const edgeWeight = analysis.renderHints.fringeEdge === "wispy" ? 0.5 : analysis.renderHints.fringeEdge === "staggered" ? 0.3 : 0.1;
+    const measuredPeakByColumn = new Map(layout.fringePeaks.map((peak) => [peak.column, peak]));
+    const ranked = fringeColumns.map((x) => {
+      const depth = layout.hairlineDepthByColumn[x];
+      const previous = layout.hairlineDepthByColumn[Math.max(0, x - 1)];
+      const next = layout.hairlineDepthByColumn[Math.min(7, x + 1)];
+      const localPeak = Math.max(0, depth - Math.max(previous, next));
+      const sideBias = sideDirection === 0 ? Math.abs(x - 3.5) * 0.025 : (sideDirection > 0 ? x : 7 - x) * 0.045;
+      const measured = measuredPeakByColumn.get(x);
+      return { x, depth, score: depth + localPeak * 0.45 + edgeWeight * ((x + phase) % 3) / 3 + sideBias + (measured ? 4 + measured.prominence * 3 : 0) };
+    }).sort((first, second) => second.score - first.score || first.x - second.x);
+    const selected: number[] = [];
+    for (const candidate of ranked) {
+      if (selected.length >= tipBudget) break;
+      if (selected.some((x) => Math.abs(x - candidate.x) === 1) && ranked.length > tipBudget + 1) continue;
+      selected.push(candidate.x);
+    }
+    for (const candidate of ranked) {
+      if (selected.length >= tipBudget) break;
+      if (!selected.includes(candidate.x)) selected.push(candidate.x);
+    }
+    const maximumTipRow = layout.geometryUsage.fringePeaks
+      ? clamp(Math.max(2, ...layout.fringePeaks.map((peak) => peak.row)), 2, 6)
+      : analysis.renderHints.bangsLength === "eye" ? 4 : analysis.renderHints.bangsLength === "brow" ? 3 : 2;
+    for (const [index, x] of selected.sort((a, b) => a - b).entries()) {
+      const measuredPeak = measuredPeakByColumn.get(x);
+      const directionalTip = layout.fringeDirection === "left_swept" ? x <= 3 : layout.fringeDirection === "right_swept" ? x >= 4 : sideDirection !== 0 && (sideDirection > 0 ? x >= 4 : x <= 3);
+      const irregularTip = analysis.renderHints.fringeEdge !== "blunt" && (x + phase) % 3 === 0;
+      const displacement = fringeScore >= 0.55 && (directionalTip || irregularTip) ? 1 : 0;
+      const y = clamp(Math.max(1, measuredPeak?.row ?? layout.hairlineDepthByColumn[x] + displacement), 1, maximumTipRow);
+      fringeTipPoints.push({ x, y });
+      const id = addGroup({
+        id: `fringe-tip-${index + 1}`,
+        kind: "fringe",
+        direction: x < 4 ? "down_right" : "down_left",
+        sourceAnchor: { x: x / 7, y: y / 7, width: 1 / 8, height: 1 / 8, protrusion: Math.max(0, y - layout.hairlineDepthByColumn[x] + 1) / 8 },
+        points: [{ face: "front", layer: "outer", x, y, role: "tip" }],
+      });
+      if (id) fringeGroupIds.push(id);
+    }
+  }
+
+  const templeTransitionPoints: Array<{ x: number; y: number }> = [];
   const templeIds: Array<string | null> = [0, 7].map((x, index) => {
     const endpoint = index === 0 ? headMask.endpointRows.left : headMask.endpointRows.right;
-    const maximumY = Math.min(6, Math.max(2, endpoint));
+    const earExposure = index === 0 ? headMask.earExposure.left : headMask.earExposure.right;
+    const measuredStart = index === 0 ? layout.templeGeometry.leftStartRow : layout.templeGeometry.rightStartRow;
+    const recession = index === 0 ? layout.templeGeometry.leftRecession : layout.templeGeometry.rightRecession;
+    const maximumY = layout.geometryUsage.temple
+      ? Math.min(6, Math.max(2, Math.min(endpoint, measuredStart + Math.max(0, 2 - recession))))
+      : Math.min(6, Math.max(2, Math.min(endpoint, 2 + Math.round((1 - earExposure) * 3))));
     const points = Array.from({ length: maximumY }, (_, offset) => ({
       face: "front" as const,
       layer: "base" as const,
@@ -223,13 +292,30 @@ export function buildHairStructurePlan(
       y: offset + 1,
       role: offset === maximumY - 1 ? "tip" as const : "shadow" as const,
     }));
+    templeTransitionPoints.push({ x, y: maximumY });
     return addGroup({ id: index === 0 ? "temple-left" : "temple-right", kind: "temple", direction: "down", points });
   });
 
+  // Base hair remains source-specific even when the optional outer shell is
+  // hidden. Reuse the measured mask as a compact foundation rather than
+  // relying on the generic style template for side/back ownership.
+  for (const face of ["top", "left", "right", "back"] as const) {
+    const points = headMask.faces[face]
+      .filter((point) => point.role === "hair")
+      .map((point) => ({
+        face,
+        layer: "base" as const,
+        x: point.x,
+        y: point.y,
+        role: point.y % 3 === 0 ? "mid" as const : "shadow" as const,
+      }));
+    addGroup({ id: `foundation-${face}`, kind: "foundation", direction: face === "top" ? "down_right" : "down", points });
+  }
+
   const sideLockIds = { left: [] as string[], right: [] as string[] };
   for (const [side, face, endpoint, outerX] of [
-    ["left", "left", headMask.endpointRows.left, 0],
-    ["right", "right", headMask.endpointRows.right, 7],
+    ["left", "left", headMask.endpointRows.left, 1],
+    ["right", "right", headMask.endpointRows.right, 6],
   ] as const) {
     if (analysis.renderHints.sideHairLength === "none" || analysis.renderHints.sideHairLength === "short") continue;
     const coordinates: Array<[number, number]> = [];
@@ -267,19 +353,54 @@ export function buildHairStructurePlan(
       ? silhouette.sideVolumeLeft >= silhouette.sideVolumeRight ? 1 : 6
       : phase % 2 === 0 ? 1 : 6;
     const lowerY = clamp(Math.round((headMask.endpointRows.left + headMask.endpointRows.right) / 2) - 1, 2, 6);
-    const lobes: Array<{ id: string; face: HeadMaskFace; x: number; y: number; direction: HairDirection }> = [
-      { id: "curl-lobe-crown", face: "top", x: crownX, y: 2, direction: silhouette && silhouette.sideVolumeLeft >= silhouette.sideVolumeRight ? "outward_left" : "outward_right" },
-      { id: "curl-lobe-left", face: "left", x: 2, y: clamp(leftPeak, 1, 6), direction: "outward_left" },
-      { id: "curl-lobe-right", face: "right", x: 5, y: clamp(rightPeak, 1, 6), direction: "outward_right" },
-      { id: "curl-lobe-lower", face: "back", x: crownX <= 3 ? 2 : 5, y: lowerY, direction: "compact" },
-    ];
+    const leftVolume = silhouette?.sideVolumeLeft ?? 0.6;
+    const rightVolume = silhouette?.sideVolumeRight ?? 0.6;
+    const endpointMean = (headMask.endpointRows.left + headMask.endpointRows.right) / 2;
+    const lobeSize = (volume: number, endpoint: number) => ({
+      width: clamp(1 + Math.round(volume * 2), 2, 3),
+      height: clamp(1 + Math.round((volume + endpoint / 7) * 1.2), 2, 3),
+    });
+    const leftSize = lobeSize(leftVolume, headMask.endpointRows.left);
+    const rightSize = lobeSize(rightVolume, headMask.endpointRows.right);
+    const lobes: Array<{ id: string; face: HeadMaskFace; x: number; y: number; width: number; height: number; protrusion: number; direction: HairDirection }> = layout.geometryUsage.majorVolumePeaks
+      ? layout.majorVolumePeaks.map((peak) => {
+          const left = peak.region.endsWith("left");
+          const crown = peak.region.startsWith("crown");
+          const lower = peak.region.startsWith("lower");
+          return {
+            id: `curl-lobe-${peak.region.replace("_", "-")}`,
+            face: crown ? "top" : lower ? "back" : left ? "left" : "right",
+            x: crown ? left ? 1 : 6 : lower ? left ? 2 : 5 : left ? 1 : 6,
+            y: clamp(peak.row - Math.floor(peak.height / 2), crown ? 1 : lower ? 2 : 1, 6),
+            width: peak.width,
+            height: peak.height,
+            protrusion: peak.protrusion,
+            direction: crown || !lower ? left ? "outward_left" : "outward_right" : "compact",
+          };
+        })
+      : [
+          { id: "curl-lobe-crown", face: "top", x: crownX, y: clamp(1 + Math.round((1 - (silhouette?.crownTopY ?? 0.2)) * 2), 1, 3), width: clamp(Math.round(2 + Math.max(leftVolume, rightVolume) * 2), 2, 4), height: 2, protrusion: Math.max(leftVolume, rightVolume), direction: silhouette && leftVolume >= rightVolume ? "outward_left" : "outward_right" },
+          { id: "curl-lobe-left", face: "left", x: 1, y: clamp(leftPeak, 1, 6), ...leftSize, protrusion: leftVolume, direction: "outward_left" },
+          { id: "curl-lobe-right", face: "right", x: 6, y: clamp(rightPeak, 1, 6), ...rightSize, protrusion: rightVolume, direction: "outward_right" },
+          { id: "curl-lobe-lower", face: "back", x: crownX <= 3 ? 2 : 5, y: lowerY, width: clamp(Math.round(2 + mean([leftVolume, rightVolume]) * 2), 2, 4), height: endpointMean >= 5 ? 3 : 2, protrusion: mean([leftVolume, rightVolume]), direction: "compact" },
+        ];
+    if (!layout.geometryUsage.majorVolumePeaks && headMask.endpointRows.left >= 5 && leftVolume >= 0.55) lobes.push({ id: "curl-lobe-left-lower", face: "left", x: 1, y: clamp(headMask.endpointRows.left - 2, 2, 6), ...leftSize, protrusion: leftVolume, direction: "outward_left" });
+    if (!layout.geometryUsage.majorVolumePeaks && headMask.endpointRows.right >= 5 && rightVolume >= 0.55) lobes.push({ id: "curl-lobe-right-lower", face: "right", x: 6, y: clamp(headMask.endpointRows.right - 2, 2, 6), ...rightSize, protrusion: rightVolume, direction: "outward_right" });
     for (const [index, lobe] of lobes.entries()) {
-      const points = clippedPath(headMask, lobe.face, [
-        [lobe.x, lobe.y],
-        [clamp(lobe.x + (lobe.direction === "outward_left" ? -1 : 1), 1, 6), lobe.y],
-        [lobe.x, clamp(lobe.y + 1, 1, 6)],
-      ], index % 2 === 0 ? "light" : "shadow");
-      const id = addGroup({ id: lobe.id, kind: "curl_lobe", direction: lobe.direction, points });
+      const coordinates: Array<[number, number]> = [];
+      for (let dy = 0; dy < lobe.height; dy++) for (let dx = 0; dx < lobe.width; dx++) {
+        if (lobe.width >= 3 && lobe.height >= 3 && dx === lobe.width - 1 && dy === lobe.height - 1) continue;
+        const direction = lobe.direction === "outward_left" ? 1 : lobe.direction === "outward_right" ? -1 : lobe.x <= 3 ? 1 : -1;
+        coordinates.push([clamp(lobe.x + dx * direction, 1, 6), clamp(lobe.y + dy, 1, 6)]);
+      }
+      const points = clippedPath(headMask, lobe.face, coordinates, index % 2 === 0 ? "light" : "shadow");
+      const id = addGroup({
+        id: lobe.id,
+        kind: "curl_lobe",
+        direction: lobe.direction,
+        sourceAnchor: { x: lobe.x / 7, y: lobe.y / 7, width: lobe.width / 8, height: lobe.height / 8, protrusion: lobe.protrusion },
+        points,
+      });
       if (id) textureGroupIds.push(id);
     }
   }
@@ -291,7 +412,7 @@ export function buildHairStructurePlan(
     const maximumY = Math.max(...rows.map((point) => point.y));
     const seeds = face === "back" || face === "top" ? [1 + (phase % 2), 4 + ((phase + 1) % 2)] : [face === "left" ? phase % 3 : 7 - (phase % 3)];
     seeds.forEach((seed, index) => {
-      let coordinates: Array<[number, number]> = [];
+      const coordinates: Array<[number, number]> = [];
       let kind: HairStructureKind = "strand_band";
       let direction: HairDirection = "down";
       if (grammar === "straight_bands" || grammar === "lock_groups") {
@@ -338,13 +459,19 @@ export function buildHairStructurePlan(
 
   const requiredGroupIds = [...fringeGroupIds, ...textureGroupIds, ...sideLockIds.left, ...sideLockIds.right]
     .filter((id) => groups.find((group) => group.id === id)!.identityImportance >= 4 || id.startsWith("fringe"));
+  const geometryDrivenStructure = headMask.source === "identity_geometry" ||
+    layout.geometryUsage.fringePeaks || layout.geometryUsage.temple ||
+    layout.geometryUsage.crown || layout.geometryUsage.majorVolumePeaks;
   return {
-    source: headMask.source === "identity_geometry" ? "identity_geometry" : "semantic_analysis",
+    source: geometryDrivenStructure ? "identity_geometry" : "semantic_analysis",
     grammar,
     fringe: {
       groupIds: fringeGroupIds,
       openingColumns,
       irregularity: analysis.renderHints.fringeEdge === "wispy" ? "wispy_endpoints" : new Set(layout.hairlineDepthByColumn).size > 1 ? "measured_step" : "none",
+      baseDepthByColumn: [...layout.hairlineDepthByColumn],
+      tipPoints: fringeTipPoints,
+      templeTransitionPoints,
     },
     temples: { leftGroupId: templeIds[0], rightGroupId: templeIds[1] },
     sideLocks: { leftGroupIds: sideLockIds.left, rightGroupIds: sideLockIds.right },

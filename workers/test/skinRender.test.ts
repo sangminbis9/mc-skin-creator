@@ -77,6 +77,11 @@ describe("deterministic skin renderer", () => {
     expect(new Set(Array.from({ length: 16 }, (_, index) => scaled.rgba[index * 4])).size).toBeLessThanOrEqual(2);
     const evidence = buildPairwiseHeadEvidence(renderSkinViews(makeSyntheticAtlas()));
     expect([evidence.width, evidence.height]).toEqual([288, 384]);
+    const alternate = buildPairwiseHeadEvidence(renderSkinViews(makeSyntheticAtlas(99)));
+    expect([alternate.width, alternate.height]).toEqual([evidence.width, evidence.height]);
+    for (let offset = 3; offset < evidence.rgba.length; offset += 4) {
+      expect(alternate.rgba[offset]).toBe(evidence.rgba[offset]);
+    }
   });
 
   it("samples the physically correct front/back/left/right UV faces", () => {

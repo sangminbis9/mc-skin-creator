@@ -1,4 +1,12 @@
-import type { HeadPairwiseReview } from "./headIdentity";
+import {
+  HEAD_CANDIDATE_REPLACEMENT_CONFIDENCE,
+  type CandidateAdmissibility,
+  type HeadCandidateAdmissibilityEvidence,
+  type PairwiseDecision,
+  type HeadPairwiseReview,
+  type IdentityDimension,
+  type PairwiseActionableVerdict,
+} from "./headIdentity";
 import type { FacePixelPlan, HairPlan } from "./identityPlans";
 import type { RawImage } from "./png";
 import type { SkinCritique } from "./skinCritique";
@@ -12,6 +20,57 @@ export interface IdentityCalibrationAtlas {
   changedPixels: number;
   changedIdentityDimensions: string[];
 }
+
+export interface NearPeerCalibrationDefinition {
+  id: "hairline-near-peer" | "eye-layout-near-peer" | "head-silhouette-near-peer";
+  primaryDimension: IdentityDimension;
+  candidateA: HeadCandidateAdmissibilityEvidence;
+  candidateB: HeadCandidateAdmissibilityEvidence;
+  deterministicDifference: {
+    hairlineDistance: number;
+    eyeLayoutDistance: number;
+    silhouetteDistance: number;
+    expressionTopologyDifference: number;
+    accessoryFootprintDistance: number;
+  };
+  sourceFidelityPrinciple: string;
+}
+
+const ADMISSIBLE_NEAR_PEER: HeadCandidateAdmissibilityEvidence = {
+  p5Valid: true,
+  craftValid: true,
+  renderContractValid: true,
+  criticalDefects: [],
+  calibrationConflicts: [],
+};
+
+/** Offline semantic fixtures; deterministic differences are never sent to the VLM. */
+export const NEAR_PEER_CALIBRATION_DATASET: readonly NearPeerCalibrationDefinition[] = [
+  {
+    id: "hairline-near-peer",
+    primaryDimension: "hairline",
+    candidateA: ADMISSIBLE_NEAR_PEER,
+    candidateB: ADMISSIBLE_NEAR_PEER,
+    deterministicDifference: { hairlineDistance: 0.125, eyeLayoutDistance: 0, silhouetteDistance: 0, expressionTopologyDifference: 0, accessoryFootprintDistance: 0 },
+    sourceFidelityPrinciple: "source-matching part and forehead opening outrank a plausible generic hairline",
+  },
+  {
+    id: "eye-layout-near-peer",
+    primaryDimension: "eyeLayout",
+    candidateA: ADMISSIBLE_NEAR_PEER,
+    candidateB: ADMISSIBLE_NEAR_PEER,
+    deterministicDifference: { hairlineDistance: 0, eyeLayoutDistance: 0.125, silhouetteDistance: 0, expressionTopologyDifference: 0.125, accessoryFootprintDistance: 0 },
+    sourceFidelityPrinciple: "source-specific spacing and openness outrank cleaner generic symmetry",
+  },
+  {
+    id: "head-silhouette-near-peer",
+    primaryDimension: "headSilhouette",
+    candidateA: ADMISSIBLE_NEAR_PEER,
+    candidateB: ADMISSIBLE_NEAR_PEER,
+    deterministicDifference: { hairlineDistance: 0, eyeLayoutDistance: 0, silhouetteDistance: 0.125, expressionTopologyDifference: 0, accessoryFootprintDistance: 0 },
+    sourceFidelityPrinciple: "source crown and side contour outrank a plausible generic contour in the same hair category",
+  },
+] as const;
 
 function cloneAtlas(atlas: RawImage): RawImage {
   return { width: atlas.width, height: atlas.height, rgba: new Uint8Array(atlas.rgba) };
@@ -212,7 +271,166 @@ export function assessIdentitySensitivity(
 export interface CalibrationBenchmarkObservation {
   level: IdentityCalibrationLevel;
   absolute?: Pick<SkinCritique, "identityScore" | "faceHairScore">;
-  pairwise?: Pick<HeadPairwiseReview, "winner" | "confidence">;
+  candidateAdmissibility?: CandidateAdmissibility;
+  pairwise?: Pick<HeadPairwiseReview, "winner" | "confidence"> & {
+    actionableVerdict?: PairwiseActionableVerdict;
+  };
+}
+
+export type CalibrationPairwiseRole = "production_near_peer" | "stress_test_only" | "not_executed";
+
+export function classifyCalibrationPairwiseRole(
+  observation: CalibrationBenchmarkObservation,
+): CalibrationPairwiseRole {
+  if (!observation.pairwise) return "not_executed";
+  return observation.candidateAdmissibility?.admissible === false
+    ? "stress_test_only"
+    : "production_near_peer";
+}
+
+export interface PairwiseStabilityDirectionInput {
+  candidateOrder: readonly [string, string];
+  decision: PairwiseDecision;
+}
+
+export type NormalizedActionableOutcome =
+  | { kind: "select_candidate"; candidateId: string }
+  | { kind: "abstain"; reason: Exclude<PairwiseActionableVerdict, "A" | "B"> };
+
+export type NormalizedProductionDecision =
+  | { kind: "retain_incumbent"; selectedCandidateId: string }
+  | { kind: "replace_incumbent"; selectedCandidateId: string };
+
+export interface PairwiseStabilityDirection {
+  candidateOrder: readonly [string, string];
+  normalizedRawPreference: string | "tie";
+  confidence: number;
+  actionableVerdict: PairwiseActionableVerdict;
+  normalizedActionableOutcome: NormalizedActionableOutcome;
+  productionDecision: NormalizedProductionDecision;
+}
+
+export interface PairwiseStability {
+  incumbentCandidateId: string;
+  rawPreferenceStable: boolean | null;
+  actionableVerdictStable: boolean | null;
+  productionDecisionStable: boolean | null;
+  safeAbstention: boolean | null;
+  forward: PairwiseStabilityDirection | null;
+  reverse: PairwiseStabilityDirection | null;
+}
+
+function normalizePairwiseDirection(
+  incumbentCandidateId: string,
+  input: PairwiseStabilityDirectionInput,
+): PairwiseStabilityDirection {
+  if (!input.candidateOrder.includes(incumbentCandidateId)) {
+    throw new Error(`incumbent candidate ${incumbentCandidateId} is absent from the comparison order`);
+  }
+  const candidateIdForLabel = (label: "A" | "B"): string =>
+    input.candidateOrder[label === "A" ? 0 : 1];
+  const normalizedRawPreference = input.decision.rawPreference === "tie"
+    ? "tie"
+    : candidateIdForLabel(input.decision.rawPreference);
+  const normalizedActionableOutcome: NormalizedActionableOutcome =
+    input.decision.actionableVerdict === "A" || input.decision.actionableVerdict === "B"
+      ? { kind: "select_candidate", candidateId: candidateIdForLabel(input.decision.actionableVerdict) }
+      : { kind: "abstain", reason: input.decision.actionableVerdict };
+  const selectedCandidateId = normalizedActionableOutcome.kind === "select_candidate"
+    ? normalizedActionableOutcome.candidateId
+    : incumbentCandidateId;
+  return {
+    candidateOrder: input.candidateOrder,
+    normalizedRawPreference,
+    confidence: input.decision.confidence,
+    actionableVerdict: input.decision.actionableVerdict,
+    normalizedActionableOutcome,
+    productionDecision: selectedCandidateId === incumbentCandidateId
+      ? { kind: "retain_incumbent", selectedCandidateId }
+      : { kind: "replace_incumbent", selectedCandidateId },
+  };
+}
+
+function actionableOutcomeStable(
+  forward: NormalizedActionableOutcome,
+  reverse: NormalizedActionableOutcome,
+): boolean {
+  if (forward.kind === "abstain" && reverse.kind === "abstain") return true;
+  return forward.kind === "select_candidate" &&
+    reverse.kind === "select_candidate" &&
+    forward.candidateId === reverse.candidateId;
+}
+
+/**
+ * Calibration-only normalization. Exact raw/verdict values remain available,
+ * while stability is compared using real candidate identities and a fixed
+ * incumbent rather than arbitrary A/B positions.
+ */
+export function assessPairwiseStability(input: {
+  incumbentCandidateId: string;
+  forward?: PairwiseStabilityDirectionInput;
+  reverse?: PairwiseStabilityDirectionInput;
+}): PairwiseStability {
+  const forward = input.forward
+    ? normalizePairwiseDirection(input.incumbentCandidateId, input.forward)
+    : null;
+  const reverse = input.reverse
+    ? normalizePairwiseDirection(input.incumbentCandidateId, input.reverse)
+    : null;
+  if (!forward || !reverse) {
+    return {
+      incumbentCandidateId: input.incumbentCandidateId,
+      rawPreferenceStable: null,
+      actionableVerdictStable: null,
+      productionDecisionStable: null,
+      safeAbstention: null,
+      forward,
+      reverse,
+    };
+  }
+  const productionDecisionStable =
+    forward.productionDecision.selectedCandidateId === reverse.productionDecision.selectedCandidateId;
+  return {
+    incumbentCandidateId: input.incumbentCandidateId,
+    rawPreferenceStable: forward.normalizedRawPreference === reverse.normalizedRawPreference,
+    actionableVerdictStable: actionableOutcomeStable(
+      forward.normalizedActionableOutcome,
+      reverse.normalizedActionableOutcome,
+    ),
+    productionDecisionStable,
+    safeAbstention: productionDecisionStable &&
+      forward.normalizedActionableOutcome.kind === "abstain" &&
+      reverse.normalizedActionableOutcome.kind === "abstain",
+    forward,
+    reverse,
+  };
+}
+
+export type MeaningfulImprovementSensitivity = "supported" | "not_supported" | "not_measured";
+
+export function assessMeaningfulImprovementSensitivity(
+  stability: PairwiseStability,
+  expectedImprovedCandidateId: string | null,
+): MeaningfulImprovementSensitivity {
+  if (!expectedImprovedCandidateId || !stability.forward || !stability.reverse) return "not_measured";
+  const selectedExpectedCandidate = (direction: PairwiseStabilityDirection): boolean =>
+    direction.normalizedActionableOutcome.kind === "select_candidate" &&
+    direction.normalizedActionableOutcome.candidateId === expectedImprovedCandidateId;
+  return stability.productionDecisionStable === true &&
+    selectedExpectedCandidate(stability.forward) &&
+    selectedExpectedCandidate(stability.reverse)
+    ? "supported"
+    : "not_supported";
+}
+
+function benchmarkPairwiseVerdict(
+  pairwise: NonNullable<CalibrationBenchmarkObservation["pairwise"]>,
+): PairwiseActionableVerdict {
+  if (pairwise.actionableVerdict) return pairwise.actionableVerdict;
+  if (pairwise.winner !== "tie" && pairwise.confidence < HEAD_CANDIDATE_REPLACEMENT_CONFIDENCE) {
+    return "insufficient_confidence";
+  }
+  return pairwise.winner;
 }
 
 export function validateCalibrationBenchmark(
@@ -221,21 +439,30 @@ export function validateCalibrationBenchmark(
   const failures: string[] = [];
   const byLevel = new Map(observations.map((observation) => [observation.level, observation]));
   const identical = byLevel.get("A_identical")?.pairwise;
-  if (identical && identical.winner !== "tie") failures.push("identical candidate comparison did not tie");
+  if (identical && benchmarkPairwiseVerdict(identical) !== "tie") failures.push("identical candidate comparison did not tie");
   const minor = byLevel.get("B_minor")?.absolute;
   const current = byLevel.get("A_identical")?.absolute;
   if (minor && current && Math.abs(minor.identityScore - current.identityScore) > 3) {
     failures.push("minor non-identity change moved identity by more than three points");
   }
   const degraded = byLevel.get("C_degraded");
-  if (degraded?.pairwise && degraded.pairwise.winner !== "A") failures.push("current candidate did not beat degraded candidate");
+  if (degraded?.pairwise && classifyCalibrationPairwiseRole(degraded) === "production_near_peer") {
+    const verdict = benchmarkPairwiseVerdict(degraded.pairwise);
+    if (verdict === "B") failures.push("degraded candidate was an actionable winner");
+    else if (verdict !== "A") failures.push("degraded comparison did not produce an actionable current-candidate win");
+  }
   if (degraded?.absolute && current && degraded.absolute.identityScore >= current.identityScore) failures.push("degraded identity did not reduce absolute identity");
   const generic = byLevel.get("D_generic")?.absolute;
   if (generic && degraded?.absolute && generic.identityScore > degraded.absolute.identityScore) failures.push("generic face scored above the targeted degradation");
   const genericPairwise = byLevel.get("D_generic")?.pairwise;
-  if (genericPairwise && genericPairwise.winner !== "A") failures.push("current candidate did not beat generic candidate");
+  const genericObservation = byLevel.get("D_generic");
+  if (genericPairwise && genericObservation && classifyCalibrationPairwiseRole(genericObservation) === "production_near_peer") {
+    const verdict = benchmarkPairwiseVerdict(genericPairwise);
+    if (verdict === "B") failures.push("generic candidate was an actionable winner");
+    else if (verdict !== "A") failures.push("generic comparison did not produce an actionable current-candidate win");
+  }
   const improved = byLevel.get("E_improved")?.pairwise;
-  if (improved && improved.winner !== "B") failures.push("source-informed improvement did not win");
+  if (improved && benchmarkPairwiseVerdict(improved) !== "B") failures.push("source-informed improvement did not win actionably");
   return failures;
 }
 
@@ -254,6 +481,79 @@ export interface EvaluatorHealth {
   status: EvaluatorHealthStatus;
   reasons: string[];
   benchmarkFailures: string[];
+}
+
+export type PairwiseRoleHealthStatus = "healthy" | "safe_but_uncertain" | "improving" | "degraded" | "unknown";
+
+export interface PairwiseEvaluatorRoleHealthInput {
+  inadmissibleCandidatesRejected: number;
+  inadmissiblePairwiseCalls: number;
+  stability: PairwiseStability | null;
+  expectedMeaningfullyImprovedCandidateId: string | null;
+  sourceFidelityConflictCount: number;
+}
+
+export interface PairwiseEvaluatorRoleHealth {
+  catastrophicCandidateSafety: PairwiseRoleHealthStatus;
+  nearPeerSafety: PairwiseRoleHealthStatus;
+  nearPeerDiscrimination: PairwiseRoleHealthStatus;
+  rawOrderStability: PairwiseRoleHealthStatus;
+  decisionOrderStability: PairwiseRoleHealthStatus;
+  meaningfulImprovementSensitivity: PairwiseRoleHealthStatus;
+  sourceFidelityCalibration: PairwiseRoleHealthStatus;
+}
+
+/** Diagnostic only; these role-specific statuses never alter strict gates. */
+export function assessPairwiseEvaluatorRoleHealth(
+  input: PairwiseEvaluatorRoleHealthInput,
+): PairwiseEvaluatorRoleHealth {
+  const catastrophicCandidateSafety = input.inadmissiblePairwiseCalls > 0
+    ? "degraded"
+    : input.inadmissibleCandidatesRejected > 0
+      ? "healthy"
+      : "unknown";
+  const nearPeerSafety = input.stability?.productionDecisionStable === true
+    ? "healthy"
+    : input.stability?.productionDecisionStable === false
+      ? "degraded"
+      : "unknown";
+  const rawOrderStability = input.stability?.rawPreferenceStable === true
+    ? "healthy"
+    : input.stability?.rawPreferenceStable === false
+      ? "degraded"
+      : "unknown";
+  const decisionOrderStability = input.stability?.productionDecisionStable === true
+    ? "healthy"
+    : input.stability?.productionDecisionStable === false
+      ? "degraded"
+      : "unknown";
+  const sensitivity = input.stability
+    ? assessMeaningfulImprovementSensitivity(input.stability, input.expectedMeaningfullyImprovedCandidateId)
+    : "not_measured";
+  const meaningfulImprovementSensitivity = sensitivity === "supported"
+    ? "healthy"
+    : sensitivity === "not_supported"
+      ? input.stability?.safeAbstention ? "safe_but_uncertain" : "degraded"
+      : "unknown";
+  const nearPeerDiscrimination = sensitivity === "supported"
+    ? "healthy"
+    : input.stability?.safeAbstention
+      ? "safe_but_uncertain"
+      : sensitivity === "not_supported"
+        ? "degraded"
+        : "unknown";
+  const sourceFidelityCalibration = input.sourceFidelityConflictCount === 0
+    ? input.stability?.forward ? "healthy" : "unknown"
+    : "improving";
+  return {
+    catastrophicCandidateSafety,
+    nearPeerSafety,
+    nearPeerDiscrimination,
+    rawOrderStability,
+    decisionOrderStability,
+    meaningfulImprovementSensitivity,
+    sourceFidelityCalibration,
+  };
 }
 
 /** Diagnostic only. This result must never bypass or relax the release gate. */

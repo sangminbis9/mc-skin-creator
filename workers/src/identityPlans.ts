@@ -18,6 +18,11 @@ import {
   type GlassesStructurePlan,
   type HairStructurePlan,
 } from "./headStructure";
+import {
+  buildHairIdentitySaliencePlan,
+  hairSalienceScore,
+  type HairIdentitySaliencePlan,
+} from "./hairIdentitySalience";
 
 export type {
   GlassesPixelRole,
@@ -34,6 +39,7 @@ export type {
 } from "./headStructure";
 
 export type { EyeTopology, FaceLayoutPlan, IdentityRenderContract, MouthTopology, ProtectedGeometry, QuantizationAxis } from "./identityQuantization";
+export type { HairIdentityAxis, HairIdentitySalienceCue, HairIdentitySaliencePlan } from "./hairIdentitySalience";
 
 export type FacePaletteRole =
   | "skin_light"
@@ -133,6 +139,7 @@ export interface HairPlan {
   >;
   overlayPolicy: "structure_aware";
   minimumInvention: true;
+  salience: HairIdentitySaliencePlan;
   headMask: HeadMaskPlan;
   structure: HairStructurePlan;
 }
@@ -361,6 +368,17 @@ function facePixelPlan(
   variantId: FacePixelPlan["variantId"] = "primary",
 ): FacePixelPlan {
   const pixels: FacePixelInstruction[] = [];
+  if (layout.geometryUsage.faceShape) {
+    const shadeBoundary = (row: number, width: number) => {
+      const inset = Math.max(0, Math.min(2, Math.floor((8 - width) / 2)));
+      if (inset === 0) return;
+      const shifted = layout.faceShape.asymmetryOffset;
+      pushPixel(pixels, Math.max(0, inset - 1 + shifted), row, "skin_shadow", "complexion");
+      pushPixel(pixels, Math.min(7, 8 - inset + shifted), row, "skin_shadow", "complexion");
+    };
+    shadeBoundary(5, layout.faceShape.cheekWidth);
+    shadeBoundary(6, layout.faceShape.jawWidth);
+  }
 
   const eyePairs = [
     { xs: layout.leftEyeXs, width: layout.leftEyeWidth, row: layout.leftEyeRow, browRow: layout.leftBrowRow },
@@ -421,12 +439,17 @@ function facePixelPlan(
       pushPixel(pixels, x, y, isTip || fallsAwayFromPart ? "hair_shadow" : "hair_mid", "fringe");
     }
   }
-  const sideMargin = Math.floor((8 - layout.exposedFaceWidth) / 2);
+  const leftSideMargin = layout.geometryUsage.faceWindow
+    ? Math.max(0, Math.min(2, 2 - layout.faceWindow.leftTempleWidth))
+    : Math.floor((8 - layout.exposedFaceWidth) / 2);
+  const rightSideMargin = layout.geometryUsage.faceWindow
+    ? Math.max(0, Math.min(2, 2 - layout.faceWindow.rightTempleWidth))
+    : Math.floor((8 - layout.exposedFaceWidth) / 2);
   for (let y = 1; y < Math.min(layout.leftEyeRow, layout.rightEyeRow); y++) {
-    for (let x = 0; x < sideMargin; x++) {
+    for (let x = 0; x < leftSideMargin; x++) {
       pushPixel(pixels, x, y, "hair_shadow", "fringe");
-      pushPixel(pixels, 7 - x, y, "hair_mid", "fringe");
     }
+    for (let x = 0; x < rightSideMargin; x++) pushPixel(pixels, 7 - x, y, "hair_mid", "fringe");
   }
 
   const plan: Omit<FacePixelPlan, "candidateCost"> = {
@@ -506,8 +529,9 @@ function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
     lengthClass === "long"
       ? ["head.front", "head.top", "head.left", "head.right", "head.back", "body.back", "body.left", "body.right"]
       : ["head.front", "head.top", "head.left", "head.right", "head.back"];
-  const headMask = buildHeadMaskPlan(analysis, template, lengthClass);
-  const structure = buildHairStructurePlan(analysis, facePlan.layout, headMask);
+  const salience = buildHairIdentitySaliencePlan(analysis);
+  const headMask = buildHeadMaskPlan(analysis, facePlan.layout, template, lengthClass, salience);
+  const structure = buildHairStructurePlan(analysis, facePlan.layout, headMask, salience);
   return {
     template,
     lengthClass,
@@ -517,6 +541,7 @@ function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
     continuousFaces,
     overlayPolicy: "structure_aware",
     minimumInvention: true,
+    salience,
     headMask,
     structure,
   };
@@ -524,8 +549,10 @@ function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
 
 function buildHeadMaskPlan(
   analysis: PhotoAnalysis,
+  layout: FaceLayoutPlan,
   template: HairTemplate,
   lengthClass: HairPlan["lengthClass"],
+  salience: HairIdentitySaliencePlan,
 ): HeadMaskPlan {
   const geometry = analysis.identityGeometry?.headSilhouette;
   const useGeometry = Boolean(geometry && geometry.confidence >= 0.55 && analysis.identityGeometry!.confidence.headSilhouette >= 0.55);
@@ -543,13 +570,41 @@ function buildHeadMaskPlan(
     const role: HeadMaskPoint["role"] = covering ? "covering" : "hair";
     const leftContour = covering?.leftContourByRow ?? geometry.leftContourByRow;
     const rightContour = covering?.rightContourByRow ?? geometry.rightContourByRow;
-    const crownRow = Math.max(0, Math.min(2, Math.round(geometry.crownTopY * 7)));
-    const endpointLeft = Math.max(crownRow, Math.min(7, Math.round(geometry.hairEndpointLeftY * 7)));
-    const endpointRight = Math.max(crownRow, Math.min(7, Math.round(geometry.hairEndpointRightY * 7)));
+    const crownRows = layout.geometryUsage.crown
+      ? [layout.crownGeometry.leftRow, layout.crownGeometry.centerRow, layout.crownGeometry.rightRow]
+      : [Math.max(0, Math.min(2, Math.round(geometry.crownTopY * 7)))];
+    const crownRow = Math.min(...crownRows);
+    const crownRowAt = (x: number) => layout.geometryUsage.crown
+      ? x <= 2 ? layout.crownGeometry.leftRow : x >= 5 ? layout.crownGeometry.rightRow : layout.crownGeometry.centerRow
+      : crownRow;
+    const endpointLeftRaw = geometry.hairEndpointLeftY * 7;
+    const endpointRightRaw = geometry.hairEndpointRightY * 7;
+    let endpointLeft = Math.max(crownRow, Math.min(7, Math.round(endpointLeftRaw)));
+    let endpointRight = Math.max(crownRow, Math.min(7, Math.round(endpointRightRaw)));
+    if (endpointLeft === endpointRight && Math.abs(geometry.hairEndpointLeftY - geometry.hairEndpointRightY) >= 0.08 && Math.max(
+      hairSalienceScore(salience, "endpoint_height"),
+      hairSalienceScore(salience, "side_volume"),
+      hairSalienceScore(salience, "crown_asymmetry"),
+    ) >= 0.45) {
+      // At a half-cell collision, preserve the measured ordering by moving the
+      // lower-error endpoint, never by extending beyond the source interval.
+      if (endpointLeftRaw > endpointRightRaw) {
+        const shortenRightError = endpointRightRaw - Math.floor(endpointRightRaw);
+        const extendLeftError = Math.ceil(endpointLeftRaw) - endpointLeftRaw;
+        if (shortenRightError <= extendLeftError) endpointRight = Math.max(crownRow, Math.floor(endpointRightRaw));
+        else endpointLeft = Math.min(7, Math.ceil(endpointLeftRaw));
+      } else {
+        const shortenLeftError = endpointLeftRaw - Math.floor(endpointLeftRaw);
+        const extendRightError = Math.ceil(endpointRightRaw) - endpointRightRaw;
+        if (shortenLeftError <= extendRightError) endpointLeft = Math.max(crownRow, Math.floor(endpointLeftRaw));
+        else endpointRight = Math.min(7, Math.ceil(endpointRightRaw));
+      }
+    }
     for (let y = crownRow; y <= Math.max(endpointLeft, endpointRight); y++) {
       const left = Math.max(0, Math.min(7, Math.floor(leftContour[y] * 8)));
       const right = Math.max(left, Math.min(7, Math.ceil(rightContour[y] * 8) - 1));
       for (let x = left; x <= right; x++) {
+        if (y < crownRowAt(x)) continue;
         if ((x <= 1 && y <= endpointLeft) || (x >= 6 && y <= endpointRight) || y <= 1) add("front", x, y, role);
       }
     }
@@ -561,34 +616,60 @@ function buildHeadMaskPlan(
     // Error diffusion preserves the average of sub-pixel contour measurements
     // across connected rows. High-priority identity hair gets the full residual;
     // lower-priority hair stays closer to ordinary nearest-cell rounding.
-    const quantizeConnectedWidths = (raw: number[]): number[] => {
+    const quantizeConnectedWidths = (raw: number[], side: "left" | "right"): number[] => {
       let residual = 0;
-      const residualWeight = hairPriority / 5;
-      return raw.map((value) => {
+      const salienceWeight = Math.max(
+        hairSalienceScore(salience, "side_volume"),
+        hairSalienceScore(salience, "crown_asymmetry"),
+        hairSalienceScore(salience, "ear_exposure"),
+      );
+      const residualWeight = 0.25 + (hairPriority / 5) * 0.35 + salienceWeight * 0.4;
+      return raw.map((value, row) => {
         if (value <= 0) return 0;
         const bounded = Math.max(1, Math.min(maximumSideWidth, value));
         const adjusted = bounded + residual * residualWeight;
         const quantized = Math.max(1, Math.min(maximumSideWidth, Math.round(adjusted)));
-        residual = adjusted - quantized;
+        // Carry more of a high-salience contour residual into the adjacent row,
+        // where a coherent one-cell step can retain it without adding noise.
+        const endpoint = side === "left" ? endpointLeft : endpointRight;
+        const endpointWeight = row >= endpoint - 1 ? 0.65 : 1;
+        residual = (adjusted - quantized) * endpointWeight;
         return quantized;
       });
     };
     const rawLeftWidths = Array(8).fill(0) as number[];
     const rawRightWidths = Array(8).fill(0) as number[];
     for (let y = crownRow; y <= endpointLeft; y++) {
+      const templeTaper = layout.geometryUsage.temple && y >= layout.templeGeometry.leftStartRow
+        ? layout.templeGeometry.leftRecession * 0.65
+        : 0;
       const earTaper = y >= endpointLeft - 1 ? geometry.earExposureLeft * 2 : 0;
       const contourWidth = (0.5 - leftContour[y]) * 5;
       const contourDelta = (leftContour[Math.max(crownRow, y - 1)] - leftContour[y]) * 8;
-      rawLeftWidths[y] = 1 + geometry.sideVolumeLeft * sideScale + contourWidth + contourDelta - earTaper;
+      rawLeftWidths[y] = 1 + geometry.sideVolumeLeft * sideScale + contourWidth + contourDelta - earTaper - templeTaper;
     }
     for (let y = crownRow; y <= endpointRight; y++) {
+      const templeTaper = layout.geometryUsage.temple && y >= layout.templeGeometry.rightStartRow
+        ? layout.templeGeometry.rightRecession * 0.65
+        : 0;
       const earTaper = y >= endpointRight - 1 ? geometry.earExposureRight * 2 : 0;
       const contourWidth = (rightContour[y] - 0.5) * 5;
       const contourDelta = (rightContour[y] - rightContour[Math.max(crownRow, y - 1)]) * 8;
-      rawRightWidths[y] = 1 + geometry.sideVolumeRight * sideScale + contourWidth + contourDelta - earTaper;
+      rawRightWidths[y] = 1 + geometry.sideVolumeRight * sideScale + contourWidth + contourDelta - earTaper - templeTaper;
     }
-    const quantizedLeftWidths = quantizeConnectedWidths(rawLeftWidths);
-    const quantizedRightWidths = quantizeConnectedWidths(rawRightWidths);
+    const quantizedLeftWidths = quantizeConnectedWidths(rawLeftWidths, "left");
+    const quantizedRightWidths = quantizeConnectedWidths(rawRightWidths, "right");
+    const sourceSideDelta = geometry.sideVolumeLeft - geometry.sideVolumeRight;
+    const activeRows = Array.from({ length: Math.max(endpointLeft, endpointRight) - crownRow + 1 }, (_, index) => crownRow + index);
+    const quantizedDelta = activeRows.reduce((sum, row) => sum + quantizedLeftWidths[row] - quantizedRightWidths[row], 0);
+    if (Math.abs(sourceSideDelta) >= 0.08 && quantizedDelta === 0 && hairSalienceScore(salience, "crown_asymmetry") >= 0.45) {
+      const stronger = sourceSideDelta > 0 ? quantizedLeftWidths : quantizedRightWidths;
+      const strongerRaw = sourceSideDelta > 0 ? rawLeftWidths : rawRightWidths;
+      const row = activeRows
+        .filter((candidate) => stronger[candidate] < Math.min(maximumSideWidth, Math.ceil(strongerRaw[candidate])))
+        .sort((first, second) => (strongerRaw[second] - stronger[second]) - (strongerRaw[first] - stronger[first]))[0];
+      if (row !== undefined) stronger[row]++;
+    }
     for (let y = crownRow; y <= endpointLeft; y++) {
       const width = quantizedLeftWidths[y];
       widthByRow.left[y] = width;
@@ -613,19 +694,21 @@ function buildHeadMaskPlan(
       }
       widthByRow.back[y] = faces.back.filter((point) => point.y === y).length;
     }
+    const leftRootWidth = covering ? 4 : layout.geometryUsage.crown ? layout.crownGeometry.leftWidth : Math.max(1, Math.min(3, Math.round(1 + geometry.sideVolumeLeft * 2)));
+    const rightRootWidth = covering ? 4 : layout.geometryUsage.crown ? layout.crownGeometry.rightWidth : Math.max(1, Math.min(3, Math.round(1 + geometry.sideVolumeRight * 2)));
     for (let y = 0; y < 8; y++) {
       const contourIndex = Math.min(7, y);
       const leftInset = covering ? 0 : Math.min(2, Math.max(y === 0 || y === 7 ? 1 : 0, Math.round(leftContour[contourIndex])));
       const rightInset = covering ? 0 : Math.min(2, Math.max(y === 0 || y === 7 ? 1 : 0, Math.round(1 - rightContour[contourIndex])));
       for (let x = leftInset; x < 8 - rightInset; x++) {
         const crownBand = y <= 1 || y >= 6;
-        const sideRoot = x <= leftInset + 1 || x >= 6 - rightInset;
+        const sideRoot = x < leftRootWidth || x >= 8 - rightRootWidth;
         if (covering || crownBand || sideRoot) add("top", x, y, role);
       }
     }
     const partColumn = geometry.partCenterX === null ? null : Math.max(0, Math.min(7, Math.round(geometry.partCenterX * 7)));
     if (!covering) {
-      const openingColumn = partColumn ?? 3;
+      const openingColumn = partColumn ?? (layout.geometryUsage.crown ? layout.crownGeometry.apexColumn : 3);
       // Hair is an outer silhouette accent, never an opaque second cube.
       // Keep the opening internal so every physical seam remains continuous.
       faces.top = faces.top.filter((point) => !(point.x === openingColumn && point.y >= 2 && point.y <= 4));

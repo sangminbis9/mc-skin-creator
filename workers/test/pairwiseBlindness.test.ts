@@ -9,6 +9,8 @@ const dimension = {
   better: "tie",
   visualReadabilityA: "strong",
   visualReadabilityB: "strong",
+  sourceFidelityA: "high",
+  sourceFidelityB: "high",
   reason: "the two visible footprints are indistinguishable",
 };
 
@@ -16,20 +18,20 @@ describe("blind pairwise request", () => {
   it("does not leak chronology, deterministic contracts, cost, or expected winner", async () => {
     const evidence: HeadStructuralEvidence = {
       dimensions: {
-        hairSilhouette: "present",
+        headSilhouette: "present",
         hairline: "present",
         eyeLayout: "present",
-        glassesReadability: "present",
         mouthExpression: "present",
-        faceWidth: "present",
+        distinctiveAccessories: "present",
+        faceProportions: "present",
       },
       contractSatisfaction: {
-        hairSilhouette: "satisfied",
+        headSilhouette: "satisfied",
         hairline: "satisfied",
         eyeLayout: "satisfied",
-        glassesReadability: "satisfied",
         mouthExpression: "satisfied",
-        faceWidth: "satisfied",
+        distinctiveAccessories: "satisfied",
+        faceProportions: "satisfied",
       },
       contractViolations: ["SECRET_EXPECTED_WINNER_B"],
       expectedPixels: 99,
@@ -39,25 +41,29 @@ describe("blind pairwise request", () => {
       const serialized = String(init?.body);
       expect(serialized).toContain("Candidate A (blind label)");
       expect(serialized).toContain("Candidate B (blind label)");
-      expect(serialized).toContain("Neither A nor B communicates chronology");
+      expect(serialized).toContain("Candidate labels are arbitrary");
       expect(serialized).not.toContain("SECRET_EXPECTED_WINNER_B");
       expect(serialized).not.toContain("contractSatisfaction");
       expect(serialized).not.toContain("candidateCost");
       expect(serialized).not.toContain("before correction");
       expect(serialized).not.toContain("after correction");
+      expect(serialized).not.toContain("identity 92");
+      expect(serialized).not.toContain("C_degraded");
       return Response.json({
         candidates: [{
           content: { parts: [{ text: JSON.stringify({
             winner: "tie",
             confidence: 0.95,
+            sourceSalientCues: [{ cue: "source eye spacing", importance: "high", dimension: "eyeLayout" }],
             identityDimensions: {
-              hairSilhouette: dimension,
+              headSilhouette: dimension,
               hairline: dimension,
               eyeLayout: dimension,
-              glassesReadability: dimension,
               mouthExpression: dimension,
-              faceWidth: dimension,
+              distinctiveAccessories: dimension,
+              faceProportions: dimension,
             },
+            globalIdentityJudgment: { better: "tie", replacementValue: "trivial", reason: "both candidates are equally recognizable" },
             p5RegressionInB: false,
             structuralRegressionInB: false,
             craftRegressionInB: false,

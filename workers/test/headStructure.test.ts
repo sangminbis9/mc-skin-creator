@@ -42,8 +42,10 @@ describe("source-derived head structure", () => {
     const plan = buildIdentityPixelPlans(analysisWith(texture, text)).hairPlan.structure;
     expect(plan.grammar).toBe(grammar);
     expect(plan.groups.length).toBeGreaterThan(0);
-    expect(plan.groups.every((group) => isConnected(group.points))).toBe(true);
-    expect(plan.groups.every((group) => group.points.length >= 2)).toBe(true);
+    expect(plan.groups.every((group) => group.points.length === 1
+      ? group.identityImportance >= 4 && ["fringe", "temple", "curl_lobe"].includes(group.kind)
+      : isConnected(group.points))).toBe(true);
+    expect(plan.groups.every((group) => group.points.length >= 1)).toBe(true);
   });
 
   it("changes row contours and groups when normalized silhouette geometry changes", () => {

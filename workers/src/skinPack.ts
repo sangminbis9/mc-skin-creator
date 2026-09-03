@@ -496,7 +496,7 @@ function fillRectSolid(
  * for semantic structures (hair, shoulders, hems, cuffs, and soles), so a
  * deliberately isolated accessory pixel still keeps its authored silhouette.
  */
-function reconcileOverlaySeams(
+export function reconcileOverlaySeams(
   atlas: RawImage,
   style: FaceStyle,
   hairColor: Rgb,
@@ -673,7 +673,7 @@ function reconcileOverlaySeams(
  * deliberately darker shoe soles; all top faces and the other undersides no
  * longer flash stale shirt/pants colours during rotation.
  */
-function reconcileBaseHorizontalSeams(atlas: RawImage): void {
+export function reconcileBaseHorizontalSeams(atlas: RawImage): void {
   for (const part of ALL_PARTS) {
     const horizontalSeams = getBoxUvSeams(CLASSIC_LAYOUT[part].base).horizontal;
     const authoredSeams =
@@ -1989,9 +1989,11 @@ export function applyHeadMaskPlan(
   const hairOwned = (offset: number) => colorDistance(offset, hairColor) <= 170 || (hasCovering && colorDistance(offset, coveringColor) <= 170);
   for (const faceName of faces) {
     const rect = overlay[faceName];
-    // On the front, protect eye-row accessories while replacing only crown
-    // and fringe mass. The other outer faces are silhouette-only surfaces.
-    const clearRows = faceName === "front" ? Math.min(3, rect.h) : rect.h;
+    // Clear the complete generic hair-owned front shell as well. Restricting
+    // this to rows 0..2 left old template fringe pixels below the measured
+    // profile, so distinct sources converged back to the same cap/bowl edge.
+    // Explicit glasses/lens coordinates remain protected above.
+    const clearRows = rect.h;
     for (let y = 0; y < clearRows; y++) for (let x = 0; x < rect.w; x++) {
       const pointKey = `${faceName}:${x},${y}`;
       const pixelOffset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;

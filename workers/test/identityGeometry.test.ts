@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseIdentityGeometry } from "../src/identityGeometry";
+import { applyCropVisibility, IDENTITY_GEOMETRY_PROMPT, IDENTITY_GEOMETRY_SCHEMA, parseIdentityGeometry } from "../src/identityGeometry";
 import { buildFacePixelPlanVariants, buildIdentityPixelPlans, compareFacePlans, measureFacePlanConvergence, measureFacePixelPlanCost } from "../src/identityPlans";
 import { quantizeIdentityGeometry } from "../src/identityQuantization";
 import { makeAnalysis, makeIdentityGeometry } from "./helpers";
@@ -11,9 +11,125 @@ describe("IdentityGeometryAnalysis parsing", () => {
     expect(parseIdentityGeometry({ ...geometry, face: { ...geometry.face, visibleLeft: 0.9, visibleRight: 0.2 } })).toBeNull();
     expect(parseIdentityGeometry({ ...geometry, hairline: { ...geometry.hairline, depthByColumn: [0.2, 0.3] } })).toBeNull();
   });
+
+  it("requires the expanded source-geometry groups and assigns each crop a distinct job", () => {
+    expect(IDENTITY_GEOMETRY_SCHEMA.required).toEqual(expect.arrayContaining([
+      "fringe", "temple", "crown", "majorVolumePeaks", "faceWindow", "faceShape", "visibility",
+    ]));
+    expect(IDENTITY_GEOMETRY_SCHEMA.properties.fringe.properties.peaks.maxItems).toBe(3);
+    expect(IDENTITY_GEOMETRY_SCHEMA.properties.majorVolumePeaks.maxItems).toBe(6);
+    expect(IDENTITY_GEOMETRY_PROMPT).toMatch(/FACE crop priorities/);
+    expect(IDENTITY_GEOMETRY_PROMPT).toMatch(/HEAD crop priorities/);
+    expect(IDENTITY_GEOMETRY_PROMPT).toMatch(/Do not use a semantic hairstyle label as geometry evidence/);
+    expect(IDENTITY_GEOMETRY_PROMPT).toMatch(/Do not choose Minecraft pixels/);
+  });
+
+  it("keeps legacy stored geometry readable but labels derived extensions as inferred", () => {
+    const geometry = makeIdentityGeometry();
+    const legacy: Record<string, unknown> = { ...geometry };
+    for (const key of ["fringe", "temple", "crown", "majorVolumePeaks", "faceWindow", "faceShape", "visibility"]) {
+      delete legacy[key];
+    }
+    const parsed = parseIdentityGeometry(legacy);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.fringe.evidence).toBe("inferred");
+    expect(parsed!.temple.leftEvidence).toBe("inferred");
+    expect(parsed!.crown.evidence).toBe("inferred");
+    expect(parsed!.majorVolumePeaks.every((peak) => peak.evidence === "inferred")).toBe(true);
+    expect(parsed!.visibility.cropClippingKnown).toBe(false);
+  });
+
+  it("rejects unbounded peak inventories and invalid evidence", () => {
+    const geometry = makeIdentityGeometry();
+    expect(parseIdentityGeometry({
+      ...geometry,
+      fringe: { ...geometry.fringe, peaks: Array.from({ length: 4 }, () => ({ x: 0.5, depthY: 0.5, prominence: 0.5 })) },
+    })).toBeNull();
+    expect(parseIdentityGeometry({
+      ...geometry,
+      crown: { ...geometry.crown, evidence: "guessed" },
+    })).toBeNull();
+  });
+
+  it("downgrades only crop-dependent geometry instead of pretending clipped evidence was observed", () => {
+    const clipped = applyCropVisibility(makeIdentityGeometry(), {
+      crownClipped: true,
+      leftHairClipped: true,
+      rightHairClipped: false,
+      chinClipped: true,
+      leftEarClipped: true,
+      rightEarClipped: false,
+    });
+    expect(clipped.visibility).toMatchObject({ cropClippingKnown: true, crownClipped: true, leftHairClipped: true, chinClipped: true });
+    expect(clipped.fringe).toMatchObject({ evidence: "observed", confidence: 0.88 });
+    expect(clipped.crown).toMatchObject({ evidence: "inferred", confidence: 0.45 });
+    expect(clipped.temple.leftEvidence).toBe("inferred");
+    expect(clipped.faceShape).toMatchObject({ evidence: "inferred", confidence: 0.45 });
+    expect(clipped.majorVolumePeaks.find((peak) => peak.region === "side_left")!.evidence).toBe("inferred");
+    expect(clipped.majorVolumePeaks.find((peak) => peak.region === "side_right")!.evidence).toBe("observed");
+    const layout = quantizeIdentityGeometry(makeAnalysis({ identityGeometry: clipped }), clipped);
+    expect(layout.geometryUsage).toMatchObject({ fringePeaks: true, temple: true, crown: false, majorVolumePeaks: true, faceWindow: true, faceShape: false });
+    expect(layout.majorVolumePeaks.map((peak) => peak.region)).toEqual(["side_right"]);
+    expect(layout.templeGeometry.rightRecession).toBe(1);
+  });
 });
 
 describe("normalized identity geometry quantization", () => {
+  it("wires observed fringe, temple, crown, volume, face-window and face-shape geometry into real plans", () => {
+    const source = makeIdentityGeometry();
+    const geometry = makeIdentityGeometry({
+      fringe: { ...source.fringe, peaks: [{ x: 0.52, depthY: 0.94, prominence: 0.9 }], direction: "left_swept", openingCenterX: null, openingWidth: null },
+      temple: { ...source.temple, leftRecession: 0.95, rightRecession: 0.05, leftStartY: 0.28, rightStartY: 0.7 },
+      crown: { ...source.crown, leftY: 0.28, centerY: 0.02, rightY: 0.18, leftWidth: 0.9, rightWidth: 0.2, apexX: 0.2 },
+      majorVolumePeaks: [
+        { region: "crown_right", protrusion: 0.8, verticalCenter: 0.2, verticalExtent: 0.3, evidence: "observed", confidence: 0.92 },
+        { region: "lower_left", protrusion: 0.95, verticalCenter: 0.8, verticalExtent: 0.55, evidence: "observed", confidence: 0.92 },
+      ],
+      faceWindow: { ...source.faceWindow, leftTempleWidth: 0.95, rightTempleWidth: 0.05, visibleFaceWidthAtEyes: 0.54, leftEyeToHairDistance: 0.14, rightEyeToHairDistance: 0.5 },
+      faceShape: { ...source.faceShape, upperWidth: 0.55, cheekWidth: 0.92, jawWidth: 0.48, leftRightAsymmetry: 0.24 },
+    });
+    const base = makeAnalysis();
+    const plans = buildIdentityPixelPlans(makeAnalysis({
+      identityGeometry: geometry,
+      renderHints: { ...base.renderHints, bangs: "none", bangsLength: "none", fringeOpening: "center", hairPart: "right", hairTexture: "curly", overallHairLength: "jaw", sideHairLength: "jaw" },
+    }));
+    expect(plans.facePixelPlan.layout.geometryUsage).toMatchObject({ fringePeaks: true, temple: true, crown: true, majorVolumePeaks: true, faceWindow: true, faceShape: true });
+    expect(plans.facePixelPlan.layout.fringeDirection).toBe("left_swept");
+    expect(plans.facePixelPlan.layout.fringePeaks).toEqual([{ column: 4, row: 3, prominence: 0.9 }]);
+    expect(Math.max(...plans.hairPlan.structure.fringe.tipPoints.map((point) => point.y))).toBe(3);
+    expect(plans.hairPlan.headMask.widthByRow.left).not.toEqual(plans.hairPlan.headMask.widthByRow.right);
+    expect(plans.hairPlan.headMask.faces.front.some((point) => point.y === plans.facePixelPlan.layout.crownGeometry.centerRow)).toBe(true);
+    expect(plans.hairPlan.structure.groups.filter((group) => group.kind === "curl_lobe").map((group) => group.id)).toEqual(expect.arrayContaining(["curl-lobe-crown-right", "curl-lobe-lower-left"]));
+    expect(plans.facePixelPlan.layout.exposedFaceWidth).toBe(plans.facePixelPlan.layout.faceWindow.visibleWidthAtEyes);
+    expect(plans.facePixelPlan.pixels.some((pixel) => pixel.role === "skin_shadow" && pixel.cluster === "complexion")).toBe(true);
+  });
+
+  it("falls back independently for a weak geometry group while retaining other observed groups", () => {
+    const source = makeIdentityGeometry();
+    const base = makeAnalysis();
+    const layout = quantizeIdentityGeometry(makeAnalysis({
+      identityGeometry: makeIdentityGeometry({
+        fringe: { ...source.fringe, peaks: [{ x: 0.95, depthY: 0.95, prominence: 0.95 }], direction: "irregular", confidence: 0.3 },
+        crown: { ...source.crown, apexX: 0.86, confidence: 0.95 },
+      }),
+      renderHints: { ...base.renderHints, bangs: "none", bangsLength: "none", hairPart: "left" },
+    }), makeIdentityGeometry({
+      fringe: { ...source.fringe, peaks: [{ x: 0.95, depthY: 0.95, prominence: 0.95 }], direction: "irregular", confidence: 0.3 },
+      crown: { ...source.crown, apexX: 0.86, confidence: 0.95 },
+    }));
+    expect(layout.geometryUsage.fringePeaks).toBe(false);
+    expect(layout.fringePeaks).toEqual([]);
+    expect(layout.geometryUsage.crown).toBe(true);
+    expect(layout.crownGeometry.apexColumn).toBe(6);
+  });
+
+  it("keeps candidate generation deterministic and capped at three after geometry expansion", () => {
+    const analysis = makeAnalysis({ identityGeometry: makeIdentityGeometry() });
+    const first = buildFacePixelPlanVariants(analysis, 20);
+    const second = buildFacePixelPlanVariants(analysis, 20);
+    expect(first.length).toBeLessThanOrEqual(3);
+    expect(first).toEqual(second);
+  });
   it("uses source geometry rather than matching semantic enums", () => {
     const base = makeAnalysis();
     const wideHigh = makeIdentityGeometry({

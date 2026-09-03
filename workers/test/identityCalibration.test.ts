@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   assessIdentitySensitivity,
   assessEvaluatorHealth,
+  assessMeaningfulImprovementSensitivity,
+  assessPairwiseStability,
+  assessPairwiseEvaluatorRoleHealth,
   buildIdentityCalibrationAtlases,
   buildScoreHistogram,
   summarizeIdentityScores,
   validateCalibrationBenchmark,
+  classifyCalibrationPairwiseRole,
+  NEAR_PEER_CALIBRATION_DATASET,
 } from "../src/identityCalibration";
-import { assessPairwiseOrderBias } from "../src/headIdentity";
+import { assessPairwiseOrderBias, type PairwiseDecision } from "../src/headIdentity";
 import { buildIdentityPixelPlans } from "../src/identityPlans";
 import { makeAnalysis, makeIdentityGeometry, makeSyntheticAtlas } from "./helpers";
 
@@ -85,6 +90,121 @@ describe("absolute identity evaluator calibration", () => {
     ])).toEqual([]);
   });
 
+  it("defines three admissible near-peer domains with bounded deterministic differences", () => {
+    expect(NEAR_PEER_CALIBRATION_DATASET.map((fixture) => fixture.primaryDimension)).toEqual([
+      "hairline",
+      "eyeLayout",
+      "headSilhouette",
+    ]);
+    for (const fixture of NEAR_PEER_CALIBRATION_DATASET) {
+      expect(fixture.candidateA).toMatchObject({ p5Valid: true, craftValid: true, renderContractValid: true, criticalDefects: [] });
+      expect(fixture.candidateB).toMatchObject({ p5Valid: true, craftValid: true, renderContractValid: true, criticalDefects: [] });
+      expect(Object.values(fixture.deterministicDifference).some((distance) => distance > 0)).toBe(true);
+    }
+  });
+
+  it("reclassifies inadmissible C/D comparisons as stress-test evidence", () => {
+    const inadmissible = {
+      admissible: false,
+      reasons: ["p5_regression" as const, "critical_defect" as const],
+      details: ["distinctive accessory is missing"],
+    };
+    const c = {
+      level: "C_degraded" as const,
+      absolute: { identityScore: 52, faceHairScore: 58 },
+      candidateAdmissibility: inadmissible,
+      pairwise: { winner: "B" as const, confidence: 0.62 },
+    };
+    const d = {
+      level: "D_generic" as const,
+      absolute: { identityScore: 54, faceHairScore: 52 },
+      candidateAdmissibility: inadmissible,
+      pairwise: { winner: "B" as const, confidence: 0.8 },
+    };
+    expect(classifyCalibrationPairwiseRole(c)).toBe("stress_test_only");
+    expect(classifyCalibrationPairwiseRole(d)).toBe("stress_test_only");
+    expect(validateCalibrationBenchmark([
+      { level: "A_identical", absolute: { identityScore: 92, faceHairScore: 90 } },
+      c,
+      d,
+    ])).not.toEqual(expect.arrayContaining([
+      "degraded candidate was an actionable winner",
+      "generic candidate was an actionable winner",
+    ]));
+  });
+
+  it("reports evaluator health separately by architectural role", () => {
+    expect(assessPairwiseEvaluatorRoleHealth({
+      inadmissibleCandidatesRejected: 3,
+      inadmissiblePairwiseCalls: 0,
+      stability: null,
+      expectedMeaningfullyImprovedCandidateId: null,
+      sourceFidelityConflictCount: 0,
+    })).toEqual({
+      catastrophicCandidateSafety: "healthy",
+      nearPeerSafety: "unknown",
+      nearPeerDiscrimination: "unknown",
+      rawOrderStability: "unknown",
+      decisionOrderStability: "unknown",
+      meaningfulImprovementSensitivity: "unknown",
+      sourceFidelityCalibration: "unknown",
+    });
+
+    const meaningful = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: {
+        candidateOrder: ["X", "Y"],
+        decision: { rawPreference: "B", confidence: 0.82, actionableVerdict: "B", replacementSafe: true },
+      },
+      reverse: {
+        candidateOrder: ["Y", "X"],
+        decision: { rawPreference: "A", confidence: 0.81, actionableVerdict: "A", replacementSafe: false },
+      },
+    });
+    expect(assessPairwiseEvaluatorRoleHealth({
+      inadmissibleCandidatesRejected: 3,
+      inadmissiblePairwiseCalls: 0,
+      stability: meaningful,
+      expectedMeaningfullyImprovedCandidateId: "Y",
+      sourceFidelityConflictCount: 0,
+    })).toEqual({
+      catastrophicCandidateSafety: "healthy",
+      nearPeerSafety: "healthy",
+      nearPeerDiscrimination: "healthy",
+      rawOrderStability: "healthy",
+      decisionOrderStability: "healthy",
+      meaningfulImprovementSensitivity: "healthy",
+      sourceFidelityCalibration: "healthy",
+    });
+
+    const safeDrift = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: {
+        candidateOrder: ["X", "Y"],
+        decision: { rawPreference: "B", confidence: 0.58, actionableVerdict: "insufficient_confidence", replacementSafe: false },
+      },
+      reverse: {
+        candidateOrder: ["Y", "X"],
+        decision: { rawPreference: "tie", confidence: 0.5, actionableVerdict: "tie", replacementSafe: false },
+      },
+    });
+    expect(assessPairwiseEvaluatorRoleHealth({
+      inadmissibleCandidatesRejected: 2,
+      inadmissiblePairwiseCalls: 0,
+      stability: safeDrift,
+      expectedMeaningfullyImprovedCandidateId: null,
+      sourceFidelityConflictCount: 2,
+    })).toEqual({
+      catastrophicCandidateSafety: "healthy",
+      nearPeerSafety: "healthy",
+      nearPeerDiscrimination: "safe_but_uncertain",
+      rawOrderStability: "degraded",
+      decisionOrderStability: "healthy",
+      meaningfulImprovementSensitivity: "unknown",
+      sourceFidelityCalibration: "improving",
+    });
+  });
+
   it("classifies evaluator health without bypassing the release gate", () => {
     const observations = [
       { level: "A_identical" as const, absolute: { identityScore: 91, faceHairScore: 90 } },
@@ -122,6 +242,17 @@ describe("absolute identity evaluator calibration", () => {
 });
 
 describe("pairwise order calibration", () => {
+  const decision = (
+    rawPreference: PairwiseDecision["rawPreference"],
+    confidence: number,
+    actionableVerdict: PairwiseDecision["actionableVerdict"],
+  ): PairwiseDecision => ({
+    rawPreference,
+    confidence,
+    actionableVerdict,
+    replacementSafe: actionableVerdict === "B",
+  });
+
   it("normalizes A/B reversal to candidate identity", () => {
     const stable = assessPairwiseOrderBias({ winner: "A" }, { winner: "B" });
     expect(stable).toEqual({
@@ -141,5 +272,101 @@ describe("pairwise order calibration", () => {
       consistent: true,
       biasedTowardLabel: null,
     });
+  });
+
+  it("separates weak raw drift from stable abstention and production decisions", () => {
+    const stability = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: { candidateOrder: ["X", "Y"], decision: decision("B", 0.58, "insufficient_confidence") },
+      reverse: { candidateOrder: ["Y", "X"], decision: decision("tie", 0.5, "tie") },
+    });
+    expect(stability).toMatchObject({
+      rawPreferenceStable: false,
+      actionableVerdictStable: true,
+      productionDecisionStable: true,
+      safeAbstention: true,
+      forward: {
+        normalizedRawPreference: "Y",
+        actionableVerdict: "insufficient_confidence",
+        productionDecision: { kind: "retain_incumbent", selectedCandidateId: "X" },
+      },
+      reverse: {
+        normalizedRawPreference: "tie",
+        actionableVerdict: "tie",
+        productionDecision: { kind: "retain_incumbent", selectedCandidateId: "X" },
+      },
+    });
+  });
+
+  it("flags contradictory actionable winners by real candidate identity", () => {
+    const stability = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: { candidateOrder: ["X", "Y"], decision: decision("B", 0.82, "B") },
+      reverse: { candidateOrder: ["Y", "X"], decision: decision("B", 0.81, "B") },
+    });
+    expect(stability.rawPreferenceStable).toBe(false);
+    expect(stability.actionableVerdictStable).toBe(false);
+    expect(stability.productionDecisionStable).toBe(false);
+    expect(stability.forward?.productionDecision).toEqual({ kind: "replace_incumbent", selectedCandidateId: "Y" });
+    expect(stability.reverse?.productionDecision).toEqual({ kind: "retain_incumbent", selectedCandidateId: "X" });
+  });
+
+  it("supports a stable meaningful improvement across reversed labels", () => {
+    const stability = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: { candidateOrder: ["X", "Y"], decision: decision("B", 0.82, "B") },
+      reverse: { candidateOrder: ["Y", "X"], decision: decision("A", 0.8, "A") },
+    });
+    expect(stability).toMatchObject({
+      rawPreferenceStable: true,
+      actionableVerdictStable: true,
+      productionDecisionStable: true,
+      safeAbstention: false,
+    });
+    expect(stability.forward?.normalizedActionableOutcome).toEqual({ kind: "select_candidate", candidateId: "Y" });
+    expect(stability.reverse?.normalizedActionableOutcome).toEqual({ kind: "select_candidate", candidateId: "Y" });
+    expect(assessMeaningfulImprovementSensitivity(stability, "Y")).toBe("supported");
+  });
+
+  it("keeps identical ties stable without manufacturing a selected winner", () => {
+    const stability = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: { candidateOrder: ["X", "Y"], decision: decision("tie", 0.5, "tie") },
+      reverse: { candidateOrder: ["Y", "X"], decision: decision("tie", 0.5, "tie") },
+    });
+    expect(stability).toMatchObject({
+      rawPreferenceStable: true,
+      actionableVerdictStable: true,
+      productionDecisionStable: true,
+      safeAbstention: true,
+    });
+  });
+
+  it("treats low-confidence winner drift as safe abstention", () => {
+    const stability = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: { candidateOrder: ["X", "Y"], decision: decision("B", 0.61, "insufficient_confidence") },
+      reverse: { candidateOrder: ["Y", "X"], decision: decision("B", 0.62, "insufficient_confidence") },
+    });
+    expect(stability.rawPreferenceStable).toBe(false);
+    expect(stability.actionableVerdictStable).toBe(true);
+    expect(stability.productionDecisionStable).toBe(true);
+    expect(stability.safeAbstention).toBe(true);
+    expect(assessMeaningfulImprovementSensitivity(stability, "Y")).toBe("not_supported");
+  });
+
+  it("keeps decision stability inconclusive when one direction is missing", () => {
+    const stability = assessPairwiseStability({
+      incumbentCandidateId: "X",
+      forward: { candidateOrder: ["X", "Y"], decision: decision("tie", 0, "tie") },
+    });
+    expect(stability).toMatchObject({
+      rawPreferenceStable: null,
+      actionableVerdictStable: null,
+      productionDecisionStable: null,
+      safeAbstention: null,
+      reverse: null,
+    });
+    expect(assessMeaningfulImprovementSensitivity(stability, "Y")).toBe("not_measured");
   });
 });
