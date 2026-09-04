@@ -19,9 +19,11 @@ export interface IdentityEvaluationArtifacts {
   geometryOverlay?: RawImage;
   sourceHeadGeometryOverlay?: RawImage;
   sourceFaceGeometryOverlay?: RawImage;
+  sourceToGridOverlay?: RawImage;
   fringeGeometryOverlay?: RawImage;
   templeGeometryOverlay?: RawImage;
   crownContourOverlay?: RawImage;
+  majorVolumeOverlay?: RawImage;
   faceWindowOverlay?: RawImage;
   quantizedHeadPlan?: RawImage;
   sixView?: RawImage;
@@ -43,6 +45,10 @@ export interface IdentityEvaluationArtifacts {
   finalHeadTop?: RawImage;
   finalHeadBack?: RawImage;
   beforeAfterHeadMontage?: RawImage;
+  beforeHeadFront?: RawImage;
+  beforeHeadFrontLeft?: RawImage;
+  beforeHeadFrontRight?: RawImage;
+  facePixelDiff?: RawImage;
   finalSkin: RawImage;
   critique: unknown;
   metrics: Record<string, unknown>;
@@ -74,6 +80,12 @@ function copy(image: RawImage): RawImage {
   return { ...image, rgba: image.rgba.slice() };
 }
 
+const EVIDENCE_COLORS = {
+  observed: [72, 235, 118, 255],
+  inferred: [255, 196, 30, 255],
+  unknown: [255, 74, 92, 255],
+} as const;
+
 /** Overlay the normalized source contour and hairline samples for visual QA. */
 export function buildGeometryOverlay(sourceHead: RawImage, geometry: IdentityGeometryAnalysis): RawImage {
   const result = { ...sourceHead, rgba: sourceHead.rgba.slice() };
@@ -101,7 +113,7 @@ export function buildGeometryOverlay(sourceHead: RawImage, geometry: IdentityGeo
 
 export function buildFringeGeometryOverlay(sourceHead: RawImage, geometry: IdentityGeometryAnalysis): RawImage {
   const result = copy(sourceHead);
-  for (const peak of geometry.fringe.peaks) drawDot(result, peak.x, peak.depthY, [255, 70, 84, 255], 5);
+  for (const peak of geometry.fringe.peaks) drawDot(result, peak.x, peak.depthY, EVIDENCE_COLORS[geometry.fringe.evidence], 5);
   if (geometry.fringe.openingCenterX !== null && geometry.fringe.openingWidth !== null) {
     const left = geometry.fringe.openingCenterX - geometry.fringe.openingWidth / 2;
     const right = geometry.fringe.openingCenterX + geometry.fringe.openingWidth / 2;
@@ -118,12 +130,14 @@ export function buildTempleGeometryOverlay(sourceHead: RawImage, geometry: Ident
   const eyeWindowRight = headCenterX + geometry.faceWindow.visibleFaceWidthAtEyes / 2;
   const leftX = eyeWindowLeft;
   const rightX = eyeWindowRight;
-  drawDot(result, Math.max(0, leftX), geometry.temple.leftStartY, [50, 220, 255, 255], 5);
-  drawDot(result, Math.min(1, rightX), geometry.temple.rightStartY, [255, 120, 220, 255], 5);
-  drawLine(result, Math.round(leftX * (result.width - 1)), Math.round(geometry.temple.leftStartY * (result.height - 1)), Math.round(leftX * (result.width - 1)), Math.round(0.5 * (result.height - 1)), [50, 220, 255, 255]);
-  drawLine(result, Math.round(leftX * (result.width - 1)), Math.round(geometry.temple.leftStartY * (result.height - 1)), Math.round((leftX + geometry.temple.leftRecession * 0.08) * (result.width - 1)), Math.round(geometry.temple.leftStartY * (result.height - 1)), [50, 220, 255, 255]);
-  drawLine(result, Math.round(rightX * (result.width - 1)), Math.round(geometry.temple.rightStartY * (result.height - 1)), Math.round(rightX * (result.width - 1)), Math.round(0.5 * (result.height - 1)), [255, 120, 220, 255]);
-  drawLine(result, Math.round(rightX * (result.width - 1)), Math.round(geometry.temple.rightStartY * (result.height - 1)), Math.round((rightX - geometry.temple.rightRecession * 0.08) * (result.width - 1)), Math.round(geometry.temple.rightStartY * (result.height - 1)), [255, 120, 220, 255]);
+  const leftColor = EVIDENCE_COLORS[geometry.temple.leftEvidence];
+  const rightColor = EVIDENCE_COLORS[geometry.temple.rightEvidence];
+  drawDot(result, Math.max(0, leftX), geometry.temple.leftStartY, leftColor, 5);
+  drawDot(result, Math.min(1, rightX), geometry.temple.rightStartY, rightColor, 5);
+  drawLine(result, Math.round(leftX * (result.width - 1)), Math.round(geometry.temple.leftStartY * (result.height - 1)), Math.round(leftX * (result.width - 1)), Math.round(0.5 * (result.height - 1)), leftColor);
+  drawLine(result, Math.round(leftX * (result.width - 1)), Math.round(geometry.temple.leftStartY * (result.height - 1)), Math.round((leftX + geometry.temple.leftRecession * 0.08) * (result.width - 1)), Math.round(geometry.temple.leftStartY * (result.height - 1)), leftColor);
+  drawLine(result, Math.round(rightX * (result.width - 1)), Math.round(geometry.temple.rightStartY * (result.height - 1)), Math.round(rightX * (result.width - 1)), Math.round(0.5 * (result.height - 1)), rightColor);
+  drawLine(result, Math.round(rightX * (result.width - 1)), Math.round(geometry.temple.rightStartY * (result.height - 1)), Math.round((rightX - geometry.temple.rightRecession * 0.08) * (result.width - 1)), Math.round(geometry.temple.rightStartY * (result.height - 1)), rightColor);
   return result;
 }
 
@@ -135,13 +149,26 @@ export function buildCrownContourOverlay(sourceHead: RawImage, geometry: Identit
     { x: Math.min(1, geometry.crown.apexX + geometry.crown.rightWidth / 2), y: geometry.crown.rightY },
   ];
   for (let index = 0; index < points.length - 1; index++) drawLine(result, Math.round(points[index].x * (result.width - 1)), Math.round(points[index].y * (result.height - 1)), Math.round(points[index + 1].x * (result.width - 1)), Math.round(points[index + 1].y * (result.height - 1)), [255, 196, 30, 255]);
-  for (const point of points) drawDot(result, point.x, point.y, [255, 196, 30, 255], 4);
+  const crownEvidence = [geometry.crown.leftEvidence, geometry.crown.centerEvidence, geometry.crown.rightEvidence] as const;
+  for (let index = 0; index < points.length; index++) drawDot(result, points[index].x, points[index].y, EVIDENCE_COLORS[crownEvidence[index]], 4);
   for (const peak of geometry.majorVolumePeaks) {
     const row = Math.max(0, Math.min(7, Math.round(peak.verticalCenter * 7)));
     const x = peak.region.endsWith("left")
       ? geometry.headSilhouette.leftContourByRow[row]
       : geometry.headSilhouette.rightContourByRow[row];
     drawDot(result, x, peak.verticalCenter, [112, 255, 110, 255], Math.max(3, Math.round(peak.protrusion * 7)));
+  }
+  return result;
+}
+
+export function buildMajorVolumeGeometryOverlay(sourceHead: RawImage, geometry: IdentityGeometryAnalysis): RawImage {
+  const result = copy(sourceHead);
+  for (const peak of geometry.majorVolumePeaks) {
+    const row = Math.max(0, Math.min(7, Math.round(peak.verticalCenter * 7)));
+    const x = peak.region.endsWith("left")
+      ? geometry.headSilhouette.leftContourByRow[row]
+      : geometry.headSilhouette.rightContourByRow[row];
+    drawDot(result, x, peak.verticalCenter, EVIDENCE_COLORS[peak.evidence], Math.max(3, Math.round(peak.protrusion * 7)));
   }
   return result;
 }
@@ -157,8 +184,10 @@ export function buildFaceWindowOverlay(sourceHead: RawImage, geometry: IdentityG
   };
   const eyeRow = Math.min(0.72, Math.max(0.38, geometry.faceWindow.foreheadHeight + 0.16));
   const cheekRow = Math.min(0.88, eyeRow + 0.2);
-  drawWidth(eyeRow, geometry.faceWindow.visibleFaceWidthAtEyes, [60, 240, 255, 255]);
-  drawWidth(cheekRow, geometry.faceWindow.visibleFaceWidthAtCheeks, [255, 120, 220, 255]);
+  const leftColor = EVIDENCE_COLORS[geometry.faceWindow.leftEvidence];
+  const rightColor = EVIDENCE_COLORS[geometry.faceWindow.rightEvidence];
+  drawWidth(eyeRow, geometry.faceWindow.visibleFaceWidthAtEyes, leftColor);
+  drawWidth(cheekRow, geometry.faceWindow.visibleFaceWidthAtCheeks, rightColor);
   const leftEyeX = centerX - geometry.faceWindow.visibleFaceWidthAtEyes * 0.22;
   const rightEyeX = centerX + geometry.faceWindow.visibleFaceWidthAtEyes * 0.22;
   drawLine(result, Math.round(leftEyeX * (result.width - 1)), Math.round((eyeRow - geometry.faceWindow.leftEyeToHairDistance) * (result.height - 1)), Math.round(leftEyeX * (result.width - 1)), Math.round(eyeRow * (result.height - 1)), [255, 220, 40, 255]);
@@ -177,6 +206,33 @@ export function buildFaceGeometryOverlay(sourceFace: RawImage, geometry: Identit
   for (const row of rows) drawLine(result, Math.round((centerX - row.width / 2) * (result.width - 1)), Math.round(row.y * (result.height - 1)), Math.round((centerX + row.width / 2) * (result.width - 1)), Math.round(row.y * (result.height - 1)), [60, 240, 255, 255]);
   drawDot(result, geometry.eyes.leftCenterX, geometry.eyes.leftCenterY, [255, 220, 40, 255]);
   drawDot(result, geometry.eyes.rightCenterX, geometry.eyes.rightCenterY, [255, 220, 40, 255]);
+  return result;
+}
+
+/** Shows continuous landmarks and their chosen 8x8 cells in one source crop. */
+export function buildSourceToFaceGridOverlay(sourceFace: RawImage, geometry: IdentityGeometryAnalysis, plan: FacePixelPlan): RawImage {
+  const result = copy(sourceFace);
+  const left = geometry.face.visibleLeft * (result.width - 1);
+  const right = geometry.face.visibleRight * (result.width - 1);
+  const top = geometry.face.foreheadY * (result.height - 1);
+  const bottom = geometry.face.chinY * (result.height - 1);
+  for (let cell = 0; cell <= 8; cell++) {
+    const x = Math.round(left + (right - left) * cell / 8);
+    const y = Math.round(top + (bottom - top) * cell / 8);
+    drawLine(result, x, Math.round(top), x, Math.round(bottom), [68, 184, 255, 255]);
+    drawLine(result, Math.round(left), y, Math.round(right), y, [68, 184, 255, 255]);
+  }
+  const cellCenter = (x: number, y: number) => ({
+    x: (left + (right - left) * ((x + 0.5) / 8)) / Math.max(1, result.width - 1),
+    y: (top + (bottom - top) * ((y + 0.5) / 8)) / Math.max(1, result.height - 1),
+  });
+  for (const pixel of plan.pixels.filter((item) => item.cluster !== "fringe" && item.cluster !== "complexion")) {
+    const point = cellCenter(pixel.x, pixel.y);
+    drawDot(result, point.x, point.y, ROLE_COLORS[pixel.role], 3);
+  }
+  drawDot(result, geometry.eyes.leftCenterX, geometry.eyes.leftCenterY, [255, 226, 32, 255], 5);
+  drawDot(result, geometry.eyes.rightCenterX, geometry.eyes.rightCenterY, [255, 226, 32, 255], 5);
+  drawDot(result, geometry.mouth.centerX, geometry.mouth.centerY, [255, 72, 112, 255], 5);
   return result;
 }
 
@@ -259,6 +315,38 @@ export function renderFacePixelPlan(plan: FacePixelPlan, scale = 24): RawImage {
   return { width, height, rgba };
 }
 
+export function renderFacePixelDifference(before: FacePixelPlan, after: FacePixelPlan, scale = 24): RawImage {
+  const width = 8 * scale;
+  const height = 8 * scale;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel++) rgba.set([25, 27, 32, 255], pixel * 4);
+  const keyed = (plan: FacePixelPlan) => new Map(plan.pixels
+    .filter((pixel) => pixel.cluster !== "fringe")
+    .map((pixel) => [`${pixel.x},${pixel.y}`, pixel]));
+  const first = keyed(before);
+  const second = keyed(after);
+  for (const key of new Set([...first.keys(), ...second.keys()])) {
+    const oldPixel = first.get(key);
+    const newPixel = second.get(key);
+    if (oldPixel?.role === newPixel?.role && oldPixel?.cluster === newPixel?.cluster) continue;
+    const [x, y] = key.split(",").map(Number);
+    const reference = newPixel ?? oldPixel!;
+    const color = reference.role === "brow"
+      ? [255, 196, 48, 255] as const
+      : reference.cluster === "left_eye" || reference.cluster === "right_eye"
+        ? [64, 210, 255, 255] as const
+        : reference.cluster === "mouth"
+          ? [255, 86, 132, 255] as const
+          : reference.cluster === "complexion" || reference.cluster === "fringe"
+            ? [126, 235, 112, 255] as const
+            : [184, 136, 255, 255] as const;
+    for (let py = y * scale; py < (y + 1) * scale; py++) for (let px = x * scale; px < (x + 1) * scale; px++) {
+      rgba.set(color, (py * width + px) * 4);
+    }
+  }
+  return { width, height, rgba };
+}
+
 /** Five-face pixel map showing exactly which measured geometry survived quantization. */
 export function renderQuantizedHeadPlan(plan: HairPlan, facePlan: FacePixelPlan, scale = 16): RawImage {
   const faces = ["front", "top", "left", "right", "back"] as const;
@@ -307,14 +395,17 @@ export async function writeIdentityEvaluationArtifacts(
     ["01c-geometry-overlay.png", artifacts.geometryOverlay],
     ["01d-source-head-geometry-overlay.png", artifacts.sourceHeadGeometryOverlay],
     ["01e-source-face-geometry-overlay.png", artifacts.sourceFaceGeometryOverlay],
+    ["01j-source-to-grid-overlay.png", artifacts.sourceToGridOverlay],
     ["01f-fringe-geometry-overlay.png", artifacts.fringeGeometryOverlay],
     ["01g-temple-geometry-overlay.png", artifacts.templeGeometryOverlay],
     ["01h-crown-contour-overlay.png", artifacts.crownContourOverlay],
+    ["01h2-major-volume-overlay.png", artifacts.majorVolumeOverlay],
     ["01i-face-window-overlay.png", artifacts.faceWindowOverlay],
     ["02-generated-sheet-face.png", artifacts.generatedSheetFace],
     ["03-packed-head-before-identity.png", artifacts.packedHeadBefore],
     ["04a-old-face-pixel-plan.png", artifacts.oldFacePixelPlan ? renderFacePixelPlan(artifacts.oldFacePixelPlan) : undefined],
     ["04-face-pixel-plan.png", renderFacePixelPlan(artifacts.facePixelPlan)],
+    ["04c-face-pixel-diff.png", artifacts.facePixelDiff],
     ["04b-quantized-head-plan.png", artifacts.quantizedHeadPlan],
     ["05-candidate-a.png", artifacts.candidateA],
     ["06-candidate-b.png", artifacts.candidateB],
@@ -330,8 +421,24 @@ export async function writeIdentityEvaluationArtifacts(
     ["09b-final-head-top.png", artifacts.finalHeadTop],
     ["09c-final-head-back.png", artifacts.finalHeadBack],
     ["09d-before-after-head-montage.png", artifacts.beforeAfterHeadMontage],
+    ["11-before-front.png", artifacts.beforeHeadFront],
+    ["12-after-front.png", artifacts.finalHeadFront],
+    ["13-before-front-left.png", artifacts.beforeHeadFrontLeft],
+    ["14-after-front-left.png", artifacts.finalHeadFrontLeft],
+    ["15-before-front-right.png", artifacts.beforeHeadFrontRight],
+    ["16-after-front-right.png", artifacts.finalHeadFrontRight],
     ["09e-six-view.png", artifacts.sixView],
     ["10-final-skin.png", artifacts.finalSkin],
+    ["source-head.png", artifacts.sourceHead],
+    ["source-head-geometry-overlay.png", artifacts.sourceHeadGeometryOverlay ?? artifacts.geometryOverlay],
+    ["fringe-overlay.png", artifacts.fringeGeometryOverlay],
+    ["temple-overlay.png", artifacts.templeGeometryOverlay],
+    ["crown-overlay.png", artifacts.crownContourOverlay],
+    ["major-volume-overlay.png", artifacts.majorVolumeOverlay],
+    ["face-window-overlay.png", artifacts.faceWindowOverlay],
+    ["quantized-plan.png", artifacts.quantizedHeadPlan],
+    ["final-head.png", artifacts.finalHeadFront],
+    ["six-view.png", artifacts.sixView],
   ];
   await Promise.all(images.flatMap(([name, image]) => image ? [encodePng(image).then((bytes) => writeFile(join(caseDirectory, name), bytes))] : []));
   await Promise.all([

@@ -33,6 +33,7 @@ export interface HairStructureGroup {
 
 export interface HairStructurePlan {
   source: "identity_geometry" | "semantic_analysis";
+  geometryProvenance: FaceLayoutPlan["geometryProvenance"];
   grammar: HairTextureGrammar;
   fringe: {
     groupIds: string[];
@@ -464,6 +465,7 @@ export function buildHairStructurePlan(
     layout.geometryUsage.crown || layout.geometryUsage.majorVolumePeaks;
   return {
     source: geometryDrivenStructure ? "identity_geometry" : "semantic_analysis",
+    geometryProvenance: { ...layout.geometryProvenance },
     grammar,
     fringe: {
       groupIds: fringeGroupIds,

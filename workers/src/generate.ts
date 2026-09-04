@@ -535,6 +535,12 @@ export async function generateSkin(
         chinClipped: identityCropDiagnostics.chinClipped,
         leftEarClipped: identityCropDiagnostics.leftEarClipped,
         rightEarClipped: identityCropDiagnostics.rightEarClipped,
+        cropClippingKnown: identityCropDiagnostics.cropMode !== "center_fallback",
+        sourceClippingKnown: identityCropDiagnostics.quality.sourceClippingKnown,
+        sourceCrownClipped: identityCropDiagnostics.sourceClipping.top,
+        sourceLeftHairClipped: identityCropDiagnostics.sourceClipping.left,
+        sourceRightHairClipped: identityCropDiagnostics.sourceClipping.right,
+        sourceChinClipped: identityCropDiagnostics.sourceClipping.bottom,
       },
     );
     focusedIdentityCallDiagnostics.push({
@@ -1300,6 +1306,7 @@ export interface IdentityCropSet {
     headCropDimensions: { width: number; height: number };
     faceCoverageRatio: number;
     desiredExpandedHeadBox: PortraitRegion["headBox"] | null;
+    finalFaceBox: PortraitRegion["faceBox"] | null;
     finalHeadBox: PortraitRegion["headBox"] | null;
     margins: CropMargins | null;
     requestedMargins: CropMargins | null;
@@ -1562,6 +1569,12 @@ async function identityCropsFromDecoded(
       headCropDimensions,
       faceCoverageRatio: bounds.faceCoverageRatio,
       desiredExpandedHeadBox: adaptive?.desiredBox ?? null,
+      finalFaceBox: {
+        left: bounds.face.x / source.width,
+        top: bounds.face.y / source.height,
+        right: (bounds.face.x + bounds.face.width) / source.width,
+        bottom: (bounds.face.y + bounds.face.height) / source.height,
+      },
       finalHeadBox: adaptive?.cropBox ?? {
         left: bounds.head.x / source.width,
         top: bounds.head.y / source.height,

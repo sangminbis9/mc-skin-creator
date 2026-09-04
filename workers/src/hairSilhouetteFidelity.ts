@@ -79,6 +79,7 @@ export interface HeadPixelDifference {
   changedOuterPixels: number;
   silhouetteChangedPixels: number;
   hairlineChangedPixels: number;
+  faceWindowChangedPixels: number;
   textureOnlyChangedPixels: number;
 }
 
@@ -292,13 +293,14 @@ function pixelChanged(first: RawImage, second: RawImage, x: number, y: number): 
   return first.rgba[offset] !== second.rgba[offset] || first.rgba[offset + 1] !== second.rgba[offset + 1] || first.rgba[offset + 2] !== second.rgba[offset + 2] || first.rgba[offset + 3] !== second.rgba[offset + 3];
 }
 
-export function measureHeadPixelDifference(before: RawImage, after: RawImage): HeadPixelDifference {
+export function measureHeadPixelDifference(before: RawImage, after: RawImage, facePlan?: FacePixelPlan): HeadPixelDifference {
   const result: HeadPixelDifference = {
     changedHeadPixels: 0,
     changedBasePixels: 0,
     changedOuterPixels: 0,
     silhouetteChangedPixels: 0,
     hairlineChangedPixels: 0,
+    faceWindowChangedPixels: 0,
     textureOnlyChangedPixels: 0,
   };
   for (const layer of ["base", "overlay"] as const) {
@@ -315,6 +317,16 @@ export function measureHeadPixelDifference(before: RawImage, after: RawImage): H
         const alphaChanged = before.rgba[offset + 3] !== after.rgba[offset + 3];
         if (layer === "overlay" && alphaChanged) result.silhouetteChangedPixels++;
         if (face === "front" && y <= 4) result.hairlineChangedPixels++;
+        if (layer === "base" && face === "front" && facePlan) {
+          const window = facePlan.layout.faceWindow;
+          const visibleWidth = y <= facePlan.layout.eyeRow
+            ? window.visibleWidthAtEyes
+            : window.visibleWidthAtCheeks;
+          const left = Math.floor((8 - visibleWidth) / 2);
+          if (y >= window.foreheadRows && x >= left && x < left + visibleWidth) {
+            result.faceWindowChangedPixels++;
+          }
+        }
         if (!alphaChanged) result.textureOnlyChangedPixels++;
       }
     }

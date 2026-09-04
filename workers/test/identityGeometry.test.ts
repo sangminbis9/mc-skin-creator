@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { applyCropVisibility, IDENTITY_GEOMETRY_PROMPT, IDENTITY_GEOMETRY_SCHEMA, parseIdentityGeometry } from "../src/identityGeometry";
+import { describe, expect, it, vi } from "vitest";
+import { applyCropVisibility, cropNormalizedToSource, IDENTITY_GEOMETRY_COMPACT_PROMPT_SUFFIX, IDENTITY_GEOMETRY_COMPACT_SCHEMA, IDENTITY_GEOMETRY_PROMPT, IDENTITY_GEOMETRY_SCHEMA, IDENTITY_GEOMETRY_WIRE_SCHEMA, normalizeIdentityGeometryCompactResponse, normalizeIdentityGeometryWireResponse, parseIdentityGeometry, runIdentityGeometryAnalysis, sourceNormalizedToCrop } from "../src/identityGeometry";
+import type { Env } from "../src/types";
 import { buildFacePixelPlanVariants, buildIdentityPixelPlans, compareFacePlans, measureFacePlanConvergence, measureFacePixelPlanCost } from "../src/identityPlans";
 import { quantizeIdentityGeometry } from "../src/identityQuantization";
 import { makeAnalysis, makeIdentityGeometry } from "./helpers";
@@ -22,6 +23,120 @@ describe("IdentityGeometryAnalysis parsing", () => {
     expect(IDENTITY_GEOMETRY_PROMPT).toMatch(/HEAD crop priorities/);
     expect(IDENTITY_GEOMETRY_PROMPT).toMatch(/Do not use a semantic hairstyle label as geometry evidence/);
     expect(IDENTITY_GEOMETRY_PROMPT).toMatch(/Do not choose Minecraft pixels/);
+    expect(IDENTITY_GEOMETRY_WIRE_SCHEMA.required).not.toContain("coordinateSpaces");
+    expect(IDENTITY_GEOMETRY_WIRE_SCHEMA.required).not.toContain("faceWindow");
+    expect(IDENTITY_GEOMETRY_WIRE_SCHEMA.required).toContain("occlusion");
+    expect(IDENTITY_GEOMETRY_COMPACT_SCHEMA.required).toContain("temples");
+    expect(IDENTITY_GEOMETRY_COMPACT_SCHEMA.required).not.toContain("confidence");
+    expect(IDENTITY_GEOMETRY_COMPACT_PROMPT_SUFFIX).toMatch(/viewer-left, viewer-right/);
+  });
+
+  it("normalizes the compact wire response into rich internal geometry", () => {
+    const geometry = makeIdentityGeometry();
+    const { interEyeDistance: _interEyeDistance, verticalAsymmetry: _verticalAsymmetry, ...eyes } = geometry.eyes;
+    const { tilt: _tilt, ...brows } = geometry.brows;
+    const { leftRightBias: _leftRightBias, ...nose } = geometry.nose;
+    const { asymmetry: _hairlineAsymmetry, ...hairline } = geometry.hairline;
+    const { leftTempleTransitionY: _leftTransition, rightTempleTransitionY: _rightTransition, ...fringe } = geometry.fringe;
+    const { asymmetry: _templeAsymmetry, confidence: _templeConfidence, ...temple } = geometry.temple;
+    const { asymmetry: _crownAsymmetry, evidence: _crownEvidence, confidence: _crownConfidence, ...crown } = geometry.crown;
+    void [_interEyeDistance, _verticalAsymmetry, _tilt, _leftRightBias, _hairlineAsymmetry,
+      _leftTransition, _rightTransition, _templeAsymmetry, _templeConfidence,
+      _crownAsymmetry, _crownEvidence, _crownConfidence];
+    const wire = {
+      face: geometry.face, eyes, brows, nose, mouth: geometry.mouth, hairline, fringe, temple, crown,
+      majorVolumePeaks: geometry.majorVolumePeaks,
+      occlusion: { crown: false, leftHair: false, rightHair: false, chin: false, leftEar: false, rightEar: false },
+      headSilhouette: geometry.headSilhouette, glasses: geometry.glasses, confidence: geometry.confidence,
+    };
+    const normalized = normalizeIdentityGeometryWireResponse(wire, {
+      cropClippingKnown: true, sourceClippingKnown: false,
+      crownClipped: false, leftHairClipped: false, rightHairClipped: false,
+      chinClipped: false, leftEarClipped: false, rightEarClipped: false,
+    });
+    const parsed = normalized ? parseIdentityGeometry(normalized) : null;
+    expect(parsed).not.toBeNull();
+    expect(parsed!.coordinateSpaces).toEqual({ faceMeasurements: "tight_face_crop", headMeasurements: "wide_head_crop" });
+    expect(parsed!.eyes.interEyeDistance).toBeCloseTo(geometry.eyes.rightCenterX - geometry.eyes.leftCenterX);
+    expect(parsed!.fringe.leftTempleTransitionY).toBe(geometry.temple.leftStartY);
+    expect(parsed!.faceWindow.leftEvidence).toBe("inferred");
+    expect(parsed!.diagnostics.provenance["crown.left"]).toBe("observed_geometry");
+    expect(parsed!.diagnostics.provenance["faceWindow.left"]).toBe("derived_geometry");
+    expect(parsed!.visibility.sourceClippingKnown).toBe(false);
+  });
+
+  it("normalizes the compact provider grammar before deterministic derivation", () => {
+    const geometry = makeIdentityGeometry();
+    const compact = {
+      face: { ...geometry.face, confidence: geometry.confidence.faceBounds },
+      eyes: {
+        sides: [
+          { x: geometry.eyes.leftCenterX, y: geometry.eyes.leftCenterY, width: geometry.eyes.leftWidth },
+          { x: geometry.eyes.rightCenterX, y: geometry.eyes.rightCenterY, width: geometry.eyes.rightWidth },
+        ],
+        openness: geometry.eyes.openness,
+        confidence: geometry.confidence.eyes,
+      },
+      brows: { yBySide: [geometry.brows.leftY, geometry.brows.rightY], thickness: geometry.brows.thickness, confidence: geometry.confidence.brows },
+      nose: { x: geometry.nose.centerX, y: geometry.nose.contrastY, strength: geometry.nose.visibleStrength, confidence: geometry.confidence.nose },
+      mouth: { x: geometry.mouth.centerX, y: geometry.mouth.centerY, width: geometry.mouth.width, cornerYBySide: [geometry.mouth.leftCornerY, geometry.mouth.rightCornerY], opening: geometry.mouth.opening, confidence: geometry.confidence.mouth },
+      hairline: { depthByColumn: geometry.hairline.depthByColumn, openingBySide: [geometry.hairline.foreheadOpeningLeft, geometry.hairline.foreheadOpeningRight], evidence: "observed", confidence: geometry.confidence.hairline },
+      fringe: { visible: geometry.fringe.visible, peaks: geometry.fringe.peaks.map((peak) => ({ x: peak.x, y: peak.depthY, prominence: peak.prominence })), direction: geometry.fringe.direction, openingVisible: true, openingX: geometry.fringe.openingCenterX, openingWidth: geometry.fringe.openingWidth, evidence: geometry.fringe.evidence, confidence: geometry.fringe.confidence },
+      temples: [
+        { value: geometry.temple.leftRecession, y: geometry.temple.leftStartY, evidence: geometry.temple.leftEvidence, confidence: geometry.temple.leftConfidence },
+        { value: geometry.temple.rightRecession, y: geometry.temple.rightStartY, evidence: geometry.temple.rightEvidence, confidence: geometry.temple.rightConfidence },
+      ],
+      crown: {
+        sides: [
+          { value: geometry.crown.leftY, y: geometry.crown.leftWidth, evidence: geometry.crown.leftEvidence, confidence: geometry.crown.leftConfidence },
+          { value: geometry.crown.centerY, y: 0, evidence: geometry.crown.centerEvidence, confidence: geometry.crown.centerConfidence },
+          { value: geometry.crown.rightY, y: geometry.crown.rightWidth, evidence: geometry.crown.rightEvidence, confidence: geometry.crown.rightConfidence },
+        ],
+        apexX: geometry.crown.apexX,
+      },
+      majorVolumePeaks: geometry.majorVolumePeaks.map((peak) => ({ ...peak, y: peak.verticalCenter, extent: peak.verticalExtent, verticalCenter: undefined, verticalExtent: undefined })),
+      occlusion: { crown: false, leftHair: false, rightHair: false, chin: false, leftEar: false, rightEar: false },
+      headSilhouette: {
+        crownTopY: geometry.headSilhouette.crownTopY,
+        leftContourByRow: geometry.headSilhouette.leftContourByRow,
+        rightContourByRow: geometry.headSilhouette.rightContourByRow,
+        sideVolumeBySide: [geometry.headSilhouette.sideVolumeLeft, geometry.headSilhouette.sideVolumeRight],
+        partVisible: true,
+        partX: geometry.headSilhouette.partCenterX,
+        endpointYBySide: [geometry.headSilhouette.hairEndpointLeftY, geometry.headSilhouette.hairEndpointRightY],
+        foreheadExposure: geometry.headSilhouette.foreheadExposure,
+        earExposureBySide: [geometry.headSilhouette.earExposureLeft, geometry.headSilhouette.earExposureRight],
+        coveringVisible: false,
+        coveringLeftContourByRow: Array(8).fill(0),
+        coveringRightContourByRow: Array(8).fill(1),
+        evidence: "observed",
+        confidence: geometry.headSilhouette.confidence,
+      },
+      glasses: {
+        visible: true,
+        leftBox: [geometry.glasses!.leftBox.left, geometry.glasses!.leftBox.top, geometry.glasses!.leftBox.right, geometry.glasses!.leftBox.bottom],
+        rightBox: [geometry.glasses!.rightBox.left, geometry.glasses!.rightBox.top, geometry.glasses!.rightBox.right, geometry.glasses!.rightBox.bottom],
+        bridgeX: geometry.glasses!.bridgeCenterX,
+        bridgeY: geometry.glasses!.bridgeY,
+        thickness: geometry.glasses!.thickness,
+        confidence: geometry.confidence.glasses,
+      },
+    };
+    const normalized = normalizeIdentityGeometryCompactResponse(compact, {
+      cropClippingKnown: true, sourceClippingKnown: true,
+      crownClipped: false, leftHairClipped: false, rightHairClipped: false,
+      chinClipped: false, leftEarClipped: false, rightEarClipped: false,
+      sourceCrownClipped: false, sourceLeftHairClipped: false,
+      sourceRightHairClipped: false, sourceChinClipped: false,
+    });
+    const parsed = normalized ? parseIdentityGeometry(normalized) : null;
+    expect(parsed).not.toBeNull();
+    expect(parsed!.temple).toMatchObject({ leftRecession: geometry.temple.leftRecession, rightRecession: geometry.temple.rightRecession });
+    expect(parsed!.crown).toMatchObject({ leftY: geometry.crown.leftY, centerY: geometry.crown.centerY, rightY: geometry.crown.rightY });
+    expect(parsed!.majorVolumePeaks).toEqual(geometry.majorVolumePeaks);
+    expect(parsed!.glasses).toEqual(geometry.glasses);
+    expect(parsed!.faceWindow.leftEvidence).toBe("inferred");
+    expect(parsed!.diagnostics.derivedMeasurements).toEqual(expect.arrayContaining(["faceWindow", "faceShape"]));
   });
 
   it("keeps legacy stored geometry readable but labels derived extensions as inferred", () => {
@@ -71,6 +186,188 @@ describe("IdentityGeometryAnalysis parsing", () => {
     expect(layout.geometryUsage).toMatchObject({ fringePeaks: true, temple: true, crown: false, majorVolumePeaks: true, faceWindow: true, faceShape: false });
     expect(layout.majorVolumePeaks.map((peak) => peak.region)).toEqual(["side_right"]);
     expect(layout.templeGeometry.rightRecession).toBe(1);
+  });
+
+  it("does not treat clipping flags as facts when that coordinate space is unknown", () => {
+    const adjusted = applyCropVisibility(makeIdentityGeometry(), {
+      cropClippingKnown: false,
+      sourceClippingKnown: false,
+      crownClipped: true,
+      leftHairClipped: true,
+      rightHairClipped: true,
+      chinClipped: true,
+      leftEarClipped: true,
+      rightEarClipped: true,
+      sourceCrownClipped: true,
+      sourceLeftHairClipped: true,
+      sourceRightHairClipped: true,
+      sourceChinClipped: true,
+    });
+
+    expect(adjusted.crown.leftEvidence).toBe("observed");
+    expect(adjusted.temple.leftEvidence).toBe("observed");
+    expect(adjusted.faceShape.evidence).toBe("observed");
+  });
+});
+
+describe("identity geometry measurement protocol and adversarial validation", () => {
+  it("round-trips off-center face and head crop coordinates through source space", () => {
+    const sourcePoint = { x: 0.43, y: 0.31 };
+    const faceCrop = { left: 0.22, top: 0.11, right: 0.69, bottom: 0.73 };
+    const headCrop = { left: 0.04, top: 0.02, right: 0.91, bottom: 0.82 };
+    const facePoint = sourceNormalizedToCrop(sourcePoint, faceCrop);
+    const recoveredSource = cropNormalizedToSource(facePoint, faceCrop);
+    const headPoint = sourceNormalizedToCrop(recoveredSource, headCrop);
+    expect(recoveredSource.x).toBeCloseTo(sourcePoint.x, 12);
+    expect(recoveredSource.y).toBeCloseTo(sourcePoint.y, 12);
+    expect(cropNormalizedToSource(headPoint, headCrop)).toEqual(expect.objectContaining({ x: expect.closeTo(sourcePoint.x, 12), y: expect.closeTo(sourcePoint.y, 12) }));
+  });
+
+  it("rejects an explicit tight-face / wide-head coordinate-space swap", () => {
+    const raw = makeIdentityGeometry();
+    expect(parseIdentityGeometry({
+      ...raw,
+      coordinateSpaces: { faceMeasurements: "wide_head_crop", headMeasurements: "tight_face_crop" },
+    })).toBeNull();
+  });
+
+  it("degrades unknown high-confidence evidence and source-clipped crown claims", () => {
+    const raw = makeIdentityGeometry();
+    const parsed = parseIdentityGeometry({
+      ...raw,
+      crown: {
+        ...raw.crown,
+        evidence: "unknown", leftEvidence: "unknown", centerEvidence: "observed", rightEvidence: "observed",
+        leftConfidence: 0.95, centerConfidence: 0.95, rightConfidence: 0.9, confidence: 0.95,
+      },
+      visibility: { ...raw.visibility, sourceCrownClipped: true },
+    })!;
+    expect(parsed.crown.leftConfidence).toBe(0.34);
+    expect(parsed.crown.centerEvidence).toBe("inferred");
+    expect(parsed.crown.centerConfidence).toBe(0.45);
+    expect(parsed.diagnostics.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining(["evidence_confidence_conflict", "clipping_evidence_conflict"]));
+  });
+
+  it("removes fringe and volume peaks outside their measured regions", () => {
+    const raw = makeIdentityGeometry();
+    const parsed = parseIdentityGeometry({
+      ...raw,
+      fringe: { ...raw.fringe, peaks: [{ x: 0.52, depthY: 0.95, prominence: 0.9 }] },
+      majorVolumePeaks: [
+        { region: "crown_left", protrusion: 0.9, verticalCenter: 0.82, verticalExtent: 0.2, evidence: "observed", confidence: 0.9 },
+        { region: "side_right", protrusion: 0.7, verticalCenter: 0.45, verticalExtent: 0.3, evidence: "observed", confidence: 0.9 },
+      ],
+    })!;
+    expect(parsed.fringe.peaks).toEqual([]);
+    expect(parsed.majorVolumePeaks.map((peak) => peak.region)).toEqual(["side_right"]);
+    expect(parsed.diagnostics.issues.filter((issue) => issue.action === "removed")).toHaveLength(2);
+  });
+
+  it("degrades impossible face windows and temple/face-window contradictions locally", () => {
+    const raw = makeIdentityGeometry();
+    const impossible = parseIdentityGeometry({
+      ...raw,
+      faceWindow: { ...raw.faceWindow, visibleFaceWidthAtEyes: 0.08, leftTempleWidth: 0.98 },
+      temple: { ...raw.temple, leftRecession: 0.05 },
+    })!;
+    expect(impossible.faceWindow.leftEvidence).toBe("unknown");
+    expect(impossible.faceWindow.confidence).toBe(0.34);
+    expect(impossible.diagnostics.issues.some((issue) => issue.field === "faceWindow.width")).toBe(true);
+
+    const contradiction = parseIdentityGeometry({
+      ...raw,
+      faceWindow: { ...raw.faceWindow, leftTempleWidth: 0.98 },
+      temple: { ...raw.temple, leftRecession: 0.05 },
+    })!;
+    expect(contradiction.temple.leftEvidence).toBe("inferred");
+    expect(contradiction.temple.leftConfidence).toBe(0.49);
+  });
+
+  it("degrades face-window and volume measurements that contradict derived landmarks", () => {
+    const raw = makeIdentityGeometry();
+    const parsed = parseIdentityGeometry({
+      ...raw,
+      faceWindow: {
+        ...raw.faceWindow,
+        leftEyeToHairDistance: 0.95,
+        rightEyeToHairDistance: 0.95,
+        confidence: 0.8,
+        leftConfidence: 0.8,
+        rightConfidence: 0.8,
+      },
+      majorVolumePeaks: [
+        { region: "side_left", protrusion: 0.01, verticalCenter: 0.46, verticalExtent: 0.3, evidence: "observed", confidence: 0.9 },
+      ],
+    })!;
+
+    expect(parsed.faceWindow.leftEvidence).toBe("inferred");
+    expect(parsed.faceWindow.rightEvidence).toBe("inferred");
+    expect(parsed.majorVolumePeaks[0]).toMatchObject({ evidence: "inferred", confidence: 0.49 });
+    expect(parsed.diagnostics.issues.filter((issue) => issue.code === "cross_field_conflict").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps the visible side observed while degrading a one-side occlusion", () => {
+    const raw = makeIdentityGeometry();
+    const parsed = parseIdentityGeometry({
+      ...raw,
+      visibility: { ...raw.visibility, leftHairOccluded: true, leftEarOccluded: true },
+    })!;
+    expect(parsed.temple.leftEvidence).toBe("inferred");
+    expect(parsed.temple.leftConfidence).toBe(0.45);
+    expect(parsed.temple.rightEvidence).toBe("observed");
+    expect(parsed.diagnostics.completeness.leftTempleObserved).toBe(false);
+    expect(parsed.diagnostics.completeness.rightTempleObserved).toBe(true);
+  });
+
+  it("keeps head-covering contour separate from hair crown and curl volume", () => {
+    const raw = makeIdentityGeometry();
+    const parsed = parseIdentityGeometry({
+      ...raw,
+      headSilhouette: {
+        ...raw.headSilhouette,
+        covering: { leftContourByRow: raw.headSilhouette.leftContourByRow, rightContourByRow: raw.headSilhouette.rightContourByRow },
+      },
+      majorVolumePeaks: [
+        ...raw.majorVolumePeaks,
+        { region: "crown_right", protrusion: 0.7, verticalCenter: 0.15, verticalExtent: 0.2, evidence: "observed", confidence: 0.9 },
+      ],
+    })!;
+    expect(parsed.crown.leftEvidence).toBe("unknown");
+    expect(parsed.majorVolumePeaks.some((peak) => peak.region.startsWith("crown"))).toBe(false);
+    expect(parsed.headSilhouette.covering).not.toBeNull();
+  });
+
+  it("records completeness and pixel-plan provenance without semantic overwrite", () => {
+    const raw = makeIdentityGeometry();
+    const geometry = parseIdentityGeometry({
+      ...raw,
+      temple: { ...raw.temple, rightEvidence: "unknown", rightConfidence: 0.9 },
+    })!;
+    const plans = buildIdentityPixelPlans(makeAnalysis({ identityGeometry: geometry }));
+    expect(geometry.diagnostics.completeness).toMatchObject({ leftTempleObserved: true, rightTempleObserved: false });
+    expect(plans.facePixelPlan.layout.geometryProvenance["temple.left"]).toBe("observed_geometry");
+    expect(plans.facePixelPlan.layout.geometryProvenance["temple.right"]).toBe("semantic_fallback");
+    expect(plans.hairPlan.structure.geometryProvenance["temple.left"]).toBe("observed_geometry");
+    expect(plans.headIdentityPlan.geometryProvenance["temple.right"]).toBe("semantic_fallback");
+  });
+
+  it("performs exactly one provider call and never falls through to Workers AI", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("network unavailable"));
+    const workersRun = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await runIdentityGeometryAnalysis({
+        GEMINI_API_KEY: "fixture-key",
+        VISION_MODEL: "fixture-primary",
+        VISION_FALLBACK_MODEL: "fixture-must-not-run",
+        AI: { run: workersRun } as unknown as Env["AI"],
+      } as Env, "data:image/png;base64,AA==", "data:image/png;base64,AA==", makeAnalysis());
+      expect(result.ok).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(workersRun).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -164,6 +461,30 @@ describe("normalized identity geometry quantization", () => {
     expect(variants.length).toBeGreaterThan(1);
     expect(variants.length).toBeLessThanOrEqual(3);
     expect(variants.some((plan) => plan.variantId.startsWith("geometry_alt_"))).toBe(true);
+  });
+
+  it("creates deterministic hair candidates for salient low-confidence fringe and crown boundaries", () => {
+    const base = makeIdentityGeometry();
+    const geometry = parseIdentityGeometry({
+      ...base,
+      fringe: {
+        ...base.fringe,
+        peaks: [{ x: 2.5 / 7, depthY: 0.68, prominence: 0.8 }],
+        confidence: 0.7,
+      },
+      crown: {
+        ...base.crown,
+        apexX: 3.5 / 7,
+        centerConfidence: 0.7,
+        confidence: 0.7,
+      },
+    })!;
+    const analysis = makeAnalysis({ identityGeometry: geometry });
+    const variants = buildFacePixelPlanVariants(analysis, 3);
+    expect(variants).toHaveLength(3);
+    expect(variants.some((plan) => plan.layout.fringePeaks[0]?.column !== variants[0].layout.fringePeaks[0]?.column)).toBe(true);
+    expect(variants[0].layout.quantizationAmbiguities.some((ambiguity) => ambiguity.axis === "crown_apex")).toBe(true);
+    expect(variants).toEqual(buildFacePixelPlanVariants(analysis, 3));
   });
 
   it("smooths the eight-column hairline and maps glasses as protected geometry", () => {

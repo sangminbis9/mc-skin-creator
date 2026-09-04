@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GeminiApiError,
+  buildGeminiStructuredRequestEnvelope,
   generateGeminiImage,
+  geminiProviderErrorDiagnostic,
   geminiRetryAfterMs,
   generateGeminiStructuredJson,
   isGeminiModelUnavailable,
@@ -18,6 +20,183 @@ afterEach(() => {
 });
 
 describe("Gemini REST client", () => {
+  it("uses one preflighted envelope for serialization without leaking image data into diagnostics", () => {
+    const request = {
+      model: "gemini-test",
+      imageDataUrls: ["data:image/png;base64,AQID", "data:image/jpeg;base64,BAUG"],
+      imageLabels: ["Face:", "Head:"],
+      prompt: "Measure geometry",
+      responseSchema: { type: "object", properties: { x: { type: "number", minimum: 0, maximum: 1 } }, required: ["x"] },
+      maxOutputTokens: 2600,
+    };
+    const envelope = buildGeminiStructuredRequestEnvelope(request);
+    expect(envelope.shape).toMatchObject({
+      model: "gemini-test", endpointMethod: "models.generateContent", imageParts: 2,
+      imageMimeTypes: ["image/png", "image/jpeg"], promptChars: 16,
+      responseMimeType: "application/json", responseSchemaEnabled: true,
+      maxOutputTokens: 2600, temperature: 0,
+    });
+    expect(envelope.shape.schema.valid).toBe(true);
+    expect(JSON.stringify(envelope.shape)).not.toMatch(/AQID|BAUG|data:image|test-key/);
+    expect(JSON.stringify(envelope.body)).toContain("AQID");
+  });
+
+  it("keeps generateContent and Interactions structured contracts separate", () => {
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      properties: { ok: { type: "boolean" } },
+      required: ["ok"],
+    };
+    const generated = buildGeminiStructuredRequestEnvelope({
+      model: "gemini-3.6-flash",
+      imageDataUrls: [],
+      prompt: "Return ok=true.",
+      responseSchema: schema,
+      maxOutputTokens: 64,
+    });
+    expect(generated.shape).toMatchObject({
+      apiFamily: "generateContent",
+      apiVersion: "v1beta",
+      endpointMethod: "models.generateContent",
+      structuredConfigKey: "generationConfig.responseJsonSchema",
+      imageParts: 0,
+    });
+    expect(generated.body).toMatchObject({
+      contents: [{ role: "user", parts: [{ text: "Return ok=true." }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseJsonSchema: schema,
+      },
+    });
+    expect(generated.body).not.toHaveProperty("input");
+    expect(generated.body).not.toHaveProperty("response_format");
+
+    const interaction = buildGeminiStructuredRequestEnvelope({
+      model: "gemini-3.6-flash",
+      apiFamily: "interactions",
+      imageDataUrls: [],
+      prompt: "Return ok=true.",
+      responseSchema: schema,
+      maxOutputTokens: 64,
+    });
+    expect(interaction.shape).toMatchObject({
+      apiFamily: "interactions",
+      apiVersion: "v1beta",
+      endpointMethod: "interactions.create",
+      structuredConfigKey: "response_format.schema",
+      imageParts: 0,
+      temperature: null,
+    });
+    expect(interaction.body).toEqual({
+      model: "gemini-3.6-flash",
+      store: false,
+      input: [{ type: "text", text: "Return ok=true." }],
+      response_format: { type: "text", mime_type: "application/json", schema },
+      generation_config: { max_output_tokens: 64, thinking_level: "low" },
+    });
+    expect(interaction.body).not.toHaveProperty("contents");
+    expect(interaction.body).not.toHaveProperty("generationConfig");
+  });
+
+  it("serializes image bytes as raw base64 and audits MIME magic bytes", () => {
+    const envelope = buildGeminiStructuredRequestEnvelope({
+      model: "gemini-3.6-flash",
+      apiFamily: "interactions",
+      imageDataUrls: [
+        "data:image/png;base64,iVBORw0KGgo=",
+        "data:image/jpeg;base64,/9j/",
+        "data:image/png;base64,/9j/",
+      ],
+      prompt: "Inspect",
+      responseSchema: { type: "object" },
+      maxOutputTokens: 64,
+    });
+    expect(envelope.shape.imageRawBytes).toEqual([8, 3, 3]);
+    expect(envelope.shape.imageMagicMatchesMime).toEqual([true, true, false]);
+    expect(envelope.shape.imageBase64Chars).toEqual([12, 4, 4]);
+    expect(JSON.stringify(envelope.body)).not.toContain("data:image");
+    expect(envelope.body).toMatchObject({
+      input: [
+        { type: "text" },
+        { type: "image", mime_type: "image/png", data: "iVBORw0KGgo=" },
+        { type: "text" },
+        { type: "image", mime_type: "image/jpeg", data: "/9j/" },
+        { type: "text" },
+        { type: "image", mime_type: "image/png", data: "/9j/" },
+        { type: "text", text: "Inspect" },
+      ],
+    });
+  });
+
+  it("uses the Interactions endpoint and parses structured output text", async () => {
+    const fetchMock = vi.fn(async () => Response.json({
+      output_text: '{"ok":true}',
+      usage: { total_input_tokens: 4, total_output_tokens: 2, total_tokens: 6 },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await generateGeminiStructuredJson(env, {
+      model: "gemini-3.6-flash",
+      apiFamily: "interactions",
+      imageDataUrls: [],
+      prompt: "Return ok=true.",
+      responseSchema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+      maxOutputTokens: 64,
+      allowWorkersAiFallback: false,
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe("https://generativelanguage.googleapis.com/v1beta/interactions");
+    expect(result).toEqual({
+      response: '{"ok":true}',
+      usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+    });
+  });
+
+  it("rejects unsupported schemas locally without a provider call", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(generateGeminiStructuredJson(env, {
+      model: "gemini-test",
+      imageDataUrls: ["data:image/png;base64,AQID"],
+      prompt: "Analyze",
+      responseSchema: { type: "object", properties: { value: { type: "string", pattern: "unsupported" } } },
+      maxOutputTokens: 100,
+    })).rejects.toMatchObject({ providerStatus: "CLIENT_SCHEMA_PREFLIGHT" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves sanitized provider field violations and request shape", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      error: {
+        code: 400,
+        status: "INVALID_ARGUMENT",
+        message: "Request contains an invalid argument.",
+        details: [{ fieldViolations: [{ field: "generation_config.response_json_schema", description: "Schema is too complex" }] }],
+      },
+    }, { status: 400 })));
+    let caught: unknown;
+    try {
+      await generateGeminiStructuredJson(env, {
+        model: "gemini-test",
+        imageDataUrls: ["data:image/png;base64,AQID"],
+        prompt: "Analyze",
+        responseSchema: { type: "object" },
+        maxOutputTokens: 100,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(GeminiApiError);
+    const diagnostic = geminiProviderErrorDiagnostic(caught);
+    expect(diagnostic).toEqual({
+      httpStatus: 400,
+      providerCode: 400,
+      providerStatus: "INVALID_ARGUMENT",
+      message: "Request contains an invalid argument.",
+      fieldViolations: [{ field: "generation_config.response_json_schema", description: "Schema is too complex" }],
+    });
+    expect((caught as GeminiApiError).requestShape).toMatchObject({ model: "gemini-test", responseSchemaEnabled: true });
+  });
+
   it("routes production requests through the account-bound AI Gateway", async () => {
     const getUrl = vi.fn(async () =>
       "https://gateway.ai.cloudflare.com/v1/account/default/google-ai-studio",
@@ -376,7 +555,7 @@ describe("Gemini REST client", () => {
         responseSchema: { type: "object" },
         maxOutputTokens: 100,
       }),
-    ).rejects.toThrow("1 to 6 input images");
+    ).rejects.toThrow("at most 6 input images");
   });
 
   it("extracts the final image from an Interactions response", async () => {

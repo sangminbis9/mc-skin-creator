@@ -23,6 +23,7 @@ import {
   hairSalienceScore,
   type HairIdentitySaliencePlan,
 } from "./hairIdentitySalience";
+import type { FaceIdentitySaliencePlan } from "./faceIdentitySalience";
 
 export type {
   GlassesPixelRole,
@@ -39,6 +40,7 @@ export type {
 } from "./headStructure";
 
 export type { EyeTopology, FaceLayoutPlan, IdentityRenderContract, MouthTopology, ProtectedGeometry, QuantizationAxis } from "./identityQuantization";
+export type { FaceIdentityAxis, FaceIdentitySalienceCue, FaceIdentitySaliencePlan } from "./faceIdentitySalience";
 export type { HairIdentityAxis, HairIdentitySalienceCue, HairIdentitySaliencePlan } from "./hairIdentitySalience";
 
 export type FacePaletteRole =
@@ -80,11 +82,17 @@ export interface FacePixelPlan {
   renderContract: IdentityRenderContract;
   glassesPlan: GlassesStructurePlan;
   candidateCost: PerceptualQuantizationCost;
+  salience: FaceIdentitySaliencePlan;
 }
 
 export interface PerceptualQuantizationCost {
   direction: "lower_is_better";
   geometryError: number;
+  eyeSpacingError: number;
+  eyeWidthError: number;
+  browRelationError: number;
+  mouthGeometryError: number;
+  faceWindowConflict: number;
   p5ContractViolations: number;
   clusterPenalty: number;
   isolatedPixelPenalty: number;
@@ -152,6 +160,7 @@ export interface HeadIdentityPlan {
   protectedBaseFront: Array<{ x: number; y: number }>;
   protectedOuter: Array<{ face: "front" | "left" | "right"; x: number; y: number }>;
   p5Contracts: IdentityRenderContract;
+  geometryProvenance: FaceLayoutPlan["geometryProvenance"];
   compositionOrder: ["base_hair", "outer_hair", "face_landmarks", "glasses", "accessories"];
 }
 
@@ -190,7 +199,9 @@ export interface IdentityPixelPlans {
 
 export interface FacePlanSimilarity {
   eyeLayoutDistance: number;
+  browRelationDistance: number;
   mouthLayoutDistance: number;
+  topologyDistance: number;
   hairlineProfileDistance: number;
   glassesMaskDistance: number;
   faceWindowDistance: number;
@@ -205,6 +216,11 @@ export function compareFacePlans(first: FacePixelPlan, second: FacePixelPlan): F
     Math.abs(mean(first.layout.leftEyeXs) - mean(second.layout.leftEyeXs)) / 3,
     Math.abs(mean(first.layout.rightEyeXs) - mean(second.layout.rightEyeXs)) / 3,
   ]));
+  const browRelationDistance = Math.min(1, mean([
+    Math.abs((first.layout.leftEyeRow - first.layout.leftBrowRow) - (second.layout.leftEyeRow - second.layout.leftBrowRow)) / 2,
+    Math.abs((first.layout.rightEyeRow - first.layout.rightBrowRow) - (second.layout.rightEyeRow - second.layout.rightBrowRow)) / 2,
+    first.layout.browThickness === second.layout.browThickness ? 0 : 1,
+  ]));
   const mouthLayoutDistance = Math.min(1, mean([
     Math.abs(first.layout.mouthRow - second.layout.mouthRow),
     Math.abs(first.layout.mouthWidth - second.layout.mouthWidth) / 2,
@@ -217,6 +233,10 @@ export function compareFacePlans(first: FacePixelPlan, second: FacePixelPlan): F
   const intersection = [...firstGlasses].filter((point) => secondGlasses.has(point)).length;
   const glassesMaskDistance = union.size === 0 ? 0 : 1 - intersection / union.size;
   const faceWindowDistance = Math.abs(first.layout.exposedFaceWidth - second.layout.exposedFaceWidth) / 3;
+  const topologyDistance = mean([
+    first.layout.eyeTopology === second.layout.eyeTopology ? 0 : 1,
+    first.layout.mouthTopology === second.layout.mouthTopology ? 0 : 1,
+  ]);
   const weightedDistance =
     hairlineProfileDistance * 0.29 +
     eyeLayoutDistance * 0.27 +
@@ -225,7 +245,9 @@ export function compareFacePlans(first: FacePixelPlan, second: FacePixelPlan): F
     faceWindowDistance * 0.08;
   return {
     eyeLayoutDistance,
+    browRelationDistance,
     mouthLayoutDistance,
+    topologyDistance,
     hairlineProfileDistance,
     glassesMaskDistance,
     faceWindowDistance,
@@ -328,14 +350,42 @@ export function measureFacePixelPlanCost(plan: Omit<FacePixelPlan, "candidateCos
   const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
   const currentLeftEye = mean(layout.leftEyeXs);
   const currentRightEye = mean(layout.rightEyeXs);
-  const geometryError = mean([
+  const salienceScore = (axis: string) => [...layout.salience.primary, ...layout.salience.secondary, ...layout.salience.tertiary]
+    .find((cue) => cue.axis === axis)?.score ?? 0;
+  const eyeSpacingError = Math.abs((currentRightEye - currentLeftEye) - layout.geometryTarget.eyeSpacing) / 4;
+  const eyeWidthError = mean([
+    Math.abs(layout.leftEyeWidth - layout.geometryTarget.leftEyeWidth) / 3,
+    Math.abs(layout.rightEyeWidth - layout.geometryTarget.rightEyeWidth) / 3,
+  ]);
+  const eyePositionError = mean([
     Math.abs(currentLeftEye - layout.geometryTarget.leftEyeCenterX) / 4,
     Math.abs(currentRightEye - layout.geometryTarget.rightEyeCenterX) / 4,
-    Math.abs(layout.eyeRow - layout.geometryTarget.eyeRow) / 2,
+    Math.abs(layout.leftEyeRow - layout.geometryTarget.leftEyeRow) / 2,
+    Math.abs(layout.rightEyeRow - layout.geometryTarget.rightEyeRow) / 2,
+  ]);
+  const browRelationError = mean([
+    Math.abs((layout.leftEyeRow - layout.leftBrowRow) - layout.geometryTarget.leftBrowEyeDistance) / 3,
+    Math.abs((layout.rightEyeRow - layout.rightBrowRow) - layout.geometryTarget.rightBrowEyeDistance) / 3,
+  ]);
+  const mouthGeometryError = mean([
     Math.abs(layout.mouthCenterX - layout.geometryTarget.mouthCenterX) / 4,
     Math.abs(layout.mouthRow - layout.geometryTarget.mouthRow) / 2,
     Math.abs(layout.mouthWidth - layout.geometryTarget.mouthWidth) / 5,
   ]);
+  const visibleStart = Math.floor((8 - layout.faceWindow.visibleWidthAtEyes) / 2);
+  const visibleEnd = visibleStart + layout.faceWindow.visibleWidthAtEyes - 1;
+  const outsideEyePixels = [...layout.leftEyeXs, ...layout.rightEyeXs].filter((x) => x < visibleStart || x > visibleEnd).length;
+  const faceWindowConflict = outsideEyePixels / Math.max(1, layout.leftEyeXs.length + layout.rightEyeXs.length);
+  const weightedGeometryTerms = [
+    { value: eyeSpacingError, weight: 1 + salienceScore("eye_spacing") * 1.5 },
+    { value: eyeWidthError, weight: 0.8 + salienceScore("eye_width") },
+    { value: eyePositionError, weight: 1 },
+    { value: browRelationError, weight: 0.65 + salienceScore("brow_position") },
+    { value: mouthGeometryError, weight: 0.8 + Math.max(salienceScore("mouth_width"), salienceScore("mouth_topology")) },
+    { value: faceWindowConflict, weight: 1.5 + salienceScore("face_width") },
+  ];
+  const geometryError = weightedGeometryTerms.reduce((sum, term) => sum + term.value * term.weight, 0) /
+    weightedGeometryTerms.reduce((sum, term) => sum + term.weight, 0);
   const protectedViolation = (violation: string) =>
     (contract.mouth?.protected && /mouth|teeth|smile/.test(violation)) ||
     (contract.eyes?.protected && /eye/.test(violation)) ||
@@ -351,6 +401,11 @@ export function measureFacePixelPlanCost(plan: Omit<FacePixelPlan, "candidateCos
   return {
     direction: "lower_is_better",
     geometryError,
+    eyeSpacingError,
+    eyeWidthError,
+    browRelationError,
+    mouthGeometryError,
+    faceWindowConflict,
     p5ContractViolations,
     clusterPenalty,
     isolatedPixelPenalty,
@@ -368,7 +423,12 @@ function facePixelPlan(
   variantId: FacePixelPlan["variantId"] = "primary",
 ): FacePixelPlan {
   const pixels: FacePixelInstruction[] = [];
-  if (layout.geometryUsage.faceShape) {
+  const pushFringePixel = (x: number, y: number, role: "hair_mid" | "hair_shadow") => {
+    const owner = pixels.find((pixel) => pixel.x === x && pixel.y === y);
+    if (owner && owner.cluster !== "fringe" && owner.cluster !== "complexion") return;
+    pushPixel(pixels, x, y, role, "fringe");
+  };
+  if (layout.geometryUsage.faceShape && layout.salience.pixelBudget.faceBoundary > 0) {
     const shadeBoundary = (row: number, width: number) => {
       const inset = Math.max(0, Math.min(2, Math.floor((8 - width) / 2)));
       if (inset === 0) return;
@@ -384,6 +444,11 @@ function facePixelPlan(
     { xs: layout.leftEyeXs, width: layout.leftEyeWidth, row: layout.leftEyeRow, browRow: layout.leftBrowRow },
     { xs: layout.rightEyeXs, width: layout.rightEyeWidth, row: layout.rightEyeRow, browRow: layout.rightBrowRow },
   ];
+  const asymmetricOpenSide = layout.leftEyeWidth !== layout.rightEyeWidth
+    ? layout.leftEyeWidth > layout.rightEyeWidth ? 0 : 1
+    : layout.leftEyeRow !== layout.rightEyeRow
+      ? layout.leftEyeRow < layout.rightEyeRow ? 0 : 1
+      : 1;
   eyePairs.forEach(({ xs, width, row, browRow }, index) => {
     const cluster = index === 0 ? "left_eye" : "right_eye";
     const ordered = index === 0 ? [...xs] : [...xs].reverse();
@@ -391,7 +456,7 @@ function facePixelPlan(
     const eyeXs = width === 1 ? [ordered[0]] : width === 3 && ordered.length < 3 ? [...ordered, extension] : ordered;
     eyeXs.forEach((x, position) => {
       const tiltOffset = position === 0 ? layout.eyeTiltOffset : 0;
-      const openTopology = layout.eyeTopology === "open_iris_sclera" || (layout.eyeTopology === "asymmetric" && index === 1);
+      const openTopology = layout.eyeTopology === "open_iris_sclera" || (layout.eyeTopology === "asymmetric" && index === asymmetricOpenSide);
       const smilingSquint = layout.eyeTopology === "smiling_squint";
       pushPixel(pixels, x, row + tiltOffset, openTopology && position === 0 ? "sclera" : "iris", cluster);
       if (openTopology && position === eyeXs.length - 1) pushPixel(pixels, x, Math.min(7, row + 1), "iris", cluster);
@@ -401,10 +466,20 @@ function facePixelPlan(
       pushPixel(pixels, x, browY, "brow", cluster);
       if (layout.browThickness === "strong" && position === 0) pushPixel(pixels, x, Math.max(1, browY - 1), "brow", cluster);
     });
+    // One-cell eyes otherwise collapse a confident brow tilt to a single
+    // dot. Spend one adjacent cell to retain the measured slope while keeping
+    // both cells above the eye row.
+    if (width === 1 && layout.browTiltOffset !== 0 && layout.salience.pixelBudget.brows >= 2) {
+      const innerX = ordered[0] + (index === 0 ? 1 : -1);
+      const innerY = layout.browTiltOffset > 0
+        ? Math.max(1, browRow - 1)
+        : Math.min(row - 1, browRow);
+      pushPixel(pixels, innerX, innerY, "brow", cluster);
+    }
   });
   // glassesMask is declarative layout evidence. The renderer applies it on
   // the outer layer so frames do not overwrite the base-layer irises.
-  if (layout.noseStrength >= 0.35) pushPixel(pixels, layout.noseX, layout.noseY, "nose_shadow", "nose");
+  if (layout.salience.pixelBudget.nose > 0 && layout.noseStrength >= 0.35) pushPixel(pixels, layout.noseX, layout.noseY, "nose_shadow", "nose");
   const mouthStart = Math.max(0, Math.min(8 - layout.mouthWidth, Math.round(layout.mouthCenterX - (layout.mouthWidth - 1) / 2)));
   const mouthEnd = mouthStart + layout.mouthWidth - 1;
   const mouthY = (offset = 0) => Math.max(4, Math.min(7, layout.mouthRow + offset));
@@ -436,7 +511,7 @@ function facePixelPlan(
     for (let y = 0; y < layout.hairlineDepthByColumn[x]; y++) {
       const isTip = y === layout.hairlineDepthByColumn[x] - 1;
       const fallsAwayFromPart = analysis.renderHints.hairPart === "left" ? x <= 2 : analysis.renderHints.hairPart === "right" ? x >= 5 : x >= 4;
-      pushPixel(pixels, x, y, isTip || fallsAwayFromPart ? "hair_shadow" : "hair_mid", "fringe");
+      pushFringePixel(x, y, isTip || fallsAwayFromPart ? "hair_shadow" : "hair_mid");
     }
   }
   const leftSideMargin = layout.geometryUsage.faceWindow
@@ -447,9 +522,9 @@ function facePixelPlan(
     : Math.floor((8 - layout.exposedFaceWidth) / 2);
   for (let y = 1; y < Math.min(layout.leftEyeRow, layout.rightEyeRow); y++) {
     for (let x = 0; x < leftSideMargin; x++) {
-      pushPixel(pixels, x, y, "hair_shadow", "fringe");
+      pushFringePixel(x, y, "hair_shadow");
     }
-    for (let x = 0; x < rightSideMargin; x++) pushPixel(pixels, 7 - x, y, "hair_mid", "fringe");
+    for (let x = 0; x < rightSideMargin; x++) pushFringePixel(7 - x, y, "hair_mid");
   }
 
   const plan: Omit<FacePixelPlan, "candidateCost"> = {
@@ -474,6 +549,7 @@ function facePixelPlan(
     protectedGeometry: [...layout.protectedGeometry],
     renderContract: structuredClone(layout.renderContract),
     glassesPlan: buildGlassesStructurePlan(analysis, layout),
+    salience: structuredClone(layout.salience),
   };
   return { ...plan, candidateCost: measureFacePixelPlanCost(plan) };
 }
@@ -784,6 +860,7 @@ export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelP
     protectedBaseFront,
     protectedOuter,
     p5Contracts: structuredClone(facePixelPlan.renderContract),
+    geometryProvenance: { ...facePixelPlan.layout.geometryProvenance },
     compositionOrder: ["base_hair", "outer_hair", "face_landmarks", "glasses", "accessories"],
   };
   return {

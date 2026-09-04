@@ -19,6 +19,7 @@ export function makeAnalysis(
   overrides: Partial<PhotoAnalysis> = {},
 ): PhotoAnalysis {
   return {
+    coordinateSpaces: { faceMeasurements: "tight_face_crop", headMeasurements: "wide_head_crop" },
     quality: "pass",
     failReason: null,
     framing: "upper_body",
@@ -191,16 +192,21 @@ export function makeIdentityGeometry(
     mouth: { centerX: 0.5, centerY: 0.74, width: 0.32, leftCornerY: 0.72, rightCornerY: 0.73, opening: "teeth" },
     hairline: { depthByColumn: [0.7, 0.72, 0.62, 0.2, 0.12, 0.5, 0.66, 0.7], foreheadOpeningLeft: 0.42, foreheadOpeningRight: 0.58, asymmetry: 0.08 },
     fringe: { visible: true, peaks: [{ x: 0.22, depthY: 0.72, prominence: 0.32 }, { x: 0.78, depthY: 0.7, prominence: 0.2 }], direction: "right_swept", openingCenterX: 0.5, openingWidth: 0.16, leftTempleTransitionY: 0.7, rightTempleTransitionY: 0.7, evidence: "observed", confidence: 0.88 },
-    temple: { leftRecession: 0.34, rightRecession: 0.4, leftStartY: 0.32, rightStartY: 0.38, asymmetry: -0.06, leftEvidence: "observed", rightEvidence: "observed", confidence: 0.84 },
-    crown: { leftY: 0.08, centerY: 0.04, rightY: 0.1, leftWidth: 0.62, rightWidth: 0.58, apexX: 0.44, asymmetry: 0.08, evidence: "observed", confidence: 0.9 },
+    temple: { leftRecession: 0.34, rightRecession: 0.4, leftStartY: 0.32, rightStartY: 0.38, asymmetry: -0.06, leftEvidence: "observed", rightEvidence: "observed", leftConfidence: 0.84, rightConfidence: 0.84, confidence: 0.84 },
+    crown: { leftY: 0.08, centerY: 0.04, rightY: 0.1, leftWidth: 0.62, rightWidth: 0.58, apexX: 0.44, asymmetry: 0.08, evidence: "observed", leftEvidence: "observed", centerEvidence: "observed", rightEvidence: "observed", leftConfidence: 0.9, centerConfidence: 0.9, rightConfidence: 0.9, confidence: 0.9 },
     majorVolumePeaks: [
       { region: "crown_left", protrusion: 0.62, verticalCenter: 0.16, verticalExtent: 0.24, evidence: "observed", confidence: 0.86 },
       { region: "side_left", protrusion: 0.62, verticalCenter: 0.46, verticalExtent: 0.48, evidence: "observed", confidence: 0.86 },
       { region: "side_right", protrusion: 0.58, verticalCenter: 0.45, verticalExtent: 0.44, evidence: "observed", confidence: 0.84 },
     ],
-    faceWindow: { foreheadHeight: 0.42, leftTempleWidth: 0.35, rightTempleWidth: 0.4, visibleFaceWidthAtEyes: 0.7, visibleFaceWidthAtCheeks: 0.64, leftEyeToHairDistance: 0.34, rightEyeToHairDistance: 0.35, leftEarExposure: 0.35, rightEarExposure: 0.4, leftEvidence: "observed", rightEvidence: "observed", confidence: 0.88 },
+    faceWindow: { foreheadHeight: 0.42, leftTempleWidth: 0.35, rightTempleWidth: 0.4, visibleFaceWidthAtEyes: 0.7, visibleFaceWidthAtCheeks: 0.64, leftEyeToHairDistance: 0.34, rightEyeToHairDistance: 0.35, leftEarExposure: 0.35, rightEarExposure: 0.4, leftEvidence: "observed", rightEvidence: "observed", leftConfidence: 0.88, rightConfidence: 0.88, confidence: 0.88 },
     faceShape: { upperWidth: 0.68, cheekWidth: 0.72, jawWidth: 0.62, verticalLength: 0.78, leftRightAsymmetry: 0.03, evidence: "observed", confidence: 0.86 },
-    visibility: { cropClippingKnown: true, crownClipped: false, leftHairClipped: false, rightHairClipped: false, chinClipped: false, leftEarClipped: false, rightEarClipped: false },
+    visibility: {
+      cropClippingKnown: true, sourceClippingKnown: true,
+      crownClipped: false, leftHairClipped: false, rightHairClipped: false, chinClipped: false, leftEarClipped: false, rightEarClipped: false,
+      sourceCrownClipped: false, sourceLeftHairClipped: false, sourceRightHairClipped: false, sourceChinClipped: false,
+      crownOccluded: false, leftHairOccluded: false, rightHairOccluded: false, chinOccluded: false, leftEarOccluded: false, rightEarOccluded: false,
+    },
     headSilhouette: {
       crownTopY: 0.04,
       leftContourByRow: [0.24, 0.16, 0.13, 0.12, 0.13, 0.16, 0.2, 0.28],
@@ -213,6 +219,13 @@ export function makeIdentityGeometry(
     glasses: { leftBox: { left: 0.24, top: 0.4, right: 0.45, bottom: 0.54 }, rightBox: { left: 0.56, top: 0.4, right: 0.77, bottom: 0.54 }, bridgeCenterX: 0.5, bridgeY: 0.46, thickness: 0.3 },
     confidence: { faceBounds: 0.9, eyes: 0.94, brows: 0.82, nose: 0.72, mouth: 0.91, hairline: 0.88, headSilhouette: 0.88, glasses: 0.96 },
     source: "normalized_face_head_crops",
+    diagnostics: {
+      issues: [],
+      completeness: { fringeObserved: true, leftTempleObserved: true, rightTempleObserved: true, crownObservedFraction: 1, volumePeakObservedFraction: 1, faceWindowObservedFraction: 1 },
+      directMeasurements: ["face", "eyes", "brows", "nose", "mouth", "hairline", "headSilhouette", "fringe", "temple", "crown", "majorVolumePeaks", "faceWindow", "faceShape", "glasses"],
+      derivedMeasurements: [],
+      provenance: {},
+    },
     ...overrides,
   };
 }

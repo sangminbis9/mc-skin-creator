@@ -1,5 +1,6 @@
 import { base64ToBytes } from "./png";
 import type { Env } from "./types";
+import { inspectGeminiResponseSchema, type GeminiSchemaPreflight } from "./geminiStructuredSchema";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_GATEWAY_ID = "default";
@@ -15,6 +16,10 @@ interface GeminiErrorPayload {
     status?: string;
     details?: Array<{
       retryDelay?: string;
+      fieldViolations?: Array<{
+        field?: string;
+        description?: string;
+      }>;
       violations?: Array<{
         quotaId?: string;
         quotaValue?: string;
@@ -47,8 +52,16 @@ interface GeminiImageBlock {
 
 interface GeminiInteractionResponse {
   output_image?: GeminiImageBlock;
-  steps?: Array<{ type?: string; content?: GeminiImageBlock[] }>;
+  output_text?: string;
+  steps?: Array<{ type?: string; content?: Array<GeminiImageBlock & { text?: string }> }>;
+  usage?: {
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_tokens?: number;
+  };
 }
+
+export type GeminiStructuredApiFamily = "generateContent" | "interactions";
 
 export class GeminiApiError extends Error {
   constructor(
@@ -58,14 +71,83 @@ export class GeminiApiError extends Error {
     readonly retryAfterMs?: number,
     readonly quotaIds: string[] = [],
     readonly hasZeroQuota = false,
+    readonly providerCode?: number,
+    readonly fieldViolations: GeminiFieldViolation[] = [],
+    public requestShape?: GeminiStructuredRequestShape,
   ) {
-    super(message);
+    super(sanitizeProviderText(message));
     this.name = "GeminiApiError";
   }
 }
 
+export interface GeminiFieldViolation {
+  field: string;
+  description: string;
+}
+
+export interface GeminiStructuredRequestShape {
+  model: string;
+  apiFamily: GeminiStructuredApiFamily;
+  apiVersion: "v1beta";
+  endpointMethod: "models.generateContent" | "interactions.create";
+  structuredConfigKey: "generationConfig.responseJsonSchema" | "response_format.schema";
+  systemInstruction: false;
+  imageParts: number;
+  imageMimeTypes: string[];
+  imageRawBytes: number[];
+  imageBase64Chars: number[];
+  imageMagicMatchesMime: boolean[];
+  promptChars: number;
+  promptBytes: number;
+  responseMimeType: "application/json";
+  responseSchemaEnabled: true;
+  schema: GeminiSchemaPreflight;
+  maxOutputTokens: number;
+  temperature: 0 | null;
+  serializedBytes: number;
+}
+
+export interface GeminiProviderErrorDiagnostic {
+  httpStatus: number | null;
+  providerCode: number | null;
+  providerStatus: string | null;
+  message: string;
+  fieldViolations: GeminiFieldViolation[];
+}
+
+function sanitizeProviderText(value: string): string {
+  return value
+    .replace(/data:image\/[a-z0-9+.-]+;base64,[a-z0-9+/=\r\n]+/gi, "[redacted-image]")
+    .replace(/\b(?:AIza|AQ\.)[a-z0-9._-]{16,}\b/gi, "[redacted-secret]")
+    .slice(0, 1_000);
+}
+
+export function geminiProviderErrorDiagnostic(error: unknown): GeminiProviderErrorDiagnostic {
+  if (error instanceof GeminiApiError) {
+    return {
+      httpStatus: error.status,
+      providerCode: error.providerCode ?? null,
+      providerStatus: error.providerStatus ?? null,
+      message: sanitizeProviderText(error.message),
+      fieldViolations: error.fieldViolations.map((violation) => ({
+        field: sanitizeProviderText(violation.field),
+        description: sanitizeProviderText(violation.description),
+      })),
+    };
+  }
+  return {
+    httpStatus: null,
+    providerCode: null,
+    providerStatus: null,
+    message: sanitizeProviderText(error instanceof Error ? error.message : String(error)),
+    fieldViolations: [],
+  };
+}
+
 export interface GeminiStructuredRequest {
   model: string;
+  /** Defaults to the existing generateContent transport. */
+  apiFamily?: GeminiStructuredApiFamily;
   imageDataUrls: string[];
   /** Optional per-image roles. Defaults to ordered same-person references. */
   imageLabels?: string[];
@@ -74,15 +156,27 @@ export interface GeminiStructuredRequest {
   maxOutputTokens: number;
   /** Lets existing unit tests inject a provider without network I/O. */
   legacyWorkersAiInput?: Record<string, unknown>;
+  /** Defaults to true; identity geometry disables it to guarantee one call. */
+  allowWorkersAiFallback?: boolean;
+  /** Receives sanitized shape-only diagnostics; never includes image data. */
+  onRequestShape?: (shape: GeminiStructuredRequestShape) => void;
 }
 
 function parseImageDataUrl(
   dataUrl: string,
-): { mimeType: string; data: string } | null {
+): { mimeType: string; data: string; rawBytes: number; magicMatchesMime: boolean } | null {
   const match = /^data:(image\/[a-z0-9+.-]+);base64,([a-z0-9+/=\r\n]+)$/i.exec(
     dataUrl,
   );
-  return match ? { mimeType: match[1], data: match[2] } : null;
+  if (!match) return null;
+  const bytes = base64ToBytes(match[2]);
+  const mimeType = match[1].toLowerCase();
+  const magicMatchesMime = mimeType === "image/png"
+    ? bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+    : mimeType === "image/jpeg"
+      ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      : true;
+  return { mimeType, data: match[2], rawBytes: bytes.length, magicMatchesMime };
 }
 
 function requireApiKey(env: Env): string {
@@ -236,6 +330,12 @@ async function parseGeminiResponse<T>(response: Response): Promise<T> {
     const hasZeroQuota = (payload.error?.details || [])
       .flatMap((detail) => detail.violations || [])
       .some((violation) => violation.quotaValue === "0");
+    const fieldViolations = (payload.error?.details || [])
+      .flatMap((detail) => detail.fieldViolations || [])
+      .map((violation) => ({
+        field: typeof violation.field === "string" ? sanitizeProviderText(violation.field) : "unknown",
+        description: typeof violation.description === "string" ? sanitizeProviderText(violation.description) : "",
+      }));
     throw new GeminiApiError(
       message,
       response.status,
@@ -243,6 +343,8 @@ async function parseGeminiResponse<T>(response: Response): Promise<T> {
       retryAfterMs,
       quotaIds,
       hasZeroQuota,
+      payload.error?.code,
+      fieldViolations,
     );
   }
   return payload as T;
@@ -257,6 +359,79 @@ function parseRetryDelay(value: string): number | undefined {
     : undefined;
 }
 
+export function buildGeminiStructuredRequestEnvelope(request: GeminiStructuredRequest): {
+  body: Record<string, unknown>;
+  shape: GeminiStructuredRequestShape;
+} {
+  if (request.imageDataUrls.length > 6) {
+    throw new GeminiApiError("Gemini accepts at most 6 input images", 400);
+  }
+  if (request.imageLabels !== undefined && request.imageLabels.length !== request.imageDataUrls.length) {
+    throw new GeminiApiError("Gemini imageLabels must match imageDataUrls length", 400);
+  }
+  if (!Number.isInteger(request.maxOutputTokens) || request.maxOutputTokens <= 0) {
+    throw new GeminiApiError("Gemini maxOutputTokens must be a positive integer", 400);
+  }
+  const images = request.imageDataUrls.map(parseImageDataUrl);
+  if (images.some((image) => image === null)) throw new GeminiApiError("Invalid image data URL", 400);
+  const generateContentImageParts = images.flatMap((image, index) => [
+    { text: request.imageLabels?.[index]?.trim() || `Reference image ${index} of the same person:` },
+    { inlineData: { mimeType: image!.mimeType, data: image!.data } },
+  ]);
+  const interactionsImageParts = images.flatMap((image, index) => [
+    { type: "text", text: request.imageLabels?.[index]?.trim() || `Reference image ${index} of the same person:` },
+    { type: "image", mime_type: image!.mimeType, data: image!.data },
+  ]);
+  const schema = inspectGeminiResponseSchema(request.responseSchema);
+  const apiFamily = request.apiFamily ?? "generateContent";
+  const body: Record<string, unknown> = apiFamily === "interactions"
+    ? {
+        model: request.model,
+        store: false,
+        input: [...interactionsImageParts, { type: "text", text: request.prompt }],
+        response_format: { type: "text", mime_type: "application/json", schema: request.responseSchema },
+        generation_config: { max_output_tokens: request.maxOutputTokens, thinking_level: "low" },
+      }
+    : {
+        contents: [{ role: "user", parts: [...generateContentImageParts, { text: request.prompt }] }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: request.maxOutputTokens,
+          thinkingConfig: { thinkingLevel: "LOW" },
+          responseMimeType: "application/json",
+          responseJsonSchema: request.responseSchema,
+        },
+      };
+  const serializedBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+  const shape: GeminiStructuredRequestShape = {
+    model: request.model,
+    apiFamily,
+    apiVersion: "v1beta",
+    endpointMethod: apiFamily === "interactions" ? "interactions.create" : "models.generateContent",
+    structuredConfigKey: apiFamily === "interactions" ? "response_format.schema" : "generationConfig.responseJsonSchema",
+    systemInstruction: false,
+    imageParts: images.length,
+    imageMimeTypes: images.map((image) => image!.mimeType),
+    imageRawBytes: images.map((image) => image!.rawBytes),
+    imageBase64Chars: images.map((image) => image!.data.length),
+    imageMagicMatchesMime: images.map((image) => image!.magicMatchesMime),
+    promptChars: request.prompt.length,
+    promptBytes: new TextEncoder().encode(request.prompt).byteLength,
+    responseMimeType: "application/json",
+    responseSchemaEnabled: true,
+    schema,
+    maxOutputTokens: request.maxOutputTokens,
+    temperature: apiFamily === "interactions" ? null : 0,
+    serializedBytes,
+  };
+  if (!schema.valid) {
+    const error = new GeminiApiError("Gemini response schema failed local supported-subset preflight", 400, "CLIENT_SCHEMA_PREFLIGHT");
+    error.requestShape = shape;
+    throw error;
+  }
+  return { body, shape };
+}
+
 export async function generateGeminiStructuredJson(
   env: Env,
   request: GeminiStructuredRequest,
@@ -269,66 +444,35 @@ export async function generateGeminiStructuredJson(
       request.legacyWorkersAiInput as never,
     );
   }
+  // Build and validate the exact wire envelope for production and for the
+  // single-provider geometry seam. Legacy injected fixtures above predate
+  // data URLs and intentionally retain their original test-only path.
+  const envelope = buildGeminiStructuredRequestEnvelope(request);
+  request.onRequestShape?.(envelope.shape);
+  // A stage that forbids provider fallback may still use the configured
+  // Workers AI binding as its sole provider when no Gemini key exists. This
+  // remains exactly one call rather than Gemini followed by a recovery call.
+  if (!env.GEMINI_API_KEY && env.AI && request.allowWorkersAiFallback === false) {
+    return runWorkersAiStructuredFallback(env, request);
+  }
 
   // The app accepts up to five same-person source photos. Structured review
-  // adds one rendered inspection montage, so this shared wrapper must retain
-  // all six inputs. This is an application bound, not a Gemini API limit.
-  if (request.imageDataUrls.length < 1 || request.imageDataUrls.length > 6) {
-    throw new GeminiApiError("Gemini requires 1 to 6 input images", 400);
-  }
-  if (
-    request.imageLabels !== undefined &&
-    request.imageLabels.length !== request.imageDataUrls.length
-  ) {
-    throw new GeminiApiError(
-      "Gemini imageLabels must match imageDataUrls length",
-      400,
-    );
-  }
-  const images = request.imageDataUrls.map(parseImageDataUrl);
-  if (images.some((image) => image === null)) {
-    throw new GeminiApiError("Invalid image data URL", 400);
-  }
-  const imageParts = images.flatMap((image, index) => [
-    {
-      text:
-        request.imageLabels?.[index]?.trim() ||
-        `Reference image ${index} of the same person:`,
-    },
-    {
-      inlineData: {
-        mimeType: image!.mimeType,
-        data: image!.data,
-      },
-    },
-  ]);
+  // adds one rendered inspection montage, so this shared wrapper retains all
+  // six inputs. The same envelope builder is used by preflight tests and the
+  // actual request to prevent serialization drift.
   try {
     const apiBase = await geminiApiBase(env);
     const response = await fetchGemini(
-      `${apiBase}/models/${encodeURIComponent(request.model)}:generateContent`,
+      request.apiFamily === "interactions"
+        ? `${apiBase}/interactions`
+        : `${apiBase}/models/${encodeURIComponent(request.model)}:generateContent`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-goog-api-key": requireApiKey(env),
         },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [...imageParts, { text: request.prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens: request.maxOutputTokens,
-            // Gemini 3 defaults to medium thinking. Low is sufficient for
-            // extraction and leaves the output budget for the large schema.
-            thinkingConfig: { thinkingLevel: "LOW" },
-            responseMimeType: "application/json",
-            responseJsonSchema: request.responseSchema,
-          },
-        }),
+        body: JSON.stringify(envelope.body),
       },
       requestTimeoutMs(
         env.GEMINI_STRUCTURED_TIMEOUT_MS,
@@ -336,12 +480,16 @@ export async function generateGeminiStructuredJson(
       ),
       `Gemini structured request (${request.model})`,
     );
-    const payload =
-      await parseGeminiResponse<GeminiGenerateContentResponse>(response);
-    const output = payload.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text || "")
-      .join("")
-      .trim();
+    const payload = await parseGeminiResponse<GeminiGenerateContentResponse & GeminiInteractionResponse>(response);
+    const interactionOutput = payload.output_text || payload.steps
+      ?.filter((step) => step.type === "model_output")
+      .flatMap((step) => step.content || [])
+      .map((part) => part.text || "")
+      .join("");
+    const output = (request.apiFamily === "interactions"
+      ? interactionOutput
+      : payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join(""))
+      ?.trim();
     if (!output) {
       const blocked = payload.promptFeedback?.blockReason;
       throw new GeminiApiError(
@@ -357,13 +505,14 @@ export async function generateGeminiStructuredJson(
         ? { finishReason: payload.candidates[0].finishReason }
         : {}),
       usage: {
-        prompt_tokens: payload.usageMetadata?.promptTokenCount,
-        completion_tokens: payload.usageMetadata?.candidatesTokenCount,
-        total_tokens: payload.usageMetadata?.totalTokenCount,
+        prompt_tokens: payload.usageMetadata?.promptTokenCount ?? payload.usage?.total_input_tokens,
+        completion_tokens: payload.usageMetadata?.candidatesTokenCount ?? payload.usage?.total_output_tokens,
+        total_tokens: payload.usageMetadata?.totalTokenCount ?? payload.usage?.total_tokens,
       },
     };
   } catch (error) {
-    if (env.AI && shouldUseWorkersAiFallback(error)) {
+    if (error instanceof GeminiApiError && !error.requestShape) error.requestShape = envelope.shape;
+    if (request.allowWorkersAiFallback !== false && env.AI && shouldUseWorkersAiFallback(error)) {
       return runWorkersAiStructuredFallback(env, request);
     }
     throw error;
