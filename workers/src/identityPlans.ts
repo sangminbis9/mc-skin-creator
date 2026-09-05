@@ -24,6 +24,7 @@ import {
   type HairIdentitySaliencePlan,
 } from "./hairIdentitySalience";
 import type { FaceIdentitySaliencePlan } from "./faceIdentitySalience";
+import { buildOutfitPlan, type OutfitPlan } from "./outfitIdentity";
 
 export type {
   GlassesPixelRole,
@@ -42,6 +43,7 @@ export type {
 export type { EyeTopology, FaceLayoutPlan, IdentityRenderContract, MouthTopology, ProtectedGeometry, QuantizationAxis } from "./identityQuantization";
 export type { FaceIdentityAxis, FaceIdentitySalienceCue, FaceIdentitySaliencePlan } from "./faceIdentitySalience";
 export type { HairIdentityAxis, HairIdentitySalienceCue, HairIdentitySaliencePlan } from "./hairIdentitySalience";
+export type { OutfitPlan } from "./outfitIdentity";
 
 export type FacePaletteRole =
   | "skin_light"
@@ -118,6 +120,38 @@ export interface HeadMaskPoint {
   role: "hair" | "covering";
 }
 
+export type CurlyMassRegion = NonNullable<PhotoAnalysis["identityGeometry"]>["majorVolumePeaks"][number]["region"];
+
+export interface CurlySilhouetteMass {
+  id: string;
+  region: CurlyMassRegion;
+  sourceRegions: CurlyMassRegion[];
+  sourceEvidence: Array<{
+    region: CurlyMassRegion;
+    evidence: "observed" | "inferred" | "unknown";
+    confidence: number;
+  }>;
+  centerRow: number;
+  spanRows: number;
+  width: number;
+  protrusion: number;
+  layerRole: "both";
+  outerPoints: Array<{ face: HeadMaskFace; x: number; y: number }>;
+}
+
+export interface CurlySilhouettePlan {
+  sourcePeakCount: number;
+  masses: CurlySilhouetteMass[];
+  crownOuterPoints: Array<{ face: "front" | "top"; x: number; y: number }>;
+  endpointRows: { left: number; right: number };
+  crownProfile: {
+    leftRow: number;
+    centerRow: number;
+    rightRow: number;
+    apexColumn: number;
+  };
+}
+
 export interface HeadMaskPlan {
   coordinateSpace: "head.overlay";
   source: "identity_geometry" | "semantic_template";
@@ -127,6 +161,7 @@ export interface HeadMaskPlan {
   widthByRow: { left: number[]; right: number[]; back: number[] };
   foreheadExposure: number;
   earExposure: { left: number; right: number };
+  curlySilhouette?: CurlySilhouettePlan;
 }
 
 export interface HairPlan {
@@ -179,14 +214,6 @@ export interface PalettePlan {
   ramps: PaletteRampPlan[];
   maxGlobalColors: 36;
   noisePolicy: "connected_clusters_only";
-}
-
-export interface OutfitPlan {
-  observedConstruction: string;
-  hiddenCompletion: string;
-  lowerBodySource: "observed" | "minimum_inference";
-  outerLayerRegions: string[];
-  inventionPolicy: "extend_existing_materials_only";
 }
 
 export interface IdentityPixelPlans {
@@ -623,6 +650,133 @@ function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
   };
 }
 
+function curlyFootprint(
+  region: CurlyMassRegion,
+  centerRow: number,
+  width: number,
+  spanRows: number,
+): Array<{ face: HeadMaskFace; x: number; y: number }> {
+  const left = region.endsWith("left");
+  const crown = region.startsWith("crown");
+  const lower = region.startsWith("lower");
+  const points: Array<{ face: HeadMaskFace; x: number; y: number }> = [];
+  const addPoint = (face: HeadMaskFace, x: number, y: number) => {
+    const point = { face, x: Math.max(0, Math.min(7, x)), y: Math.max(0, Math.min(7, y)) };
+    if (!points.some((candidate) => candidate.face === point.face && candidate.x === point.x && candidate.y === point.y)) points.push(point);
+  };
+  const addScallop = (face: HeadMaskFace, centerX: number, centerY: number, footprintWidth: number, footprintHeight: number) => {
+    const leftX = centerX - Math.floor((footprintWidth - 1) / 2);
+    const topY = centerY - Math.floor((footprintHeight - 1) / 2);
+    for (let dy = 0; dy < footprintHeight; dy++) for (let dx = 0; dx < footprintWidth; dx++) {
+      const corner = footprintWidth >= 3 && footprintHeight >= 3 &&
+        ((dx === 0 || dx === footprintWidth - 1) && (dy === 0 || dy === footprintHeight - 1));
+      if (!corner) addPoint(face, leftX + dx, topY + dy);
+    }
+  };
+  const readableWidth = Math.max(2, Math.min(4, width));
+  const readableHeight = Math.max(2, Math.min(4, spanRows));
+  if (crown) {
+    const centerX = left ? 2 : 5;
+    const topCenterY = Math.max(2, Math.min(6, 6 - Math.floor(centerRow / 2)));
+    addScallop("top", centerX, topCenterY, readableWidth, readableHeight);
+    // Crown bumps cross the top/front edge as paired pixels; the profile is
+    // source-shaped instead of a uniform one-row outer cap.
+    addPoint("top", centerX, 7);
+    addPoint("front", centerX, 0);
+    return points;
+  }
+  const face: HeadMaskFace = left ? "left" : "right";
+  const centerX = lower ? (left ? 5 : 2) : (left ? 1 : 6);
+  addScallop(face, centerX, centerRow, readableWidth, readableHeight);
+  if (lower) {
+    const backX = left ? 1 : 6;
+    addScallop("back", backX, centerRow, Math.max(2, readableWidth - 1), readableHeight);
+    // left x7 <-> back x0 and right x0 <-> back x7
+    addPoint(face, left ? 7 : 0, centerRow);
+    addPoint("back", left ? 0 : 7, centerRow);
+  } else {
+    // left x0 <-> front x7 and right x7 <-> front x0
+    addPoint(face, left ? 0 : 7, centerRow);
+    addPoint("front", left ? 7 : 0, centerRow);
+  }
+  return points;
+}
+
+function buildCurlySilhouettePlan(
+  analysis: PhotoAnalysis,
+  layout: FaceLayoutPlan,
+  endpointRows: { left: number; right: number },
+): CurlySilhouettePlan | undefined {
+  if (!layout.geometryUsage.majorVolumePeaks || layout.majorVolumePeaks.length === 0) return undefined;
+  const geometryByRegion = new Map((analysis.identityGeometry?.majorVolumePeaks ?? []).map((peak) => [peak.region, peak]));
+  const candidates: CurlySilhouetteMass[] = layout.majorVolumePeaks.map((peak) => {
+    const source = geometryByRegion.get(peak.region);
+    return {
+      id: `curl-lobe-${peak.region.replace("_", "-")}`,
+      region: peak.region,
+      sourceRegions: [peak.region],
+      sourceEvidence: [{ region: peak.region, evidence: source?.evidence ?? "inferred", confidence: source?.confidence ?? 0.5 }],
+      centerRow: peak.row,
+      spanRows: Math.max(2, peak.height),
+      width: Math.max(2, peak.width),
+      protrusion: peak.protrusion,
+      layerRole: "both" as const,
+      outerPoints: curlyFootprint(peak.region, peak.row, peak.width, peak.height),
+    };
+  });
+  const merged: CurlySilhouetteMass[] = [];
+  for (const candidate of candidates) {
+    const candidateKeys = new Set(candidate.outerPoints.map((point) => `${point.face}:${point.x},${point.y}`));
+    const collision = merged.find((mass) => {
+      if (mass.region !== candidate.region) return false;
+      const overlap = mass.outerPoints.filter((point) => candidateKeys.has(`${point.face}:${point.x},${point.y}`)).length;
+      return overlap / Math.max(1, Math.min(mass.outerPoints.length, candidate.outerPoints.length)) >= 0.6;
+    });
+    if (!collision) {
+      merged.push(candidate);
+      continue;
+    }
+    // Repeated source peaks that collapse to the same 8x8 footprint are
+    // merged deterministically. Keep every source region/evidence record and
+    // bias the retained dimensions toward the stronger physical protrusion.
+    const firstWeight = Math.max(0.1, collision.protrusion);
+    const secondWeight = Math.max(0.1, candidate.protrusion);
+    const weight = firstWeight + secondWeight;
+    collision.centerRow = Math.round((collision.centerRow * firstWeight + candidate.centerRow * secondWeight) / weight);
+    collision.spanRows = Math.max(collision.spanRows, candidate.spanRows);
+    collision.width = Math.max(collision.width, candidate.width);
+    collision.protrusion = Math.max(collision.protrusion, candidate.protrusion);
+    collision.sourceRegions.push(...candidate.sourceRegions);
+    collision.sourceEvidence.push(...candidate.sourceEvidence);
+    collision.outerPoints = curlyFootprint(collision.region, collision.centerRow, collision.width, collision.spanRows);
+  }
+  const crownOuterPoints: CurlySilhouettePlan["crownOuterPoints"] = [];
+  const addCrownPoint = (face: "front" | "top", x: number, y: number) => {
+    if (!crownOuterPoints.some((point) => point.face === face && point.x === x && point.y === y)) crownOuterPoints.push({ face, x, y });
+  };
+  for (let x = 0; x < 8; x++) {
+    const row = x <= 2 ? layout.crownGeometry.leftRow : x >= 5 ? layout.crownGeometry.rightRow : layout.crownGeometry.centerRow;
+    const depth = Math.max(1, Math.min(3, 3 - row));
+    for (let y = 8 - depth; y < 8; y++) addCrownPoint("top", x, y);
+    for (let y = row; y <= Math.min(1, row + 1); y++) addCrownPoint("front", x, y);
+  }
+  // The measured apex gets one interior top cell, so shifting apex X changes
+  // top-view occupancy even when left/center/right rows quantize together.
+  addCrownPoint("top", layout.crownGeometry.apexColumn, 5);
+  return {
+    sourcePeakCount: candidates.length,
+    masses: merged,
+    crownOuterPoints,
+    endpointRows: { ...endpointRows },
+    crownProfile: {
+      leftRow: layout.crownGeometry.leftRow,
+      centerRow: layout.crownGeometry.centerRow,
+      rightRow: layout.crownGeometry.rightRow,
+      apexColumn: layout.crownGeometry.apexColumn,
+    },
+  };
+}
+
 function buildHeadMaskPlan(
   analysis: PhotoAnalysis,
   layout: FaceLayoutPlan,
@@ -657,14 +811,20 @@ function buildHeadMaskPlan(
     const endpointRightRaw = geometry.hairEndpointRightY * 7;
     let endpointLeft = Math.max(crownRow, Math.min(7, Math.round(endpointLeftRaw)));
     let endpointRight = Math.max(crownRow, Math.min(7, Math.round(endpointRightRaw)));
-    if (endpointLeft === endpointRight && Math.abs(geometry.hairEndpointLeftY - geometry.hairEndpointRightY) >= 0.08 && Math.max(
+    if (endpointLeft === endpointRight && Math.abs(geometry.hairEndpointLeftY - geometry.hairEndpointRightY) + Number.EPSILON >= 0.08 && Math.max(
       hairSalienceScore(salience, "endpoint_height"),
       hairSalienceScore(salience, "side_volume"),
       hairSalienceScore(salience, "crown_asymmetry"),
     ) >= 0.45) {
       // At a half-cell collision, preserve the measured ordering by moving the
       // lower-error endpoint, never by extending beyond the source interval.
-      if (endpointLeftRaw > endpointRightRaw) {
+      // Curly termination is a visible mass boundary, so keep the longer side
+      // at nearest-row and conservatively shorten the compact side. Extending
+      // both masses downward invents length and recreates a symmetric bob.
+      if (template === "curly_volume") {
+        if (endpointLeftRaw > endpointRightRaw) endpointRight = Math.max(crownRow, Math.floor(endpointRightRaw));
+        else endpointLeft = Math.max(crownRow, Math.floor(endpointLeftRaw));
+      } else if (endpointLeftRaw > endpointRightRaw) {
         const shortenRightError = endpointRightRaw - Math.floor(endpointRightRaw);
         const extendLeftError = Math.ceil(endpointLeftRaw) - endpointLeftRaw;
         if (shortenRightError <= extendLeftError) endpointRight = Math.max(crownRow, Math.floor(endpointRightRaw));
@@ -789,10 +949,66 @@ function buildHeadMaskPlan(
       // Keep the opening internal so every physical seam remains continuous.
       faces.top = faces.top.filter((point) => !(point.x === openingColumn && point.y >= 2 && point.y <= 4));
     }
+    const curlySilhouette = !covering && template === "curly_volume"
+      ? buildCurlySilhouettePlan(analysis, layout, { left: endpointLeft, right: endpointRight })
+      : undefined;
+    if (curlySilhouette) {
+      // Endpoints are rendered as two-cell mass terminations, never a single
+      // decorative pixel. Attribute them to the lowest measured mass on each
+      // side so their provenance survives into HairStructurePlan.
+      for (const side of ["left", "right"] as const) {
+        const endpoint = side === "left" ? endpointLeft : endpointRight;
+        const sideMasses = curlySilhouette.masses.filter((mass) => mass.region.endsWith(side));
+        const owner = [...sideMasses].sort((first, second) => {
+          const lowerFirst = Number(first.region.startsWith("lower"));
+          const lowerSecond = Number(second.region.startsWith("lower"));
+          return lowerSecond - lowerFirst || second.centerRow - first.centerRow || second.protrusion - first.protrusion;
+        })[0];
+        if (!owner || owner.region.startsWith("crown")) continue;
+        const face: HeadMaskFace = side;
+        const anchor = owner.region.startsWith("lower") ? (side === "left" ? 5 : 2) : (side === "left" ? 1 : 6);
+        const terminalXs = [anchor, side === "left" ? Math.min(7, anchor + 1) : Math.max(0, anchor - 1)];
+        const existingSideRows = owner.outerPoints.filter((point) => point.face === face).map((point) => point.y);
+        const startRow = existingSideRows.length > 0 ? Math.min(endpoint, Math.max(...existingSideRows)) : endpoint;
+        for (let y = startRow; y <= endpoint; y++) for (const x of terminalXs) {
+          if (!owner.outerPoints.some((point) => point.face === face && point.x === x && point.y === y)) {
+            owner.outerPoints.push({ face, x, y });
+          }
+        }
+      }
+
+      const frontFoundation = faces.front.map((point) => ({ ...point }));
+      for (const face of ["top", "left", "right", "back"] as const) faces[face] = [];
+      faces.front = frontFoundation;
+      for (const point of curlySilhouette.crownOuterPoints) add(point.face, point.x, point.y, role);
+      for (const mass of curlySilhouette.masses) {
+        for (const point of mass.outerPoints) add(point.face, point.x, point.y, role);
+        // A narrow, source-positioned root keeps every side/back lobe attached
+        // without inflating the complete edge into a generic outer shell.
+        for (const face of ["left", "right", "back"] as const) {
+          const footprint = mass.outerPoints.filter((point) => point.face === face);
+          if (footprint.length === 0) continue;
+          const minimumY = Math.min(...footprint.map((point) => point.y));
+          const rootX = Math.round(footprint.reduce((sum, point) => sum + point.x, 0) / footprint.length);
+          for (let y = 0; y <= minimumY; y++) add(face, rootX, y, role);
+        }
+      }
+      // Complete only the physical top seams that have an occupied neighbor.
+      // Both sides of each UV edge receive the same occupancy contract.
+      for (const point of faces.front.filter((point) => point.y === 0)) add("top", point.x, 7, role);
+      for (const point of faces.back.filter((point) => point.y === 0)) add("top", 7 - point.x, 0, role);
+      for (const point of faces.left.filter((point) => point.y === 0)) add("top", 7, 7 - point.x, role);
+      for (const point of faces.right.filter((point) => point.y === 0)) add("top", 0, point.x, role);
+      for (const face of ["left", "right", "back"] as const) {
+        widthByRow[face].fill(0);
+        for (let y = 0; y < 8; y++) widthByRow[face][y] = faces[face].filter((point) => point.y === y).length;
+      }
+    }
     return {
       coordinateSpace: "head.overlay", source: "identity_geometry", faces, partColumn,
       endpointRows: { left: endpointLeft, right: endpointRight }, widthByRow, foreheadExposure: geometry.foreheadExposure,
       earExposure: { left: geometry.earExposureLeft, right: geometry.earExposureRight },
+      curlySilhouette,
     };
   }
   const endpoint = lengthClass === "long" ? 7 : lengthClass === "medium" ? 6 : 4;
@@ -833,12 +1049,6 @@ export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelP
     { material: "bottom", source: analysis.visibleRegions.lowerBody ? "observed" : "inferred", roles: ["shadow", "base", "light"], maxLocalColors: 6, hueShift },
     { material: "shoes", source: analysis.visibleRegions.feet ? "observed" : "inferred", roles: ["shadow", "base", "light"], maxLocalColors: 6, hueShift },
   );
-  const lowerCompletion = analysis.visibleRegions.lowerBody
-    ? analysis.observed.clothing
-    : analysis.inferred.lowerBody?.value || analysis.inferred.lowerBodyDesign?.rationale || "continue the visible outfit with the fewest new cues";
-  const outerLayerRegions = analysis.canonicalIdentity.features
-    .filter((feature) => feature.category === "hair" || feature.category === "accessory" || feature.category === "silhouette")
-    .flatMap((feature) => feature.targetRegions);
   const baseHairGroupIds = plannedHair.structure.groups
     .filter((group) => group.points.some((point) => point.layer === "base"))
     .map((group) => group.id);
@@ -873,12 +1083,6 @@ export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelP
       maxGlobalColors: 36,
       noisePolicy: "connected_clusters_only",
     },
-    outfitPlan: {
-      observedConstruction: analysis.observed.clothing,
-      hiddenCompletion: lowerCompletion,
-      lowerBodySource: analysis.visibleRegions.lowerBody ? "observed" : "minimum_inference",
-      outerLayerRegions: [...new Set(outerLayerRegions)],
-      inventionPolicy: "extend_existing_materials_only",
-    },
+    outfitPlan: buildOutfitPlan(analysis),
   };
 }

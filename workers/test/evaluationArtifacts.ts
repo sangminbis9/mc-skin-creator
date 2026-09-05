@@ -10,7 +10,7 @@ import { join, resolve } from "node:path";
 import type { FacePixelPlan, HairPlan } from "../src/identityPlans";
 import type { IdentityGeometryAnalysis } from "../src/identityGeometry";
 import { encodePng, type RawImage } from "../src/png";
-import { extractRenderedHeadView, renderSkinViews } from "../src/skinRender";
+import { buildHeadViewMontage, extractRenderedHeadView, renderSkinViews } from "../src/skinRender";
 import { CLASSIC_LAYOUT, type Rect } from "../src/uvLayout";
 
 export interface IdentityEvaluationArtifacts {
@@ -37,6 +37,14 @@ export interface IdentityEvaluationArtifacts {
   baseHeadOnly?: RawImage;
   outerHeadOnly?: RawImage;
   baseOuterHead?: RawImage;
+  beforeSilhouette?: RawImage;
+  afterSilhouette?: RawImage;
+  beforeBaseHeadOnly?: RawImage;
+  beforeOuterHeadOnly?: RawImage;
+  beforeBaseOuterHead?: RawImage;
+  uvSeamDiagnostic?: RawImage;
+  headPixelDiff?: RawImage;
+  previewSize?: RawImage;
   finalHeadFront: RawImage;
   finalHeadFrontLeft?: RawImage;
   finalHeadLeft: RawImage;
@@ -283,6 +291,80 @@ export function buildHeadLayerDiagnosticViews(atlas: RawImage): Pick<IdentityEva
   };
 }
 
+/** Color-free 3D head views: gray base plus white source-bearing outer mass. */
+export function buildBinaryHeadSilhouette(atlas: RawImage): RawImage {
+  const binary: RawImage = { ...atlas, rgba: new Uint8Array(atlas.rgba.length) };
+  for (const [layer, value] of [["base", 88], ["overlay", 238]] as const) {
+    for (const rect of Object.values(CLASSIC_LAYOUT.head[layer])) for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) {
+      const source = ((rect.y + y) * atlas.width + rect.x + x) * 4;
+      const target = source;
+      if (atlas.rgba[source + 3] === 0) continue;
+      binary.rgba.set([value, value, value, 255], target);
+    }
+  }
+  return buildHeadViewMontage(renderSkinViews(binary));
+}
+
+/** Flat paired-edge occupancy view. Green pairs agree; red marks a seam gap. */
+export function buildHeadSeamDiagnostic(atlas: RawImage, scale = 10): RawImage {
+  const seams = [
+    ["front", 7, "left", 0],
+    ["front", 0, "right", 7],
+    ["left", 7, "back", 0],
+    ["right", 0, "back", 7],
+  ] as const;
+  const width = 16 * scale;
+  const height = seams.length * 2 * scale;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel++) rgba.set([24, 27, 32, 255], pixel * 4);
+  const occupied = (face: (typeof seams)[number][0] | (typeof seams)[number][2], x: number, y: number) => {
+    const rect = CLASSIC_LAYOUT.head.overlay[face];
+    return atlas.rgba[((rect.y + y) * atlas.width + rect.x + x) * 4 + 3] >= 128;
+  };
+  seams.forEach(([firstFace, firstX, secondFace, secondX], seamIndex) => {
+    for (let y = 0; y < 8; y++) {
+      const first = occupied(firstFace, firstX, y);
+      const second = occupied(secondFace, secondX, y);
+      const color = first === second ? first ? [72, 220, 126, 255] : [52, 58, 68, 255] : [255, 72, 88, 255];
+      for (let row = 0; row < 2; row++) for (let py = 0; py < scale; py++) for (let px = 0; px < scale; px++) {
+        const x = (y * 2 + row) * scale + px;
+        const imageY = (seamIndex * 2 + row) * scale + py;
+        rgba.set(color, (imageY * width + x) * 4);
+      }
+    }
+  });
+  return { width, height, rgba };
+}
+
+/** Head-only atlas diff: alpha/silhouette changes are magenta, tone changes cyan. */
+export function buildHeadPixelDiff(before: RawImage, after: RawImage, scale = 4): RawImage {
+  const width = 64 * scale;
+  const height = 32 * scale;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel++) rgba.set([24, 27, 32, 255], pixel * 4);
+  for (const layer of ["base", "overlay"] as const) for (const rect of Object.values(CLASSIC_LAYOUT.head[layer])) {
+    for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) {
+      const atlasX = rect.x + x;
+      const atlasY = rect.y + y;
+      const offset = (atlasY * before.width + atlasX) * 4;
+      const changed = [0, 1, 2, 3].some((channel) => before.rgba[offset + channel] !== after.rgba[offset + channel]);
+      if (!changed) continue;
+      const alphaChanged = before.rgba[offset + 3] !== after.rgba[offset + 3];
+      const color = alphaChanged ? [244, 76, 184, 255] : [64, 214, 246, 255];
+      for (let py = atlasY * scale; py < (atlasY + 1) * scale; py++) for (let px = atlasX * scale; px < (atlasX + 1) * scale; px++) {
+        rgba.set(color, (py * width + px) * 4);
+      }
+    }
+  }
+  return { width, height, rgba };
+}
+
+export function buildPreviewSizeHead(atlas: RawImage): RawImage {
+  const views = renderSkinViews(atlas);
+  const head = (name: "front" | "left" | "right") => extractRenderedHeadView(views.find((view) => view.name === name)!);
+  return buildBeforeAfterHeadMontage(buildBeforeAfterHeadMontage(head("front"), head("left")), head("right"));
+}
+
 const ROLE_COLORS: Record<FacePixelPlan["pixels"][number]["role"], [number, number, number, number]> = {
   skin_light: [239, 190, 158, 255],
   skin_mid: [211, 154, 116, 255],
@@ -413,6 +495,14 @@ export async function writeIdentityEvaluationArtifacts(
     ["06c-base-head-only.png", artifacts.baseHeadOnly],
     ["06d-outer-head-only.png", artifacts.outerHeadOnly],
     ["06e-base-plus-outer-head.png", artifacts.baseOuterHead],
+    ["06f-before-silhouette.png", artifacts.beforeSilhouette],
+    ["06g-after-silhouette.png", artifacts.afterSilhouette],
+    ["06h-before-base-only.png", artifacts.beforeBaseHeadOnly],
+    ["06i-before-outer-only.png", artifacts.beforeOuterHeadOnly],
+    ["06j-before-combined.png", artifacts.beforeBaseOuterHead],
+    ["09f-uv-seams.png", artifacts.uvSeamDiagnostic],
+    ["09g-head-pixel-diff.png", artifacts.headPixelDiff],
+    ["09h-preview-size.png", artifacts.previewSize],
     ["07-final-head-front.png", artifacts.finalHeadFront],
     ["07b-final-head-front-left.png", artifacts.finalHeadFrontLeft],
     ["08-final-head-left.png", artifacts.finalHeadLeft],

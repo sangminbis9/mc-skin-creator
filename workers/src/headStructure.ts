@@ -28,6 +28,7 @@ export interface HairStructureGroup {
     height: number;
     protrusion: number;
   };
+  sourceRegions?: NonNullable<PhotoAnalysis["identityGeometry"]>["majorVolumePeaks"][number]["region"][];
   points: HairStructurePoint[];
 }
 
@@ -45,7 +46,9 @@ export interface HairStructurePlan {
   };
   temples: { leftGroupId: string | null; rightGroupId: string | null };
   sideLocks: { leftGroupIds: string[]; rightGroupIds: string[] };
+  majorSilhouetteGroupIds: string[];
   textureGroupIds: string[];
+  curlySilhouette?: HeadMaskPlan["curlySilhouette"];
   partChannel: {
     column: number | null;
     direction: "none" | "center" | "left" | "right";
@@ -198,7 +201,8 @@ export function buildHairStructurePlan(
   const importance = hairIdentityImportance(analysis);
   const groups: HairStructureGroup[] = [];
   const addGroup = (group: Omit<HairStructureGroup, "identityImportance" | "points"> & { points: HairStructurePoint[] }) => {
-    const points = largestConnectedComponent(uniquePoints(group.points));
+    const unique = uniquePoints(group.points);
+    const points = largestConnectedComponent(unique);
     const singlePixelIdentityTip = points.length === 1 && importance >= 4 &&
       (group.kind === "fringe" || group.kind === "temple" || group.kind === "curl_lobe");
     if (points.length < 2 && !singlePixelIdentityTip) return null;
@@ -339,6 +343,7 @@ export function buildHairStructurePlan(
   }
 
   const textureGroupIds: string[] = [];
+  const majorSilhouetteGroupIds: string[] = [];
   const silhouette = analysis.identityGeometry?.headSilhouette;
   if (grammar === "curl_lobes") {
     const leftPeak = silhouette
@@ -363,8 +368,33 @@ export function buildHairStructurePlan(
     });
     const leftSize = lobeSize(leftVolume, headMask.endpointRows.left);
     const rightSize = lobeSize(rightVolume, headMask.endpointRows.right);
-    const lobes: Array<{ id: string; face: HeadMaskFace; x: number; y: number; width: number; height: number; protrusion: number; direction: HairDirection }> = layout.geometryUsage.majorVolumePeaks
-      ? layout.majorVolumePeaks.map((peak) => {
+    const lobes: Array<{ id: string; face: HeadMaskFace; x: number; y: number; width: number; height: number; protrusion: number; direction: HairDirection; sourceRegions?: HairStructureGroup["sourceRegions"]; plannedPoints?: HairStructurePoint[] }> = headMask.curlySilhouette
+      ? headMask.curlySilhouette.masses.map((mass) => {
+          const left = mass.region.endsWith("left");
+          const crown = mass.region.startsWith("crown");
+          const lower = mass.region.startsWith("lower");
+          const anchor = mass.outerPoints.find((point) => point.face === (crown ? "top" : left ? "left" : "right")) ?? mass.outerPoints[0];
+          const role: HairStructureRole = mass.protrusion >= 0.78 ? "light" : mass.protrusion >= 0.55 ? "mid" : "shadow";
+          return {
+            id: mass.id,
+            face: anchor?.face ?? (crown ? "top" : left ? "left" : "right"),
+            x: anchor?.x ?? (left ? 1 : 6),
+            y: anchor?.y ?? mass.centerRow,
+            width: mass.width,
+            height: mass.spanRows,
+            protrusion: mass.protrusion,
+            direction: crown || !lower ? left ? "outward_left" : "outward_right" : "compact",
+            sourceRegions: [...mass.sourceRegions],
+            plannedPoints: mass.outerPoints.filter((point) => point.face === anchor?.face).map((point) => ({
+              ...point,
+              layer: "outer" as const,
+              role: (point.face === "left" && point.y === headMask.endpointRows.left) ||
+                (point.face === "right" && point.y === headMask.endpointRows.right) ? "tip" as const : role,
+            })),
+          };
+        })
+      : layout.geometryUsage.majorVolumePeaks
+        ? layout.majorVolumePeaks.map((peak) => {
           const left = peak.region.endsWith("left");
           const crown = peak.region.startsWith("crown");
           const lower = peak.region.startsWith("lower");
@@ -377,6 +407,7 @@ export function buildHairStructurePlan(
             height: peak.height,
             protrusion: peak.protrusion,
             direction: crown || !lower ? left ? "outward_left" : "outward_right" : "compact",
+            sourceRegions: [peak.region],
           };
         })
       : [
@@ -388,21 +419,25 @@ export function buildHairStructurePlan(
     if (!layout.geometryUsage.majorVolumePeaks && headMask.endpointRows.left >= 5 && leftVolume >= 0.55) lobes.push({ id: "curl-lobe-left-lower", face: "left", x: 1, y: clamp(headMask.endpointRows.left - 2, 2, 6), ...leftSize, protrusion: leftVolume, direction: "outward_left" });
     if (!layout.geometryUsage.majorVolumePeaks && headMask.endpointRows.right >= 5 && rightVolume >= 0.55) lobes.push({ id: "curl-lobe-right-lower", face: "right", x: 6, y: clamp(headMask.endpointRows.right - 2, 2, 6), ...rightSize, protrusion: rightVolume, direction: "outward_right" });
     for (const [index, lobe] of lobes.entries()) {
-      const coordinates: Array<[number, number]> = [];
-      for (let dy = 0; dy < lobe.height; dy++) for (let dx = 0; dx < lobe.width; dx++) {
-        if (lobe.width >= 3 && lobe.height >= 3 && dx === lobe.width - 1 && dy === lobe.height - 1) continue;
-        const direction = lobe.direction === "outward_left" ? 1 : lobe.direction === "outward_right" ? -1 : lobe.x <= 3 ? 1 : -1;
-        coordinates.push([clamp(lobe.x + dx * direction, 1, 6), clamp(lobe.y + dy, 1, 6)]);
+      let points = lobe.plannedPoints;
+      if (!points) {
+        const coordinates: Array<[number, number]> = [];
+        for (let dy = 0; dy < lobe.height; dy++) for (let dx = 0; dx < lobe.width; dx++) {
+          if (lobe.width >= 3 && lobe.height >= 3 && dx === lobe.width - 1 && dy === lobe.height - 1) continue;
+          const direction = lobe.direction === "outward_left" ? 1 : lobe.direction === "outward_right" ? -1 : lobe.x <= 3 ? 1 : -1;
+          coordinates.push([clamp(lobe.x + dx * direction, 1, 6), clamp(lobe.y + dy, 1, 6)]);
+        }
+        points = clippedPath(headMask, lobe.face, coordinates, index % 2 === 0 ? "light" : "shadow");
       }
-      const points = clippedPath(headMask, lobe.face, coordinates, index % 2 === 0 ? "light" : "shadow");
       const id = addGroup({
         id: lobe.id,
         kind: "curl_lobe",
         direction: lobe.direction,
         sourceAnchor: { x: lobe.x / 7, y: lobe.y / 7, width: lobe.width / 8, height: lobe.height / 8, protrusion: lobe.protrusion },
+        sourceRegions: lobe.sourceRegions,
         points,
       });
-      if (id) textureGroupIds.push(id);
+      if (id) majorSilhouetteGroupIds.push(id);
     }
   }
   const textureFaces: HeadMaskFace[] = grammar === "curl_lobes" ? [] : ["left", "right", "back", "top"];
@@ -458,7 +493,7 @@ export function buildHairStructurePlan(
     if (id) crownIds.push(id);
   }
 
-  const requiredGroupIds = [...fringeGroupIds, ...textureGroupIds, ...sideLockIds.left, ...sideLockIds.right]
+  const requiredGroupIds = [...fringeGroupIds, ...majorSilhouetteGroupIds, ...textureGroupIds, ...sideLockIds.left, ...sideLockIds.right]
     .filter((id) => groups.find((group) => group.id === id)!.identityImportance >= 4 || id.startsWith("fringe"));
   const geometryDrivenStructure = headMask.source === "identity_geometry" ||
     layout.geometryUsage.fringePeaks || layout.geometryUsage.temple ||
@@ -477,7 +512,9 @@ export function buildHairStructurePlan(
     },
     temples: { leftGroupId: templeIds[0], rightGroupId: templeIds[1] },
     sideLocks: { leftGroupIds: sideLockIds.left, rightGroupIds: sideLockIds.right },
+    majorSilhouetteGroupIds,
     textureGroupIds: [...textureGroupIds, ...crownIds],
+    curlySilhouette: headMask.curlySilhouette,
     partChannel: {
       column: partColumn,
       direction: analysis.renderHints.hairPart,

@@ -8,6 +8,9 @@
 
 import type { RawImage } from "./png";
 import type { FacePixelPlan, FacePaletteRole, HairPlan, HeadIdentityPlan, HairStructureRole } from "./identityPlans";
+import { buildFacialContrastPlan, type FacialContrastPlan } from "./facialContrast";
+import type { OutfitPlan } from "./outfitIdentity";
+import { applyOutfitPlan } from "./outfitRenderer";
 import {
   ALL_PARTS,
   ATLAS_SIZE,
@@ -34,6 +37,7 @@ export interface PackOptions {
   facePixelPlan?: FacePixelPlan;
   hairPlan?: HairPlan;
   headIdentityPlan?: HeadIdentityPlan;
+  outfitPlan?: OutfitPlan;
 }
 
 /**
@@ -1738,6 +1742,7 @@ function faceRoleColor(
   hairColor: Rgb,
   skinColor: Rgb,
   style: FaceStyle,
+  contrastPlan?: FacialContrastPlan,
 ): Rgb {
   const eye = hexToRgb(style.eyeColor, shadeRgb(hairColor, 0.62));
   const contrastBoost = style.faceContrastBoost === true;
@@ -1763,14 +1768,14 @@ function faceRoleColor(
     case "hair_light": return shadeRgb(hairColor, 1.12);
     case "hair_mid": return hairColor;
     case "hair_shadow": return shadeRgb(hairColor, 0.72);
-    case "brow": return shadeRgb(hairColor, contrastBoost ? 0.58 : 0.7);
+    case "brow": return contrastPlan?.browMid ?? shadeRgb(hairColor, contrastBoost ? 0.58 : 0.7);
     case "glasses": return hexToRgb(style.glassesColor, shadeRgb(hairColor, 0.52));
-    case "iris": return ensureComplexionContrast(shadeRgb(eye, contrastBoost ? 0.46 : style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5), contrastBoost ? 92 : 72);
-    case "sclera": return mixRgb(skinColor, [236, 232, 218], 0.72);
-    case "nose_shadow": return mixRgb(skinColor, [111, 63, 51], contrastBoost ? 0.42 : 0.24);
-    case "lip": return ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.76 : 1), contrastBoost ? 62 : 45);
-    case "teeth": return [236, 229, 210];
-    case "mouth_shadow": return ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.46 : 0.6), contrastBoost ? 74 : 58);
+    case "iris": return contrastPlan?.eyeDark ?? ensureComplexionContrast(shadeRgb(eye, contrastBoost ? 0.46 : style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5), contrastBoost ? 92 : 72);
+    case "sclera": return contrastPlan?.eyeMid ?? mixRgb(skinColor, [236, 232, 218], 0.72);
+    case "nose_shadow": return contrastPlan?.noseShade ?? mixRgb(skinColor, [111, 63, 51], contrastBoost ? 0.42 : 0.24);
+    case "lip": return contrastPlan?.lipMid ?? ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.76 : 1), contrastBoost ? 62 : 45);
+    case "teeth": return contrastPlan?.teethLight ?? [236, 229, 210];
+    case "mouth_shadow": return contrastPlan?.lipDark ?? ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.46 : 0.6), contrastBoost ? 74 : 58);
   }
 }
 
@@ -1784,6 +1789,16 @@ function applyFacePixelPlan(
   const face = CLASSIC_LAYOUT.head.base.front;
   const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
   const contrastBoost = style.faceContrastBoost === true;
+  const contrastPlan = buildFacialContrastPlan(skinColor, hairColor, {
+    eyeColor: hexToRgb(style.eyeColor, shadeRgb(hairColor, 0.62)),
+    lipColor: style.lipColor ?? "natural",
+    irisLightness: style.irisLightness ?? "medium",
+    contrastBoost,
+  }, plan.salience);
+  const eyeCells = new Map<string, Array<{ x: number; y: number }>>();
+  for (const cluster of ["left_eye", "right_eye"] as const) {
+    eyeCells.set(cluster, plan.pixels.filter((pixel) => pixel.cluster === cluster && (pixel.role === "iris" || pixel.role === "sclera")));
+  }
   const landmarkKeys = new Set(plan.pixels.filter((pixel) => pixel.cluster !== "complexion" && pixel.cluster !== "fringe").map((pixel) => `${pixel.x},${pixel.y}`));
   const localContrast = (candidate: Rgb, x: number, y: number, minimum: number, preferDark = false): Rgb => {
     const samples: Rgb[] = [];
@@ -1806,9 +1821,19 @@ function applyFacePixelPlan(
     if (preferDark) return dark;
     return distance(dark) >= distance(light) ? dark : light;
   };
-  if (style.glasses !== "sunglasses") {
-    for (const pixel of plan.pixels.filter((item) => item.role === "iris" || item.role === "sclera")) {
+  {
+    const plannedFrameKeys = new Set(plan.glassesPlan.framePixels.filter((point) => point.face === "front").map((point) => `${point.x},${point.y}`));
+    const hairRamp = [hairColor, shadeRgb(hairColor, 0.72), shadeRgb(hairColor, 1.12)];
+    for (const pixel of plan.pixels.filter((item) => item.cluster !== "complexion" && item.cluster !== "fringe")) {
       const overlayOffset = ((faceOverlay.y + pixel.y) * ATLAS_SIZE + faceOverlay.x + pixel.x) * 4;
+      const eye = pixel.role === "iris" || pixel.role === "sclera";
+      if (eye && style.glasses === "sunglasses") continue;
+      if (!eye) {
+        if (plannedFrameKeys.has(`${pixel.x},${pixel.y}`)) continue;
+        const overlayColor: Rgb = [atlas.rgba[overlayOffset], atlas.rgba[overlayOffset + 1], atlas.rgba[overlayOffset + 2]];
+        const hairLike = hairRamp.some((candidate) => Math.abs(candidate[0] - overlayColor[0]) + Math.abs(candidate[1] - overlayColor[1]) + Math.abs(candidate[2] - overlayColor[2]) <= 110);
+        if (atlas.rgba[overlayOffset + 3] === 0 || !hairLike) continue;
+      }
       atlas.rgba.fill(0, overlayOffset, overlayOffset + 4);
     }
   }
@@ -1818,8 +1843,21 @@ function applyFacePixelPlan(
     if (pixel.cluster === "complexion") continue;
     if (!Number.isInteger(pixel.x) || !Number.isInteger(pixel.y) || pixel.x < 0 || pixel.x >= 8 || pixel.y < 0 || pixel.y >= 8) continue;
     const offset = ((face.y + pixel.y) * ATLAS_SIZE + face.x + pixel.x) * 4;
-    const planned = faceRoleColor(pixel.role, hairColor, skinColor, style);
-    const color = pixel.role === "iris" ? localContrast(planned, pixel.x, pixel.y, 90, contrastBoost)
+    let planned = faceRoleColor(pixel.role, hairColor, skinColor, style, contrastPlan);
+    let usesEyeMid = pixel.role === "sclera";
+    if (pixel.role === "iris") {
+      const cells = eyeCells.get(pixel.cluster) ?? [];
+      if (cells.length > 1) {
+        const outerX = pixel.cluster === "left_eye" ? Math.min(...cells.map((cell) => cell.x)) : Math.max(...cells.map((cell) => cell.x));
+        if (pixel.x === outerX && !cells.some((cell) => cell.x === pixel.x && cell.y !== pixel.y)) {
+          planned = contrastPlan.eyeMid;
+          usesEyeMid = true;
+        }
+      }
+    } else if (pixel.role === "brow") {
+      planned = plan.layout.browThickness === "strong" ? contrastPlan.browDark : contrastPlan.browMid;
+    }
+    const color = pixel.role === "iris" || pixel.role === "sclera" ? localContrast(planned, pixel.x, pixel.y, usesEyeMid ? Math.max(70, contrastPlan.targets.eye - 25) : contrastPlan.targets.eye, true)
       : ["lip", "mouth_shadow"].includes(pixel.role) ? localContrast(planned, pixel.x, pixel.y, 62, contrastBoost)
         : planned;
     atlas.rgba[offset] = color[0];
@@ -1827,7 +1865,7 @@ function applyFacePixelPlan(
     atlas.rgba[offset + 2] = color[2];
     atlas.rgba[offset + 3] = 255;
   }
-  const glassesColor = faceRoleColor("glasses", hairColor, skinColor, style);
+  const glassesColor = faceRoleColor("glasses", hairColor, skinColor, style, contrastPlan);
   const glassesLight = mixRgb(glassesColor, [238, 234, 224], 0.24);
   const glassesShadow = shadeRgb(glassesColor, 0.64);
   for (const opening of plan.glassesPlan.lensOpenings) {
@@ -2053,6 +2091,29 @@ export function applyHairStructurePlan(
   const colorDistance = (offset: number, target: Rgb) =>
     Math.abs(atlas.rgba[offset] - target[0]) + Math.abs(atlas.rgba[offset + 1] - target[1]) + Math.abs(atlas.rgba[offset + 2] - target[2]);
   const hairOwned = (offset: number) => atlas.rgba[offset + 3] === 0 || colorDistance(offset, hairColor) <= 180;
+  if (structure.grammar === "curl_lobes" && structure.curlySilhouette) {
+    // Remove the source-independent curly side fill authored by composeHair.
+    // The measured foundation groups below rebuild only the side masses that
+    // belong to this source. Back hair stays complete but subdued so the
+    // source-positioned lower/rear masses, rather than a generic checker, own
+    // its readable shape in a base-only diagnostic.
+    for (const face of ["left", "right"] as const) {
+      const rect = base[face];
+      for (let y = 2; y < rect.h; y++) for (let x = 0; x < rect.w; x++) {
+        const offset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
+        if (!hairOwned(offset)) continue;
+        const color = shadeRgb(skinColor, x < 4 ? 0.9 : 0.84);
+        atlas.rgba.set([color[0], color[1], color[2], 255], offset);
+      }
+    }
+    const backRect = base.back;
+    for (let y = 0; y < backRect.h; y++) for (let x = 0; x < backRect.w; x++) {
+      const offset = ((backRect.y + y) * ATLAS_SIZE + backRect.x + x) * 4;
+      if (!hairOwned(offset)) continue;
+      const color = shadeRgb(hairColor, 0.7 + y * 0.012);
+      atlas.rgba.set([color[0], color[1], color[2], 255], offset);
+    }
+  }
   for (const group of structure.groups) {
     for (const point of group.points) {
       const rect = point.layer === "base" ? base[point.face] : overlay[point.face];
@@ -9430,6 +9491,9 @@ export function packFrontViewToAtlas(
 
   // ---------- 마감: 의상/액세서리 레이어 + 헤어/모자 구조 + 셰이딩 ----------
   composeGarmentLayers(atlas, faceStyle);
+  if (options.outfitPlan) {
+    applyOutfitPlan(atlas, options.outfitPlan, faceStyle.skinTone ?? "#d39e80");
+  }
   resetPortraitFaceOverlay(atlas);
   composeGlassesOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);

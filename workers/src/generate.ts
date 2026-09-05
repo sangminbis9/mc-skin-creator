@@ -2165,6 +2165,7 @@ export function buildProceduralFallbackAtlas(
         facePixelPlan: skinPlan.facePixelPlan,
         hairPlan: skinPlan.hairPlan,
         headIdentityPlan: skinPlan.headIdentityPlan,
+        outfitPlan: skinPlan.outfitPlan,
       } : {}),
     },
   );
@@ -2222,6 +2223,7 @@ export async function postprocessGeneratedSheet(
         facePixelPlan: skinPlan.facePixelPlan,
         hairPlan: skinPlan.hairPlan,
         headIdentityPlan: skinPlan.headIdentityPlan,
+        outfitPlan: skinPlan.outfitPlan,
       },
     );
     if (!packed) {

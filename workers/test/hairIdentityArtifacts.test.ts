@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { PhotoAnalysis } from "../src/analysis";
+import { measureCurlyIdentityRetention, measureCurlyPixelDifference } from "../src/curlyIdentityRetention";
 import { measureHeadIdentityRetention, measureHeadPixelDifference } from "../src/hairSilhouetteFidelity";
 import { applyCropVisibility, parseIdentityGeometry, type IdentityGeometryAnalysis } from "../src/identityGeometry";
 import { buildIdentityPixelPlans, type FacePixelPlan } from "../src/identityPlans";
@@ -15,14 +16,18 @@ import { measureAtlasCraft, validateAtlasCraft, validateFinalAtlas } from "../sr
 import { buildHeadViewMontage, extractRenderedHeadView, renderSkinViews } from "../src/skinRender";
 import {
   buildBeforeAfterHeadMontage,
+  buildBinaryHeadSilhouette,
   buildCrownContourOverlay,
   buildFaceGeometryOverlay,
   buildFaceWindowOverlay,
   buildFringeGeometryOverlay,
   buildGeometryOverlay,
   buildHeadLayerDiagnosticViews,
+  buildHeadPixelDiff,
+  buildHeadSeamDiagnostic,
   buildMajorVolumeGeometryOverlay,
   buildHeadTopDiagnosticView,
+  buildPreviewSizeHead,
   buildTempleGeometryOverlay,
   renderQuantizedHeadPlan,
   writeIdentityEvaluationArtifacts,
@@ -32,7 +37,7 @@ import { makeAnalysis } from "./helpers";
 const RUN = process.env.RUN_HAIR_IDENTITY_ARTIFACTS === "1";
 const GEOMETRY_INPUT_ROOT = resolve("evaluation-artifacts/head-structure-iteration-final");
 const PREVIOUS_ROOT = resolve("evaluation-artifacts/hair-identity-retention-20260903");
-const OUTPUT_ROOT = resolve(process.env.HAIR_IDENTITY_ARTIFACT_DIR ?? "evaluation-artifacts/head-geometry-20260903");
+const OUTPUT_ROOT = resolve(process.env.HAIR_IDENTITY_ARTIFACT_DIR ?? "evaluation-artifacts/curly-renderer-20260905");
 
 interface ArtifactCase {
   id: "short-hair-red-shirt" | "curly-hair";
@@ -163,6 +168,8 @@ describe.skipIf(!RUN)("offline hair identity evaluation artifacts", () => {
     const beforeRetention = measureHeadIdentityRetention(beforeAnalysis, beforePlans.hairPlan, beforePlans.facePixelPlan, beforeAtlas);
     const afterRetention = measureHeadIdentityRetention(analysis, plans.hairPlan, plans.facePixelPlan, afterAtlas);
     const craft = validateAtlasCraft(afterAtlas, sample.style, plans.facePixelPlan, plans.hairPlan);
+    const beforeLayers = buildHeadLayerDiagnosticViews(beforeAtlas);
+    const afterLayers = buildHeadLayerDiagnosticViews(afterAtlas);
     const metrics = {
       case: sample.id,
       evaluatorCalls: { absolute: 0, pairwise: 0 },
@@ -186,6 +193,8 @@ describe.skipIf(!RUN)("offline hair identity evaluation artifacts", () => {
       curlLobes: plans.hairPlan.structure.groups.filter((group) => group.kind === "curl_lobe").map((group) => ({ id: group.id, sourceAnchor: group.sourceAnchor, points: group.points })),
       retention: { before: beforeRetention, after: afterRetention },
       pixelDifference: measureHeadPixelDifference(beforeAtlas, afterAtlas),
+      curlyPixelDifference: sample.id === "curly-hair" ? measureCurlyPixelDifference(beforeAtlas, afterAtlas) : null,
+      curlyIdentityRetention: sample.id === "curly-hair" ? measureCurlyIdentityRetention(analysis, plans.hairPlan, plans.facePixelPlan, afterAtlas) : null,
       craft: { validation: craft, metrics: measureAtlasCraft(afterAtlas), finalAtlasValid: validateFinalAtlas(afterAtlas).ok },
     };
     await writeIdentityEvaluationArtifacts(OUTPUT_ROOT, sample.id, {
@@ -206,7 +215,15 @@ describe.skipIf(!RUN)("offline hair identity evaluation artifacts", () => {
       oldFacePixelPlan: storedMetrics.newFacePixelPlan,
       candidateA: buildHeadViewMontage(beforeViews),
       candidateB: buildHeadViewMontage(afterViews),
-      ...buildHeadLayerDiagnosticViews(afterAtlas),
+      ...afterLayers,
+      beforeSilhouette: buildBinaryHeadSilhouette(beforeAtlas),
+      afterSilhouette: buildBinaryHeadSilhouette(afterAtlas),
+      beforeBaseHeadOnly: beforeLayers.baseHeadOnly,
+      beforeOuterHeadOnly: beforeLayers.outerHeadOnly,
+      beforeBaseOuterHead: beforeLayers.baseOuterHead,
+      uvSeamDiagnostic: buildHeadSeamDiagnostic(afterAtlas),
+      headPixelDiff: buildHeadPixelDiff(beforeAtlas, afterAtlas),
+      previewSize: buildPreviewSizeHead(afterAtlas),
       finalHeadFront: afterFront,
       finalHeadFrontLeft: head("front_left_three_quarter"),
       finalHeadLeft: head("left"),
