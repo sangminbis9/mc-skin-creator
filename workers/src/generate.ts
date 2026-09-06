@@ -2151,6 +2151,7 @@ export function buildProceduralFallbackAtlas(
   features: Record<string, unknown>,
   style: FaceStyle,
   skinPlan?: SkinPlan,
+  headTrace?: (stage: string, atlas: RawImage) => void,
 ): RawImage | null {
   const packed = packFrontViewToAtlas(
     buildProceduralFrontView(features, style),
@@ -2158,6 +2159,7 @@ export function buildProceduralFallbackAtlas(
     2,
     {
       faceMode: "deterministic_plan",
+      headTrace,
       ...(skinPlan ? {
         // The integrated head contract owns the final deterministic identity
         // landmarks as well as hair structure. This keeps procedural fallback

@@ -25,6 +25,7 @@ import {
 } from "./hairIdentitySalience";
 import type { FaceIdentitySaliencePlan } from "./faceIdentitySalience";
 import { buildOutfitPlan, type OutfitPlan } from "./outfitIdentity";
+import { observedTiedHair, resolveHeadOwnership, type HeadOwnershipPlan } from "./headOwnership";
 
 export type {
   GlassesPixelRole,
@@ -106,6 +107,7 @@ export interface PerceptualQuantizationCost {
 }
 
 export type HairTemplate =
+  | "tied_bun"
   | "bald"
   | "short_cap"
   | "medium_bob"
@@ -188,6 +190,7 @@ export interface HairPlan {
 }
 
 export interface HeadIdentityPlan {
+  ownership?: HeadOwnershipPlan;
   baseFace: FacePixelPlan;
   baseHairGroupIds: string[];
   outerHairGroupIds: string[];
@@ -608,8 +611,9 @@ export function buildFacePixelPlanVariants(
 
 function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
   const hints = analysis.renderHints;
-  const hairEvidence = `${analysis.observed.hair} ${analysis.identityPrompt} ${analysis.canonicalIdentity.overallImpression} ${analysis.canonicalIdentity.mustPreserve.join(" ")}`.toLowerCase();
-  const bald = analysis.fallbackFeatures.hairstyle === "bald" || /\b(?:bald|balding|bald top|bare scalp|receding hairline)\b/.test(hairEvidence);
+  const tiedHair = observedTiedHair(analysis);
+  const hairEvidence = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ").toLowerCase();
+  const bald = !tiedHair && (analysis.fallbackFeatures.hairstyle === "bald" || /\b(?:bald|balding|bald top|bare scalp|receding hairline)\b/.test(hairEvidence));
   const lengthClass: HairPlan["lengthClass"] = bald
     ? "none"
     : ["cropped", "ear"].includes(hints.overallHairLength)
@@ -617,7 +621,9 @@ function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
       : ["jaw", "shoulder"].includes(hints.overallHairLength)
         ? "medium"
         : "long";
-  const template: HairTemplate = bald
+  const template: HairTemplate = tiedHair
+    ? "tied_bun"
+    : bald
     ? "bald"
     : hints.hairTexture === "coily"
       ? "coily_volume"
@@ -1063,6 +1069,7 @@ export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelP
     ...facePixelPlan.glassesPlan.sideArms,
   ].map((pixel) => ({ face: pixel.face, x: pixel.x, y: pixel.y }));
   const headIdentityPlan: HeadIdentityPlan = {
+    ownership: resolveHeadOwnership(analysis, plannedHair, facePixelPlan),
     baseFace: facePixelPlan,
     baseHairGroupIds,
     outerHairGroupIds,

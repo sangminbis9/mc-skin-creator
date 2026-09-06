@@ -715,7 +715,9 @@ describe("inferred lower-body completion", () => {
     expect(decoded.rgba[cuff + 3]).toBe(255);
     expect(decoded.rgba[lace + 3]).toBe(255);
     expect(decoded.rgba[sideSole + 3]).toBe(255);
-    expect(decoded.rgba[lace]).toBeGreaterThan(decoded.rgba[cuff]);
+    // A black shoe highlight must read against the shoe material, not the
+    // unrelated trouser cuff (whose palette may legitimately be lighter).
+    expect(decoded.rgba[lace]).toBeGreaterThan(decoded.rgba[shoePixel]);
     const trouserChannels = Array.from(
       decoded.rgba.slice(trouserPixel, trouserPixel + 3),
     );

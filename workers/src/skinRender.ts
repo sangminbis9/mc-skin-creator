@@ -197,11 +197,14 @@ function renderView(
   geometry: SkinGeometry,
   width = 96,
   height = 144,
+  pitchDegrees = 0,
 ): RenderedSkinView {
   const rgba = new Uint8Array(width * height * 4);
   const yaw = (yawDegrees * Math.PI) / 180;
-  const view: [number, number, number] = [Math.sin(yaw), 0, Math.cos(yaw)];
+  const pitch = pitchDegrees * Math.PI / 180;
+  const view: [number, number, number] = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
   const right: [number, number, number] = [Math.cos(yaw), 0, -Math.sin(yaw)];
+  const up: [number, number, number] = [-Math.sin(yaw) * Math.sin(pitch), Math.cos(pitch), -Math.cos(yaw) * Math.sin(pitch)];
   const scale = 28 / Math.min(width, height);
   const colors = new Set<string>();
   const body = geometry === "slim" ? SLIM_BODY : CLASSIC_BODY;
@@ -213,11 +216,11 @@ function renderView(
     for (let px = 0; px < width; px++) {
       const screenX = (px + 0.5 - width / 2) * scale;
       const origin: [number, number, number] = [
-        right[0] * screenX + view[0] * 64,
-        worldY,
-        right[2] * screenX + view[2] * 64,
+        right[0] * screenX + up[0] * worldY + view[0] * 64,
+        up[1] * worldY + view[1] * 64,
+        right[2] * screenX + up[2] * worldY + view[2] * 64,
       ];
-      const direction: [number, number, number] = [-view[0], 0, -view[2]];
+      const direction: [number, number, number] = [-view[0], -view[1], -view[2]];
       const hits: Array<{ hit: Hit; overlay: boolean }> = [];
       for (const box of body) {
         const overlay = intersectBox(origin, direction, expanded(box, 0.35));
@@ -275,6 +278,11 @@ export function renderSkinViews(
   return VIEWS.map((view) =>
     renderView(atlas, view.name, view.yawDegrees, geometry),
   );
+}
+
+/** Offline inspection angles; does not expand production/evaluator view inputs. */
+export function renderSkinInspectionView(atlas: RawImage, yawDegrees: number, pitchDegrees = 0): RawImage {
+  return renderView(atlas, "front", yawDegrees, "classic", 192, 288, pitchDegrees).image;
 }
 
 /** Nearest-neighbour head crop used for likeness ranking and eval artifacts. */

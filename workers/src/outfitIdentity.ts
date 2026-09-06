@@ -195,16 +195,44 @@ const COLORS: Record<string, string> = {
 
 function color(value: string | undefined, fallback: string): string {
   if (value && /^#[0-9a-f]{6}$/i.test(value)) return value.toLowerCase();
-  const normalized = value?.trim().toLowerCase().replaceAll("_", "-") ?? "";
+  const normalized = value?.trim().toLowerCase().replace(/[_ ]/g, "-") ?? "";
   return COLORS[normalized] ?? fallback;
 }
 
 const COLOR_WORD = "black|white|gray|grey|red|orange|yellow|green|blue|navy|denim|purple|pink|brown|beige|cream|gold|silver";
 
+const UPPER_WORDS = "top|shirt|t-shirt|tshirt|blouse|sweater|hoodie|jacket|blazer|cardigan|coat|vest|dress|jersey";
+const LOWER_WORDS = "pants|trousers|chinos|jeans|shorts|skirt|skort|leggings|bottoms?";
+const FOOTWEAR_WORDS = "shoes?|sneakers?|boots?|loafers?|sandals?|footwear";
+const ALL_GARMENTS = `${UPPER_WORDS}|${LOWER_WORDS}|${FOOTWEAR_WORDS}|socks?|stockings?`;
+
+/** Bind prose to a garment before interpreting its pattern, palette or sleeve.
+ * Coordinated colors stay together; another garment or layer ends ownership.
+ */
+function garmentEvidence(text: string, garmentWords: string): string {
+  const wanted = new RegExp(`^(${garmentWords})$`);
+  for (const clause of text.replace(/\bdress shoes\b/g, "shoes").split(/[.;\n]|\b(?:over|under)\b/)) {
+    const items = [...clause.matchAll(new RegExp(`\\b(?:${ALL_GARMENTS})\\b`, "g"))];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!wanted.test(item[0])) continue;
+      const previousEnd = i ? items[i - 1].index! + items[i - 1][0].length : 0;
+      let prefix = clause.slice(previousEnd, item.index);
+      if (i) prefix = prefix.split(/,|\b(?:and|with)\b/).at(-1) ?? "";
+      let suffix = clause.slice(item.index! + item[0].length, items[i + 1]?.index);
+      if (items[i + 1]) suffix = suffix.split(/,|\b(?:and|with)\b/)[0];
+      return `${prefix}${item[0]}${suffix}`.trim();
+    }
+  }
+  return "";
+}
+
 function garmentColorFromText(text: string, garmentWords: string, fallback: string): string {
-  const direct = new RegExp(`\\b(?:bright|dark|light|muted|soft|dusty)?[- ]*(${COLOR_WORD})\\b[^.,;]{0,48}\\b(?:${garmentWords})\\b`).exec(text)?.[1];
-  const reversed = new RegExp(`\\b(?:${garmentWords})\\b[^.,;]{0,28}\\b(${COLOR_WORD})\\b`).exec(text)?.[1];
-  return color(direct ?? reversed, fallback);
+  const scoped = garmentEvidence(text, garmentWords) || text;
+  const match = new RegExp(`\\b(?:(bright|dark|light|muted|soft|dusty)[- ])?(${COLOR_WORD})\\b`).exec(scoped);
+  if (!match) return fallback;
+  const modified = match[1] ? `${match[1]}-${match[2]}` : "";
+  return COLORS[modified] ?? color(match[2], fallback);
 }
 
 function evidenceText(analysis: PhotoAnalysis): string {
@@ -261,7 +289,7 @@ function pattern(text: string, texture: PhotoAnalysis["renderHints"]["garmentTex
   let kind: OutfitPatternKind = "none";
   let placement: OutfitPatternPlan["placement"] = "front";
   if (/\b(?:horizontal|striped|stripes)\b/.test(text) || texture === "striped") {
-    kind = /\bvertical\b/.test(text) ? "vertical_stripe" : "horizontal_stripe";
+    kind = /\bvertical(?:ly)?\b/.test(text) ? "vertical_stripe" : "horizontal_stripe";
     placement = "wrap";
   } else if (/\b(?:plaid|checkered|checked)\b/.test(text)) {
     kind = "checker_block";
@@ -358,14 +386,17 @@ function baseOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
   const garmentType = upperType(analysis, text);
   const clothingText = `${analysis.observed.clothing} ${analysis.outfitPrompt}`.toLowerCase();
   const observedClothing = analysis.observed.clothing.toLowerCase();
-  const upperTextSource = /\b(?:top|shirt|blouse|sweater|hoodie|jacket|cardigan|coat|vest|dress|jersey)\b/.test(observedClothing) ? observedClothing : clothingText;
-  const upperText = upperTextSource.split(/\b(?:pants|trousers|jeans|shorts|skirt|leggings|skort)\b/, 1)[0];
-  const topColor = garmentColorFromText(clothingText, "top|shirt|t-shirt|tshirt|blouse|sweater|hoodie|jacket|cardigan|coat|vest|dress|jersey", color(analysis.fallbackFeatures.topColor, "#516e91"));
+  const upperText = garmentEvidence(observedClothing, UPPER_WORDS) || garmentEvidence(clothingText, UPPER_WORDS);
+  const lowerText = analysis.visibleRegions.lowerBody
+    ? garmentEvidence(clothingText, LOWER_WORDS)
+    : garmentEvidence(analysis.inferred.lowerBody?.value.toLowerCase() ?? "", LOWER_WORDS);
+  const topColor = garmentColorFromText(upperText, UPPER_WORDS, color(analysis.fallbackFeatures.topColor, "#516e91"));
   const accentColor = color(analysis.fallbackFeatures.topAccentColor, "#e7e2d7");
-  const bottomColor = garmentColorFromText(clothingText, "pants|trousers|jeans|shorts|skirt|leggings|bottom", color(analysis.fallbackFeatures.bottomColor, "#39485f"));
-  const shoeColor = garmentColorFromText(clothingText, "shoes|sneakers|boots|loafers|sandals|footwear", color(analysis.fallbackFeatures.shoesColor, "#383438"));
-  const leftLength = sleeveLength(analysis.fallbackFeatures.sleeveLength, text, "left");
-  const rightLength = sleeveLength(analysis.fallbackFeatures.sleeveLength, text, "right");
+  const bottomColor = garmentColorFromText(lowerText, LOWER_WORDS, color(analysis.fallbackFeatures.bottomColor, "#39485f"));
+  const shoeText = garmentEvidence(clothingText, FOOTWEAR_WORDS);
+  const shoeColor = garmentColorFromText(shoeText, FOOTWEAR_WORDS, color(analysis.fallbackFeatures.shoesColor, "#383438"));
+  const leftLength = sleeveLength(analysis.fallbackFeatures.sleeveLength, upperText, "left");
+  const rightLength = sleeveLength(analysis.fallbackFeatures.sleeveLength, upperText, "right");
   const contrastingSleeves = /\b(?:contrasting|contrast|raglan|two[- ]tone) sleeves?\b/.test(text);
   const leftSleeveColor = contrastingSleeves || /\bleft sleeve[^.]{0,24}(?:contrasting|accent)\b/.test(text) ? accentColor : topColor;
   const rightSleeveColor = contrastingSleeves || /\bright sleeve[^.]{0,24}(?:contrasting|accent)\b/.test(text) ? accentColor : topColor;
@@ -391,7 +422,7 @@ function baseOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
   const skinExposureRows = ["shorts", "skirt", "dress_continuation"].includes(lowerType) ? Math.max(0, 12 - garmentRows - shoeRows) : 0;
   const accessories = accessoryPlans(analysis, text, accentColor);
   let lowerLegwear = legwearFromText(analysis, text, accentColor);
-  let lowerPatternPlan = lowerPattern(analysis, text, accentColor);
+  let lowerPatternPlan = lowerPattern(analysis, lowerText, accentColor);
   let lowerAccent = analysis.renderHints.bottomAccent !== "none"
     ? analysis.renderHints.bottomAccent
     : analysis.inferred.lowerBodyDesign?.bottomAccent ?? "none";

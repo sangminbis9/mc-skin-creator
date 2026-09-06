@@ -312,6 +312,14 @@ function p5Text(analysis: PhotoAnalysis): string {
     .toLowerCase();
 }
 
+function hasWideMouthEvidence(analysis: PhotoAnalysis): boolean {
+  // A wide crown, large bag or broad eyes cannot impose a mouth-width floor.
+  // Keep the P5 requirement, but bind its modifier to the named facial feature.
+  const describesWideMouth = /\b(?:wide|broad|large)(?:[- ]+(?:closed|open|toothy|smiling))?[- ]+(?:mouth|smile|grin|lips?)\b|\b(?:mouth|smile|grin|lips?)\b(?:\s+(?:is|are|appears?))?\s+(?:wide|broad|large)\b/;
+  return analysis.canonicalIdentity.features.some(feature => feature.priority === 5 && feature.category === "face" &&
+    describesWideMouth.test(`${feature.feature}; ${feature.evidence}`.toLowerCase()));
+}
+
 function mouthTopologyFor(
   opening: FaceLayoutPlan["mouthOpening"],
   width: FaceLayoutPlan["mouthWidth"],
@@ -361,7 +369,7 @@ function buildRenderContract(
     mouth: {
       protected: mouthProtected,
       opening: mouthOpening,
-      minimumPerceptualWidth: mouthProtected && /wide|broad|large/.test(text)
+      minimumPerceptualWidth: mouthProtected && hasWideMouthEvidence(analysis)
         ? Math.max(4, mouthWidth) as 4 | 5
         : mouthWidth,
       teethReadable: mouthOpening === "teeth",
@@ -660,7 +668,7 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
     : fallback.mouthCornerOffsets;
   const sourceP5Text = p5Text(analysis);
   const perceptuallyWideExpression =
-    (protectedGeometry.includes("mouth") && /wide|broad|large/.test(sourceP5Text)) ||
+    (protectedGeometry.includes("mouth") && hasWideMouthEvidence(analysis)) ||
     (analysis.renderHints.mouthShape === "wide" && mouthOpening === "teeth" && (geometry.mouth.width / faceWidth) * 8 >= 3);
   if (perceptuallyWideExpression) {
     mouthWidth = Math.max(4, mouthWidth) as FaceLayoutPlan["mouthWidth"];
@@ -846,7 +854,7 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
       : 6;
   const protectedGeometry = p5ProtectedGeometry(analysis);
   const mouthOpening: FaceLayoutPlan["mouthOpening"] = hints.mouthOpening === "teeth_visible" ? "teeth" : hints.mouthOpening === "slightly_open" ? "open" : "closed";
-  const mouthWidth: FaceLayoutPlan["mouthWidth"] = hints.mouthShape === "wide"
+  const mouthWidth: FaceLayoutPlan["mouthWidth"] = hints.mouthShape === "wide" || (protectedGeometry.includes("mouth") && hasWideMouthEvidence(analysis))
     ? mouthOpening === "teeth" && protectedGeometry.includes("mouth") ? 5 : 4
     : hints.mouthShape === "full" ? 3 : 2;
   const mouthCornerOffsets: FaceLayoutPlan["mouthCornerOffsets"] = analysis.fallbackFeatures.expression === "smile" ? [-1, -1] : [0, 0];

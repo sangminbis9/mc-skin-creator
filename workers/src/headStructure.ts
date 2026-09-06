@@ -93,7 +93,7 @@ function hairIdentityImportance(analysis: PhotoAnalysis): 1 | 2 | 3 | 4 | 5 {
 }
 
 function textureGrammar(analysis: PhotoAnalysis): HairTextureGrammar {
-  const text = `${analysis.observed.hair} ${analysis.identityPrompt} ${analysis.canonicalIdentity.overallImpression} ${analysis.canonicalIdentity.mustPreserve.join(" ")}`.toLowerCase();
+  const text = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ").toLowerCase();
   if (/dread|\blocs?\b|lock group/.test(text)) return "lock_groups";
   if (analysis.renderHints.hairTexture === "coily") return "coily_clusters";
   if (analysis.renderHints.hairTexture === "curly") return "curl_lobes";
@@ -549,7 +549,7 @@ export function buildGlassesStructurePlan(analysis: PhotoAnalysis, layout: FaceL
   }
   const accessoryText = analysis.observed.accessories.toLowerCase();
   const canonicalGlassesText = analysis.canonicalIdentity.features
-    .filter((feature) => /\b(?:glasses|frames?|rims?|eyewear)\b/i.test(`${feature.feature} ${feature.evidence}`))
+    .filter((feature) => feature.category === "accessory" && /\b(?:glasses|frames?|rims?|eyewear)\b/i.test(`${feature.feature} ${feature.evidence}`))
     .map((feature) => `${feature.feature} ${feature.evidence}`)
     .join(" ")
     .toLowerCase();
@@ -557,9 +557,10 @@ export function buildGlassesStructurePlan(analysis: PhotoAnalysis, layout: FaceL
   // contain "round face" or "thick eyebrows" near glasses and must not turn
   // a thin rectangular frame into a round/heavy one.
   const glassesText = `${accessoryText} ${canonicalGlassesText}`.toLowerCase();
+  const scopedGlassesText = glassesText.split(/[.!?;,]|\band\b/).filter(clause => /\b(?:glasses|frames?|rims?|eyewear)\b/.test(clause) && !/\b(?:necklace|bag|blazer|shirt|bracelet)\b/.test(clause)).join("; ");
   const nearGlasses = (adjective: string) => new RegExp(
     `\\b(?:${adjective})\\b[^.!?;,]{0,28}\\b(?:glasses|frames?|rims?|eyewear)\\b|\\b(?:glasses|frames?|rims?|eyewear)\\b[^.!?;,]{0,28}\\b(?:${adjective})\\b`,
-  ).test(glassesText);
+  ).test(scopedGlassesText);
   const round = glasses === "round" || nearGlasses("round|circular|coke[-\\s]+bottle");
   const heavyFrame = nearGlasses("thick|heavy|bold|coke[-\\s]+bottle");
   const thin = nearGlasses("thin|wire|fine|delicate|narrow") && !heavyFrame;

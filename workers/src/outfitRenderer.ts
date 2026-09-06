@@ -223,7 +223,12 @@ function drawOuter(atlas: RawImage, plan: OutfitPlan): void {
       if (sleeve.terminationRow <= 0) continue;
       const arm = CLASSIC_LAYOUT[part].overlay;
       const cuffY = Math.min(arm.front.h - 1, sleeve.terminationRow - 1);
-      for (const face of ["front", "back"] as const) for (let x = 0; x < arm[face].w; x++) put(atlas, arm[face], x, cuffY, shade(garment, FACE_SHADE[face] * 0.84));
+      // Preserve the physical cuff fold's light/shadow after removing an
+      // unrelated lower-body pattern. No extra occupied pixels or new motif.
+      for (const face of ["front", "back"] as const) for (let x = 0; x < arm[face].w; x++) {
+        const fold = x > 0 && x < arm[face].w - 1 ? 1.08 : 0.84;
+        put(atlas, arm[face], x, cuffY, shade(garment, FACE_SHADE[face] * fold));
+      }
       for (const face of ["right", "left"] as const) for (const x of [0, arm[face].w - 1]) put(atlas, arm[face], x, cuffY, shade(garment, FACE_SHADE[face] * 0.84));
       for (let x = 0; x < arm.top.w; x++) put(atlas, arm.top, x, 0, shade(garment, FACE_SHADE.top * 0.84));
     }

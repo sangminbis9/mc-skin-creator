@@ -38,6 +38,8 @@ export interface PackOptions {
   hairPlan?: HairPlan;
   headIdentityPlan?: HeadIdentityPlan;
   outfitPlan?: OutfitPlan;
+  /** Optional synchronous diagnostic tap; callback must copy data it retains. */
+  headTrace?: (stage: string, atlas: RawImage) => void;
 }
 
 /**
@@ -2149,6 +2151,43 @@ export function applyHeadIdentityPlan(
   applyFace = true,
 ): void {
   const facePlan = plan?.baseFace;
+  if (applyFace && facePlan && plan?.ownership) {
+    const ownership = plan.ownership;
+    if (ownership.execution === "preserve_existing_grammar") {
+      applyFacePixelPlan(atlas, facePlan, hairColor, skinColor, style);
+      return;
+    }
+    const coveringColor = hexToRgb(style.hatColor ?? "", hairColor);
+    // All ownership was resolved before rendering. Color proximity and style
+    // heuristics cannot reclaim these cells during execution.
+    for (const p of ownership.cells) {
+      if (p.retain || ["face", "glasses", "other_p5"].includes(p.owner)) continue;
+      const rect = CLASSIC_LAYOUT.head[p.layer === "base" ? "base" : "overlay"][p.face];
+      const at = ((rect.y + p.y) * ATLAS_SIZE + rect.x + p.x) * 4;
+      if (p.owner === "clear") { atlas.rgba.fill(0, at, at + 4); continue; }
+      // Existing covering grammar owns its observed cloth accents. Reuse its
+      // painted material where occupied; fill only genuinely absent edges.
+      if (p.owner === "covering" && p.layer === "outer" && atlas.rgba[at + 3]) continue;
+      // The foundation's existing material ramp is independent of ownership.
+      // Reuse it inside a resolved mass; only new depth and explicit texture
+      // groups need new paint. Shared edges still use the paired group color.
+      if (p.owner === "hair_outer" && !p.continuityGroupId && p.sourceGroupId.startsWith("silhouette-") && atlas.rgba[at + 3]) continue;
+      const material = p.owner === "covering" ? shadeRgb(coveringColor, p.layer === "base" ? 0.86 : 1.02) : p.role === "light" ? mixRgb(hairColor, [190, 176, 164], 0.28) : hairStructureColor(p.role ?? "mid", hairColor, skinColor);
+      // Connected, deterministic material shading survives the final stage.
+      // Shared edges use their logical group's ramp rather than face-local RGB.
+      const ramp = p.continuityGroupId ? 1 : 1.12 - Math.floor(p.y / 2) * 0.10;
+      const color = shadeRgb(material, ramp);
+      atlas.rgba.set([...color, 255], at);
+    }
+    // Covering is not fringe hair. Preserve the same face/glasses grammar,
+    // omitting only the conflicting hair instructions inside covered regions.
+    applyFacePixelPlan(atlas, ownership.covering ? { ...facePlan, pixels: facePlan.pixels.filter(p => p.cluster !== "fringe") } : facePlan, hairColor, skinColor, style);
+    if (style.glasses === "sunglasses") for (const p of facePlan.glassesPlan.lensOpenings) {
+      const rect = CLASSIC_LAYOUT.head.overlay.front;
+      atlas.rgba.set([...hexToRgb(style.glassesColor ?? "", [25, 25, 27]), 255], ((rect.y + p.y) * ATLAS_SIZE + rect.x + p.x) * 4);
+    }
+    return;
+  }
   applyHairStructurePlan(atlas, hairPlan, hairColor, skinColor, facePlan);
   if (applyFace && facePlan) applyFacePixelPlan(atlas, facePlan, hairColor, skinColor, style);
 }
@@ -9495,6 +9534,7 @@ export function packFrontViewToAtlas(
     applyOutfitPlan(atlas, options.outfitPlan, faceStyle.skinTone ?? "#d39e80");
   }
   resetPortraitFaceOverlay(atlas);
+  options.headTrace?.("before_head_composition", atlas);
   composeGlassesOverlay(atlas, faceStyle);
   composeHair(atlas, hairColor, skinColor, faceStyle);
   applyHeadMaskPlan(atlas, options.hairPlan, hairColor, hatColor, faceStyle, options.facePixelPlan);
@@ -9520,10 +9560,12 @@ export function packFrontViewToAtlas(
     composeGlassesOverlay(atlas, faceStyle);
   }
   applyShading(atlas);
+  options.headTrace?.("after_shading", atlas);
   reconcileBaseHorizontalSeams(atlas);
   // Reconcile last so directional face shading cannot reopen a color break at
   // a physically shared edge. Only seam-edge pixels are affected.
   reconcileOverlaySeams(atlas, faceStyle, hairColor);
+  options.headTrace?.("after_seam_reconcile", atlas);
   // Tiny jewelry is intentionally authored after seam reconciliation so it is
   // not mistaken for hair/cloth continuity and remains readable in front and
   // profile renders.
@@ -9538,12 +9580,17 @@ export function packFrontViewToAtlas(
   // the initial face plan. Reassert the measured landmarks last so normalized
   // frame footprints and facial coordinates survive the production pack path.
   if (!preservedGeneratedFace && options.facePixelPlan) {
-    applyFacePixelPlan(atlas, options.facePixelPlan, hairColor, skinColor, faceStyle);
+    options.headTrace?.("before_authoritative_head", atlas);
+    if (options.headIdentityPlan?.ownership) applyHeadIdentityPlan(atlas, options.headIdentityPlan, options.hairPlan, hairColor, skinColor, faceStyle);
+    else applyFacePixelPlan(atlas, options.facePixelPlan, hairColor, skinColor, faceStyle);
+    options.headTrace?.("after_authoritative_head", atlas);
   }
   if (preservedFacePixels) {
     // No later craft/shading/seam pass may repaint source identity evidence.
     restoreRect(atlas, head.base.front, preservedFacePixels);
   }
+
+  options.headTrace?.("final_head", atlas);
 
   return {
     atlas,
