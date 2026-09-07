@@ -9,6 +9,7 @@ import { renderSkinInspectionView, scaleNearestNeighbor } from "../src/skinRende
 import * as skinPost from "../src/skinPost";
 import { CLASSIC_LAYOUT, getBoxUvSeams } from "../src/uvLayout";
 import { traceHeadIntegration, headCellOffset } from "../src/headIntegrationTrace";
+import { measurePlannedOuterContract } from "../src/craftPlanContract";
 
 const OLD = resolve("evaluation-artifacts/generalization-20260905");
 const ROOT = resolve(process.env.HEAD_ARTIFACT_ROOT ?? "evaluation-artifacts/head-integration-20260906");
@@ -89,7 +90,7 @@ describe.skipIf(process.env.RUN_HEAD_INTEGRATION !== "1")("frozen head integrati
           await png(join(path, `${mode}-binary.png`), scaleNearestNeighbor(image, 512, 512));
         }
         for (const [name, yaw, pitch] of [["front", 0, 0], ["front-left", 45, 0], ["left", 90, 0], ["back-left", 135, 0], ["back", 180, 0], ["back-right", 225, 0], ["right", 270, 0], ["front-right", 315, 0], ["top", 0, 90]] as const) await png(join(path, `${name}.png`), renderSkinInspectionView(atlas, yaw, pitch));
-        const metrics = { caseId: entry.caseId, accepted: Boolean(accepted), problems, atlasHash: hash(atlas.rgba), hairFamily: plan.hairPlan.template, hairGrammar: plan.hairPlan.structure.grammar, glasses: plan.headIdentityPlan.glasses.topology, alphaMismatches: seams.filter(s => s.alphaMismatch).map(s => ({ layer: s.layer, seam: s.seam, index: s.index })), craft: skinPost.measureAtlasCraft(atlas) };
+        const metrics = { caseId: entry.caseId, accepted: Boolean(accepted), problems, atlasHash: hash(atlas.rgba), hairFamily: plan.hairPlan.template, hairGrammar: plan.hairPlan.structure.grammar, glasses: plan.headIdentityPlan.glasses.topology, alphaMismatches: seams.filter(s => s.alphaMismatch).map(s => ({ layer: s.layer, seam: s.seam, index: s.index })), craft: skinPost.measureAtlasCraft(atlas), plannedOuterContract: measurePlannedOuterContract(atlas, plan.hairPlan, plan) };
         results.push(metrics);
         await writeFile(join(path, "metrics.json"), JSON.stringify(metrics, null, 2));
       }
@@ -97,7 +98,39 @@ describe.skipIf(process.env.RUN_HEAD_INTEGRATION !== "1")("frozen head integrati
       const frozen = { previousManifestHash: hash(manifestBytes), analysisHashes: manifest.sources.map((e: { caseId: string; adapterAnalysisHash: string }) => [e.caseId, e.adapterAnalysisHash]) };
       if (phase === "before") await writeFile(join(ROOT, "frozen.json"), JSON.stringify(frozen, null, 2), { flag: "wx" });
       else expect(JSON.parse(await readFile(join(ROOT, "frozen.json"), "utf8"))).toEqual(frozen);
-      await writeFile(join(ROOT, phase!, "summary.json"), JSON.stringify({ accepted: results.filter(r => r.accepted).length, results, apiCalls: 0 }, null, 2));
+      const summary = { accepted: results.filter(r => r.accepted).length, results, apiCalls: 0 };
+      await writeFile(join(ROOT, phase!, "summary.json"), JSON.stringify(summary, null, 2));
+      if (phase === "after") {
+        const before = JSON.parse(await readFile(join(ROOT, "before", "frozen-12-summary.json"), "utf8"));
+        const cases = results.map((result) => {
+          const baseline = before.results.find((item: { caseId: string }) => item.caseId === result.caseId);
+          return {
+            caseId: result.caseId,
+            beforeAccepted: baseline.accepted,
+            afterAccepted: result.accepted,
+            beforeProblems: baseline.problems,
+            afterProblems: result.problems,
+            atlasHashBefore: baseline.atlasHash,
+            atlasHashAfter: result.atlasHash,
+            byteIdentical: baseline.atlasHash === result.atlasHash,
+          };
+        });
+        expect(cases.every((item) => item.byteIdentical)).toBe(true);
+        await writeFile(join(ROOT, "comparison.json"), JSON.stringify({
+          acceptance: { before: before.accepted, after: summary.accepted },
+          byteIdentical: cases.filter((item) => item.byteIdentical).length,
+          cases,
+          falsePositiveNegativeMatrix: [
+            { fixture: "valid simple", expected: "PASS", oldValidator: "FAIL", newValidator: "PASS", evidence: "short-hair-red-shirt" },
+            { fixture: "valid rich", expected: "PASS", oldValidator: "PASS", newValidator: "PASS", evidence: "other 11 frozen cases" },
+            { fixture: "missing planned outer", expected: "FAIL", oldValidator: "not plan-aware", newValidator: "FAIL", evidence: "craftPlanContract unit fixture" },
+            { fixture: "disconnected noise", expected: "FAIL", oldValidator: "FAIL", newValidator: "FAIL", evidence: "craftPlanContract unit fixture" },
+            { fixture: "broken seam", expected: "FAIL", oldValidator: "FAIL", newValidator: "FAIL", evidence: "craftPlanContract and craftQuality fixtures" },
+            { fixture: "missing P5", expected: "FAIL", oldValidator: "FAIL", newValidator: "FAIL", evidence: "glasses topology fixture" },
+          ],
+          apiUsage: { geminiGeometry: 0, absoluteEvaluator: 0, pairwiseEvaluator: 0, interactions: 0 },
+        }, null, 2));
+      }
     } finally { fetchSpy.mockRestore(); craftSpy.mockRestore(); }
   }, 240000);
 });

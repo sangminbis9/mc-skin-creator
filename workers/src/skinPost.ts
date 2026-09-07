@@ -8,6 +8,10 @@
 
 import type { RawImage } from "./png";
 import type { FacePixelPlan, HairPlan } from "./identityPlans";
+import {
+  measurePlannedOuterContract,
+  type AtlasCraftPlanContext,
+} from "./craftPlanContract";
 import { measureFaceRenderContract, measureHairRenderContract } from "./identityRenderContract";
 import {
   ALL_PARTS,
@@ -634,20 +638,22 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
 }
 
 /**
- * Style-aware quality gate. Format validation alone cannot distinguish a
- * detailed authored skin from a technically valid but flat template. These
- * conservative floors sit below the bundled handcrafted reference while
- * still requiring clustered shading, sparse second layers, and the regions
- * promised by the photo analysis.
+ * Craft quality gate. A normalized plan supplies the production richness
+ * contract, so simple sources are not forced to populate unrelated UV faces
+ * and rich sources must preserve their own planned groups. The legacy global
+ * floors remain only for callers that validate an atlas without plan context.
+ * Structural seam, shell, noise, layout and identity invariants apply to both.
  */
 export function validateAtlasCraft(
   atlas: RawImage,
   style: AtlasCraftStyle,
   facePixelPlan?: FacePixelPlan,
   hairPlan?: HairPlan,
+  planContext?: AtlasCraftPlanContext,
 ): AtlasValidation {
   const problems: string[] = [];
   const metrics = measureAtlasCraft(atlas);
+  const planAware = Boolean(planContext?.headIdentityPlan || planContext?.outfitPlan);
   const value = (candidate: string | undefined) => candidate ?? "none";
   const has = (candidate: string | undefined) => value(candidate) !== "none";
   const headScarf = style.hat === "headscarf";
@@ -681,15 +687,15 @@ export function validateAtlasCraft(
     problems.push(`base palette too small (${metrics.baseColorCount})`);
   if (metrics.detailedBaseFaces < 18)
     problems.push(`too few shaded base faces (${metrics.detailedBaseFaces})`);
-  if (metrics.overlayColorCount < 6)
+  if (!planAware && metrics.overlayColorCount < 6)
     problems.push(
       `outer-layer palette too small (${metrics.overlayColorCount})`,
     );
-  if (metrics.populatedOverlayFaces < 6)
+  if (!planAware && metrics.populatedOverlayFaces < 6)
     problems.push(
       `too few populated outer-layer faces (${metrics.populatedOverlayFaces})`,
     );
-  if (metrics.shadedOverlayFaces < 6)
+  if (!planAware && metrics.shadedOverlayFaces < 6)
     problems.push(
       `too few shaded outer-layer faces (${metrics.shadedOverlayFaces})`,
     );
@@ -745,7 +751,7 @@ export function validateAtlasCraft(
     }
   }
 
-  if (richStyle) {
+  if (!planAware && richStyle) {
     if (metrics.opaqueOverlayPixels < 120)
       problems.push(
         `rich style lacks outer-layer volume (${metrics.opaqueOverlayPixels})`,
@@ -762,6 +768,11 @@ export function validateAtlasCraft(
       problems.push(
         `rich style lacks face shading (${metrics.shadedOverlayFaces})`,
       );
+  }
+
+  if (planAware) {
+    const plannedOuter = measurePlannedOuterContract(atlas, hairPlan, planContext);
+    problems.push(...plannedOuter.violations);
   }
 
   const hasMeasuredHeadMask = hairPlan?.headMask.source === "identity_geometry";
@@ -865,7 +876,7 @@ export function validateAtlasCraft(
       );
     }
   }
-  if (has(style.outerGarment)) {
+  if (!planAware && has(style.outerGarment)) {
     if (metrics.overlayPixelsByPart.body < 40)
       problems.push(
         `outer garment lacks torso construction (${metrics.overlayPixelsByPart.body})`,
@@ -878,6 +889,7 @@ export function validateAtlasCraft(
     }
   }
   if (
+    !planAware &&
     has(style.legwear) &&
     metrics.overlayPixelsByPart.rightLeg + metrics.overlayPixelsByPart.leftLeg <
       24
