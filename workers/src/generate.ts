@@ -286,6 +286,7 @@ export interface AnalysisSummary {
   canonicalIdentity: PhotoAnalysis["canonicalIdentity"];
   renderHints: PhotoAnalysis["renderHints"];
   identityGeometry?: PhotoAnalysis["identityGeometry"];
+  faceMeasurementEvidence?: PhotoAnalysis["faceMeasurementEvidence"];
   skinPlan: SkinPlan;
 }
 
@@ -590,6 +591,7 @@ export async function generateSkin(
     canonicalIdentity: renderAnalysis.canonicalIdentity,
     renderHints: renderAnalysis.renderHints,
     ...(renderAnalysis.identityGeometry ? { identityGeometry: renderAnalysis.identityGeometry } : {}),
+    ...(renderAnalysis.faceMeasurementEvidence ? { faceMeasurementEvidence: renderAnalysis.faceMeasurementEvidence } : {}),
     skinPlan,
   };
   const faceStyle = buildFaceStyle(renderAnalysis, features);

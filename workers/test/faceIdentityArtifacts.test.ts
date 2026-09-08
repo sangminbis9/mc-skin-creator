@@ -170,6 +170,9 @@ describe.skipIf(!RUN)("offline face identity artifacts", () => {
       // frozen while applying the new facial landmarks and glasses contract.
       applyHeadIdentityPlan(afterAtlas, {
         ...headIdentityPlan,
+        ownership: headIdentityPlan.ownership
+          ? { ...headIdentityPlan.ownership, execution: "preserve_existing_grammar" }
+          : headIdentityPlan.ownership,
         baseFace: {
           ...headIdentityPlan.baseFace,
           pixels: headIdentityPlan.baseFace.pixels.filter((pixel) => pixel.cluster !== "fringe"),
@@ -183,7 +186,10 @@ describe.skipIf(!RUN)("offline face identity artifacts", () => {
       const faceRect = CLASSIC_LAYOUT.head.base.front;
       for (const pixel of priorFringe) {
         const offset = ((faceRect.y + pixel.y) * replay.beforeAtlas.width + faceRect.x + pixel.x) * 4;
-        expect([...afterAtlas.rgba.slice(offset, offset + 4)]).toEqual([...replay.beforeAtlas.rgba.slice(offset, offset + 4)]);
+        expect(
+          [...afterAtlas.rgba.slice(offset, offset + 4)],
+          `${replay.id}: stored fringe ${pixel.x},${pixel.y} must remain byte-identical`,
+        ).toEqual([...replay.beforeAtlas.rgba.slice(offset, offset + 4)]);
       }
       const beforeViews = renderSkinViews(replay.beforeAtlas);
       const afterViews = renderSkinViews(afterAtlas);

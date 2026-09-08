@@ -1,4 +1,5 @@
 import type { PhotoAnalysis } from "./analysis";
+import { faceSalienceScore } from "./faceIdentitySalience";
 import type { FacePixelInstruction, FacePixelPlan, MouthTopology } from "./identityPlans";
 
 export interface FaceIdentitySignature {
@@ -54,7 +55,28 @@ export interface FaceIdentityRetention {
     quantizedToRendered: number;
     overall: number;
   };
+  identityCritical: {
+    eyes: number;
+    brows: number;
+    mouth: number;
+    verticalRelation: number;
+    salienceWeighted: number;
+  };
   largestLossStage: "source_to_geometry_unmeasured" | "geometry_to_quantization" | "quantization_to_render" | "retained";
+}
+
+export interface FaceIdentityAxisSignatures {
+  eyes: string;
+  brows: string;
+  mouth: string;
+  face: string;
+  glasses: string;
+  full: string;
+}
+
+export interface FacePlanCollision {
+  ids: string[];
+  signature: string;
 }
 
 export interface FacePixelDifference {
@@ -150,6 +172,9 @@ export function measureFaceIdentityRetention(analysis: PhotoAnalysis, plan: Face
   const quantizedRightCenter = mean(quantized.rightEyeColumns);
   const renderedLeftCenter = mean(rendered.leftEyeColumns);
   const renderedRightCenter = mean(rendered.rightEyeColumns);
+  const intendedRenderedBrowRow = (anchor: number, eyeRow: number) => plan.layout.browTiltOffset > 0
+    ? Math.min(eyeRow - 1, anchor + 1)
+    : anchor;
   const metrics = {
     eyeSpacingRetention: retention((quantizedRightCenter - quantizedLeftCenter) - target.eyeSpacing, 2),
     leftEyeWidthRetention: retention(quantized.leftEyeWidth - target.leftEyeWidth, 2),
@@ -166,18 +191,106 @@ export function measureFaceIdentityRetention(analysis: PhotoAnalysis, plan: Face
   const quantizedToRendered = mean([
     retention((renderedRightCenter - renderedLeftCenter) - (quantizedRightCenter - quantizedLeftCenter), 1),
     retention(rendered.mouthWidth - quantized.mouthWidth, 1),
-    retention(rendered.leftBrowRow - quantized.leftBrowRow, 1),
-    retention(rendered.rightBrowRow - quantized.rightBrowRow, 1),
+    retention(rendered.leftBrowRow - intendedRenderedBrowRow(quantized.leftBrowRow, quantized.leftEyeRow), 1),
+    retention(rendered.rightBrowRow - intendedRenderedBrowRow(quantized.rightBrowRow, quantized.rightEyeRow), 1),
   ]);
   const geometryToQuantized = mean(Object.values(metrics));
   const overall = geometryToQuantized * quantizedToRendered;
+  const eyes = mean([
+    metrics.eyeSpacingRetention,
+    metrics.leftEyeWidthRetention,
+    metrics.rightEyeWidthRetention,
+    metrics.eyeHeightRetention,
+  ]);
+  const brows = mean([metrics.browPositionRetention, metrics.browAsymmetryRetention]);
+  const mouth = mean([metrics.mouthWidthRetention, metrics.mouthHeightRetention, metrics.mouthTopologyRetention]);
+  const verticalRelation = metrics.verticalProportionRetention;
+  const eyeWeight = 1 + mean([
+    faceSalienceScore(plan.salience, "eye_spacing"),
+    faceSalienceScore(plan.salience, "eye_width"),
+    faceSalienceScore(plan.salience, "eye_openness"),
+    faceSalienceScore(plan.salience, "eye_asymmetry"),
+  ]);
+  const browWeight = 1 + mean([
+    faceSalienceScore(plan.salience, "brow_position"),
+    faceSalienceScore(plan.salience, "brow_strength"),
+  ]);
+  const mouthWeight = 1 + mean([
+    faceSalienceScore(plan.salience, "mouth_width"),
+    faceSalienceScore(plan.salience, "mouth_topology"),
+    faceSalienceScore(plan.salience, "mouth_asymmetry"),
+  ]);
+  const salienceWeighted = (
+    eyes * eyeWeight + brows * browWeight + mouth * mouthWeight + verticalRelation
+  ) / (eyeWeight + browWeight + mouthWeight + 1);
   return {
     source, geometry: { ...target }, quantized, rendered, metrics,
     stageRetention: { geometryToQuantized, quantizedToRendered, overall },
+    identityCritical: { eyes, brows, mouth, verticalRelation, salienceWeighted },
     largestLossStage: geometryToQuantized < 0.999
       ? "geometry_to_quantization"
       : quantizedToRendered < 0.999 ? "quantization_to_render" : "retained",
   };
+}
+
+/** Palette-free collision signature for the source-to-8x8 diagnostic. */
+export function measureFaceIdentityAxisSignatures(plan: FacePixelPlan): FaceIdentityAxisSignatures {
+  const signature = measureFaceIdentitySignature(plan);
+  const meanEyeRow = mean([signature.leftEyeRow, signature.rightEyeRow]);
+  const browGap = [
+    signature.leftEyeRow - signature.leftBrowRow,
+    signature.rightEyeRow - signature.rightBrowRow,
+  ];
+  const eyes = JSON.stringify([
+    signature.leftEyeColumns,
+    signature.rightEyeColumns,
+    signature.leftEyeRow,
+    signature.rightEyeRow,
+    signature.leftEyeWidth,
+    signature.rightEyeWidth,
+    signature.eyeTopology,
+  ]);
+  const brows = JSON.stringify([
+    signature.leftBrowCells,
+    signature.rightBrowCells,
+    signature.browThickness,
+    plan.layout.browTiltOffset,
+    browGap,
+  ]);
+  const mouth = JSON.stringify([
+    signature.mouthTopology,
+    signature.mouthWidth,
+    signature.mouthRow,
+    plan.layout.mouthCenterX,
+    plan.layout.mouthCornerOffsets,
+  ]);
+  const face = JSON.stringify([
+    signature.faceWindow,
+    plan.layout.faceWindow.foreheadRows,
+    plan.layout.faceWindow.visibleWidthAtCheeks,
+    signature.mouthRow - meanEyeRow,
+    plan.layout.faceShape,
+  ]);
+  const glasses = JSON.stringify([
+    plan.glassesPlan.topology,
+    plan.glassesPlan.framePixels
+      .filter((pixel) => pixel.face === "front")
+      .map((pixel) => `${pixel.x},${pixel.y}:${pixel.role}`)
+      .sort(),
+    plan.glassesPlan.lensOpenings.map((pixel) => `${pixel.x},${pixel.y}`).sort(),
+  ]);
+  return { eyes, brows, mouth, face, glasses, full: JSON.stringify([eyes, brows, mouth, face, glasses]) };
+}
+
+export function findFacePlanCollisions(samples: Array<{ id: string; plan: FacePixelPlan }>): FacePlanCollision[] {
+  const buckets = new Map<string, string[]>();
+  for (const sample of samples) {
+    const signature = measureFaceIdentityAxisSignatures(sample.plan).full;
+    buckets.set(signature, [...(buckets.get(signature) ?? []), sample.id]);
+  }
+  return [...buckets.entries()]
+    .filter(([, ids]) => ids.length > 1)
+    .map(([signature, ids]) => ({ ids, signature }));
 }
 
 function category(pixel: FacePixelInstruction | undefined): keyof Omit<FacePixelDifference, "changedFace"> {

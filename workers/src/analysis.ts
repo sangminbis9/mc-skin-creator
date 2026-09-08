@@ -20,6 +20,7 @@ import {
 } from "./gemini";
 import type { Env } from "./types";
 import type { IdentityGeometryAnalysis, NormalizedBox } from "./identityGeometry";
+import { FACE_MEASUREMENT_EVIDENCE_SCHEMA, parseFaceMeasurementEvidence, type FaceMeasurementEvidence } from "./faceMeasurementEvidence";
 
 const DEFAULT_VISION_MODEL = "gemini-3.6-flash";
 const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
@@ -196,6 +197,8 @@ export interface PhotoAnalysis {
     features: IdentityFeaturePriority[];
   };
   renderHints: PixelRenderHints;
+  /** Optional primary-image categorical observations; legacy records have no block. */
+  faceMeasurementEvidence?: FaceMeasurementEvidence;
   identityPrompt: string;
   outfitPrompt: string;
   negativePrompt: string;
@@ -288,6 +291,7 @@ STEP 5A — canonicalIdentity and likeness salience:
 - Prefer stable face geometry, hair silhouette/part/fringe, signature glasses/accessories, characteristic color blocks and outfit silhouette. Do not use race, gender, age guesses, attractiveness, or personality as identity cues.
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
+- Also return faceMeasurementEvidence for sourceSelection.portraitImageIndex only, in the SAME primary response. Set referenceImageIndex to that index and cues for eyeSpacing (narrow/medium/wide), eyeOpenness (narrow/normal/open), eyeFootprint (compact/medium/wide), browEyeDistance (close/normal/high), browSlope (straight/arched/angled), mouthWidth (narrow/medium/wide), mouthOpenness (closed/open/teeth), expression (neutral/smile). Each cue contains value, provenance (observed_categorical/inferred/unknown), confidence (0..1). Use value unknown, provenance unknown, confidence 0 when occluded, too small, distorted by pose, or confidence is below 0.75. Sunglasses hide eye evidence. Downcast gaze is not stable narrow-eye identity. Judge spacing relative to face width, aperture separately from eyeliner, brow gap relative to eye height, and mouth width independently from lip fullness. Do not emit coordinates, infer hidden landmarks, or claim calibrated geometry. Legacy renderHints are rendering choices, not evidence of observation.
 - Classify the visible skin undertone, face geometry, eye geometry/size/iris lightness/spacing/tilt, eyebrow shape, nose shape, mouth footprint/opening, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
 - skinUndertone records the skin itself after discounting studio color casts, background spill, blush and makeup: warm for golden/peach/yellow, cool for rosy/pink/blue-red, and neutral when neither direction clearly dominates. Keep it independent from skin lightness.
 - eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
@@ -499,6 +503,7 @@ const LOWER_BODY_DESIGN_SCHEMA = {
 export const PHOTO_ANALYSIS_SCHEMA = {
   type: "object",
   properties: {
+    faceMeasurementEvidence: FACE_MEASUREMENT_EVIDENCE_SCHEMA,
     quality: { type: "string", enum: ["pass", "warn", "fail"] },
     failReason: {
       type: ["string", "null"],
@@ -2126,6 +2131,9 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       outfitPrompt,
       negativePrompt,
       fallbackFeatures,
+      ...(obj.faceMeasurementEvidence !== undefined && obj.faceMeasurementEvidence !== null ? {
+        faceMeasurementEvidence: parseFaceMeasurementEvidence(obj.faceMeasurementEvidence, sourceSelection.portraitImageIndex, visibleRegions.face),
+      } : {}),
     },
   };
 }
