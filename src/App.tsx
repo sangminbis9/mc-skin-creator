@@ -7,10 +7,9 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { JumpBlocks } from "./components/pixel/JumpBlocks";
 import { SkinDocument } from "./editor/editorState";
 import { decodeSkinPng } from "./lib/skinDecode";
-import { generateSkinFromFeatures } from "./lib/skinFromFeatures";
 import type { PreparedPhotoUpload } from "./lib/imageQuality";
 import type { SkinGeometry } from "./lib/skinAtlas";
-import { normalizeFeatures, type QuotaStatus } from "./lib/skinFeatures";
+import type { QuotaStatus } from "./lib/skinFeatures";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { ApplyGuidePage } from "./pages/ApplyGuidePage";
 import { DownloadPage } from "./pages/DownloadPage";
@@ -67,6 +66,7 @@ function App() {
   const [doc, setDoc] = useState<SkinDocument | null>(null);
   const [skinVersion, setSkinVersion] = useState(0);
   const [failure, setFailure] = useState<GenerationFailure | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [skinGeometry, setSkinGeometry] = useState<SkinGeometry>("classic");
@@ -106,6 +106,7 @@ function App() {
     setPhotos([]);
     setDoc(null);
     setFailure(null);
+    setRetryCount(0);
     setCapturedImage(null);
     setSkinGeometry("classic");
     setStep("upload");
@@ -153,10 +154,12 @@ function App() {
             const decoded = result.skinPngBase64
               ? await decodeSkinPng(result.skinPngBase64)
               : null;
-            const canvas =
-              decoded ??
-              generateSkinFromFeatures(normalizeFeatures(result.features));
-            setDoc(new SkinDocument(canvas));
+            if (!decoded) {
+              setFailure({ kind: "ai", message: "스킨 PNG를 읽지 못했어요.", retryable: false });
+              setStep("failed");
+              return;
+            }
+            setDoc(new SkinDocument(decoded));
             setSkinVersion(0);
             setStep("preview");
           }}
@@ -174,7 +177,8 @@ function App() {
       {step === "failed" && failure && (
         <FailurePage
           failure={failure}
-          onRetry={() => setStep("generating")}
+          canRetry={retryCount < 2 && failure.retryable !== false && failure.kind !== "photo"}
+          onRetry={() => { if (retryCount < 2 && failure.retryable !== false) { setRetryCount(retryCount + 1); setStep("generating"); } }}
           onReselect={resetToUpload}
         />
       )}

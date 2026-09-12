@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { wireFixture } from "./compactV3Support";
+import { COMPACT_PHOTO_ANALYSIS_V3_SCHEMA } from "../src/compactPhotoAnalysisV3";
 import { ANALYSIS_PROMPT, PHOTO_ANALYSIS_SCHEMA, runPhotoAnalysis, validatePhotoAnalysis } from "../src/analysis";
 import { FACE_MEASUREMENT_VALUES, FACE_MEASUREMENT_EVIDENCE_SCHEMA, parseFaceMeasurementEvidence, resolveFaceMeasurements, type FaceMeasurementEvidence } from "../src/faceMeasurementEvidence";
 import { buildFacePixelPlanVariants } from "../src/identityPlans";
@@ -186,9 +188,14 @@ describe("primary categorical face measurement evidence", () => {
 
   it("carries provider evidence through one mocked primary call, parser, normalization and FacePixelPlan", async () => {
     const response = makeAnalysis({ faceMeasurementEvidence: evidence({ browEyeDistance: observed("high") }) });
-    const run = vi.fn(async () => ({ response }));
-    const env = { VISION_MODEL: "test-primary", VISION_FALLBACK_MODEL: "test-fallback", AI: { run } } as unknown as Env;
-    const result = await runPhotoAnalysis(env, "data:image/png;base64,synthetic-test");
+    const run = vi.fn(async () => ({ response: wireFixture(response) }));
+    const env = {
+      VISION_MODEL: "test-primary",
+      VISION_FALLBACK_MODEL: "test-fallback",
+      WORKERS_VISION_MODEL: "test-primary",
+      AI: { run },
+    } as unknown as Env;
+    const result = await runPhotoAnalysis(env, "data:image/png;base64,iVBORw0KGgo=");
     expect(run).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("mock primary failed");
@@ -202,7 +209,7 @@ describe("primary categorical face measurement evidence", () => {
     response.faceMeasurementEvidence!.referenceImageIndex = 1;
     expect(validatePhotoAnalysis(response).ok).toBe(true);
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: JSON.stringify(response) }] } }],
+      candidates: [{ content: { parts: [{ text: JSON.stringify(wireFixture(response)) }] } }],
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const fallback = vi.fn();
     try {
@@ -213,7 +220,7 @@ describe("primary categorical face measurement evidence", () => {
       const [url, request] = fetchSpy.mock.calls[0];
       expect(String(url)).toMatch(/\/v1beta\/models\/gemini-3\.6-flash:generateContent$/);
       const body = JSON.parse(String(request!.body));
-      expect(body.generationConfig.responseJsonSchema.properties.faceMeasurementEvidence).toEqual(FACE_MEASUREMENT_EVIDENCE_SCHEMA);
+      expect(body.generationConfig.responseJsonSchema.properties.faceMeasurements).toEqual(COMPACT_PHOTO_ANALYSIS_V3_SCHEMA.properties!.faceMeasurements);
       expect(body).not.toHaveProperty("response_format");
       expect(body.contents[0].parts.filter((p: Record<string, unknown>) => p.inlineData)).toHaveLength(2);
       expect(result.ok).toBe(true);

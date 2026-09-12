@@ -2,6 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { generateSkin } from "../src/generate";
+import { namedGemmaFixture, wireFixture } from "./compactV3Support";
+import type { PhotoAnalysis } from "../src/analysis";
 import { bytesToBase64, decodePng, encodePng } from "../src/png";
 import { buildSkinViewMontage, renderSkinViews } from "../src/skinRender";
 import { validateFinalAtlas } from "../src/skinPost";
@@ -16,12 +18,17 @@ import { makeAnalysis, makeFrontBackView, makeSyntheticAtlas } from "./helpers";
 function makeEnv(analysis: unknown): Env {
   return {
     AI: {
-      run: vi.fn(async () => ({ response: analysis })),
+      run: vi.fn(async () => ({
+        choices: [{ message: { content: JSON.stringify(namedGemmaFixture(
+          wireFixture(analysis as PhotoAnalysis),
+        )) } }],
+      })),
     } as unknown as Env["AI"],
     MCSKIN_KV: {
       get: vi.fn(async () => null),
       put: vi.fn(async () => undefined),
     } as unknown as Env["MCSKIN_KV"],
+    SYNCHRONOUS_ENHANCEMENTS_ENABLED: "true",
     IMAGE_GENERATION_ENABLED: "true",
     IMAGE_GEN_STRATEGY: "front_view",
   };

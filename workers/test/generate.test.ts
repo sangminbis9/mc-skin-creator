@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { wireFixture } from "./compactV3Support";
+import type { PhotoAnalysis } from "../src/analysis";
 import {
   applyFocusedNeckDetail,
   applyFocusedPortraitDetail,
@@ -53,16 +55,23 @@ function makeEnv(
   strategy = "front_view",
 ): Env {
   return {
+    WORKERS_VISION_MODEL: "test-multi-image-model",
     AI: {
-      run: vi.fn(async () => ({ response: analysis })),
+      run: vi.fn(async () => ({ response: compactFixture(analysis) })),
     } as unknown as Env["AI"],
     MCSKIN_KV: {
       get: vi.fn(async () => null),
       put: vi.fn(async () => undefined),
     } as unknown as Env["MCSKIN_KV"],
+    SYNCHRONOUS_ENHANCEMENTS_ENABLED: "true",
     IMAGE_GENERATION_ENABLED: imageGen ? "true" : "false",
     IMAGE_GEN_STRATEGY: strategy,
   };
+}
+
+function compactFixture(analysis: unknown): unknown {
+  return typeof analysis === "object" && analysis !== null && "canonicalIdentity" in analysis
+    ? wireFixture(analysis as PhotoAnalysis) : analysis;
 }
 
 async function photoDataUrl(seed = 1): Promise<string> {
@@ -319,8 +328,12 @@ describe("generateSkin", () => {
     });
     const provider = providerOf([await goodFluxOutput()]);
 
+    const multiReferenceEnv = {
+      ...makeEnv(analysis, true),
+      WORKERS_VISION_MODEL: "test-multi-image-model",
+    } as Env;
     const result = await generateSkin(
-      makeEnv(analysis, true),
+      multiReferenceEnv,
       primary,
       provider,
       primary,
@@ -392,7 +405,7 @@ describe("generateSkin", () => {
                             p5IdentityChecks: P5_PRESENT,
                             defects: [],
                           }
-                        : analysis,
+                        : compactFixture(analysis),
                     ),
                   },
                 ],
@@ -486,9 +499,10 @@ describe("generateSkin", () => {
       },
     });
     const env = makeEnv(main, false);
+    env.WORKERS_VISION_MODEL = "test-multi-image-model";
     env.AI.run = vi
       .fn()
-      .mockResolvedValueOnce({ response: main })
+      .mockResolvedValueOnce({ response: wireFixture(main) })
       .mockResolvedValueOnce({
         response: focusedPortraitDetail(),
       })
@@ -519,7 +533,7 @@ describe("generateSkin", () => {
     const env = makeEnv(main, false);
     env.AI.run = vi
       .fn()
-      .mockResolvedValueOnce({ response: main })
+      .mockResolvedValueOnce({ response: wireFixture(main) })
       .mockRejectedValueOnce(
         new Error(
           "4006: you have used up your daily free allocation of 10,000 neurons",
@@ -3112,13 +3126,11 @@ describe("generateSkin", () => {
       env.AI.run as unknown as { mock: { calls: Array<[unknown, unknown]> } }
     ).mock.calls;
     const input = calls[0][1] as {
-      messages: Array<{
-        content: Array<{ image_url?: { url?: string } }>;
-      }>;
+      messages?: Array<{ content?: Array<{ image_url?: { url?: string } }> }>;
     };
 
     expect(result.status).toBe(200);
-    expect(input.messages[0].content[0].image_url?.url).toBe(analysisPhoto);
+    expect(input.messages?.[0]?.content?.[0]?.image_url?.url).toBe(analysisPhoto);
     expect(providerPhoto).toBe(generationPhoto);
   });
 
@@ -3497,7 +3509,7 @@ describe("generateSkin", () => {
           candidates: [
             {
               content: {
-                parts: [{ text: JSON.stringify(responses.shift()) }],
+                parts: [{ text: JSON.stringify(compactFixture(responses.shift())) }],
               },
             },
           ],
@@ -3587,7 +3599,7 @@ describe("generateSkin", () => {
       candidates: [
         {
           content: {
-            parts: [{ text: JSON.stringify(analysis) }],
+            parts: [{ text: JSON.stringify(wireFixture(analysis)) }],
           },
         },
       ],
@@ -3985,7 +3997,7 @@ describe("generateSkin", () => {
           candidates: [
             {
               content: {
-                parts: [{ text: JSON.stringify(responses.shift()) }],
+                parts: [{ text: JSON.stringify(compactFixture(responses.shift())) }],
               },
             },
           ],
@@ -4069,7 +4081,7 @@ describe("generateSkin", () => {
           candidates: [
             {
               content: {
-                parts: [{ text: JSON.stringify(responses.shift()) }],
+                parts: [{ text: JSON.stringify(compactFixture(responses.shift())) }],
               },
             },
           ],
@@ -4154,7 +4166,7 @@ describe("generateSkin", () => {
         candidates: [
           {
             content: {
-              parts: [{ text: JSON.stringify(responses.shift()) }],
+              parts: [{ text: JSON.stringify(compactFixture(responses.shift())) }],
             },
           },
         ],
@@ -4182,7 +4194,7 @@ describe("generateSkin", () => {
     }
   });
 
-  it("hard-rejects a procedural result when a P5 identity cue is wrong", async () => {
+  it("rolls back optional P5 rejection to the validated primary atlas", async () => {
     const analysis = makeAnalysis();
     const env = makeEnv(analysis, false);
     env.GEMINI_API_KEY = "test-key";
@@ -4204,18 +4216,15 @@ describe("generateSkin", () => {
       },
     ];
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({
-      candidates: [{ content: { parts: [{ text: JSON.stringify(responses.shift()) }] } }],
+      candidates: [{ content: { parts: [{ text: JSON.stringify(compactFixture(responses.shift())) }] } }],
     })));
     try {
       const result = await generateSkin(env, await photoDataUrl());
-      expect(result.status).toBe(500);
-      expect(result.body.errorCode).toBe("SKIN_RENDER_FAILED");
-      expect(result.body.fallbackReason).toBe("procedural_p5_identity_rejected");
-      expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
-        "diagnostic:last-generation-path",
-        expect.stringContaining('"rejected":true'),
-        { expirationTtl: 60 * 60 * 48 },
-      );
+      expect(result.status).toBe(200);
+      expect(result.body.errorCode).toBeUndefined();
+      expect(result.body.fallbackReason).toBe("reliability_baseline");
+      const atlas = await decodePng(Uint8Array.from(atob(result.body.skinPngBase64!), c => c.charCodeAt(0)));
+      expect(validateFinalAtlas(atlas).ok).toBe(true);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -4249,7 +4258,7 @@ describe("generateSkin", () => {
   });
 
   it("quality=fail은 422 photo_rejected", async () => {
-    const env = makeEnv({ quality: "fail", failReason: "no_face" });
+    const env = makeEnv(makeAnalysis({ quality: "fail", failReason: "no_face" }));
     const provider = providerOf([await goodFluxOutput()]);
     const result = await generateSkin(env, await photoDataUrl(), provider);
     expect(result.status).toBe(422);
@@ -4262,10 +4271,10 @@ describe("generateSkin", () => {
     const result = await generateSkin(env, await photoDataUrl());
     expect(result.status).toBe(502);
     expect(result.body.errorCode).toBe("ai_failed");
-    expect(result.neuronsSpent).toBe(4 * 170);
+    expect(result.neuronsSpent).toBe(170);
     expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
       "diagnostic:last-analysis-failure",
-      expect.stringContaining('"attempts":4'),
+      expect.stringContaining('"attempts":1'),
       { expirationTtl: 60 * 60 * 48 },
     );
   });

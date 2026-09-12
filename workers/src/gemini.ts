@@ -1,11 +1,21 @@
 import { base64ToBytes } from "./png";
+import { withinDeadline } from "./deadline";
 import type { Env } from "./types";
 import { inspectGeminiResponseSchema, type GeminiSchemaPreflight } from "./geminiStructuredSchema";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_GATEWAY_ID = "default";
+const LLAMA_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+const GEMMA_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+const LLAMA_JSON_OUTPUT_SUFFIX = `OUTPUT FORMAT REQUIREMENT FOR THIS RESPONSE:
+Return exactly one JSON object.
+Do not use Markdown or a code fence.
+Do not explain the answer.
+The first output character must be { and the last must be }.
+Include every required field in the Compact contract.
+Use only the listed enum values.`;
 const DEFAULT_WORKERS_VISION_MODEL =
-  "@cf/meta/llama-4-scout-17b-16e-instruct";
+  GEMMA_VISION_MODEL;
 const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 const DEFAULT_IMAGE_TIMEOUT_MS = 120_000;
 
@@ -153,6 +163,14 @@ export interface GeminiStructuredRequest {
   imageLabels?: string[];
   prompt: string;
   responseSchema: unknown;
+  /**
+   * Optional provider-specific strict wire contract for Workers AI. Gemini's
+   * provider schema may deliberately omit nested constraints for transport
+   * compatibility; the native fallback must not inherit that relaxation.
+   */
+  workersAiResponseSchema?: unknown;
+  /** Provider-only representation instructions; Gemini always uses prompt above. */
+  workersAiPrompt?: string;
   maxOutputTokens: number;
   /** Lets existing unit tests inject a provider without network I/O. */
   legacyWorkersAiInput?: Record<string, unknown>;
@@ -160,6 +178,63 @@ export interface GeminiStructuredRequest {
   allowWorkersAiFallback?: boolean;
   /** Receives sanitized shape-only diagnostics; never includes image data. */
   onRequestShape?: (shape: GeminiStructuredRequestShape) => void;
+  /** Caller budget cap; not part of the provider wire. */
+  timeoutCapMs?: number;
+  onProviderAttempt?: (attempt: StructuredProviderAttempt) => void;
+}
+
+export interface StructuredProviderAttempt {
+  provider: "gemini" | "workers_ai";
+  model: string;
+  outcome: "started" | "completed" | "failed";
+  responseFormatMode?: "gemini_response_json_schema" | "workers_response_format" | "workers_response_format_strict" | "workers_guided_json_strict" | "workers_prompt_json_strict" | "workers_named_json_schema_strict";
+  providerSchemaValidation?: "passed" | "failed";
+  strictValidation?: "passed" | "failed";
+  status?: number;
+  providerStatus?: string;
+  message?: string;
+  fallbackEligible?: boolean;
+  fallbackReason?: string;
+  dailyQuotaExhausted?: boolean;
+  outputDiagnostic?: StructuredProviderOutputDiagnostic;
+}
+
+export interface StructuredProviderOutputDiagnostic {
+  resultType: string;
+  resultNull: boolean;
+  resultArray: boolean;
+  topLevelKeys: string[];
+  responsePresent: boolean;
+  responseType: string;
+  responseArray: boolean;
+  responseObjectKeys: string[];
+  responseString?: {
+    characterLength: number;
+    trimmedLength: number;
+    startsWithObject: boolean;
+    startsWithArray: boolean;
+    containsOpenBrace: boolean;
+    containsCloseBrace: boolean;
+    fencedJson: boolean;
+    extractJsonSucceeded: boolean;
+  };
+  choicesPresent: boolean;
+  choicesType: string;
+  extractedType: string;
+  extractedNull: boolean;
+  extractedObjectKeys: string[];
+}
+
+export function isDailyProviderQuota(error: unknown): boolean {
+  if (error instanceof GeminiApiError) return error.status === 429 && (
+    error.hasZeroQuota || error.quotaIds.some(id => /perday|requestsperday/i.test(id))
+    || /daily|per.day/i.test(error.message));
+  return /4006|3036|daily free allocation|account limited/i.test(error instanceof Error ? error.message : "");
+}
+
+/** One model policy shared by production and diagnostic envelope builders. */
+export function structuredModelPolicy(model: string): { temperature: 0 | null } {
+  return { temperature: /^gemini-3\.8-flash(?:$|-)/.test(model) ? null : 0 };
 }
 
 function parseImageDataUrl(
@@ -191,8 +266,8 @@ function requireApiKey(env: Env): string {
  * Route production Gemini calls through the account-bound AI Gateway. Direct
  * Google AI Studio calls from a Cloudflare egress POP can be rejected as an
  * unsupported user location. The Worker AI binding authenticates the gateway
- * subrequest without storing a second Cloudflare token, while the provider
- * still receives the user's encrypted Google API key.
+ * subrequest only when using gateway.run(), not by obtaining a public URL.
+ * This URL helper is retained for the inactive image-generation path.
  */
 async function geminiApiBase(env: Env): Promise<string> {
   if (env.AI && typeof env.AI.gateway === "function") {
@@ -204,11 +279,54 @@ async function geminiApiBase(env: Env): Promise<string> {
   return GEMINI_API_BASE;
 }
 
-function workersAiStructuredInput(
+export function workersAiStructuredInput(
   request: GeminiStructuredRequest,
+  model: string,
 ): Record<string, unknown> {
   if (request.legacyWorkersAiInput) return request.legacyWorkersAiInput;
-  return {
+  const schema = request.workersAiResponseSchema ?? request.responseSchema;
+  if (model === LLAMA_VISION_MODEL) {
+    if (request.imageDataUrls.length > 1) {
+      throw new GeminiApiError(
+        "Llama Vision fallback supports one image per structured analysis request",
+        400,
+        "WORKERS_SINGLE_IMAGE_ONLY",
+      );
+    }
+    return {
+      prompt: `${request.prompt}\n\n${LLAMA_JSON_OUTPUT_SUFFIX}`,
+      ...(request.imageDataUrls[0] ? { image: request.imageDataUrls[0] } : {}),
+      max_tokens: request.maxOutputTokens,
+    };
+  }
+  if (model === GEMMA_VISION_MODEL) {
+    return {
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...request.imageDataUrls.map((url) => ({
+              type: "image_url",
+              image_url: { url },
+            })),
+            { type: "text", text: request.workersAiPrompt ?? request.prompt },
+          ],
+        },
+      ],
+      max_completion_tokens: request.maxOutputTokens,
+      chat_template_kwargs: { enable_thinking: false },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "minecraft_skin_photo_analysis",
+          description: "Strict observed portrait analysis for deterministic Minecraft skin rendering",
+          schema,
+          strict: true,
+        },
+      },
+    };
+  }
+  const input: Record<string, unknown> = {
     messages: [
       {
         role: "user",
@@ -226,41 +344,78 @@ function workersAiStructuredInput(
     ],
     max_tokens: request.maxOutputTokens,
     temperature: 0,
-    response_format: {
+  };
+  if (model === "@cf/moonshotai/kimi-k2.6") {
+    input.response_format = {
       type: "json_schema",
       json_schema: {
-        name: "minecraft_skin_structured_fallback",
-        description:
-          "Structured portrait analysis or rendered-skin critique for a Minecraft skin",
-        schema: request.responseSchema,
+        name: "minecraft_skin_photo_analysis",
+        description: "Strict observed portrait analysis for deterministic Minecraft skin rendering",
+        schema,
+        strict: true,
       },
-    },
-  };
+    };
+  } else if (request.workersAiResponseSchema !== undefined) {
+    input.guided_json = request.workersAiResponseSchema;
+  } else {
+    input.response_format = {
+      type: "json_schema",
+      json_schema: request.responseSchema,
+    };
+  }
+  return input;
 }
 
-function shouldUseWorkersAiFallback(error: unknown): boolean {
+export function workersAiFallbackDecision(error: unknown): {
+  eligible: boolean;
+  reason: string;
+} {
   // A dedicated Workers AI account is the structured-analysis safety net,
   // not only an authentication workaround. Preserve deterministic skin
   // generation when Gemini's free request bucket, gateway, or network is
   // temporarily unavailable. Invalid payload/schema errors remain with
   // Gemini so a malformed application request is never hidden by a fallback.
   if (!(error instanceof GeminiApiError)) {
-    return (
+    const eligible = (
       error instanceof TypeError ||
       /(?:fetch failed|network|connection|socket|econnreset)/i.test(
         error instanceof Error ? error.message : String(error),
       )
     );
+    return { eligible, reason: eligible ? "network_error" : "non_provider_error" };
   }
-  return (
-    error.status === 401 ||
-    error.status === 403 ||
-    error.status === 404 ||
-    error.status === 408 ||
-    error.status === 429 ||
-    error.status >= 500 ||
-    /user location is not supported|unauthorized/i.test(error.message)
-  );
+  const providerStatus = error.providerStatus?.toUpperCase();
+  if (providerStatus === "CLIENT_SCHEMA_PREFLIGHT") {
+    return { eligible: false, reason: "client_schema_preflight" };
+  }
+  if (providerStatus === "INVALID_ARGUMENT") {
+    return { eligible: false, reason: "invalid_argument" };
+  }
+  if (providerStatus === "FAILED_PRECONDITION") {
+    return { eligible: true, reason: "provider_failed_precondition" };
+  }
+  if (error.status === 400) {
+    return { eligible: false, reason: "http_400_request_error" };
+  }
+  if (error.status === 401 || error.status === 403) {
+    return { eligible: true, reason: "authentication_or_permission" };
+  }
+  if (error.status === 404) {
+    return { eligible: true, reason: "model_unavailable" };
+  }
+  if (error.status === 408) {
+    return { eligible: true, reason: "request_timeout" };
+  }
+  if (error.status === 429) {
+    return { eligible: true, reason: "rate_limited" };
+  }
+  if (error.status >= 500) {
+    return { eligible: true, reason: "provider_failure" };
+  }
+  if (/user location is not supported|unauthorized/i.test(error.message)) {
+    return { eligible: true, reason: "provider_location_or_account" };
+  }
+  return { eligible: false, reason: "not_eligible" };
 }
 
 async function runWorkersAiStructuredFallback(
@@ -272,10 +427,37 @@ async function runWorkersAiStructuredFallback(
   }
   const model =
     env.WORKERS_VISION_MODEL?.trim() || DEFAULT_WORKERS_VISION_MODEL;
-  return env.AI.run(
-    model as never,
-    workersAiStructuredInput(request) as never,
-  );
+  const responseFormatMode = model === LLAMA_VISION_MODEL
+    ? "workers_prompt_json_strict" as const
+    : model === GEMMA_VISION_MODEL
+    ? "workers_named_json_schema_strict" as const
+    : model === "@cf/moonshotai/kimi-k2.6"
+    ? "workers_response_format_strict" as const
+    : request.workersAiResponseSchema !== undefined
+      ? "workers_guided_json_strict" as const
+      : "workers_response_format" as const;
+  request.onProviderAttempt?.({ provider: "workers_ai", model, outcome: "started", responseFormatMode });
+  try {
+    // AI.run has no cancellation API. Stop awaiting at the deadline; never
+    // launch another provider after it. The binding may finish independently.
+    const result = await withinDeadline(
+      () => env.AI!.run(model as never, workersAiStructuredInput(request, model) as never),
+      Math.min(request.timeoutCapMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS),
+      () => new GeminiApiError("Workers AI analysis deadline exceeded", 504, "DEADLINE_EXCEEDED"),
+    );
+    request.onProviderAttempt?.({ provider: "workers_ai", model, outcome: "completed", responseFormatMode });
+    return result;
+  } catch (error) {
+    const diagnostic = geminiProviderErrorDiagnostic(error);
+    request.onProviderAttempt?.({
+      provider: "workers_ai", model, outcome: "failed", responseFormatMode,
+      dailyQuotaExhausted: isDailyProviderQuota(error),
+      ...(diagnostic.httpStatus !== null ? { status: diagnostic.httpStatus } : {}),
+      ...(diagnostic.providerStatus !== null ? { providerStatus: diagnostic.providerStatus } : {}),
+      message: diagnostic.message,
+    });
+    throw error;
+  }
 }
 
 function requestTimeoutMs(value: string | undefined, fallback: number): number {
@@ -384,6 +566,7 @@ export function buildGeminiStructuredRequestEnvelope(request: GeminiStructuredRe
   ]);
   const schema = inspectGeminiResponseSchema(request.responseSchema);
   const apiFamily = request.apiFamily ?? "generateContent";
+  const policy = structuredModelPolicy(request.model);
   const body: Record<string, unknown> = apiFamily === "interactions"
     ? {
         model: request.model,
@@ -395,7 +578,7 @@ export function buildGeminiStructuredRequestEnvelope(request: GeminiStructuredRe
     : {
         contents: [{ role: "user", parts: [...generateContentImageParts, { text: request.prompt }] }],
         generationConfig: {
-          temperature: 0,
+          ...(policy.temperature === null ? {} : { temperature: policy.temperature }),
           maxOutputTokens: request.maxOutputTokens,
           thinkingConfig: { thinkingLevel: "LOW" },
           responseMimeType: "application/json",
@@ -421,7 +604,7 @@ export function buildGeminiStructuredRequestEnvelope(request: GeminiStructuredRe
     responseSchemaEnabled: true,
     schema,
     maxOutputTokens: request.maxOutputTokens,
-    temperature: apiFamily === "interactions" ? null : 0,
+    temperature: apiFamily === "interactions" ? null : policy.temperature,
     serializedBytes,
   };
   if (!schema.valid) {
@@ -452,7 +635,7 @@ export async function generateGeminiStructuredJson(
   // A stage that forbids provider fallback may still use the configured
   // Workers AI binding as its sole provider when no Gemini key exists. This
   // remains exactly one call rather than Gemini followed by a recovery call.
-  if (!env.GEMINI_API_KEY && env.AI && request.allowWorkersAiFallback === false) {
+  if (!env.GEMINI_API_KEY && env.AI) {
     return runWorkersAiStructuredFallback(env, request);
   }
 
@@ -461,26 +644,30 @@ export async function generateGeminiStructuredJson(
   // six inputs. The same envelope builder is used by preflight tests and the
   // actual request to prevent serialization drift.
   try {
-    const apiBase = await geminiApiBase(env);
-    const response = await fetchGemini(
-      request.apiFamily === "interactions"
-        ? `${apiBase}/interactions`
-        : `${apiBase}/models/${encodeURIComponent(request.model)}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": requireApiKey(env),
-        },
-        body: JSON.stringify(envelope.body),
-      },
-      requestTimeoutMs(
-        env.GEMINI_STRUCTURED_TIMEOUT_MS,
-        DEFAULT_STRUCTURED_TIMEOUT_MS,
-      ),
-      `Gemini structured request (${request.model})`,
-    );
-    const payload = await parseGeminiResponse<GeminiGenerateContentResponse & GeminiInteractionResponse>(response);
+    request.onProviderAttempt?.({ provider: "gemini", model: request.model, outcome: "started", responseFormatMode: "gemini_response_json_schema" });
+    const timeoutMs = Math.min(request.timeoutCapMs ?? Infinity,
+      requestTimeoutMs(env.GEMINI_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS));
+    const controller = new AbortController();
+    const payload = await withinDeadline(async () => {
+      const endpoint = request.apiFamily === "interactions"
+        ? "v1beta/interactions"
+        : `v1beta/models/${encodeURIComponent(request.model)}:generateContent`;
+      const headers = { "Content-Type": "application/json", "x-goog-api-key": requireApiKey(env) };
+      // getUrl() returns a URL; fetch(getUrl()) is NOT binding-authenticated.
+      // A single universal request preserves the provider body without any
+      // Gateway fallback/retry list. Never log/cache source photos or output.
+      const response = env.AI && typeof env.AI.gateway === "function"
+        ? await env.AI.gateway(GEMINI_GATEWAY_ID).run({
+          provider: "google-ai-studio", endpoint, headers, query: envelope.body,
+        }, { signal: controller.signal, gateway: {
+          id: GEMINI_GATEWAY_ID, skipCache: true, collectLog: false,
+          retries: { maxAttempts: 1 }, requestTimeoutMs: timeoutMs,
+        } })
+        : await fetch(`${GEMINI_API_BASE.replace(/\/v1beta$/, "")}/${endpoint}`, {
+          method: "POST", headers, body: JSON.stringify(envelope.body), signal: controller.signal,
+        });
+      return parseGeminiResponse<GeminiGenerateContentResponse & GeminiInteractionResponse>(response);
+    }, timeoutMs, () => new GeminiApiError("Gemini structured deadline exceeded", 504, "DEADLINE_EXCEEDED"), () => controller.abort());
     const interactionOutput = payload.output_text || payload.steps
       ?.filter((step) => step.type === "model_output")
       .flatMap((step) => step.content || [])
@@ -499,6 +686,7 @@ export async function generateGeminiStructuredJson(
         502,
       );
     }
+    request.onProviderAttempt?.({ provider: "gemini", model: request.model, outcome: "completed", status: 200, responseFormatMode: "gemini_response_json_schema" });
     return {
       response: output,
       ...(payload.candidates?.[0]?.finishReason
@@ -511,8 +699,25 @@ export async function generateGeminiStructuredJson(
       },
     };
   } catch (error) {
+    const diagnostic = geminiProviderErrorDiagnostic(error);
+    const fallbackDecision = workersAiFallbackDecision(error);
+    const fallbackEligible = request.allowWorkersAiFallback !== false && Boolean(env.AI) && fallbackDecision.eligible;
+    const fallbackReason = request.allowWorkersAiFallback === false
+      ? "fallback_disabled"
+      : !env.AI
+        ? "workers_ai_unconfigured"
+        : fallbackDecision.reason;
+    request.onProviderAttempt?.({
+      provider: "gemini", model: request.model, outcome: "failed",
+      responseFormatMode: "gemini_response_json_schema",
+      dailyQuotaExhausted: isDailyProviderQuota(error),
+      fallbackEligible, fallbackReason,
+      ...(diagnostic.httpStatus !== null ? { status: diagnostic.httpStatus } : {}),
+      ...(diagnostic.providerStatus !== null ? { providerStatus: diagnostic.providerStatus } : {}),
+      message: diagnostic.message,
+    });
     if (error instanceof GeminiApiError && !error.requestShape) error.requestShape = envelope.shape;
-    if (request.allowWorkersAiFallback !== false && env.AI && shouldUseWorkersAiFallback(error)) {
+    if (fallbackEligible) {
       return runWorkersAiStructuredFallback(env, request);
     }
     throw error;

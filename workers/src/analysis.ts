@@ -1,5 +1,5 @@
 /**
- * 사진 분석 단계: llama-4-scout로 품질 검사 + observed/inferred 구조의
+ * 사진 분석 단계: multimodal provider로 품질 검사 + observed/inferred 구조의
  * PhotoAnalysis를 뽑는다. 이 결과는 이미지 생성 프롬프트와
  * 절차적 fallback(팔레트 특징) 양쪽의 입력이 된다.
  *
@@ -13,16 +13,17 @@ import {
   visionNeuronsFromUsage,
 } from "./quota";
 import {
-  geminiRetryAfterMs,
+  geminiProviderErrorDiagnostic,
   generateGeminiStructuredJson,
   isGeminiQuotaError,
   isGeminiTemporaryRateLimit,
 } from "./gemini";
+import type { StructuredProviderOutputDiagnostic } from "./gemini";
 import type { Env } from "./types";
 import type { IdentityGeometryAnalysis, NormalizedBox } from "./identityGeometry";
 import { FACE_MEASUREMENT_EVIDENCE_SCHEMA, parseFaceMeasurementEvidence, type FaceMeasurementEvidence } from "./faceMeasurementEvidence";
 
-const DEFAULT_VISION_MODEL = "gemini-3.6-flash";
+const DEFAULT_VISION_MODEL = "gemini-3.8-flash";
 const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
 
 export type Framing = "face" | "upper_body" | "three_quarter" | "full_body";
@@ -2140,7 +2141,7 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
 
 // ---------- Scout 호출 ----------
 
-export type AnalysisCallResult =
+export type AnalysisCallResult = { providerAttempts?: import("./gemini").StructuredProviderAttempt[] } & (
   | {
       ok: true;
       analysis: PhotoAnalysis;
@@ -2150,12 +2151,12 @@ export type AnalysisCallResult =
   | {
       ok: false;
       reason:
-        "ai_error" | "invalid_response" | "quota_exceeded" | "rate_limited";
+        "ai_error" | "invalid_response" | "quota_exceeded" | "rate_limited" | "provider_unavailable";
       detail: string;
       attempts: number;
       neuronsSpent: number;
       retryAfterMs?: number;
-    };
+    });
 
 export interface NeckDetailAnalysis {
   neckAccessory: "none" | "bow" | "tie" | "scarf" | "collar";
@@ -2920,140 +2921,97 @@ export async function runPortraitDetailAnalysis(
 }
 
 /**
- * 사진 분석 실행. json_schema 유도 → 실패 시 json_object로 1회 재시도.
- * 두 경우 모두 validatePhotoAnalysis로 런타임 검증한다.
+ * Compact v3 primary analysis with strict rich normalization.
+ * One transient-provider fallback at most; no schema retries or semantic repair.
  */
 export async function runPhotoAnalysis(
   env: Env,
   imageDataUrls: string | string[],
 ): Promise<AnalysisCallResult> {
-  const references = Array.isArray(imageDataUrls)
-    ? imageDataUrls.slice(0, 5)
-    : [imageDataUrls];
-  const primaryModel = env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
-  const fallbackModel =
-    env.VISION_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_VISION_MODEL;
-  const visionModels = [...new Set([primaryModel, fallbackModel])];
-
-  let lastDetail = "";
-  const failureDetails: string[] = [];
-  let sawInvalidResponse = false;
-  let sawTemporaryRateLimit = false;
-  let lastRetryAfterMs: number | undefined;
+  const references = Array.isArray(imageDataUrls) ? imageDataUrls : [imageDataUrls];
+  const providerAttempts: import("./gemini").StructuredProviderAttempt[] = [];
   let attempts = 0;
-  let neuronsSpent = 0;
-  // A second structured pass is more reliable than switching to free-form
-  // json_object output. Free-form retries were the main source of truncated or
-  // schema-incomplete production responses. Alternate models across two rounds
-  // so a transient provider error does not immediately fail the whole request.
-  for (let round = 0; round < 2; round++) {
-    for (let modelIndex = 0; modelIndex < visionModels.length; modelIndex++) {
-      const visionModel = visionModels[modelIndex];
-      let parsed: unknown;
-      try {
-        attempts += 1;
-        const result = await runStructuredVision(env, {
-          model: visionModel,
-          imageDataUrls: references,
-          prompt: `${ANALYSIS_PROMPT}\n\nREFERENCE SET: ${references.length} image(s) of the same person are attached in order. Image 0 is primary; use the others to resolve stable identity cues and side/back evidence.`,
-          schema: PHOTO_ANALYSIS_SCHEMA,
-          schemaName: "minecraft_skin_photo_analysis",
-          schemaDescription:
-            "Structured portrait, hair, face and outfit analysis for a Minecraft skin",
-          // The full identity + render-hint schema is intentionally rich.
-          // 3,200 truncated roughly half of the diverse real-photo set.
-          maxOutputTokens: 8192,
-        });
-        neuronsSpent += visionNeuronsFromUsage(result, NEURONS_VISION_ANALYSIS);
-        parsed = extractAnalysisPayload(result);
-      } catch (error) {
-        neuronsSpent += NEURONS_VISION_ANALYSIS;
-        const detail = error instanceof Error ? error.message : String(error);
-        lastDetail = `round ${round + 1} ${visionModel}: ${detail}`;
-        failureDetails.push(lastDetail);
-        if (isGeminiTemporaryRateLimit(error)) {
-          const retryAfterMs = geminiRetryAfterMs(error) ?? 1_000;
-          sawTemporaryRateLimit = true;
-          lastRetryAfterMs = retryAfterMs;
-          // Gemini quotas are model-specific. Do not wait on an exhausted
-          // primary while a distinct fallback model may still be available.
-          if (modelIndex < visionModels.length - 1) continue;
-          if (round === 0 && retryAfterMs <= 30_000) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, retryAfterMs + 250),
-            );
-            continue;
-          }
-          continue;
-        }
-        if (isAiQuotaError(error)) {
-          if (
-            isGeminiQuotaError(error) &&
-            modelIndex < visionModels.length - 1
-          ) {
-            continue;
-          }
-          return {
-            ok: false,
-            reason: "quota_exceeded",
-            detail: failureDetails.join("\n"),
-            attempts,
-            neuronsSpent,
-          };
-        }
-        continue;
-      }
-      if (parsed === null || parsed === undefined) {
-        sawInvalidResponse = true;
-        lastDetail = `round ${round + 1} ${visionModel}: response did not contain JSON`;
-        failureDetails.push(lastDetail);
-        continue;
-      }
-      const validated = validatePhotoAnalysis(parsed);
-      if (validated.ok) {
-        const lastReferenceIndex = Math.max(0, references.length - 1);
-        const boundedIndex = (index: number): number =>
-          Math.min(lastReferenceIndex, Math.max(0, index));
-        return {
-          ok: true,
-          analysis: {
-            ...validated.analysis,
-            sourceSelection: {
-              ...validated.analysis.sourceSelection,
-              portraitImageIndex: boundedIndex(
-                validated.analysis.sourceSelection.portraitImageIndex,
-              ),
-              outfitImageIndex: boundedIndex(
-                validated.analysis.sourceSelection.outfitImageIndex,
-              ),
-              generationImageIndex: boundedIndex(
-                validated.analysis.sourceSelection.generationImageIndex,
-              ),
-            },
-          },
-          attempts,
-          neuronsSpent,
-        };
-      }
-      sawInvalidResponse = true;
-      lastDetail = `round ${round + 1} ${visionModel}: schema validation failed: ${validated.errors.join("; ")}`;
-      failureDetails.push(lastDetail);
+  // Loaded after rich constants initialize: the compact representation derives
+  // from those constants, so a static import would create an initialization cycle.
+  const [compact, strictCompact, gemma] = await Promise.all([
+    import("./compactPhotoAnalysisV3"),
+    import("./compactPhotoAnalysis"),
+    import("./gemmaPhotoAnalysis"),
+  ]);
+  try {
+    if (references.length < 1 || references.length > 5) throw new Error("Invalid image count");
+    const referenceSuffix = `\n\nREFERENCE SET: ${references.length} image(s) of the same person are attached in order. Image 0 is primary; use the others to resolve stable identity cues and side/back evidence.`;
+    const result = await generateGeminiStructuredJson(env, {
+      model: env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL,
+      imageDataUrls: references,
+      prompt: `${compact.COMPACT_PHOTO_ANALYSIS_V3_PROMPT}${referenceSuffix}`,
+      responseSchema: compact.COMPACT_PHOTO_ANALYSIS_V3_SCHEMA,
+      workersAiResponseSchema: gemma.GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA,
+      workersAiPrompt: `${gemma.GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT}${referenceSuffix}`,
+      maxOutputTokens: 8192,
+      timeoutCapMs: 45_000,
+      onProviderAttempt: (event) => {
+        providerAttempts.push(event);
+        if (event.outcome === "started") attempts++;
+      },
+    });
+    const providerParsed = extractAnalysisPayload(result);
+    let parsed: unknown = providerParsed;
+    const context = { imageCount: references.length };
+    const completedAttempt = [...providerAttempts].reverse()
+      .find((attempt) => attempt.outcome === "completed");
+    if (completedAttempt?.provider === "workers_ai") {
+      completedAttempt.outputDiagnostic = analysisPayloadDiagnostic(result);
     }
+    let providerErrors: string[];
+    if (completedAttempt?.provider === "workers_ai"
+      && completedAttempt.model === gemma.GEMMA_VISION_MODEL) {
+      providerErrors = gemma.validateGemmaNamedPhotoAnalysis(providerParsed);
+      if (!providerErrors.length) {
+        const adapted = gemma.adaptGemmaNamedPhotoAnalysis(providerParsed);
+        if (adapted.ok) parsed = adapted.compact;
+        else providerErrors = adapted.errors;
+      }
+    } else if (completedAttempt?.provider === "workers_ai") {
+      providerErrors = strictCompact.validateCompactPhotoAnalysisV2(providerParsed);
+    } else {
+      providerErrors = compact.validateCompactPhotoAnalysisV3Provider(providerParsed);
+    }
+    const strictErrors = providerErrors.length
+      ? providerErrors
+      : compact.validateCompactPhotoAnalysisV3(parsed, context);
+    const errors = strictErrors;
+    if (completedAttempt) {
+      completedAttempt.providerSchemaValidation = providerErrors.length ? "failed" : "passed";
+      completedAttempt.strictValidation = strictErrors.length ? "failed" : "passed";
+    }
+    const normalized = errors.length ? null : compact.normalizeCompactPhotoAnalysisV3(parsed, context);
+    const rich = normalized?.ok ? validatePhotoAnalysis(normalized.analysis) : null;
+    const neuronsSpent = Math.max(0, attempts - 1) * NEURONS_VISION_ANALYSIS
+      + visionNeuronsFromUsage(result, NEURONS_VISION_ANALYSIS);
+    if (!rich?.ok) {
+      return { ok: false, reason: "invalid_response",
+        detail: errors.length ? errors.join("; ") : "Compact v3 rich normalization failed",
+        attempts, neuronsSpent, providerAttempts };
+    }
+    return { ok: true, analysis: rich.analysis, attempts, neuronsSpent, providerAttempts };
+  } catch (error) {
+    // No model rounds, sleeps, retries or semantic repair. The transport alone
+    // may use the other provider once for transient/model availability errors.
+    const diagnostic = geminiProviderErrorDiagnostic(error);
+    const failedProviders = providerAttempts.filter(item => item.outcome === "failed");
+    const allDailyQuota = failedProviders.length > 0 && failedProviders.every(item => item.dailyQuotaExhausted);
+    return {
+      ok: false,
+      reason: allDailyQuota ? "quota_exceeded"
+        : isGeminiTemporaryRateLimit(error) || diagnostic.httpStatus === 429 ? "rate_limited"
+        : isAiQuotaError(error) ? "provider_unavailable"
+        : (diagnostic.httpStatus === 429 || (diagnostic.httpStatus ?? 0) >= 500
+          || error instanceof TypeError) ? "provider_unavailable" : "ai_error",
+      detail: `Primary analysis failed (${diagnostic.httpStatus ?? "network/local"} / ${diagnostic.providerStatus ?? "unclassified"})`,
+      attempts, neuronsSpent: attempts * NEURONS_VISION_ANALYSIS, providerAttempts,
+    };
   }
-  return {
-    ok: false,
-    reason: sawInvalidResponse
-      ? "invalid_response"
-      : sawTemporaryRateLimit
-        ? "rate_limited"
-        : "ai_error",
-    detail: failureDetails.join("\n") || lastDetail,
-    attempts,
-    neuronsSpent,
-    ...(sawTemporaryRateLimit && lastRetryAfterMs
-      ? { retryAfterMs: lastRetryAfterMs }
-      : {}),
-  };
 }
 
 function isAiQuotaError(error: unknown): boolean {
@@ -3115,6 +3073,50 @@ export function extractAnalysisPayload(
     return content as Record<string, unknown>;
   }
   return typeof content === "string" ? extractJson(content) : null;
+}
+
+/** Shape-only provider output telemetry. Never includes response content. */
+export function analysisPayloadDiagnostic(result: unknown): StructuredProviderOutputDiagnostic {
+  const typeOf = (value: unknown): string => value === null
+    ? "null" : Array.isArray(value) ? "array" : typeof value;
+  const keysOf = (value: unknown): string[] => typeof value === "object"
+    && value !== null && !Array.isArray(value)
+    ? Object.keys(value as Record<string, unknown>).sort() : [];
+  const root = typeof result === "object" && result !== null && !Array.isArray(result)
+    ? result as Record<string, unknown> : null;
+  const responsePresent = Boolean(root && Object.prototype.hasOwnProperty.call(root, "response"));
+  const response = root?.response;
+  const choices = root?.choices;
+  const extracted = extractAnalysisPayload(result);
+  const responseString = typeof response === "string" ? (() => {
+    const trimmed = response.trim();
+    return {
+      characterLength: response.length,
+      trimmedLength: trimmed.length,
+      startsWithObject: trimmed.startsWith("{"),
+      startsWithArray: trimmed.startsWith("["),
+      containsOpenBrace: trimmed.includes("{"),
+      containsCloseBrace: trimmed.includes("}"),
+      fencedJson: /^```(?:json)?\s/i.test(trimmed),
+      extractJsonSucceeded: extractJson(response) !== null,
+    };
+  })() : undefined;
+  return {
+    resultType: typeof result,
+    resultNull: result === null,
+    resultArray: Array.isArray(result),
+    topLevelKeys: keysOf(result),
+    responsePresent,
+    responseType: typeOf(response),
+    responseArray: Array.isArray(response),
+    responseObjectKeys: keysOf(response),
+    ...(responseString ? { responseString } : {}),
+    choicesPresent: choices !== undefined,
+    choicesType: typeOf(choices),
+    extractedType: typeOf(extracted),
+    extractedNull: extracted === null,
+    extractedObjectKeys: keysOf(extracted),
+  };
 }
 
 export function extractJson(text: string): Record<string, unknown> | null {

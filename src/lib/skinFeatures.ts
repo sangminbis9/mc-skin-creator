@@ -78,7 +78,9 @@ export interface GenerateResponse {
     | "rate_limited"
     | "photo_rejected"
     | "ai_failed"
-    | "bad_request";
+    | "bad_request"
+    | "provider_unavailable"
+    | "SKIN_RENDER_FAILED";
   quota?: QuotaStatus;
 }
 

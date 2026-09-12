@@ -89,9 +89,44 @@ import { buildFacePixelPlanVariants, type FacePixelPlan } from "./identityPlans"
 import { imageGenerationNeurons } from "./quota";
 import type { Env } from "./types";
 import { runIdentityGeometryAnalysis } from "./identityGeometry";
+import { withinDeadline } from "./deadline";
 
 /** 업로드 허용 최대 크기 (base64 data URL 문자 수, 약 1.1MB 이미지) */
-const MAX_IMAGE_CHARS = 1_500_000;
+export const MAX_IMAGE_CHARS = 1_500_000;
+
+/** Diagnostic storage is advisory; a slow KV must not block a valid PNG. */
+async function primaryDiagnostic(env: Env, value: unknown): Promise<void> {
+  await withinDeadline(() => env.MCSKIN_KV.put("diagnostic:last-primary-analysis",
+    JSON.stringify(value), { expirationTtl: 172800 }), 1000,
+  () => new Error("Diagnostic deadline")).catch(() => undefined);
+}
+
+function primaryRenderContext(analysis: PhotoAnalysis) {
+  const renderAnalysis = normalizeAnalysisForRendering(analysis);
+  const skinPlan = buildSkinPlan(renderAnalysis);
+  const features = refineFeatureColorsFromAnalysis(renderAnalysis,
+    fallbackFeaturesToHex(renderAnalysis.fallbackFeatures, renderAnalysis.renderHints.skinUndertone));
+  const summary: AnalysisSummary = {
+    framing: renderAnalysis.framing, visibleRegions: renderAnalysis.visibleRegions,
+    sourceSelection: renderAnalysis.sourceSelection, observed: renderAnalysis.observed,
+    inferred: renderAnalysis.inferred, canonicalIdentity: renderAnalysis.canonicalIdentity,
+    renderHints: renderAnalysis.renderHints,
+    ...(renderAnalysis.identityGeometry ? { identityGeometry: renderAnalysis.identityGeometry } : {}),
+    ...(renderAnalysis.faceMeasurementEvidence ? { faceMeasurementEvidence: renderAnalysis.faceMeasurementEvidence } : {}),
+    skinPlan,
+  };
+  return { renderAnalysis, skinPlan, features, summary, faceStyle: buildFaceStyle(renderAnalysis, features) };
+}
+
+async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number): Promise<GenerateResult> {
+  const { skinPlan, features, summary, faceStyle } = primaryRenderContext(analysis);
+  const skinPngBase64 = await buildProceduralFallbackPng(features, faceStyle, skinPlan);
+  if (!skinPngBase64) return fail(500, "유효한 스킨을 만들지 못했어요", "SKIN_RENDER_FAILED", neuronsSpent);
+  return { status: 200, success: true, neuronsSpent, body: {
+    ok: true, quality: analysis.quality, features, analysis: summary, skinPngBase64,
+    generationMode: "procedural_fallback", fallbackReason: "reliability_baseline",
+  } };
+}
 
 export type GenerationMode = "image" | "procedural_fallback";
 const GEMINI_MAX_SEED = 2_147_483_647;
@@ -336,7 +371,10 @@ export async function generateSkin(
   analysisImageDataUrl: string = imageDataUrl,
   referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResult> {
-  const references = referenceImageDataUrls.slice(0, 4);
+  if (!Array.isArray(referenceImageDataUrls) || referenceImageDataUrls.length > 4) {
+    return fail(400, "최대 5장까지 사용할 수 있어요", "bad_request", 0);
+  }
+  const references = referenceImageDataUrls;
   if (
     typeof imageDataUrl !== "string" ||
     !imageDataUrl.startsWith("data:image/") ||
@@ -366,6 +404,10 @@ export async function generateSkin(
   // retries and fallback-model attempts. Count all of them in the advisory
   // local meter; provider-reported exhaustion remains authoritative.
   let spent = analysisResult.neuronsSpent;
+  await primaryDiagnostic(env, { at: new Date().toISOString(), ok: analysisResult.ok,
+    attempts: analysisResult.attempts, providerAttempts: analysisResult.providerAttempts ?? [],
+    ...(!analysisResult.ok ? { reason: analysisResult.reason, detail: analysisResult.detail.slice(0, 1500) } : {}),
+  });
   if (!analysisResult.ok) {
     console.log(
       "analysis failed:",
@@ -375,7 +417,7 @@ export async function generateSkin(
     // Persist only provider/schema diagnostics, never the uploaded image or
     // model response. This makes production failures inspectable even when a
     // sampled tail misses the request.
-    await env.MCSKIN_KV.put(
+    await withinDeadline(() => env.MCSKIN_KV.put(
       "diagnostic:last-analysis-failure",
       JSON.stringify({
         at: new Date().toISOString(),
@@ -384,7 +426,7 @@ export async function generateSkin(
         attempts: analysisResult.attempts,
       }),
       { expirationTtl: 60 * 60 * 48 },
-    ).catch(() => undefined);
+    ), 1000, () => new Error("Diagnostic deadline")).catch(() => undefined);
     if (analysisResult.reason === "quota_exceeded") {
       return fail(
         429,
@@ -400,6 +442,9 @@ export async function generateSkin(
         "rate_limited",
         spent,
       );
+    }
+    if (analysisResult.reason === "provider_unavailable") {
+      return fail(503, "사진 분석 서비스가 일시적으로 혼잡해요. 잠시 후 다시 시도해 주세요.", "provider_unavailable", spent);
     }
     return fail(
       502,
@@ -427,6 +472,12 @@ export async function generateSkin(
     };
   }
 
+  // Secure a validated primary-only atlas before any optional provider can
+  // modify the analysis or reject a candidate. Public synchronous requests
+  // use this path; enhancement implementation is retained for quality work.
+  const baseline = await renderPrimaryBaseline(analysis, spent);
+  if (env.SYNCHRONOUS_ENHANCEMENTS_ENABLED !== "true") return baseline;
+  try {
   const selectedIndex = (index: number): number =>
     Math.min(analysisReferences.length - 1, Math.max(0, index));
   const portraitSourceIndex = selectedIndex(
@@ -1220,6 +1271,7 @@ export async function generateSkin(
   }
 
   if (!skinPngBase64) {
+    if (baseline.success) return { ...baseline, neuronsSpent: spent };
     // `ok: true` without the promised PNG makes callers attempt to decode an
     // absent value and hides the actual renderer failure behind a base64
     // error. Keep the response contract strict: a successful generation
@@ -1298,6 +1350,9 @@ export async function generateSkin(
     success: true,
     ...(providerQuotaExhausted ? { providerQuotaExhausted: true } : {}),
   };
+  } catch {
+    return { ...baseline, neuronsSpent: spent };
+  }
 }
 
 export interface IdentityCropSet {

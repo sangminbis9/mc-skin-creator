@@ -8,7 +8,8 @@
  */
 
 import { bumpMetric, getMetric, METRICS, type Metric } from "./analytics";
-import { generateSkin } from "./generate";
+import { generateSkin, MAX_IMAGE_CHARS } from "./generate";
+import { withinDeadline } from "./deadline";
 import {
   commitNeurons,
   dayKey,
@@ -60,7 +61,7 @@ export default {
       }
 
       if (url.pathname === "/api/generate" && request.method === "POST") {
-        return handleGenerate(request, env, requestId);
+        return await handleGenerate(request, env, requestId);
       }
     } catch (error) {
       await persistFailureDiagnostic(env, {
@@ -89,12 +90,15 @@ async function handleGenerate(
   env: Env,
   requestId: string,
 ): Promise<Response> {
-  await bumpMetric(env, "attempts");
+  await advisory(() => bumpMetric(env, "attempts"));
 
   // 1) quota 확인 — 소진이면 AI 호출 전에 차단
-  const quota = await getQuotaStatus(env);
+  // Fail closed if the required quota check is unavailable, but bound it.
+  // Accounting AFTER a completed render is advisory and cannot discard it.
+  const quota = await withinDeadline(() => getQuotaStatus(env), 2000,
+    () => new Error("Quota check deadline"));
   if (quota.level === "closed") {
-    await bumpMetric(env, "failures");
+    await advisory(() => bumpMetric(env, "failures"));
     return json(
       {
         ok: false,
@@ -107,13 +111,16 @@ async function handleGenerate(
   }
 
   // 2) 요청 파싱
-  const body = (await request.json().catch(() => null)) as {
+  const body = (await readGenerationBody(request).catch(() => null)) as {
     image?: string;
     analysisImage?: string;
     referenceImages?: string[];
   } | null;
-  if (!body?.image) {
-    await bumpMetric(env, "failures");
+  if (!body || typeof body.image !== "string"
+    || (body.analysisImage !== undefined && typeof body.analysisImage !== "string")
+    || (body.referenceImages !== undefined && (!Array.isArray(body.referenceImages)
+      || body.referenceImages.length > 4 || body.referenceImages.some(item => typeof item !== "string")))) {
+    await advisory(() => bumpMetric(env, "failures"));
     return json(
       { ok: false, error: "이미지가 없어요", errorCode: "bad_request" },
       400,
@@ -124,14 +131,14 @@ async function handleGenerate(
   let result;
   try {
     result = await generateSkin(
-      env,
+      { ...env, SYNCHRONOUS_ENHANCEMENTS_ENABLED: "false" },
       body.image,
       undefined,
       body.analysisImage,
       body.referenceImages,
     );
   } catch (error) {
-    await bumpMetric(env, "failures").catch(() => undefined);
+    await advisory(() => bumpMetric(env, "failures"));
     await persistFailureDiagnostic(env, {
       requestId,
       phase: "generation",
@@ -149,6 +156,7 @@ async function handleGenerate(
   }
 
   // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
+  await advisory(async () => {
   await commitNeurons(env, result.neuronsSpent);
   // Only close the whole app when the required analysis model is exhausted.
   // Image generation and critique are optional enhancement stages; if either
@@ -163,28 +171,58 @@ async function handleGenerate(
       result.body.generationMode === "image" ? "gen_image" : "gen_fallback",
     );
   }
+  });
 
   return json(
-    { ...result.body, quota: await getQuotaStatus(env), requestId },
+    { ...result.body, quota: await advisory(() => getQuotaStatus(env)) ?? quota, requestId },
     result.status,
   );
 }
 
 function errorDetail(error: unknown): string {
-  return (
-    error instanceof Error ? error.stack || error.message : String(error)
-  ).slice(0, 1800);
+  // Arbitrary provider errors may echo a request or credential. Persist only
+  // the error class here; primary analysis has its own allowlisted diagnostics.
+  return error instanceof Error && /^(Error|TypeError|GeminiApiError)$/.test(error.name)
+    ? error.name : "Operation failed";
+}
+
+async function advisory<T>(operation: () => Promise<T>): Promise<T | undefined> {
+  return withinDeadline(operation, 1000, () => new Error("Advisory deadline")).catch(() => undefined);
+}
+
+/** Six data URLs: primary 448px + primary 896px + four references (<9.01MB). */
+async function readGenerationBody(request: Request): Promise<unknown> {
+  const limit = 6 * MAX_IMAGE_CHARS + 1024;
+  if (Number(request.headers.get("content-length")) > limit || !request.body) return null;
+  const reader = request.body.getReader();
+  return withinDeadline(async () => {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) return null;
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } finally { void reader.cancel().catch(() => undefined); }
+  }, 10_000, () => new Error("Upload deadline"), () => { void reader.cancel().catch(() => undefined); });
 }
 
 async function persistFailureDiagnostic(
   env: Env,
   diagnostic: { requestId: string; phase: string; detail: string },
 ): Promise<void> {
-  await env.MCSKIN_KV.put(
+  await advisory(() => env.MCSKIN_KV.put(
     "diagnostic:last-generation-failure",
     JSON.stringify({ at: new Date().toISOString(), ...diagnostic }),
     { expirationTtl: 60 * 60 * 48 },
-  ).catch(() => undefined);
+  ));
 }
 
 function trackableMetric(event: string | undefined): Metric | null {

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { AdLoadingPanel } from "../components/AdLoadingPanel";
 import { PixelProgress } from "../components/pixel/PixelProgress";
 import { ApiError, requestSkinGeneration } from "../lib/cloudflareAI";
+import { normalizeFeatures } from "../lib/skinFeatures";
 import type {
   GenerateResponse,
   GenerationMode,
@@ -17,6 +18,7 @@ import type {
 export interface GenerationFailure {
   kind: "photo" | "ai" | "network";
   message: string;
+  retryable?: boolean;
 }
 
 export interface GenerationSuccess {
@@ -105,14 +107,12 @@ export function GeneratingPage({
             generationMode: response.generationMode ?? "procedural_fallback",
           });
         }
-        if (!response.features) {
-          onFail({ kind: "ai", message: "AI가 스킨을 만드는 데 실패했어요." });
-          return;
-        }
         setProgress(100);
         setStageIndex(STAGES.length - 1);
         const result: GenerationSuccess = {
-          features: response.features,
+          // Display/editor metadata only. The validated server PNG remains
+          // authoritative even if an older API omits optional feature metadata.
+          features: normalizeFeatures(response.features ?? {}),
           skinPngBase64: response.skinPngBase64,
           generationMode: response.generationMode ?? "procedural_fallback",
         };
@@ -145,7 +145,7 @@ export function GeneratingPage({
             });
             return;
           }
-          if (error.code === "rate_limited") {
+          if (error.code === "rate_limited" || error.code === "provider_unavailable") {
             onFail({
               kind: "ai",
               message: "AI 요청이 잠시 몰렸어요. 잠시 후 다시 시도해 주세요.",
@@ -154,6 +154,7 @@ export function GeneratingPage({
           }
           onFail({
             kind: "ai",
+            retryable: false,
             message: `${error.message}${
               error.response?.requestId
                 ? ` (오류 번호: ${error.response.requestId.slice(0, 8)})`

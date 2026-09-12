@@ -10,13 +10,13 @@
   },
   "vars": {
     // Gemini multimodal analysis. GEMINI_API_KEY must be a Wrangler secret.
-    "VISION_MODEL": "gemini-3.6-flash",
+    "VISION_MODEL": "gemini-3.8-flash",
     // Separate model quota keeps analysis/critique available when the small
     // Gemini 3.6 free request bucket is temporarily exhausted.
     "VISION_FALLBACK_MODEL": "gemini-3.1-flash-lite",
-    // Account-internal multimodal fallback when Google rejects Cloudflare's
-    // egress location or the provider-native gateway cannot authenticate.
-    "WORKERS_VISION_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    // Free-compatible native vision fallback. Gemma uses a named provider DTO,
+    // then the same strict Compact runtime validation as Gemini output.
+    "WORKERS_VISION_MODEL": "@cf/google/gemma-4-26b-a4b-it",
     "GEMINI_STRUCTURED_TIMEOUT_MS": "45000",
     "GEMINI_IMAGE_TIMEOUT_MS": "120000",
     "GEMINI_IMAGE_MODEL": "gemini-3.1-flash-image",
@@ -29,15 +29,15 @@
     "WORKERS_IMAGE_QUALITY_MODEL": "@cf/black-forest-labs/flux-2-klein-9b",
     "WORKERS_IMAGE_FALLBACK_ENABLED": "true",
     // Gemini 스킨 이미지 생성 feature flag — "true"가 아니면 절차적 fallback만 사용
-    "IMAGE_GENERATION_ENABLED": "true",
+    "IMAGE_GENERATION_ENABLED": "false",
     // 정확한 UV 배치는 서버 packer가 보장한다. direct atlas는 모델이 좌표를 어겨 사용하지 않는다.
     "IMAGE_GEN_STRATEGY": "four_view",
     // quality는 GEMINI_IMAGE_QUALITY_MODEL, balanced는 GEMINI_IMAGE_MODEL을 사용한다.
     "IMAGE_MODEL_TIER": "quality",
     // 코드 검증 뒤 여섯 시점 렌더를 Gemini가 닮음/연속성/레이어 기준으로 재검토한다.
-    "IMAGE_CRITIQUE_ENABLED": "true",
+    "IMAGE_CRITIQUE_ENABLED": "false",
     // Structural validity is not likeness: rank generated vs deterministic heads.
-    "HEAD_CANDIDATE_SELECTION_ENABLED": "true",
+    "HEAD_CANDIDATE_SELECTION_ENABLED": "false",
     // 기존 앱 quota 게이지의 로컬 사용량 분모. Gemini 청구 한도와는 별개다.
     "DAILY_BUDGET_RATIO": "1.0",
   },

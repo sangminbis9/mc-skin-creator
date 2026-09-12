@@ -130,10 +130,10 @@ export async function resizeForUpload(
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    return dataUrl;
+    throw new Error("사진을 압축하지 못했어요. 다른 브라우저에서 다시 시도해 주세요.");
   }
   ctx.drawImage(image, 0, 0, w, h);
-  return canvas.toDataURL("image/jpeg", 0.85);
+  return boundedJpeg(canvas);
 }
 
 export interface PreparedPhotoUpload {
@@ -157,14 +157,22 @@ export async function preparePhotoForUpload(
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
-    if (!context) return dataUrl;
+    if (!context) throw new Error("사진을 압축하지 못했어요. 다른 브라우저에서 다시 시도해 주세요.");
     context.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    return boundedJpeg(canvas);
   };
   return {
     analysisDataUrl: render(896),
     generationDataUrl: render(448),
   };
+}
+
+function boundedJpeg(canvas: HTMLCanvasElement): string {
+  for (const quality of [0.85, 0.75, 0.6]) {
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    if (dataUrl.startsWith("data:image/jpeg;base64,") && dataUrl.length <= 1_500_000) return dataUrl;
+  }
+  throw new Error("사진 파일이 너무 커요. 더 작은 사진을 선택해 주세요.");
 }
 
 function fileToDataUrl(file: File): Promise<string> {

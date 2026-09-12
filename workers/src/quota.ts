@@ -153,7 +153,8 @@ async function getUsedNeurons(env: Env, now = new Date()): Promise<number> {
 }
 
 function providerClosedKey(now = new Date()): string {
-  return `quota:provider-closed:${dayKey(now)}`;
+  // Old Gemini-only exhaustion must not disable the new two-provider path.
+  return `quota:primary-v3-providers-closed:${dayKey(now)}`;
 }
 
 export async function getQuotaStatus(

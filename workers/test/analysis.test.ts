@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { wireFixture } from "./compactV3Support";
+import { COMPACT_FACE_ORDER, COMPACT_HINT_GROUPS, COMPACT_PHOTO_ANALYSIS_V2_SCHEMA } from "../src/compactPhotoAnalysis";
+import { COMPACT_PHOTO_ANALYSIS_V3_SCHEMA } from "../src/compactPhotoAnalysisV3";
+import {
+  GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT,
+  GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA,
+  GEMMA_VISION_MODEL,
+} from "../src/gemmaPhotoAnalysis";
 import {
   ANALYSIS_PROMPT,
+  analysisPayloadDiagnostic,
   extractAnalysisPayload,
   NECK_DETAIL_PROMPT,
   PORTRAIT_DETAIL_PROMPT,
@@ -12,7 +21,6 @@ import {
   validatePortraitRegion,
 } from "../src/analysis";
 import type { Env } from "../src/types";
-import { GeminiApiError } from "../src/gemini";
 import { makeAnalysis } from "./helpers";
 
 function makeVisionEnv(
@@ -25,295 +33,224 @@ function makeVisionEnv(
   } as unknown as Env;
 }
 
-describe("runPhotoAnalysis", () => {
-  it("uses the fallback model after the primary structured response fails", async () => {
-    const run = vi.fn(async (model: string) => {
-      if (model === "primary-model") {
-        throw new Error("primary unavailable");
-      }
-      return { response: makeAnalysis() };
-    });
-    const env = makeVisionEnv(run);
+function namedWorkerFixture(compact = wireFixture(makeAnalysis())) {
+  return {
+    ...compact,
+    renderHints: Object.fromEntries(
+      Object.entries(COMPACT_HINT_GROUPS).map(([group, fields]) => [
+        group,
+        Object.fromEntries(fields.map((field, index) => [
+          field,
+          compact.renderHints[group as keyof typeof compact.renderHints][index],
+        ])),
+      ]),
+    ),
+  };
+}
 
-    const result = await runPhotoAnalysis(env, "data:image/jpeg;base64,photo");
-
-    expect(result.ok).toBe(true);
-    expect(run.mock.calls.map(([model]) => model)).toEqual([
-      "primary-model",
-      "fallback-model",
+describe("runPhotoAnalysis: strict Compact v3 production boundary", () => {
+  const photo = "data:image/jpeg;base64,/9j/";
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  const response = (value: unknown) => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] });
+  function envForFallback(run = vi.fn(async () => ({
+    choices: [{ message: { content: JSON.stringify(namedWorkerFixture()) } }],
+  }))) {
+    return { GEMINI_API_KEY: "test-key", AI: { run }, MCSKIN_KV: {} } as unknown as Env;
+  }
+  it("uses current schema, strict validation and rich normalization through the shared 3.8 envelope", async () => {
+    const fetchMock = vi.fn(async () => response(wireFixture(makeAnalysis())));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await runPhotoAnalysis(envForFallback(), photo);
+    expect(result).toMatchObject({ ok: true, attempts: 1 });
+    if (result.ok) expect(validatePhotoAnalysis(result.analysis).ok).toBe(true);
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.generationConfig.responseJsonSchema).toEqual(COMPACT_PHOTO_ANALYSIS_V3_SCHEMA);
+    expect(body.generationConfig).not.toHaveProperty("temperature");
+    expect(body.contents[0].parts.at(-1).text).toContain("COMPACT WIRE CONTRACT v3");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it.each([503, 429, 404])("falls back once to a real Workers AI provider after %i", async status => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { status: "UNAVAILABLE" } }, { status })));
+    const env = envForFallback();
+    const result = await runPhotoAnalysis(env, photo);
+    expect(result).toMatchObject({ ok: true, attempts: 2 });
+    expect(env.AI!.run).toHaveBeenCalledExactlyOnceWith(GEMMA_VISION_MODEL,
+      expect.objectContaining({
+        messages: expect.any(Array),
+        max_completion_tokens: 8192,
+        chat_template_kwargs: { enable_thinking: false },
+      }));
+    const workersInput = (env.AI!.run as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>;
+    expect(COMPACT_PHOTO_ANALYSIS_V2_SCHEMA).toBeDefined();
+    expect(workersInput).not.toHaveProperty("guided_json");
+    expect(workersInput).toHaveProperty("messages");
+    expect(workersInput).toHaveProperty("response_format.json_schema.schema", GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA);
+    expect(result.providerAttempts?.filter(item => item.outcome === "started").map(item => item.provider)).toEqual(["gemini", "workers_ai"]);
+    expect(result.providerAttempts?.find(item => item.provider === "workers_ai" && item.outcome === "started"))
+      .toMatchObject({ responseFormatMode: "workers_named_json_schema_strict" });
+    expect(result.providerAttempts?.find(item => item.provider === "workers_ai" && item.outcome === "completed"))
+      .toMatchObject({ providerSchemaValidation: "passed", strictValidation: "passed" });
+  });
+  it("never retries or switches provider for schema/config 400", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ error: {
+      message: "Malformed response schema",
+      status: "INVALID_ARGUMENT",
+    } }, { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = envForFallback();
+    const result = await runPhotoAnalysis(env, photo);
+    expect(result).toMatchObject({ ok: false, attempts: 1 });
+    expect(result.providerAttempts?.find(item => item.provider === "gemini" && item.outcome === "failed"))
+      .toMatchObject({ status: 400, providerStatus: "INVALID_ARGUMENT", message: "Malformed response schema",
+        fallbackEligible: false, fallbackReason: "invalid_argument" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(env.AI!.run).not.toHaveBeenCalled();
+  });
+  it("fails over exactly once when Gemini reports FAILED_PRECONDITION", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ error: {
+      message: "A provider project prerequisite is not met",
+      status: "FAILED_PRECONDITION",
+    } }, { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = envForFallback();
+    const result = await runPhotoAnalysis(env, photo);
+    expect(result).toMatchObject({ ok: true, attempts: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(env.AI!.run).toHaveBeenCalledTimes(1);
+    expect(result.providerAttempts?.map(item => `${item.provider}:${item.outcome}`)).toEqual([
+      "gemini:started", "gemini:failed", "workers_ai:started", "workers_ai:completed",
     ]);
-    expect(result).toMatchObject({ attempts: 2 });
+    expect(result.providerAttempts?.find(item => item.provider === "gemini" && item.outcome === "failed"))
+      .toMatchObject({ status: 400, providerStatus: "FAILED_PRECONDITION",
+        message: "A provider project prerequisite is not met",
+        fallbackEligible: true, fallbackReason: "provider_failed_precondition" });
+    expect(result.providerAttempts?.find(item => item.provider === "workers_ai" && item.outcome === "completed"))
+      .toMatchObject({ providerSchemaValidation: "passed", strictValidation: "passed" });
   });
-
-  it("uses a distinct fallback immediately when the primary Gemini model is rate limited", async () => {
-    const run = vi.fn(async (model: string) => {
-      if (model === "primary-model") {
-        throw new GeminiApiError(
-          "primary request bucket exhausted",
-          429,
-          "RESOURCE_EXHAUSTED",
-          25_000,
-        );
-      }
-      return { response: makeAnalysis() };
-    });
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
-    expect(result.ok).toBe(true);
-    expect(run.mock.calls.map(([model]) => model)).toEqual([
-      "primary-model",
-      "fallback-model",
-    ]);
-  });
-
-  it("falls back when the primary model emits invalid structured output", async () => {
-    const run = vi.fn(async (model: string) =>
-      model === "primary-model"
-        ? { response: "not-json" }
-        : { response: makeAnalysis() },
-    );
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
-    expect(result.ok).toBe(true);
-    expect(run).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not call the fallback model when the primary response is valid", async () => {
-    const run = vi.fn(async () => ({ response: makeAnalysis() }));
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
-    expect(result.ok).toBe(true);
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(run.mock.calls[0]?.[1]).toMatchObject({
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "minecraft_skin_photo_analysis",
-          schema: PHOTO_ANALYSIS_SCHEMA,
-        },
-      },
-    });
-    expect(result).toMatchObject({ attempts: 1 });
-  });
-
-  it("keeps model-selected roles for a same-person reference set", async () => {
-    const analysis = makeAnalysis({
-      framing: "full_body",
-      sourceSelection: {
-        portraitImageIndex: 1,
-        outfitImageIndex: 2,
-        generationImageIndex: 2,
-        portraitEvidence: "image 1 is a sharp face and hair close-up",
-        outfitEvidence: "image 2 clearly shows the complete outfit and shoes",
-        generationEvidence: "image 2 is an unobstructed full-body view",
-      },
-    });
-    const run = vi.fn(async () => ({ response: analysis }));
-
-    const result = await runPhotoAnalysis(makeVisionEnv(run), [
-      "data:image/jpeg;base64,AAA0",
-      "data:image/jpeg;base64,AAA1",
-      "data:image/jpeg;base64,AAA2",
-    ]);
-
-    expect(result).toMatchObject({
-      ok: true,
-      analysis: {
-        framing: "full_body",
-        sourceSelection: {
-          portraitImageIndex: 1,
-          outfitImageIndex: 2,
-          generationImageIndex: 2,
-        },
-      },
-    });
-    const content = (
-      run.mock.calls[0]?.[1] as {
-        messages?: Array<{ content?: Array<{ text?: string }> }>;
-      }
-    )?.messages?.[0]?.content;
-    const prompt = (content ?? []).map((part) => part.text ?? "").join("\n");
-    expect(prompt).toContain("3 image(s) of the same person");
-  });
-
-  it("removes inferred clothing for regions that are visibly supplied by the reference set", async () => {
-    const base = makeAnalysis();
-    const analysis = makeAnalysis({
-      framing: "full_body",
-      visibleRegions: { face: true, hair: true, upperBody: true, lowerBody: true, feet: true },
-      inferred: {
-        ...base.inferred,
-        upperBody: { value: "guessed jacket", rationale: "model duplicated visible evidence" },
-        lowerBody: { value: "guessed trousers", rationale: "model duplicated visible evidence" },
-        lowerBodyDesign: {
-          bottomType: "pants", bottomPattern: "plain", bottomAccent: "none", legwear: "none", legwearAsymmetry: "none",
-          thighAccessory: "none", thighAccessorySide: "none", shoeStyle: "dress_shoes", rationale: "duplicated visible design",
-        },
-        shoes: { value: "guessed shoes", rationale: "model duplicated visible evidence" },
-      },
-    });
-    const result = await runPhotoAnalysis(makeVisionEnv(async () => ({ response: analysis })), [
-      "data:image/jpeg;base64,portrait",
-      "data:image/jpeg;base64,fullbody",
-    ]);
-    expect(result).toMatchObject({
-      ok: true,
-      analysis: { inferred: { upperBody: null, lowerBody: null, lowerBodyDesign: null, shoes: null } },
-    });
-  });
-
-  it("bounds a model-selected role to the supplied reference count", async () => {
+  it("adapts one strict Gemma named response after Gemini FAILED_PRECONDITION", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: {
+      message: "A provider project prerequisite is not met",
+      status: "FAILED_PRECONDITION",
+    } }, { status: 400 })));
     const run = vi.fn(async () => ({
-      response: makeAnalysis({
-        sourceSelection: {
-          portraitImageIndex: 4,
-          outfitImageIndex: 4,
-          generationImageIndex: 4,
-          portraitEvidence: "the last reported image has the clearest face",
-          outfitEvidence: "the last reported image has the clearest outfit",
-          generationEvidence: "the last reported image is the most complete",
-        },
-      }),
+      choices: [{ message: { content: JSON.stringify(namedWorkerFixture()) } }],
     }));
-
-    const result = await runPhotoAnalysis(makeVisionEnv(run), [
-      "data:image/jpeg;base64,AAA0",
-      "data:image/jpeg;base64,AAA1",
-    ]);
-
-    expect(result).toMatchObject({
-      ok: true,
-      analysis: {
-        sourceSelection: {
-          portraitImageIndex: 1,
-          outfitImageIndex: 1,
-          generationImageIndex: 1,
-        },
-      },
-    });
-  });
-
-  it("accounts from Workers AI token usage instead of a fixed estimate", async () => {
-    const run = vi.fn(async () => ({
-      response: makeAnalysis(),
-      usage: {
-        prompt_tokens: 10_000,
-        completion_tokens: 2_000,
-        total_tokens: 12_000,
-      },
-    }));
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
-    expect(result).toMatchObject({
-      ok: true,
-      attempts: 1,
-      neuronsSpent: 400,
-    });
-  });
-
-  it("returns ai_error when both models throw", async () => {
-    const run = vi.fn(async () => {
-      throw new Error("provider unavailable");
-    });
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
-    expect(result).toMatchObject({ ok: false, reason: "ai_error" });
-    expect(run).toHaveBeenCalledTimes(4);
-    expect(result).toMatchObject({ attempts: 4 });
-  });
-
-  it("de-duplicates identical primary and fallback models", async () => {
-    const run = vi.fn(async () => {
-      throw new Error("temporary provider failure");
-    });
-    const env = makeVisionEnv(run);
-    env.VISION_FALLBACK_MODEL = env.VISION_MODEL;
-
-    const result = await runPhotoAnalysis(env, "data:image/jpeg;base64,photo");
-
-    expect(result).toMatchObject({
-      ok: false,
-      reason: "ai_error",
-      attempts: 2,
-    });
-    expect(run).toHaveBeenCalledTimes(2);
-    if (!result.ok) {
-      expect(result.detail).toContain("round 1 primary-model");
-      expect(result.detail).toContain("round 2 primary-model");
-    }
-  });
-
-  it("stops immediately when Workers AI reports the shared daily neuron limit", async () => {
-    const run = vi.fn(async () => {
-      throw new Error(
-        "4006: you have used up your daily free allocation of 10,000 neurons",
-      );
-    });
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
-    expect(result).toMatchObject({
-      ok: false,
-      reason: "quota_exceeded",
-      attempts: 1,
-    });
+    const env = envForFallback(run);
+    env.WORKERS_VISION_MODEL = GEMMA_VISION_MODEL;
+    const result = await runPhotoAnalysis(env, photo);
+    expect(result).toMatchObject({ ok: true, attempts: 2 });
     expect(run).toHaveBeenCalledTimes(1);
-  });
-
-  it("recognizes Cloudflare's current 3036 account-limited error", async () => {
-    const run = vi.fn(async () => {
-      throw new Error(
-        "3036: Account limited: daily free allocation of 10,000 neurons exhausted",
-      );
+    expect(run.mock.calls[0][0]).toBe(GEMMA_VISION_MODEL);
+    const input = run.mock.calls[0][1] as Record<string, unknown>;
+    expect(input).toMatchObject({
+      max_completion_tokens: 8192,
+      chat_template_kwargs: { enable_thinking: false },
+      response_format: { type: "json_schema", json_schema: {
+        name: "minecraft_skin_photo_analysis",
+        schema: GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA,
+        strict: true,
+      } },
     });
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
-    expect(result).toMatchObject({
-      ok: false,
-      reason: "quota_exceeded",
-      attempts: 1,
-    });
-    expect(run).toHaveBeenCalledTimes(1);
+    const messages = input.messages as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    expect(messages[0]?.content.find((part) => part.type === "text")?.text)
+      .toContain(GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT);
+    expect(result.providerAttempts?.find(item => item.provider === "workers_ai" && item.outcome === "started"))
+      .toMatchObject({ model: GEMMA_VISION_MODEL, responseFormatMode: "workers_named_json_schema_strict" });
+    expect(result.providerAttempts?.find(item => item.provider === "workers_ai" && item.outcome === "completed"))
+      .toMatchObject({ providerSchemaValidation: "passed", strictValidation: "passed" });
   });
-
-  it("returns invalid_response when neither model emits JSON", async () => {
-    const run = vi.fn(async () => ({ response: "not-json" }));
-
-    const result = await runPhotoAnalysis(
-      makeVisionEnv(run),
-      "data:image/jpeg;base64,photo",
-    );
-
+  it("bounds a stalled response body and still uses one fallback", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream({ start() {} }))));
+    const pending = runPhotoAnalysis({ ...envForFallback(), GEMINI_STRUCTURED_TIMEOUT_MS: "10" }, photo);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await pending).toMatchObject({ ok: true, attempts: 2 });
+  });
+  it("uses one fallback for a network failure", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    expect(await runPhotoAnalysis(envForFallback(), photo)).toMatchObject({ ok: true, attempts: 2 });
+  });
+  it("does not repair or retry invalid measurement vocabulary from either provider", async () => {
+    const raw = wireFixture(makeAnalysis());
+    raw.faceMeasurements = COMPACT_FACE_ORDER.map(() => ({ value: "unknown", provenance: "unknown", confidence: 0 }));
+    raw.faceMeasurements[0] = { value: "average", provenance: "observed_categorical", confidence: 0.9 } as never;
+    vi.stubGlobal("fetch", vi.fn(async () => response(raw)));
+    const env = envForFallback();
+    const result = await runPhotoAnalysis(env, photo);
+    expect(result).toMatchObject({ ok: false, reason: "invalid_response", attempts: 1 });
+    if (!result.ok) expect(result.detail).toContain("compact.faceMeasurements[0].value:enum");
+    expect(env.AI!.run).not.toHaveBeenCalled();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 503 })));
+    const fallback = envForFallback(vi.fn(async () => ({
+      choices: [{ message: { content: JSON.stringify(namedWorkerFixture(raw)) } }],
+    })));
+    expect(await runPhotoAnalysis(fallback, photo)).toMatchObject({ ok: false, reason: "invalid_response", attempts: 2 });
+  });
+  it("records only shape metadata when Llama returns non-JSON prose", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 503 })));
+    const env = envForFallback(vi.fn(async () => ({
+      response: "This is prose without a structured object.",
+      usage: { prompt_tokens: 100, completion_tokens: 9 },
+    })));
+    const result = await runPhotoAnalysis(env, photo);
     expect(result).toMatchObject({ ok: false, reason: "invalid_response" });
-    expect(run).toHaveBeenCalledTimes(4);
-    expect(result).toMatchObject({ attempts: 4 });
+    const diagnostic = result.providerAttempts?.find(item => item.provider === "workers_ai"
+      && item.outcome === "completed")?.outputDiagnostic;
+    expect(diagnostic).toMatchObject({
+      resultType: "object", resultNull: false, resultArray: false,
+      topLevelKeys: ["response", "usage"], responsePresent: true,
+      responseType: "string", responseArray: false, responseObjectKeys: [],
+      responseString: { characterLength: 42, trimmedLength: 42,
+        startsWithObject: false, startsWithArray: false,
+        containsOpenBrace: false, containsCloseBrace: false,
+        fencedJson: false, extractJsonSucceeded: false },
+      choicesPresent: false, choicesType: "undefined",
+      extractedType: "null", extractedNull: true, extractedObjectKeys: [],
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain("This is prose");
+  });
+  it("rejects missing evidence from Workers instead of padding a live-like incomplete response", async () => {
+    const raw = wireFixture(makeAnalysis());
+    raw.faceMeasurements = COMPACT_FACE_ORDER.map(() => ({ value: "unknown" })) as never;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 401 })));
+    const env = envForFallback(vi.fn(async () => ({
+      choices: [{ message: { content: JSON.stringify(namedWorkerFixture(raw)) } }],
+    })));
+    const result = await runPhotoAnalysis(env, photo);
+    expect(result).toMatchObject({ ok: false, reason: "invalid_response", attempts: 2 });
+    if (!result.ok) expect(result.detail).toContain("gemma.faceMeasurements[0].provenance:required");
+    expect(result.providerAttempts?.find(item => item.provider === "workers_ai" && item.outcome === "completed"))
+      .toMatchObject({ providerSchemaValidation: "failed", strictValidation: "failed" });
+    expect(env.AI!.run).toHaveBeenCalledTimes(1);
+  });
+  it("rejects unavailable source indices instead of clamping them", async () => {
+    const raw = wireFixture(makeAnalysis());
+    raw.sourceSelection.portraitImageIndex = 4;
+    vi.stubGlobal("fetch", vi.fn(async () => response(raw)));
+    expect(await runPhotoAnalysis(envForFallback(), photo)).toMatchObject({ ok: false, reason: "invalid_response", attempts: 1 });
+  });
+  it("retains valid multi-photo roles", async () => {
+    const raw = wireFixture(makeAnalysis());
+    raw.sourceSelection.portraitImageIndex = 1;
+    vi.stubGlobal("fetch", vi.fn(async () => response(raw)));
+    const result = await runPhotoAnalysis(envForFallback(), [photo, photo]);
+    expect(result).toMatchObject({ ok: true, analysis: { sourceSelection: { portraitImageIndex: 1 } } });
+  });
+  it.each(["4006: daily free allocation of neurons used up", "3036: account limited"])("stops after actual Workers quota: %s", async message => {
+    const env = envForFallback(vi.fn(async () => { throw new Error(message); }));
+    delete env.GEMINI_API_KEY;
+    expect(await runPhotoAnalysis(env, photo)).toMatchObject({ ok: false, reason: "quota_exceeded", attempts: 1 });
+    expect(env.AI!.run).toHaveBeenCalledTimes(1);
+  });
+  it("preserves usage accounting", async () => {
+    const env = envForFallback(vi.fn(async () => ({
+      choices: [{ message: { content: JSON.stringify(namedWorkerFixture()) } }],
+      usage: { prompt_tokens: 10000, completion_tokens: 2000 },
+    })));
+    delete env.GEMINI_API_KEY;
+    expect(await runPhotoAnalysis(env, photo)).toMatchObject({ ok: true, neuronsSpent: 400 });
   });
 });
 
@@ -600,6 +537,16 @@ describe("validatePhotoAnalysis", () => {
         ],
       }),
     ).toEqual(analysis);
+  });
+
+  it("describes supported provider response shapes without retaining content", () => {
+    const analysis = makeAnalysis();
+    const diagnostic = analysisPayloadDiagnostic({ response: JSON.stringify(analysis) });
+    expect(diagnostic).toMatchObject({ responseType: "string",
+      responseString: { startsWithObject: true, containsCloseBrace: true, extractJsonSucceeded: true },
+      extractedType: "object", extractedNull: false });
+    expect(diagnostic.extractedObjectKeys).toContain("quality");
+    expect(JSON.stringify(diagnostic)).not.toContain(analysis.observed.face);
   });
 
   it("turns schema-key salience into concrete identity cues", () => {

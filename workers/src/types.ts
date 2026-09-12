@@ -30,6 +30,8 @@ interface EnvOverrides {
   WORKERS_IMAGE_FALLBACK_ENABLED?: string;
   /** "true"일 때만 Gemini 이미지 생성 사용 (아니면 절차적 fallback만) */
   IMAGE_GENERATION_ENABLED?: string;
+  /** Quality-work opt-in only; the public synchronous route always skips it. */
+  SYNCHRONOUS_ENHANCEMENTS_ENABLED?: string;
   /** "front_view" | "four_view" — UV atlas는 항상 코드가 조립한다. */
   IMAGE_GEN_STRATEGY?: string;
   /** "balanced" uses GEMINI_IMAGE_MODEL; "quality" uses the quality override. */

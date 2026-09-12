@@ -16,13 +16,7 @@ const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
 export class ApiError extends Error {
   constructor(
     message: string,
-    readonly code:
-      | "quota_exceeded"
-      | "rate_limited"
-      | "photo_rejected"
-      | "ai_failed"
-      | "network"
-      | "bad_request" = "network",
+    readonly code: NonNullable<GenerateResponse["errorCode"]> | "network" = "network",
     readonly response?: GenerateResponse,
   ) {
     super(message);
@@ -73,13 +67,24 @@ async function performSkinGeneration(
   analysisImageDataUrl?: string,
   referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResponse> {
-  let res: Response;
+  const images = [imageDataUrl, ...(analysisImageDataUrl ? [analysisImageDataUrl] : []), ...referenceImageDataUrls];
+  if (referenceImageDataUrls.length > 4 || images.some(image => !image.startsWith("data:image/") || image.length > 1_500_000)) {
+    throw new ApiError("사진 크기나 개수를 확인해 주세요", "bad_request");
+  }
   const controller = new AbortController();
-  const timeout = window.setTimeout(
-    () => controller.abort(),
-    GENERATION_TIMEOUT_MS,
-  );
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
+    return await Promise.race([readResponse(), new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        reject(new ApiError("AI 응답이 너무 오래 걸렸어요", "network"));
+      }, GENERATION_TIMEOUT_MS);
+    })]);
+  } finally { clearTimeout(timeout); }
+
+  async function readResponse(): Promise<GenerateResponse> {
+    let res: Response;
+    try {
     res = await fetch(`${API_BASE}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -99,8 +104,6 @@ async function performSkinGeneration(
         : "네트워크 연결이 불안정해요",
       "network",
     );
-  } finally {
-    window.clearTimeout(timeout);
   }
 
   let body: GenerateResponse;
@@ -110,6 +113,7 @@ async function performSkinGeneration(
     throw new ApiError("서버 응답을 읽지 못했어요", "ai_failed");
   }
 
+  if (!body || typeof body !== "object") throw new ApiError("잘못된 서버 응답이에요", "ai_failed");
   if (!res.ok || !body.ok) {
     throw new ApiError(
       body.error ?? "스킨 생성에 실패했어요",
@@ -117,7 +121,23 @@ async function performSkinGeneration(
       body,
     );
   }
+  if (typeof body.skinPngBase64 !== "string" || !isSkinPngHeader(body.skinPngBase64)) {
+    throw new ApiError("서버에서 유효한 스킨을 받지 못했어요", "SKIN_RENDER_FAILED", body);
+  }
   return body;
+  }
+}
+
+/** The preview still decodes the complete PNG; this rejects missing/wrong-size successes early. */
+export function isSkinPngHeader(base64: string): boolean {
+  try {
+    if (base64.length > 100_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return false;
+    const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+    const view = new DataView(bytes.buffer);
+    return bytes.length >= 33 && view.getUint32(0) === 0x89504e47
+      && view.getUint32(4) === 0x0d0a1a0a && view.getUint32(12) === 0x49484452
+      && view.getUint32(16) === 64 && view.getUint32(20) === 64;
+  } catch { return false; }
 }
 
 export async function fetchQuotaStatus(): Promise<QuotaStatus | null> {

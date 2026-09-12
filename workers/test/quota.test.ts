@@ -105,7 +105,7 @@ describe("provider quota circuit breaker", () => {
     const { env, values } = quotaEnv();
     await markProviderQuotaExhausted(env, today);
 
-    expect(values.get("quota:provider-closed:2026-07-15")).toBe("1");
+    expect(values.get("quota:primary-v3-providers-closed:2026-07-15")).toBe("1");
     expect(await getQuotaStatus(env, today)).toEqual({
       level: "closed",
       remainingGenerations: 0,

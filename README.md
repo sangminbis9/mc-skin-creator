@@ -123,8 +123,8 @@ npm run deploy    # ait deploy (앱인토스 콘솔 연동 필요)
 | --- | --- |
 | `VITE_API_BASE_URL` | Cloudflare Worker API 주소 (예: `https://mc-skin-creator-api.xxx.workers.dev`) |
 | `GEMINI_API_KEY` | Worker 전용 Gemini API 키. 로컬은 `workers/.dev.vars`, 운영은 Wrangler secret 사용 |
-| `WORKERS_VISION_MODEL` | Gemini가 Cloudflare 실행 위치 또는 Gateway 인증을 거부할 때 사용하는 계정 내부 멀티모달 분석 모델 (기본 `@cf/meta/llama-4-scout-17b-16e-instruct`) |
-| `VISION_MODEL` | 사진 분석 모델 (기본 `gemini-3.6-flash`) |
+| `WORKERS_VISION_MODEL` | Gemini가 eligible failure로 중단될 때 사용하는 Workers AI vision fallback (기본 `@cf/google/gemma-4-26b-a4b-it`; named provider DTO를 deterministic adapter로 Compact v3에 연결한 뒤 동일 strict validator 적용) |
+| `VISION_MODEL` | 사진 분석 모델 (기본 `gemini-3.8-flash`) |
 | `GEMINI_IMAGE_MODEL` | 이미지 생성 모델 (기본 `gemini-3.1-flash-image`, 이미지 quota/결제 필요) |
 | `GEMINI_IMAGE_FALLBACK_MODEL` | 기본 이미지 모델의 할당량이 닫혔거나 모델을 사용할 수 없을 때만 시도하는 폴백 (기본 `gemini-3.1-flash-lite-image`) |
 | `WORKERS_IMAGE_MODEL` | Gemini 이미지 생성 실패 시 사용하는 Cloudflare 이미지 편집 모델 (기본 `@cf/black-forest-labs/flux-2-klein-4b`) |

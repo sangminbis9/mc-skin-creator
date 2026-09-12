@@ -9,6 +9,8 @@ import {
   isGeminiModelUnavailable,
   isGeminiQuotaError,
   isGeminiTemporaryRateLimit,
+  workersAiFallbackDecision,
+  workersAiStructuredInput,
 } from "../src/gemini";
 import type { Env } from "../src/types";
 
@@ -20,6 +22,14 @@ afterEach(() => {
 });
 
 describe("Gemini REST client", () => {
+  it.each(["gemini-3.8-flash", "gemini-3.6-flash"])("centralizes the %s temperature contract", model => {
+    const { body, shape } = buildGeminiStructuredRequestEnvelope({ model, imageDataUrls: [],
+      prompt: "test", responseSchema: { type: "object", properties: {} }, maxOutputTokens: 8192 });
+    if (model === "gemini-3.8-flash") expect(body.generationConfig).not.toHaveProperty("temperature");
+    else expect(body.generationConfig).toHaveProperty("temperature", 0);
+    expect(body.generationConfig).toMatchObject({ thinkingConfig: { thinkingLevel: "LOW" }, maxOutputTokens: 8192, responseMimeType: "application/json" });
+    expect(shape.temperature).toBe(model === "gemini-3.8-flash" ? null : 0);
+  });
   it("uses one preflighted envelope for serialization without leaking image data into diagnostics", () => {
     const request = {
       model: "gemini-test",
@@ -201,12 +211,13 @@ describe("Gemini REST client", () => {
     const getUrl = vi.fn(async () =>
       "https://gateway.ai.cloudflare.com/v1/account/default/google-ai-studio",
     );
-    const gateway = vi.fn(() => ({ getUrl }));
-    const fetchMock = vi.fn(async () =>
+    const gatewayRun = vi.fn(async () =>
       Response.json({
         candidates: [{ content: { parts: [{ text: "{}" }] } }],
       }),
     );
+    const gateway = vi.fn(() => ({ getUrl, run: gatewayRun }));
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     await generateGeminiStructuredJson(
@@ -224,10 +235,18 @@ describe("Gemini REST client", () => {
     );
 
     expect(gateway).toHaveBeenCalledWith("default");
-    expect(getUrl).toHaveBeenCalledWith("google-ai-studio");
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      "https://gateway.ai.cloudflare.com/v1/account/default/google-ai-studio/v1beta/models/gemini-test:generateContent",
-    );
+    expect(getUrl).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    const direct = buildGeminiStructuredRequestEnvelope({ model: "gemini-test",
+      imageDataUrls: ["data:image/png;base64,AQID"], prompt: "Analyze",
+      responseSchema: { type: "object" }, maxOutputTokens: 100 });
+    expect((gatewayRun.mock.calls[0] as unknown as [{ query: unknown }])[0].query).toEqual(direct.body);
+    expect(gatewayRun).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      provider: "google-ai-studio", endpoint: "v1beta/models/gemini-test:generateContent",
+      query: expect.objectContaining({ generationConfig: expect.objectContaining({ responseJsonSchema: { type: "object" } }) }),
+    }), expect.objectContaining({ gateway: expect.objectContaining({
+      skipCache: true, collectLog: false, retries: { maxAttempts: 1 },
+    }) }));
   });
 
   it("falls back to account-internal Workers AI when the gateway rejects authentication", async () => {
@@ -252,7 +271,7 @@ describe("Gemini REST client", () => {
       {
         ...env,
         AI: {
-          gateway: () => ({ getUrl }),
+          gateway: () => ({ getUrl, run: () => fetch("https://test.invalid") }),
           run,
         } as unknown as Ai,
       },
@@ -268,7 +287,7 @@ describe("Gemini REST client", () => {
 
     expect(result).toEqual({ response: '{"quality":"pass"}' });
     expect(run).toHaveBeenCalledWith(
-      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/google/gemma-4-26b-a4b-it",
       legacyWorkersAiInput,
     );
   });
@@ -310,8 +329,18 @@ describe("Gemini REST client", () => {
     expect(result).toMatchObject({ response: '{"quality":"pass"}' });
     expect(run).toHaveBeenCalledOnce();
     expect(run.mock.calls[0][0]).toBe(
-      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/google/gemma-4-26b-a4b-it",
     );
+    expect(run.mock.calls[0][1]).toMatchObject({
+      messages: [{ role: "user", content: [
+        { type: "image_url", image_url: { url: "data:image/png;base64,AQID" } },
+        { type: "text", text: "Analyze" },
+      ] }],
+      max_completion_tokens: 100,
+      chat_template_kwargs: { enable_thinking: false },
+    });
+    expect(run.mock.calls[0][1]).toHaveProperty("response_format.type", "json_schema");
+    expect(run.mock.calls[0][1]).not.toHaveProperty("prompt");
   });
 
   it("falls back to Workers AI when a structured Gemini request times out", async () => {
@@ -349,7 +378,7 @@ describe("Gemini REST client", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("builds a Workers AI schema request for critique fallback", async () => {
+  it("builds the proven native Llama Vision prompt and image request", async () => {
     const run = vi.fn(async () => ({ response: "{}" }));
     vi.stubGlobal(
       "fetch",
@@ -358,10 +387,10 @@ describe("Gemini REST client", () => {
           {
             error: {
               message: "User location is not supported for the API use.",
-              status: "INVALID_ARGUMENT",
+              status: "PERMISSION_DENIED",
             },
           },
-          { status: 400 },
+          { status: 403 },
         ),
       ),
     );
@@ -369,6 +398,7 @@ describe("Gemini REST client", () => {
     await generateGeminiStructuredJson(
       {
         ...env,
+        WORKERS_VISION_MODEL: "@cf/meta/llama-3.2-11b-vision-instruct",
         AI: { run } as unknown as Ai,
       },
       {
@@ -383,14 +413,47 @@ describe("Gemini REST client", () => {
 
     const input = run.mock.calls[0][1] as Record<string, unknown>;
     expect(run.mock.calls[0][0]).toBe(
-      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/meta/llama-3.2-11b-vision-instruct",
     );
     expect(input).toMatchObject({
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "minecraft_skin_structured_fallback" },
-      },
+      image: "data:image/png;base64,AQID",
+      prompt: expect.stringContaining("Critique"),
+      max_tokens: 100,
     });
+    expect(input.prompt).toEqual(expect.stringContaining("The first output character must be { and the last must be }."));
+    expect(input).not.toHaveProperty("messages");
+    expect(input).not.toHaveProperty("response_format");
+    expect(input).not.toHaveProperty("guided_json");
+  });
+
+  it("builds the generated Gemma multimodal named-schema request contract", () => {
+    const namedSchema = { type: "object", properties: { renderHints: { type: "object" } } };
+    const input = workersAiStructuredInput({
+      model: "gemini-test",
+      imageDataUrls: ["data:image/jpeg;base64,AQID"],
+      prompt: "Gemini compact prompt",
+      responseSchema: { type: "object" },
+      workersAiPrompt: "Gemma named prompt",
+      workersAiResponseSchema: namedSchema,
+      maxOutputTokens: 8192,
+    }, "@cf/google/gemma-4-26b-a4b-it");
+    expect(input).toEqual({
+      messages: [{ role: "user", content: [
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,AQID" } },
+        { type: "text", text: "Gemma named prompt" },
+      ] }],
+      max_completion_tokens: 8192,
+      chat_template_kwargs: { enable_thinking: false },
+      response_format: { type: "json_schema", json_schema: {
+        name: "minecraft_skin_photo_analysis",
+        description: "Strict observed portrait analysis for deterministic Minecraft skin rendering",
+        schema: namedSchema,
+        strict: true,
+      } },
+    });
+    expect(input).not.toHaveProperty("prompt");
+    expect(input).not.toHaveProperty("guided_json");
+    expect(input).not.toHaveProperty("max_tokens");
   });
 
   it("sends multimodal structured-output requests server-side", async () => {
@@ -629,6 +692,18 @@ describe("Gemini REST client", () => {
         new GeminiApiError("invalid image payload", 400, "INVALID_ARGUMENT"),
       ),
     ).toBe(false);
+  });
+
+  it("classifies HTTP 400 by provider semantic status", () => {
+    expect(workersAiFallbackDecision(
+      new GeminiApiError("malformed request", 400, "INVALID_ARGUMENT"),
+    )).toEqual({ eligible: false, reason: "invalid_argument" });
+    expect(workersAiFallbackDecision(
+      new GeminiApiError("local schema rejected", 400, "CLIENT_SCHEMA_PREFLIGHT"),
+    )).toEqual({ eligible: false, reason: "client_schema_preflight" });
+    expect(workersAiFallbackDecision(
+      new GeminiApiError("project prerequisite is not met", 400, "FAILED_PRECONDITION"),
+    )).toEqual({ eligible: true, reason: "provider_failed_precondition" });
   });
 
   it("aborts a stalled structured request with a deadline error", async () => {

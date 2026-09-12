@@ -10,6 +10,7 @@ interface FailurePageProps {
   failure: GenerationFailure;
   onRetry: () => void;
   onReselect: () => void;
+  canRetry: boolean;
 }
 
 const KIND_TITLES: Record<GenerationFailure["kind"], string> = {
@@ -24,7 +25,7 @@ const KIND_ICONS: Record<GenerationFailure["kind"], string> = {
   network: "📡",
 };
 
-export function FailurePage({ failure, onRetry, onReselect }: FailurePageProps) {
+export function FailurePage({ failure, onRetry, onReselect, canRetry }: FailurePageProps) {
   const isPhotoProblem = failure.kind === "photo";
 
   return (
@@ -47,7 +48,7 @@ export function FailurePage({ failure, onRetry, onReselect }: FailurePageProps) 
         )}
         {failure.kind !== "photo" && (
           <p className="px-caption" style={{ marginTop: 8 }}>
-            같은 사진으로 다시 시도하거나 다른 사진을 선택할 수 있어요.
+            {canRetry ? "잠시 후 다시 시도하거나 다른 사진을 선택할 수 있어요." : "반복 요청을 중단했어요. 잠시 후 다시 방문해 주세요."}
           </p>
         )}
       </PixelPanel>
@@ -55,13 +56,13 @@ export function FailurePage({ failure, onRetry, onReselect }: FailurePageProps) 
       {isPhotoProblem ? (
         <>
           <PixelButton onClick={onReselect}>다른 사진 올리기</PixelButton>
-          <PixelButton variant="ghost" onClick={onRetry}>
+          <PixelButton variant="ghost" onClick={onRetry} disabled={!canRetry}>
             같은 사진으로 다시 시도
           </PixelButton>
         </>
       ) : (
         <>
-          <PixelButton onClick={onRetry}>다시 시도</PixelButton>
+          <PixelButton onClick={onRetry} disabled={!canRetry}>다시 시도</PixelButton>
           <PixelButton variant="ghost" onClick={onReselect}>
             다른 사진 올리기
           </PixelButton>
