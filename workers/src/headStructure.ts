@@ -4,7 +4,7 @@ import type { HeadMaskFace, HeadMaskPlan } from "./identityPlans";
 import { hairSalienceScore, type HairIdentitySaliencePlan } from "./hairIdentitySalience";
 
 export type HairTextureGrammar = "straight_bands" | "wavy_bands" | "curl_lobes" | "coily_clusters" | "lock_groups";
-export type HairStructureKind = "foundation" | "fringe" | "temple" | "side_lock" | "strand_band" | "curl_lobe" | "coily_cluster" | "lock_group" | "crown_flow";
+export type HairStructureKind = "foundation" | "fringe" | "temple" | "side_lock" | "part_sweep" | "strand_band" | "curl_lobe" | "coily_cluster" | "lock_group" | "crown_flow";
 export type HairDirection = "down" | "down_left" | "down_right" | "outward_left" | "outward_right" | "compact";
 export type HairStructureRole = "shadow" | "mid" | "light" | "tip" | "part_light" | "part_shadow";
 
@@ -231,6 +231,43 @@ export function buildHairStructurePlan(
     const id = addGroup({ id: `fringe-base-${index + 1}`, kind: "fringe", direction: columns.every((x) => x < 4) ? "down_right" : "down_left", points });
     return id ? [id] : [];
   });
+
+  // A side part is visible from the front as a heavier connected fall on the
+  // opposite viewer side, not only as a colour channel on the horizontal top
+  // face. Keep this bounded to explicit left/right evidence; centre/unknown
+  // parts remain symmetric. Deep points are reserved for actual fringe, while
+  // unfringed long hair receives only a temple-side rail.
+  const partSweepGroupIds: string[] = [];
+  if (analysis.renderHints.hairPart === "left" || analysis.renderHints.hairPart === "right") {
+    const heavyViewerSide = analysis.renderHints.hairPart === "right" ? "left" : "right";
+    const mirror = (x: number) => heavyViewerSide === "left" ? x : 7 - x;
+    const hasFringe = analysis.renderHints.bangs !== "none" && analysis.renderHints.bangsLength !== "none";
+    const maximumRow = hasFringe
+      ? analysis.renderHints.bangsLength === "eye" ? 4 : analysis.renderHints.bangsLength === "brow" ? 3 : 2
+      : Math.min(5, Math.max(headMask.endpointRows.left, headMask.endpointRows.right));
+    const points: HairStructurePoint[] = [];
+    for (let y = 1; y <= maximumRow; y++) {
+      points.push({ face: "front", layer: "outer", x: mirror(0), y, role: y === maximumRow ? "tip" : "mid" });
+      if (y <= 3) points.push({ face: "front", layer: "outer", x: mirror(1), y, role: y === 1 ? "light" : "mid" });
+    }
+    if (hasFringe && maximumRow >= 2) {
+      points.push({ face: "front", layer: "outer", x: mirror(2), y: 2, role: "mid" });
+    }
+    const id = addGroup({
+      id: `part-sweep-${heavyViewerSide}`,
+      kind: "part_sweep",
+      direction: heavyViewerSide === "left" ? "down_left" : "down_right",
+      sourceAnchor: {
+        x: mirror(0) / 7,
+        y: 1 / 7,
+        width: hasFringe ? 3 / 8 : 2 / 8,
+        height: maximumRow / 8,
+        protrusion: hasFringe ? 0.5 : 0.3,
+      },
+      points,
+    });
+    if (id) partSweepGroupIds.push(id);
+  }
 
   const fringeScore = hairSalienceScore(salience, "fringe_shape");
   const fringeTipPoints: Array<{ x: number; y: number }> = [];
@@ -493,7 +530,7 @@ export function buildHairStructurePlan(
     if (id) crownIds.push(id);
   }
 
-  const requiredGroupIds = [...fringeGroupIds, ...majorSilhouetteGroupIds, ...textureGroupIds, ...sideLockIds.left, ...sideLockIds.right]
+  const requiredGroupIds = [...fringeGroupIds, ...partSweepGroupIds, ...majorSilhouetteGroupIds, ...textureGroupIds, ...sideLockIds.left, ...sideLockIds.right]
     .filter((id) => groups.find((group) => group.id === id)!.identityImportance >= 4 || id.startsWith("fringe"));
   const geometryDrivenStructure = headMask.source === "identity_geometry" ||
     layout.geometryUsage.fringePeaks || layout.geometryUsage.temple ||

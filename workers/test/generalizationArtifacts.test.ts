@@ -19,7 +19,8 @@ import { buildBodyLayerDiagnostic, buildBodySeamDiagnostic } from "./outfitEvalu
 import { analysisFromAnnotation, convergence, crop, diagnose, signatures, validateManifest, type AnnotatedCase, type Failure } from "./generalizationSupport";
 
 const RUN = process.env.RUN_GENERALIZATION === "1";
-const ROOT = resolve("evaluation-artifacts/generalization-20260905");
+const INPUT_ROOT = resolve("evaluation-artifacts/generalization-20260905");
+const ROOT = resolve(process.env.GENERALIZATION_OUTPUT_ROOT ?? "evaluation-artifacts/generalization-20260905");
 const hash = (value: Uint8Array | string) => createHash("sha256").update(value).digest("hex");
 function canvas(width: number, height: number): RawImage { const rgba = new Uint8Array(width * height * 4); for (let i = 0; i < rgba.length; i += 4) rgba.set([228, 231, 234, 255], i); return { width, height, rgba }; }
 function paste(out: RawImage, image: RawImage, x: number, y: number, w: number, h: number) {
@@ -43,9 +44,14 @@ describe.skipIf(!RUN)("frozen real-source downstream generalization (no AI analy
       });
       if (alreadyFrozen) throw new Error("Baseline is frozen; only after/comparison may be rerun");
     }
-    const annotationBytes = await readFile(join(ROOT, "annotations.json"));
-    const cases: AnnotatedCase[] = JSON.parse(annotationBytes.toString());
-    validateManifest(cases);
+    const annotationBytes = await readFile(join(INPUT_ROOT, "annotations.json"));
+    const allCases: AnnotatedCase[] = JSON.parse(annotationBytes.toString());
+    validateManifest(allCases);
+    const selectedCaseIds = new Set((process.env.GENERALIZATION_CASES ?? "").split(",").filter(Boolean));
+    const cases = selectedCaseIds.size > 0
+      ? allCases.filter((sample) => selectedCaseIds.has(sample.id))
+      : allCases;
+    if (selectedCaseIds.size > 0) expect(cases).toHaveLength(selectedCaseIds.size);
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => { throw new Error("Network forbidden in generalization replay"); });
     const manifest = [];
     const results: Array<{ caseId: string; signatures: ReturnType<typeof signatures>; failures: Failure[] }> = [];
@@ -65,7 +71,7 @@ describe.skipIf(!RUN)("frozen real-source downstream generalization (no AI analy
       for (const [index, c] of cases.entries()) {
         lastCraftAtlas = undefined;
         lastCraftProblems = [];
-        const sourcePath = c.existing ? resolve(`evaluation-artifacts/facial-feature-renderer-20260904/${c.id}/01-source.png`) : join(ROOT, `sources/${c.photoId}.jpg`);
+        const sourcePath = c.existing ? resolve(`evaluation-artifacts/facial-feature-renderer-20260904/${c.id}/01-source.png`) : join(INPUT_ROOT, `sources/${c.photoId}.jpg`);
         const bytes = new Uint8Array(await readFile(sourcePath));
         // Source display/annotation decoding is artifact-only, outside Worker memory budgets.
         const jpeg = c.existing ? null : decodeJpeg(bytes, { useTArray: true, maxMemoryUsageInMB: 256 });

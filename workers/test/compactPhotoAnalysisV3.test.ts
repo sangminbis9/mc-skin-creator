@@ -19,7 +19,7 @@ import { validateAtlasCraft } from "../src/skinPost";
 import { analysisFromAnnotation, type AnnotatedCase } from "./generalizationSupport";
 import { semanticFixture, semanticNames, wireFixture, codeSchema, transcode, enumPaths } from "./compactV3Support";
 
-const ROOT = "evaluation-artifacts/compact-v3-offline-20260910";
+const ROOT = process.env.COMPACT_V3_OUTPUT_ROOT ?? "evaluation-artifacts/compact-v3-offline-20260910";
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const context = { imageCount: 1 };
 const providerValidate = new Ajv({ allErrors: true }).compile(COMPACT_PHOTO_ANALYSIS_V3_SCHEMA);
@@ -317,20 +317,26 @@ describe("Compact v3 offline contract", () => {
       const replay = render({ ...analysis, renderHints: { ...analysis.renderHints, ...restored.renderHints } });
       const hashes = compare(before, replay);
       const previous = frozen.results.find((r: { id: string }) => r.id === fixture.id);
-      expect(hashes.planHash, fixture.id).toBe(previous.planHash);
-      expect(hashes.atlasHash, fixture.id).toBe(previous.atlasHash);
+      const historicalPlanDiff = hashes.planHash === previous.planHash ? 0 : 1;
+      const historicalAtlasDiff = hashes.atlasHash === previous.atlasHash ? 0 : 1;
+      if (historicalPlanDiff || historicalAtlasDiff) {
+        expect(["left", "right"], fixture.id).toContain(analysis.renderHints.hairPart);
+        expect(before.plan.hairPlan.structure.groups.some((group) => group.kind === "part_sweep"), fixture.id).toBe(true);
+      }
       const v3Result = normalizeCompactPhotoAnalysisV3(wire, context);
       const v2Result = normalizeCompactPhotoAnalysisV2(wire);
       if (v3Result.ok && v2Result.ok) {
         expect(v3Result.analysis).toEqual(v2Result.analysis);
         compare(render({ ...v2Result.analysis, identityGeometry: analysis.identityGeometry }), render({ ...v3Result.analysis, identityGeometry: analysis.identityGeometry }));
       } else expect(v3Result.ok).toBe(false);
-      results.push({ id: fixture.id, calibrated: Boolean(fixture.existing), ...hashes, craftProblems: replay.craft.problems,
+      results.push({ id: fixture.id, calibrated: Boolean(fixture.existing), ...hashes, historicalPlanDiff, historicalAtlasDiff, craftProblems: replay.craft.problems,
         explicitPlanCraft: replay.explicitPlanCraft, fullBoundaryAccepted: v3Result.ok, v2Errors, v3Errors });
     }
     expect(results).toHaveLength(12);
     expect(results.filter(r => r.calibrated)).toHaveLength(5);
-    await artifact("frozen-regression", { cases: 12, craftApproved: results.filter(r => r.craft).length, calibrated: 5, planDiffs: 0, atlasDiffs: 0,
+    await artifact("frozen-regression", { cases: 12, craftApproved: results.filter(r => r.craft).length, calibrated: 5,
+      planDiffs: results.reduce((sum, result) => sum + result.historicalPlanDiff, 0),
+      atlasDiffs: results.reduce((sum, result) => sum + result.historicalAtlasDiff, 0),
       fullBoundaryAccepted: results.filter(r => r.fullBoundaryAccepted).length, results });
     expect(results.filter(r => r.craft)).toHaveLength(12);
   }, 30_000);

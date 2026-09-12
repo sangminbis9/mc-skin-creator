@@ -34,7 +34,7 @@ import {
 import { makeAnalysis } from "./helpers";
 import { analysisFromAnnotation, type AnnotatedCase } from "./generalizationSupport";
 
-const ROOT = "evaluation-artifacts/compact-primary-v2-20260909";
+const ROOT = process.env.COMPACT_V2_OUTPUT_ROOT ?? "evaluation-artifacts/compact-primary-v2-20260909";
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const ajv = new Ajv({ allErrors: true });
 const schemaValidate = ajv.compile(COMPACT_PHOTO_ANALYSIS_V2_SCHEMA);

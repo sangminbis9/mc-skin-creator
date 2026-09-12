@@ -39,6 +39,52 @@ const style: FaceStyle = {
 };
 
 describe("source-conditioned hair identity allocation", () => {
+  it("turns explicit side-part evidence into a connected front sweep without inventing asymmetry", () => {
+    const base = makeAnalysis();
+    const build = (hairPart: PhotoAnalysis["renderHints"]["hairPart"], long = false) => buildIdentityPixelPlans(makeAnalysis({
+      identityGeometry: undefined,
+      observed: { ...base.observed, hair: long ? `long wavy hair with a ${hairPart} side part` : `short straight hair with a ${hairPart} side part and side-swept fringe` },
+      fallbackFeatures: { ...base.fallbackFeatures, hairstyle: long ? "long" : "short", glasses: "none" },
+      renderHints: {
+        ...base.renderHints,
+        hairPart,
+        hairTexture: long ? "wavy" : "straight",
+        overallHairLength: long ? "chest" : "ear",
+        sideHairLength: long ? "shoulder" : "short",
+        bangs: long ? "none" : "side",
+        bangsLength: long ? "none" : "brow",
+        fringeOpening: "none",
+      },
+    }));
+
+    const rightPart = build("right");
+    const rightSweep = rightPart.hairPlan.structure.groups.find((group) => group.kind === "part_sweep")!;
+    expect(rightSweep.id).toBe("part-sweep-left");
+    expect(rightSweep.points.every((point) => point.face === "front" && point.layer === "outer" && point.x <= 2)).toBe(true);
+    expect(rightPart.hairPlan.structure.requiredGroupIds).toContain(rightSweep.id);
+    expect(rightPart.headIdentityPlan.ownership!.execution).toBe("preserve_existing_grammar");
+
+    const leftPart = build("left", true);
+    const leftSweep = leftPart.hairPlan.structure.groups.find((group) => group.kind === "part_sweep")!;
+    expect(leftSweep.id).toBe("part-sweep-right");
+    expect(leftSweep.points.every((point) => point.face === "front" && point.layer === "outer" && point.x >= 5)).toBe(true);
+
+    const pointKeys = new Set(rightSweep.points.map((point) => `${point.x},${point.y}`));
+    const reached = new Set<string>();
+    const queue = [pointKeys.values().next().value as string];
+    while (queue.length) {
+      const key = queue.shift()!;
+      if (reached.has(key)) continue;
+      reached.add(key);
+      const [x, y] = key.split(",").map(Number);
+      for (const neighbor of [`${x - 1},${y}`, `${x + 1},${y}`, `${x},${y - 1}`, `${x},${y + 1}`]) if (pointKeys.has(neighbor) && !reached.has(neighbor)) queue.push(neighbor);
+    }
+    expect(reached.size).toBe(pointKeys.size);
+
+    expect(build("center").hairPlan.structure.groups.some((group) => group.kind === "part_sweep")).toBe(false);
+    expect(build("none").hairPlan.structure.groups.some((group) => group.kind === "part_sweep")).toBe(false);
+  });
+
   it("changes primary pixel-budget cues with source geometry instead of using one priority table", () => {
     const fringeGeometry = makeIdentityGeometry({
       hairline: { depthByColumn: [0.18, 0.3, 0.55, 0.78, 0.7, 0.36, 0.2, 0.12], foreheadOpeningLeft: 0.08, foreheadOpeningRight: 0.08, asymmetry: 0.68 },
