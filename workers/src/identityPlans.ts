@@ -52,6 +52,7 @@ export type FacePaletteRole =
   | "skin_shadow"
   | "cheek_contour"
   | "jaw_contour"
+  | "chin_contour"
   | "hair_light"
   | "hair_mid"
   | "hair_shadow"
@@ -462,7 +463,7 @@ function facePixelPlan(
     if (owner && owner.cluster !== "fringe" && owner.cluster !== "complexion") return;
     pushPixel(pixels, x, y, role, "fringe");
   };
-  const useCalibratedFaceContour = layout.geometryUsage.faceShape
+  const useCalibratedFaceContour = (layout.geometryUsage.faceShape || !!layout.directContour)
     && layout.salience.pixelBudget.faceBoundary > 0
     && analysis.fallbackFeatures.facialHair === "none";
   if (useCalibratedFaceContour) {
@@ -476,8 +477,11 @@ function facePixelPlan(
     // mid-face pair, while the independently quantized jaw chooses either a
     // one-step lower contour or a two-step chin taper. All cells stay inside
     // the physical front face; landmarks pushed later retain ownership.
-    if (layout.faceShape.cheekWidth <= 5) contourPair(5, 1, "cheek_contour");
-    if (layout.faceShape.jawWidth <= 4) contourPair(7, 2, "jaw_contour");
+    if ((!layout.directContour || layout.directContour.cheek) && layout.faceShape.cheekWidth <= 5) contourPair(5, 1, "cheek_contour");
+    if (layout.directContour) {
+      // Separate jaw row from chin tip. Unknown fields contribute zero pixels.
+      if (layout.directContour.jaw && layout.faceShape.jawWidth <= 5) contourPair(layout.faceShape.jawWidth <= 4 ? 7 : 6, 1, "jaw_contour");
+    } else if (layout.faceShape.jawWidth <= 4) contourPair(7, 2, "jaw_contour");
     else if (layout.faceShape.jawWidth <= 5) contourPair(6, 1, "jaw_contour");
   }
 
@@ -627,7 +631,7 @@ function facePixelPlan(
     };
     preserveBilateralContour("cheek_contour");
     const jawCells = pixels.filter((pixel) => pixel.cluster === "complexion" && pixel.role === "jaw_contour");
-    if (layout.faceShape.jawWidth === 5 && jawCells.length < 2) {
+    if (!layout.directContour && layout.faceShape.jawWidth === 5 && jawCells.length < 2) {
       for (const cell of jawCells) pixels.splice(pixels.indexOf(cell), 1);
       const fallback = [{ x: 2, y: 7 }, { x: 5, y: 7 }];
       // A landmark collision must not leave an arbitrary one-sided jaw mark.
@@ -637,6 +641,12 @@ function facePixelPlan(
       }
     } else {
       preserveBilateralContour("jaw_contour");
+    }
+    if (layout.directContour?.chin && layout.directContour.chin.width <= 4) {
+      const pair = [{ x: 2, y: 7 }, { x: 5, y: 7 }];
+      if (pair.every(point => !pixels.some(pixel => pixel.x === point.x && pixel.y === point.y))) {
+        for (const point of pair) pushPixel(pixels, point.x, point.y, "chin_contour", "complexion");
+      }
     }
   }
 
@@ -678,12 +688,27 @@ function facePixelPlan(
     ],
     layout,
     variantId,
-    source: analysis.identityGeometry ? "identity_geometry" : "semantic_fallback",
+    source: analysis.faceIdentityGeometry || analysis.identityGeometry ? "identity_geometry" : "semantic_fallback",
     protectedGeometry: [...layout.protectedGeometry],
     renderContract: structuredClone(layout.renderContract),
     glassesPlan: buildGlassesStructurePlan(analysis, layout),
     salience: structuredClone(layout.salience),
   };
+  if (layout.directContour) {
+    // New complexion shading is never authority to erase existing hair,
+    // covering or glasses. Ask the unchanged ownership resolver for the
+    // surface with no contour, then retain only complete unobstructed pairs.
+    const unshaded: FacePixelPlan = { ...plan, pixels: pixels.filter(pixel => pixel.cluster !== "complexion"), candidateCost: measureFacePixelPlanCost(plan) };
+    const owners = resolveHeadOwnership(analysis, hairPlan(analysis, unshaded), unshaded);
+    const blocked = new Set(owners.cells.filter(cell => cell.face === "front" &&
+      ["hair_base", "hair_outer", "covering", "tied_hair", "glasses"].includes(cell.owner)).map(cell => `${cell.x},${cell.y}`));
+    for (const role of ["cheek_contour", "jaw_contour", "chin_contour"] as const) {
+      const pair = pixels.filter(pixel => pixel.role === role);
+      if (pair.length !== 2 || pair.some(pixel => blocked.has(`${pixel.x},${pixel.y}`))) {
+        for (const pixel of pair) pixels.splice(pixels.indexOf(pixel), 1);
+      }
+    }
+  }
   return { ...plan, candidateCost: measureFacePixelPlanCost(plan) };
 }
 
@@ -742,8 +767,12 @@ function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
       ? ["head.front", "head.top", "head.left", "head.right", "head.back", "body.back", "body.left", "body.right"]
       : ["head.front", "head.top", "head.left", "head.right", "head.back"];
   const salience = buildHairIdentitySaliencePlan(analysis);
-  const headMask = buildHeadMaskPlan(analysis, facePlan.layout, template, lengthClass, salience);
-  const structure = buildHairStructurePlan(analysis, facePlan.layout, headMask, salience);
+  // The face-only source owns facial axes, never hair occupancy/provenance.
+  const hairLayout = analysis.faceIdentityGeometry
+    ? buildQuantizedLayoutVariants({ ...analysis, faceIdentityGeometry: undefined }, 1)[0].layout
+    : facePlan.layout;
+  const headMask = buildHeadMaskPlan(analysis, hairLayout, template, lengthClass, salience);
+  const structure = buildHairStructurePlan(analysis, hairLayout, headMask, salience);
   return {
     template,
     lengthClass,

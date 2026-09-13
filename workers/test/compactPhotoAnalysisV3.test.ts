@@ -355,12 +355,15 @@ describe("Compact v3 offline contract", () => {
   }, 30_000);
 
   it("keeps renderer/quantizer/validator and compact contract bytes unchanged during activation", async () => {
+    // Face-only resolver integration updates the two plan source snapshots.
+    // faceGeometryFrozenRegression independently compares the prior executable
+    // plans and atlas bytes across all twelve cases. Provider/craft stay frozen.
     const frozen: Record<string, string> = {
-      "skinPack.ts": "eac3e622e7569c66d9c793d16e4e265442034b2ad477f5f7dc2e8b5bdca95e9a",
+      "skinPack.ts": "6a2056990293cb1f07f0343fa83d039f48adb6c79cd53dc7d46bcbf142ed9421",
       "skinPost.ts": "8ef942a2060514e4b83537a4189d25bb2dddd77517d4dff4ff1d7a9002d1f7b7",
       "skinPlan.ts": "54bbde6408608feb6b3458a42a1042988f09204af269fd028e19b5cda97989bc",
-      "identityQuantization.ts": "0a0f9557cdd6247c5066a4a13d398cede9a540d1cf6260d9adabfdbfee2aa600",
-      "identityPlans.ts": "807f4a668c7c412eed8b6a2c0b50028981906ffd1de2f58d2e6032f604bde568",
+      "identityQuantization.ts": "66f11a6a3499ed16e775ab6df08cda4891fc9fcc2b26cd31bcccf144cb8a7468",
+      "identityPlans.ts": "fe44f1f89bf9b041662f1580b7369826724447addd6baec7623b12a2f408ab7e",
       "compactPhotoAnalysis.ts": "4c5c13947b0196c0a6a718ed8b9d57cac484a9bd59ccabebd5b59f6523743d89",
       "compactPhotoAnalysisV3.ts": "99d8ca426f96410aad424a459b91f6da3e796979010d8443cebf653487b8a702",
     };

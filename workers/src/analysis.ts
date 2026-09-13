@@ -1,3 +1,4 @@
+import type { FaceIdentityGeometryAnalysis } from "./faceIdentityGeometry";
 /**
  * 사진 분석 단계: multimodal provider로 품질 검사 + observed/inferred 구조의
  * PhotoAnalysis를 뽑는다. 이 결과는 이미지 생성 프롬프트와
@@ -206,6 +207,7 @@ export interface PhotoAnalysis {
   fallbackFeatures: FallbackFeatures;
   /** High-resolution normalized landmarks; absent only when the optional focused pass fails. */
   identityGeometry?: IdentityGeometryAnalysis;
+  faceIdentityGeometry?: FaceIdentityGeometryAnalysis;
 }
 
 export type IdentityFeatureCategory =

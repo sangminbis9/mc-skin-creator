@@ -418,6 +418,11 @@ export function workersAiFallbackDecision(error: unknown): {
   return { eligible: false, reason: "not_eligible" };
 }
 
+/** Direct native binding entry point; no Gemini, retry, or fallback chain. */
+export function generateWorkersAiStructuredJson(env: Env, request: GeminiStructuredRequest): Promise<unknown> {
+  return runWorkersAiStructuredFallback(env, request);
+}
+
 async function runWorkersAiStructuredFallback(
   env: Env,
   request: GeminiStructuredRequest,

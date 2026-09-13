@@ -1,3 +1,4 @@
+import { runFaceIdentityGeometryAnalysis } from "./faceIdentityGeometry";
 /**
  * 사진 → 마인크래프트 스킨 생성 파이프라인.
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
@@ -89,6 +90,7 @@ import { buildFacePixelPlanVariants, type FacePixelPlan } from "./identityPlans"
 import { imageGenerationNeurons } from "./quota";
 import type { Env } from "./types";
 import { runIdentityGeometryAnalysis } from "./identityGeometry";
+import { runIdentityGeometryEnrichment } from "./identityGeometryEnrichment";
 import { withinDeadline } from "./deadline";
 
 /** 업로드 허용 최대 크기 (base64 data URL 문자 수, 약 1.1MB 이미지) */
@@ -472,10 +474,54 @@ export async function generateSkin(
     };
   }
 
+  // Independent quality opt-in: never enables the old multi-stage chain.
+  const primaryOnlyAnalysis = analysis;
+  if ((env.FACE_GEOMETRY_ENRICHMENT_ENABLED === "true" || env.IDENTITY_GEOMETRY_ENRICHMENT_ENABLED === "true") && analysis.visibleRegions.face) {
+    try {
+      const index = analysis.sourceSelection.portraitImageIndex;
+      const source = analysisReferences[index];
+      const crops = source && await createIdentityCrops(source, analysis.sourceSelection.portraitRegion, {
+        hairVolume: analysis.renderHints.hairVolume, hairTexture: analysis.renderHints.hairTexture,
+        overallHairLength: analysis.renderHints.overallHairLength, sideHairAsymmetry: analysis.renderHints.sideHairAsymmetry,
+        headCovering: analysis.fallbackFeatures.hat !== "none" || /headscarf|hood|hat/i.test(analysis.observed.accessories),
+      });
+      if (crops) {
+        if (env.FACE_GEOMETRY_ENRICHMENT_ENABLED === "true") {
+          const enrichment = await runFaceIdentityGeometryAnalysis(env, crops.faceDataUrl);
+          spent += enrichment.neuronsSpent;
+          if (enrichment.ok && enrichment.geometry) analysis = { ...analysis, faceIdentityGeometry: enrichment.geometry };
+        } else {
+        const d = crops.diagnostics;
+        const enrichment = await runIdentityGeometryEnrichment(env, crops.faceDataUrl, crops.headDataUrl, {
+          crownClipped: d.crownClipped, leftHairClipped: d.leftHairClipped, rightHairClipped: d.rightHairClipped,
+          chinClipped: d.chinClipped, leftEarClipped: d.leftEarClipped, rightEarClipped: d.rightEarClipped,
+          cropClippingKnown: d.cropMode !== "center_fallback", sourceClippingKnown: d.quality.sourceClippingKnown,
+          sourceCrownClipped: d.sourceClipping.top, sourceLeftHairClipped: d.sourceClipping.left,
+          sourceRightHairClipped: d.sourceClipping.right, sourceChinClipped: d.sourceClipping.bottom,
+        });
+        spent += enrichment.neuronsSpent;
+        if (enrichment.ok && enrichment.geometry) analysis = { ...analysis, identityGeometry: enrichment.geometry };
+        }
+      }
+    } catch { /* Local cropping/measurement failure is not a generation failure. */ }
+  }
   // Secure a validated primary-only atlas before any optional provider can
   // modify the analysis or reject a candidate. Public synchronous requests
   // use this path; enhancement implementation is retained for quality work.
-  const baseline = await renderPrimaryBaseline(analysis, spent);
+  let baseline: GenerateResult;
+  try {
+    baseline = await renderPrimaryBaseline(analysis, spent);
+    if (!baseline.success && analysis !== primaryOnlyAnalysis) {
+      analysis = primaryOnlyAnalysis;
+      baseline = await renderPrimaryBaseline(analysis, spent);
+    }
+  } catch (error) {
+    if (analysis === primaryOnlyAnalysis) throw error;
+    analysis = primaryOnlyAnalysis;
+    baseline = await renderPrimaryBaseline(analysis, spent);
+  }
+  // Never combine the single-call enrichment budget with the legacy chain.
+  if (env.FACE_GEOMETRY_ENRICHMENT_ENABLED === "true" || env.IDENTITY_GEOMETRY_ENRICHMENT_ENABLED === "true") return baseline;
   if (env.SYNCHRONOUS_ENHANCEMENTS_ENABLED !== "true") return baseline;
   try {
   const selectedIndex = (index: number): number =>

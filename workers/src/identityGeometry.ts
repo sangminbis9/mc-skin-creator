@@ -3,6 +3,8 @@ import { GeminiApiError, geminiProviderErrorDiagnostic, generateGeminiStructured
 import { NEURONS_VISION_DETAIL_ESTIMATE, visionNeuronsFromUsage } from "./quota";
 import type { Env } from "./types";
 
+import { applyDirectContourVisibility, parseDirectLowerFaceContour, DIRECT_CONTOUR_FIELDS, directBoundaryProvenance, type DirectLowerFaceContour } from "./directFaceContour";
+
 export interface NormalizedBox {
   left: number;
   top: number;
@@ -228,6 +230,7 @@ export interface IdentityGeometryAnalysis {
   majorVolumePeaks: MajorHairVolumePeak[];
   faceWindow: FaceWindowGeometry;
   faceShape: FaceShapeGeometry;
+  directLowerFaceContour?: DirectLowerFaceContour;
   visibility: GeometryVisibility;
   headSilhouette: {
     crownTopY: number;
@@ -999,6 +1002,7 @@ export function validateIdentityGeometry(
   const next = structuredClone(geometry);
   const issues: GeometryValidationIssue[] = [];
   const visibility = next.visibility;
+  if (next.directLowerFaceContour) next.directLowerFaceContour = applyDirectContourVisibility(next.directLowerFaceContour, visibility);
   const sourceCrownConflict = visibility.sourceClippingKnown && visibility.sourceCrownClipped;
   const sourceLeftConflict = visibility.sourceClippingKnown && visibility.sourceLeftHairClipped;
   const sourceRightConflict = visibility.sourceClippingKnown && visibility.sourceRightHairClipped;
@@ -1180,10 +1184,14 @@ export function validateIdentityGeometry(
     faceShape: evidenceProvenance(next.faceShape.evidence, derived.has("faceShape")),
   };
   for (const peak of next.majorVolumePeaks) provenance[`majorVolumePeaks.${peak.region}`] = evidenceProvenance(peak.evidence, derived.has("majorVolumePeaks"));
+  if (next.directLowerFaceContour) for (const field of DIRECT_CONTOUR_FIELDS) {
+    if (next.directLowerFaceContour[field].evidence !== "unknown") provenance[`directLowerFaceContour.${field}`] = directBoundaryProvenance(next.directLowerFaceContour[field]);
+  }
   next.diagnostics = {
     issues,
     completeness,
-    directMeasurements: ["face", "eyes", "brows", "nose", "mouth", "hairline", "headSilhouette", "fringe", "temple", "crown", "majorVolumePeaks", "faceWindow", "faceShape", "glasses"].filter((field) => !derived.has(field)),
+    directMeasurements: ["face", "eyes", "brows", "nose", "mouth", "hairline", "headSilhouette", "fringe", "temple", "crown", "majorVolumePeaks", "faceWindow", "faceShape", "glasses"].filter((field) => !derived.has(field))
+      .concat(DIRECT_CONTOUR_FIELDS.filter(field => next.directLowerFaceContour && next.directLowerFaceContour[field].evidence !== "unknown").map(field => `directLowerFaceContour.${field}`)),
     derivedMeasurements: [...derived],
     provenance,
   };
@@ -1529,8 +1537,14 @@ export function parseIdentityGeometry(raw: Record<string, unknown>): IdentityGeo
   const legacyExtensions = deriveLegacyGeometryExtensions(parsedFace, parsedEyes, parsedHairline, parsedSilhouette, parsedConfidence);
   const extensions = parseExtendedGeometry(raw, legacyExtensions);
   if (!extensions) return null;
+  const directContour = raw.directLowerFaceContour === undefined ? undefined : parseDirectLowerFaceContour(raw.directLowerFaceContour, parsedFace);
+  if (directContour === null) return null;
   const derivedMeasurements = ["fringe", "temple", "crown", "majorVolumePeaks", "faceWindow", "faceShape", "visibility"]
     .filter((field) => raw[field] === undefined);
+  // A rich cached normalization must not promote the historical 0.88 jaw
+  // derivation to an independent inferred/observed measurement on reparse.
+  const cachedDerived = record(raw.diagnostics)?.derivedMeasurements;
+  if (Array.isArray(cachedDerived) && cachedDerived.includes("faceShape") && !derivedMeasurements.includes("faceShape")) derivedMeasurements.push("faceShape");
   const parsed: IdentityGeometryAnalysis = {
     coordinateSpaces: { faceMeasurements: "tight_face_crop", headMeasurements: "wide_head_crop" },
     face: parsedFace,
@@ -1540,6 +1554,7 @@ export function parseIdentityGeometry(raw: Record<string, unknown>): IdentityGeo
     mouth: { centerX: Number(mouth.centerX), centerY: Number(mouth.centerY), width: Number(mouth.width), leftCornerY: Number(mouth.leftCornerY), rightCornerY: Number(mouth.rightCornerY), opening: mouth.opening as IdentityGeometryAnalysis["mouth"]["opening"] },
     hairline: parsedHairline,
     ...extensions,
+    ...(directContour ? { directLowerFaceContour: directContour } : {}),
     headSilhouette: parsedSilhouette,
     glasses,
     confidence: parsedConfidence,

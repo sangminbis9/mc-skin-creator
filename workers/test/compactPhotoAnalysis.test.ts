@@ -39,8 +39,9 @@ describe("compact primary PhotoAnalysis boundary", () => {
     for (const [key, field] of Object.entries(PHOTO_ANALYSIS_SCHEMA.properties.renderHints.properties)) {
       expect(COMPACT_PHOTO_ANALYSIS_PROMPT).toContain(`${key} = ${field.enum.join(" | ")}`);
     }
-    await mkdir("evaluation-artifacts/compact-primary-20260909", { recursive: true });
-    await writeFile("evaluation-artifacts/compact-primary-20260909/offline.json", JSON.stringify({
+    const outputRoot = process.env.COMPACT_V1_OUTPUT_ROOT ?? "evaluation-artifacts/compact-primary-20260909";
+    await mkdir(outputRoot, { recursive: true });
+    await writeFile(`${outputRoot}/offline.json`, JSON.stringify({
       rich: inspectGeminiResponseSchema(PHOTO_ANALYSIS_SCHEMA), compact,
       schemaHash: hash(COMPACT_PHOTO_ANALYSIS_SCHEMA), promptHash: hash(COMPACT_PHOTO_ANALYSIS_PROMPT),
     }, null, 2));

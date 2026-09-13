@@ -32,6 +32,9 @@ interface EnvOverrides {
   IMAGE_GENERATION_ENABLED?: string;
   /** Quality-work opt-in only; the public synchronous route always skips it. */
   SYNCHRONOUS_ENHANCEMENTS_ENABLED?: string;
+  /** One bounded fail-open Gemma crop measurement before the primary baseline. */
+  IDENTITY_GEOMETRY_ENRICHMENT_ENABLED?: string;
+  FACE_GEOMETRY_ENRICHMENT_ENABLED?: string;
   /** "front_view" | "four_view" — UV atlas는 항상 코드가 조립한다. */
   IMAGE_GEN_STRATEGY?: string;
   /** "balanced" uses GEMINI_IMAGE_MODEL; "quality" uses the quality override. */
