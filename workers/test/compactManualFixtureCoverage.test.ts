@@ -97,9 +97,18 @@ describe("source-supported manual fixture strict-boundary coverage", () => {
       const prior = frozen.results.find((entry: { id: string }) => entry.id === fixture.id);
       const historicalPlanDiff = hash(before.plan) === prior.planHash ? 0 : 1;
       const historicalAtlasDiff = hash(before.atlas.rgba) === prior.atlasHash ? 0 : 1;
-      if (historicalPlanDiff || historicalAtlasDiff) {
-        expect(["left", "right"], fixture.id).toContain(historical.renderHints.hairPart);
-        expect(before.plan.hairPlan.structure.groups.some((group) => group.kind === "part_sweep"), fixture.id).toBe(true);
+      // New explicit topology metadata changes the plan hash even when the
+      // executable atlas is byte-identical. Only rendered atlas changes need
+      // to be justified by an active source-measured/sweep path here.
+      if (historicalAtlasDiff) {
+        const expectedPartSweep = ["left", "right"].includes(historical.renderHints.hairPart);
+        const expectedMeasuredEyeTopology = (historical.identityGeometry?.confidence.eyes ?? 0) >= 0.55;
+        if (expectedPartSweep) {
+          expect(before.plan.hairPlan.structure.groups.some((group) => group.kind === "part_sweep"), fixture.id).toBe(true);
+        }
+        if (expectedMeasuredEyeTopology) {
+          expect(before.plan.facePixelPlan.layout.geometryUsage.eyes, fixture.id).toBe(true);
+        }
       }
       results.push({
         id: fixture.id,

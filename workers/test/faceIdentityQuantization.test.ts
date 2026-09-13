@@ -123,7 +123,7 @@ describe("source-specific face identity quantization", () => {
     expect(brows.every((brow) => !fringe.some((hair) => hair.x === brow.x && hair.y === brow.y))).toBe(true);
   });
 
-  it("uses an adjacent cell to retain a confident tilt when an eye is one cell wide", () => {
+  it("uses an outward support cell to distinguish confident one-cell brow slopes", () => {
     const analysis = withoutGlasses();
     const source = makeIdentityGeometry();
     const tilted = buildFacePixelPlanVariants({ ...analysis, identityGeometry: makeIdentityGeometry({
@@ -141,29 +141,35 @@ describe("source-specific face identity quantization", () => {
     const browCells = (plan: typeof tilted) => plan.pixels.filter((pixel) => pixel.role === "brow");
     expect(tilted.layout.leftEyeWidth).toBe(1);
     expect(tilted.layout.browTiltOffset).toBe(1);
-    expect(browCells(tilted)).toHaveLength(browCells(flat).length + 2);
+    expect(tilted.layout.browSlopeTopology).toBe("arched");
+    expect(flat.layout.browSlopeTopology).toBe("straight");
+    expect(browCells(tilted)).toHaveLength(browCells(flat).length);
+    expect(browCells(tilted)).not.toEqual(browCells(flat));
     expect(browCells(tilted).every((pixel) => pixel.y < tilted.layout.leftEyeRow)).toBe(true);
   });
 
-  it("crosses brow-row, mouth-row, and salient mouth-width boundaries only with source evidence", () => {
+  it("crosses brow-distance, mouth-row, and salient mouth-width boundaries only with source evidence", () => {
     const base = withoutGlasses();
     const source = makeIdentityGeometry();
     const faceHeight = source.face.chinY - source.face.foreheadY;
     const faceWidth = source.face.visibleRight - source.face.visibleLeft;
     const fromFacialRow = (row: number) => source.face.foreheadY + (row - 2) / 4 * faceHeight;
-    const plan = (browRaw: number, mouthRaw: number, mouthWidthRaw: number) => buildFacePixelPlanVariants({
+    const meanEyeRaw = 2 + ((((source.eyes.leftCenterY + source.eyes.rightCenterY) / 2) - source.face.foreheadY) / faceHeight) * 4;
+    const plan = (browGap: number, mouthRaw: number, mouthWidthRaw: number) => buildFacePixelPlanVariants({
       ...base,
       renderHints: { ...base.renderHints, mouthShape: "small" as const, mouthOpening: "closed" as const },
       identityGeometry: makeIdentityGeometry({
         glasses: null,
-        brows: { ...source.brows, leftY: fromFacialRow(browRaw), rightY: fromFacialRow(browRaw), tilt: 0 },
+        brows: { ...source.brows, leftY: fromFacialRow(meanEyeRaw - browGap), rightY: fromFacialRow(meanEyeRaw - browGap), tilt: 0 },
         mouth: { ...source.mouth, centerY: fromFacialRow(mouthRaw), width: mouthWidthRaw / 8 * faceWidth, opening: "closed" },
       }),
     }, 1)[0];
-    const below = plan(2.49, 5.49, 2.319);
-    const above = plan(2.51, 5.51, 2.321);
-    expect([below.layout.leftBrowRow, below.layout.rightBrowRow]).toEqual([2, 2]);
-    expect([above.layout.leftBrowRow, above.layout.rightBrowRow]).toEqual([3, 3]);
+    const below = plan(0.559, 5.49, 2.319);
+    const above = plan(0.561, 5.51, 2.321);
+    expect(below.layout.browDistanceTopology).toBe("close");
+    expect(above.layout.browDistanceTopology).toBe("normal");
+    expect([below.layout.leftBrowRow, below.layout.rightBrowRow]).toEqual([3, 3]);
+    expect([above.layout.leftBrowRow, above.layout.rightBrowRow]).toEqual([2, 2]);
     expect(below.layout.mouthRow).toBe(5);
     expect(above.layout.mouthRow).toBe(6);
     expect(below.layout.mouthWidth).toBe(2);
@@ -246,12 +252,96 @@ describe("source-specific face identity quantization", () => {
     expect(arched[0].pixels.filter((pixel) => pixel.role === "brow")).not.toEqual(
       neutral[0].pixels.filter((pixel) => pixel.role === "brow"),
     );
-    expect(full[0].layout.mouthWidth).toBe(3);
+    expect(full[0].layout.mouthWidth).toBe(2);
     expect(neutral[0].layout.mouthWidth).toBe(2);
     expect(arched[0].layout.leftEyeXs).toEqual(neutral[0].layout.leftEyeXs);
     expect(full[0].layout.mouthRow).toBe(neutral[0].layout.mouthRow);
     expect(full[0].layout.mouthTopology).toBe("closed_compact");
+    const mouthCells = (candidate: typeof full[number]) => candidate.pixels
+      .filter((pixel) => pixel.cluster === "mouth")
+      .map(({ x, y }) => ({ x, y }));
+    expect(new Set(mouthCells(full[0]).map((pixel) => pixel.x))).toEqual(
+      new Set(mouthCells(neutral[0]).map((pixel) => pixel.x)),
+    );
+    expect(mouthCells(full[0]).length).toBeGreaterThan(mouthCells(neutral[0]).length);
     expect(measureFaceIdentityRetention(archedAnalysis, arched[0]).stageRetention.quantizedToRendered).toBe(1);
+  });
+
+  it("quantizes only confident nose coordinates and does not double-apply lateral bias", () => {
+    const base = withoutGlasses();
+    const source = makeIdentityGeometry();
+    const plan = (centerX: number, contrastY: number, leftRightBias: number) => buildFacePixelPlanVariants({
+      ...base,
+      renderHints: { ...base.renderHints, noseShape: "straight" as const },
+      identityGeometry: makeIdentityGeometry({
+        glasses: null,
+        nose: { centerX, contrastY, leftRightBias, visibleStrength: 0.82 },
+        confidence: { ...source.confidence, nose: 0.94 },
+      }),
+    }, 1)[0];
+    const high = plan(0.37, 0.48, 0.8);
+    const low = plan(0.63, 0.78, -0.8);
+    const sameCenterOppositeBias = plan(0.37, 0.48, -0.8);
+
+    expect(high.layout.noseX).toBeLessThan(low.layout.noseX);
+    expect(high.layout.noseY).toBeLessThan(low.layout.noseY);
+    expect(high.layout.noseX).toBe(sameCenterOppositeBias.layout.noseX);
+    expect(high.layout.noseY).toBe(sameCenterOppositeBias.layout.noseY);
+    expect(high.layout.geometryTarget.noseX).toBeCloseTo(((0.37 - source.face.visibleLeft) / (source.face.visibleRight - source.face.visibleLeft)) * 7);
+    expect(high.layout.geometryUsage.nose).toBe(true);
+    expect(high.layout.geometryProvenance.nose).toBe("observed_geometry");
+  });
+
+  it("keeps semantic nose shape out of fallback placement and does not fabricate nose pixels", () => {
+    const base = withoutGlasses();
+    const plans = (["small", "straight", "rounded", "prominent"] as const).map((noseShape) => buildFacePixelPlanVariants({
+      ...base,
+      identityGeometry: undefined,
+      renderHints: { ...base.renderHints, noseShape },
+    }, 1)[0]);
+
+    expect(new Set(plans.map((plan) => `${plan.layout.noseX},${plan.layout.noseY}`))).toEqual(new Set(["4,4"]));
+    expect(plans.every((plan) => plan.layout.geometryUsage.nose === false)).toBe(true);
+    expect(plans.every((plan) => plan.salience.pixelBudget.nose === 0)).toBe(true);
+    expect(plans.every((plan) => plan.pixels.every((pixel) => pixel.cluster !== "nose"))).toBe(true);
+  });
+
+  it("maps the four source nose shapes to bounded connected grammars without moving other landmarks", () => {
+    const base = withoutGlasses();
+    const source = makeIdentityGeometry();
+    const plans = Object.fromEntries((["small", "straight", "rounded", "prominent"] as const).map((noseShape) => [
+      noseShape,
+      buildFacePixelPlanVariants({
+        ...base,
+        renderHints: { ...base.renderHints, noseShape, mouthShape: "small", mouthOpening: "closed" },
+        fallbackFeatures: { ...base.fallbackFeatures, expression: "neutral" },
+        identityGeometry: makeIdentityGeometry({
+          glasses: null,
+          eyes: { ...source.eyes, leftCenterY: 0.34, rightCenterY: 0.34, verticalAsymmetry: 0 },
+          nose: { centerX: 0.51, contrastY: 0.7, leftRightBias: 0, visibleStrength: 0.82 },
+          mouth: { ...source.mouth, centerX: 0.65, centerY: 0.86, width: 0.16, leftCornerY: 0.86, rightCornerY: 0.86, opening: "closed" },
+          confidence: { ...source.confidence, nose: 0.94 },
+        }),
+      }, 1)[0],
+    ])) as Record<"small" | "straight" | "rounded" | "prominent", ReturnType<typeof buildFacePixelPlanVariants>[number]>;
+    const nose = (shape: keyof typeof plans) => plans[shape].pixels.filter((pixel) => pixel.cluster === "nose");
+    const signatureWithoutNose = (shape: keyof typeof plans) => plans[shape].pixels
+      .filter((pixel) => pixel.cluster !== "nose")
+      .map((pixel) => `${pixel.x},${pixel.y}:${pixel.role}:${pixel.cluster}`)
+      .sort();
+    const connected = (pixels: ReturnType<typeof nose>) => pixels.every((pixel, index) => index === 0 || pixels.some((other) => Math.abs(other.x - pixel.x) + Math.abs(other.y - pixel.y) === 1));
+
+    expect(nose("small")).toHaveLength(1);
+    expect(new Set(nose("straight").map((pixel) => pixel.x)).size).toBe(1);
+    expect(new Set(nose("straight").map((pixel) => pixel.y)).size).toBe(2);
+    expect(nose("rounded")).toHaveLength(2);
+    expect(new Set(nose("rounded").map((pixel) => pixel.x)).size).toBe(2);
+    expect(new Set(nose("rounded").map((pixel) => pixel.y)).size).toBe(1);
+    expect(nose("prominent").map((pixel) => pixel.role)).toContain("nose_shadow");
+    expect(Object.keys(plans).every((shape) => nose(shape as keyof typeof plans).length <= 2)).toBe(true);
+    expect(Object.keys(plans).every((shape) => connected(nose(shape as keyof typeof plans)))).toBe(true);
+    expect(signatureWithoutNose("straight")).toEqual(signatureWithoutNose("rounded"));
+    expect(signatureWithoutNose("straight")).toEqual(signatureWithoutNose("prominent"));
   });
 
   it("reports stage retention, feature pixel diffs, and reduced source-backed convergence", () => {

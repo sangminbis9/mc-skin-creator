@@ -6,6 +6,7 @@ import { FACE_MEASUREMENT_VALUES, FACE_MEASUREMENT_EVIDENCE_SCHEMA, parseFaceMea
 import { buildFacePixelPlanVariants } from "../src/identityPlans";
 import { buildFaceStyle, buildProceduralFallbackAtlas, fallbackFeaturesToHex, normalizeAnalysisForRendering, refineFeatureColorsFromAnalysis } from "../src/generate";
 import { buildSkinPlan } from "../src/skinPlan";
+import { DEFAULT_FACE_STYLE, preserveFaceReadability } from "../src/skinPack";
 import { CLASSIC_LAYOUT } from "../src/uvLayout";
 import { inspectGeminiResponseSchema } from "../src/geminiStructuredSchema";
 import type { Env } from "../src/types";
@@ -87,6 +88,46 @@ describe("primary categorical face measurement evidence", () => {
     }
   });
 
+  it("keeps spacing direction independent from an identical two-cell footprint", () => {
+    const narrow = plan(subject(evidence({
+      eyeSpacing: observed("narrow"), eyeFootprint: observed("medium"), eyeOpenness: observed("normal"),
+    })));
+    const wide = plan(subject(evidence({
+      eyeSpacing: observed("wide"), eyeFootprint: observed("medium"), eyeOpenness: observed("normal"),
+    })));
+    const irisXs = (candidate: typeof narrow, cluster: "left_eye" | "right_eye") => candidate.pixels
+      .filter((pixel) => pixel.cluster === cluster && pixel.role === "iris")
+      .map((pixel) => pixel.x);
+    expect(narrow.layout.eyeFootprintTopology).toBe("medium");
+    expect(wide.layout.eyeFootprintTopology).toBe("medium");
+    expect(narrow.layout.leftEyeWidth).toBe(wide.layout.leftEyeWidth);
+    expect(narrow.layout.rightEyeWidth).toBe(wide.layout.rightEyeWidth);
+    expect(irisXs(narrow, "left_eye")).toEqual([Math.max(...narrow.layout.leftEyeXs)]);
+    expect(irisXs(narrow, "right_eye")).toEqual([Math.min(...narrow.layout.rightEyeXs)]);
+    expect(irisXs(wide, "left_eye")).toEqual([Math.min(...wide.layout.leftEyeXs)]);
+    expect(irisXs(wide, "right_eye")).toEqual([Math.max(...wide.layout.rightEyeXs)]);
+  });
+
+  it("uses exact planned eye cells for final overlay openings", () => {
+    const facePlan = plan(subject(evidence({ eyeSpacing: observed("wide"), eyeFootprint: observed("compact"), eyeOpenness: observed("narrow") })));
+    const atlas = { width: 64, height: 64, rgba: new Uint8Array(64 * 64 * 4) };
+    const overlay = CLASSIC_LAYOUT.head.overlay.front;
+    for (let y = 0; y < overlay.h; y++) for (let x = 0; x < overlay.w; x++) {
+      atlas.rgba[((overlay.y + y) * atlas.width + overlay.x + x) * 4 + 3] = 255;
+    }
+    preserveFaceReadability(atlas, DEFAULT_FACE_STYLE, [32, 24, 20], facePlan);
+    const planned = new Set(facePlan.pixels
+      .filter((pixel) => (pixel.cluster === "left_eye" || pixel.cluster === "right_eye") && (pixel.role === "iris" || pixel.role === "sclera"))
+      .map((pixel) => `${pixel.x},${pixel.y}`));
+    const alpha = (x: number, y: number) => atlas.rgba[((overlay.y + y) * atlas.width + overlay.x + x) * 4 + 3];
+    for (const key of planned) {
+      const [x, y] = key.split(",").map(Number);
+      expect(alpha(x, y), `planned opening ${key}`).toBe(0);
+    }
+    // Legacy default-eye openings are not allowed to widen this compact pair.
+    for (const key of ["1,4", "2,4", "5,4", "6,4"]) if (!planned.has(key)) expect(alpha(...key.split(",").map(Number) as [number, number]), `stale opening ${key}`).toBe(255);
+  });
+
   it("adds a visible high brow relation and preserves mouth width/opening without invented mouth Y", () => {
     const close = plan(subject(evidence({ browEyeDistance: observed("close"), mouthWidth: observed("narrow"), mouthOpenness: observed("closed") })));
     const high = plan(subject(evidence({ browEyeDistance: observed("high"), mouthWidth: observed("wide"), mouthOpenness: observed("teeth"), expression: observed("smile") })));
@@ -97,6 +138,121 @@ describe("primary categorical face measurement evidence", () => {
     expect(close.layout.mouthTopology).toBe("closed_compact");
     expect(high.layout.mouthRow).toBe(6);
     expect(high.layout.geometryUsage.mouth).toBe(false);
+  });
+
+  it("uses categorical expression only for relative smile corners, never absolute mouth Y", () => {
+    const neutral = plan(subject(evidence({
+      mouthWidth: observed("medium"), mouthOpenness: observed("closed"), expression: observed("neutral"),
+    })));
+    const smile = plan(subject(evidence({
+      mouthWidth: observed("medium"), mouthOpenness: observed("closed"), expression: observed("smile"),
+    })));
+    expect(smile.layout.mouthRow).toBe(neutral.layout.mouthRow);
+    expect(smile.layout.mouthWidth).toBe(neutral.layout.mouthWidth);
+    expect(smile.layout.mouthOpening).toBe(neutral.layout.mouthOpening);
+    expect(neutral.layout.mouthExpressionTopology).toBe("neutral");
+    expect(neutral.layout.mouthCornerOffsets).toEqual([0, 0]);
+    expect(smile.layout.mouthExpressionTopology).toBe("smile");
+    expect(smile.layout.mouthCornerOffsets).toEqual([-1, -1]);
+    const smileMouth = smile.pixels.filter((pixel) => pixel.cluster === "mouth");
+    expect(Math.min(...smileMouth.map((pixel) => pixel.y))).toBe(smile.layout.mouthRow - 1);
+    expect(smileMouth.some((pixel) => pixel.y === smile.layout.mouthRow)).toBe(true);
+    expect(smile.layout.geometryUsage.mouth).toBe(false);
+  });
+
+  it("does not treat a generic fallback expression as source-visible smile evidence", () => {
+    const input = subject();
+    input.fallbackFeatures.expression = "smile";
+    input.observed.face = "visible face with no recorded mouth expression";
+    input.canonicalIdentity.features = input.canonicalIdentity.features.filter((feature) => feature.category !== "face");
+    const result = plan(input);
+    expect(result.layout.mouthExpressionTopology).toBe("neutral");
+    expect(result.layout.mouthCornerOffsets).toEqual([0, 0]);
+  });
+
+  it("keeps calibrated mouth position, width and opening above categorical expression grammar", () => {
+    const geometry = makeIdentityGeometry({
+      glasses: null,
+      mouth: { ...makeIdentityGeometry().mouth, centerY: 0.86, width: 0.36, leftCornerY: 0.86, rightCornerY: 0.86, opening: "closed" },
+    });
+    const make = (expression: "neutral" | "smile") => plan({
+      ...subject(evidence({ expression: observed(expression), mouthWidth: observed("narrow"), mouthOpenness: observed("teeth") })),
+      identityGeometry: geometry,
+    });
+    const neutral = make("neutral"), smile = make("smile");
+    expect(smile.layout.mouthRow).toBe(neutral.layout.mouthRow);
+    expect(smile.layout.mouthRow).toBe(6);
+    expect(smile.layout.mouthWidth).toBe(neutral.layout.mouthWidth);
+    expect(smile.layout.mouthOpening).toBe("closed");
+    expect(smile.layout.geometryTarget.mouthY).toBe(neutral.layout.geometryTarget.mouthY);
+    expect(smile.layout.measurementTrace?.mouthWidth.selected).toBe("continuous_geometry");
+    expect(smile.layout.measurementTrace?.mouthOpenness.selected).toBe("continuous_geometry");
+    expect(neutral.layout.mouthCornerOffsets).toEqual([0, 0]);
+    expect(smile.layout.mouthCornerOffsets).toEqual([-1, -1]);
+  });
+
+  it.each([
+    { width: "narrow", opening: "closed", expression: "smile", expectedWidth: 2, expectedOpening: "closed", expectedCorners: [0, 0] },
+    { width: "wide", opening: "closed", expression: "neutral", expectedWidth: 4, expectedOpening: "closed", expectedCorners: [0, 0] },
+    { width: "medium", opening: "teeth", expression: "smile", expectedWidth: 3, expectedOpening: "teeth", expectedCorners: [-1, -1] },
+  ] as const)("keeps mouth width, openness and expression independent: $width/$opening/$expression", ({ width, opening, expression, expectedWidth, expectedOpening, expectedCorners }) => {
+    const result = plan(subject(evidence({
+      mouthWidth: observed(width), mouthOpenness: observed(opening), expression: observed(expression),
+    })));
+    expect(result.layout.mouthWidth).toBe(expectedWidth);
+    expect(result.layout.mouthOpening).toBe(expectedOpening);
+    expect(result.layout.mouthCornerOffsets).toEqual(expectedCorners);
+  });
+
+  it("keeps categorical brow distance independent from straight-brow topology and eye pixels", () => {
+    const close = plan(subject(evidence({ browEyeDistance: observed("close"), browSlope: observed("straight") })));
+    const high = plan(subject(evidence({ browEyeDistance: observed("high"), browSlope: observed("straight") })));
+    const eyePixels = (candidate: typeof close) => candidate.pixels.filter((pixel) =>
+      (pixel.cluster === "left_eye" || pixel.cluster === "right_eye") && (pixel.role === "iris" || pixel.role === "sclera"));
+    const minimumGap = (candidate: typeof close, cluster: "left_eye" | "right_eye") => {
+      const eyes = eyePixels(candidate).filter((pixel) => pixel.cluster === cluster);
+      const brows = candidate.pixels.filter((pixel) => pixel.cluster === cluster && pixel.role === "brow");
+      return Math.min(...eyes.map((pixel) => pixel.y)) - Math.max(...brows.map((pixel) => pixel.y));
+    };
+    expect(eyePixels(high)).toEqual(eyePixels(close));
+    expect(close.layout.browDistanceTopology).toBe("close");
+    expect(high.layout.browDistanceTopology).toBe("high");
+    expect(close.layout.browSlopeTopology).toBe("straight");
+    expect(high.layout.browSlopeTopology).toBe("straight");
+    expect(minimumGap(close, "left_eye")).toBe(1);
+    expect(minimumGap(high, "left_eye")).toBe(2);
+    expect(minimumGap(close, "right_eye")).toBe(1);
+    expect(minimumGap(high, "right_eye")).toBe(2);
+    expect(high.layout.measurementTrace?.browEyeDistance).toMatchObject({ provenance: "observed_categorical", selected: "categorical_grammar" });
+  });
+
+  it("applies straight, arched and angled transformations without changing brow distance or eye pixels", () => {
+    const make = (browSlope: "straight" | "arched" | "angled") => plan(subject(evidence({
+      browEyeDistance: observed("close"), browSlope: observed(browSlope),
+    })));
+    const straight = make("straight"), arched = make("arched"), angled = make("angled");
+    const feature = (candidate: typeof straight, role: "brow" | "iris" | "sclera") => candidate.pixels
+      .filter((pixel) => pixel.role === role)
+      .map(({ x, y, role: pixelRole, cluster }) => ({ x, y, role: pixelRole, cluster }));
+    const endpointDelta = (candidate: typeof straight, cluster: "left_eye" | "right_eye") => {
+      const cells = candidate.pixels.filter((pixel) => pixel.cluster === cluster && pixel.role === "brow");
+      const outerX = cluster === "left_eye" ? Math.min(...cells.map((pixel) => pixel.x)) : Math.max(...cells.map((pixel) => pixel.x));
+      const innerX = cluster === "left_eye" ? Math.max(...cells.map((pixel) => pixel.x)) : Math.min(...cells.map((pixel) => pixel.x));
+      const row = (x: number) => Math.min(...cells.filter((pixel) => pixel.x === x).map((pixel) => pixel.y));
+      return row(innerX) - row(outerX);
+    };
+    const eyes = (candidate: typeof straight) => [...feature(candidate, "iris"), ...feature(candidate, "sclera")];
+    expect(eyes(arched)).toEqual(eyes(straight));
+    expect(eyes(angled)).toEqual(eyes(straight));
+    expect([straight.layout.leftBrowRow, straight.layout.rightBrowRow]).toEqual([arched.layout.leftBrowRow, arched.layout.rightBrowRow]);
+    expect([straight.layout.leftBrowRow, straight.layout.rightBrowRow]).toEqual([angled.layout.leftBrowRow, angled.layout.rightBrowRow]);
+    expect(endpointDelta(straight, "left_eye")).toBe(0);
+    expect(endpointDelta(arched, "left_eye")).toBe(-1);
+    expect(endpointDelta(angled, "left_eye")).toBe(1);
+    expect(endpointDelta(straight, "right_eye")).toBe(0);
+    expect(endpointDelta(arched, "right_eye")).toBe(-1);
+    expect(endpointDelta(angled, "right_eye")).toBe(1);
+    expect(arched.layout.measurementTrace?.browSlope).toMatchObject({ provenance: "observed_categorical", selected: "categorical_grammar" });
   });
 
   it("keeps all accepted continuous geometry above conflicting categorical cues", () => {

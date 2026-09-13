@@ -2,7 +2,7 @@ import type { PhotoAnalysis } from "./analysis";
 import type { GeometryCompleteness, GeometryDecisionProvenance, IdentityGeometryAnalysis } from "./identityGeometry";
 import { buildFaceIdentitySaliencePlan, faceSalienceScore, type FaceIdentitySaliencePlan } from "./faceIdentitySalience";
 import { buildHairIdentitySaliencePlan, hairSalienceScore } from "./hairIdentitySalience";
-import { observedFaceCategory, resolveFaceMeasurements, type FaceMeasurementTrace } from "./faceMeasurementEvidence";
+import { observedFaceCategory, parseFaceMeasurementEvidence, resolveFaceMeasurements, type FaceMeasurementTrace } from "./faceMeasurementEvidence";
 
 export type ProtectedGeometry = "glasses" | "hairline" | "head_silhouette" | "eye_layout" | "mouth" | "face_window";
 export type MouthTopology = "closed_compact" | "closed_wide" | "open_compact" | "open_wide" | "teeth_smile" | "wide_teeth_smile" | "asymmetric_smile";
@@ -80,18 +80,28 @@ export interface FaceLayoutPlan {
   eyeWidth: 1 | 2 | 3;
   leftEyeWidth: 1 | 2 | 3;
   rightEyeWidth: 1 | 2 | 3;
+  /** Discrete pair placement, kept independent from each eye's footprint. */
+  eyeSpacingTopology: "narrow" | "medium" | "wide";
+  /** Horizontal eye-body footprint; never inferred from pair spacing. */
+  eyeFootprintTopology: "compact" | "medium" | "wide";
   eyeOpenness: "compact" | "readable" | "open";
   eyeTopology: EyeTopology;
   eyeTiltOffset: -1 | 0 | 1;
   browRow: 1 | 2 | 3 | 4;
   leftBrowRow: 1 | 2 | 3 | 4;
   rightBrowRow: 1 | 2 | 3 | 4;
+  /** Vertical eye-to-brow relation, independent from the brow's own slope. */
+  browDistanceTopology: "close" | "normal" | "high";
+  /** Direction of the one-pixel brow stroke after its anchor row is chosen. */
+  browSlopeTopology: "straight" | "arched" | "angled";
   browThickness: "subtle" | "strong";
   browTiltOffset: -1 | 0 | 1;
   mouthRow: 5 | 6;
   mouthWidth: 2 | 3 | 4 | 5;
   mouthCenterX: number;
   mouthCornerOffsets: [number, number];
+  /** Expression controls only relative corner topology, never the absolute Y anchor. */
+  mouthExpressionTopology: "neutral" | "smile";
   mouthOpening: "closed" | "open" | "teeth";
   mouthTopology: MouthTopology;
   hairlineDepth: 0 | 1 | 2 | 3;
@@ -108,6 +118,8 @@ export interface FaceLayoutPlan {
   noseX: number;
   noseY: number;
   noseStrength: number;
+  /** Shape affects only the bounded pixel grammar, never the placement. */
+  noseShapeTopology: PhotoAnalysis["renderHints"]["noseShape"];
   glassesMask: Array<{ x: number; y: number }>;
   uncertainAxes: QuantizationAxis[];
   quantizationAmbiguities: QuantizationAmbiguity[];
@@ -129,6 +141,8 @@ export interface FaceLayoutPlan {
     mouthCenterX: number;
     mouthRow: number;
     mouthWidth: number;
+    noseX: number;
+    noseY: number;
     visibleFaceWidthAtEyes: number;
   };
   geometryUsage: {
@@ -324,14 +338,28 @@ function sourceFaceFeatureText(analysis: PhotoAnalysis): string {
 }
 
 /** Maps only qualitative source evidence onto the existing brow vocabulary. */
-function fallbackBrowTilt(analysis: PhotoAnalysis): FaceLayoutPlan["browTiltOffset"] {
+function fallbackBrowSlope(analysis: PhotoAnalysis): FaceLayoutPlan["browSlopeTopology"] {
   const text = sourceFaceFeatureText(analysis);
   const shape = /\barch(?:ed|ing)?\b/.test(text)
     ? "arched"
     : /\bstraight\b/.test(text)
       ? "straight"
       : analysis.renderHints.eyebrowShape;
-  return shape === "arched" ? 1 : shape === "slanted" ? -1 : 0;
+  return shape === "arched" ? "arched" : shape === "slanted" ? "angled" : "straight";
+}
+
+function browTiltFor(topology: FaceLayoutPlan["browSlopeTopology"]): FaceLayoutPlan["browTiltOffset"] {
+  return topology === "arched" ? 1 : topology === "angled" ? -1 : 0;
+}
+
+function browRowFor(
+  eyeRow: FaceLayoutPlan["leftEyeRow"],
+  distance: FaceLayoutPlan["browDistanceTopology"],
+): FaceLayoutPlan["leftBrowRow"] {
+  // Minecraft's upper face has only two useful rows above a row-3 eye.
+  // Keep close at one row and use a single extra row for normal/high. High is
+  // not exaggerated to a three-row gap merely because a row-4 eye permits it.
+  return rounded(eyeRow - (distance === "close" ? 1 : 2), 1, 4);
 }
 
 function hasWideMouthEvidence(analysis: PhotoAnalysis): boolean {
@@ -340,6 +368,30 @@ function hasWideMouthEvidence(analysis: PhotoAnalysis): boolean {
   const describesWideMouth = /\b(?:wide|broad|large)(?:[- ]+(?:closed|open|toothy|smiling))?[- ]+(?:mouth|smile|grin|lips?)\b|\b(?:mouth|smile|grin|lips?)\b(?:\s+(?:is|are|appears?))?\s+(?:wide|broad|large)\b/;
   return analysis.canonicalIdentity.features.some(feature => feature.priority === 5 && feature.category === "face" &&
     describesWideMouth.test(`${feature.feature}; ${feature.evidence}`.toLowerCase()));
+}
+
+/**
+ * Expression is complementary to measured width/opening. Geometry owns the
+ * absolute mouth anchor; an observed category or explicit identity statement
+ * may select the one-pixel corner grammar without being treated as a Y
+ * coordinate.
+ */
+function sourceMouthExpressionTopology(analysis: PhotoAnalysis): FaceLayoutPlan["mouthExpressionTopology"] {
+  const evidence = parseFaceMeasurementEvidence(
+    analysis.faceMeasurementEvidence,
+    analysis.sourceSelection.portraitImageIndex,
+    analysis.visibleRegions.face,
+  );
+  const observed = evidence?.cues.expression;
+  if (observed?.provenance === "observed_categorical" && observed.value !== "unknown") {
+    return observed.value;
+  }
+  const identityText = `${p5Text(analysis)} ${sourceFaceFeatureText(analysis)} ${analysis.observed.face.toLowerCase()}`;
+  if (/\bsmil(?:e|ing)|\bgrin|upturned mouth/.test(identityText)) return "smile";
+  // A generic fallback expression is a rendering default, not proof that the
+  // source has lifted mouth corners. Only explicit source/canonical evidence
+  // may select the smile grammar.
+  return "neutral";
 }
 
 function mouthTopologyFor(
@@ -561,7 +613,9 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const eyesFromGeometry = geometry.confidence.eyes >= 0.55;
   const browsFromGeometry = geometry.confidence.brows >= 0.55;
   const mouthFromGeometry = geometry.confidence.mouth >= 0.55;
-  const noseFromGeometry = geometry.confidence.nose >= 0.55;
+  // Nose placement is too pose-sensitive for marginal measurements. Only a
+  // confident normalized face measurement may move the safe centre anchor.
+  const noseFromGeometry = geometry.confidence.nose >= 0.72;
   const hairlineFromGeometry = geometry.confidence.hairline >= 0.55;
   const faceFromGeometry = geometry.confidence.faceBounds >= 0.55;
   const glassesFromGeometry = geometry.confidence.glasses >= 0.55;
@@ -597,11 +651,11 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const categoricalBrowGap = !browsFromGeometry
     ? observedFaceCategory(resolveFaceMeasurements(analysis), "browEyeDistance")
     : undefined;
-  const fallbackLeftBrowRow = categoricalBrowGap && eyesFromGeometry
-    ? rounded(leftEyeRow - (categoricalBrowGap === "high" ? 2 : 1), 1, 4)
+  const fallbackLeftBrowRow = !browsFromGeometry && eyesFromGeometry
+    ? browRowFor(leftEyeRow, fallback.browDistanceTopology)
     : fallback.leftBrowRow;
-  const fallbackRightBrowRow = categoricalBrowGap && eyesFromGeometry
-    ? rounded(rightEyeRow - (categoricalBrowGap === "high" ? 2 : 1), 1, 4)
+  const fallbackRightBrowRow = !browsFromGeometry && eyesFromGeometry
+    ? browRowFor(rightEyeRow, fallback.browDistanceTopology)
     : fallback.rightBrowRow;
   const faceShapeFromGeometry = evidenceUsable(geometry.faceShape.evidence, geometry.faceShape.confidence, clippingKnown && geometry.visibility.chinClipped);
   const volumePeaks = geometry.majorVolumePeaks.filter((peak) => evidenceUsable(
@@ -620,10 +674,29 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const eyeWidth = rounded((leftEyeWidth + rightEyeWidth) / 2, 1, 3);
   const leftEyeXs = jointEyes?.leftEyeXs ?? fallback.leftEyeXs;
   const rightEyeXs = jointEyes?.rightEyeXs ?? fallback.rightEyeXs;
+  const normalizedEyeSpacing = ((geometry.eyes.rightCenterX - geometry.eyes.leftCenterX) / faceWidth) * 7;
+  const normalizedEyeFootprint = ((geometry.eyes.leftWidth + geometry.eyes.rightWidth) / 2 / faceWidth) * 8;
+  const measuredEyeSpacingTopology: FaceLayoutPlan["eyeSpacingTopology"] = normalizedEyeSpacing <= 2.8
+    ? "narrow"
+    : normalizedEyeSpacing >= 3.4 ? "wide" : "medium";
+  const measuredEyeFootprintTopology: FaceLayoutPlan["eyeFootprintTopology"] = normalizedEyeFootprint <= 1.4
+    ? "compact"
+    : normalizedEyeFootprint >= 1.9 ? "wide" : "medium";
+  const eyeSpacingTopology = eyesFromGeometry ? measuredEyeSpacingTopology : fallback.eyeSpacingTopology;
+  const eyeFootprintTopology = eyesFromGeometry ? measuredEyeFootprintTopology : fallback.eyeFootprintTopology;
   const leftBrowRawRow = facialYRaw(geometry.brows.leftY);
   const rightBrowRawRow = facialYRaw(geometry.brows.rightY);
-  let leftBrowRow: FaceLayoutPlan["leftBrowRow"] = rounded(Math.min(leftEyeRow - 1, leftBrowRawRow), 1, 4);
-  let rightBrowRow: FaceLayoutPlan["rightBrowRow"] = rounded(Math.min(rightEyeRow - 1, rightBrowRawRow), 1, 4);
+  const meanBrowEyeGap = ((leftEyeRawRow - leftBrowRawRow) + (rightEyeRawRow - rightBrowRawRow)) / 2;
+  const measuredBrowDistanceTopology: FaceLayoutPlan["browDistanceTopology"] = meanBrowEyeGap <= 0.56
+    ? "close"
+    : meanBrowEyeGap >= 0.68 ? "high" : "normal";
+  const measuredBrowSlopeTopology: FaceLayoutPlan["browSlopeTopology"] = Math.abs(geometry.brows.tilt) < 0.08
+    ? "straight"
+    : geometry.brows.tilt > 0 ? "arched" : "angled";
+  const browDistanceTopology = browsFromGeometry ? measuredBrowDistanceTopology : fallback.browDistanceTopology;
+  const browSlopeTopology = browsFromGeometry ? measuredBrowSlopeTopology : fallback.browSlopeTopology;
+  let leftBrowRow: FaceLayoutPlan["leftBrowRow"] = browRowFor(leftEyeRow, browDistanceTopology);
+  let rightBrowRow: FaceLayoutPlan["rightBrowRow"] = browRowFor(rightEyeRow, browDistanceTopology);
   const preserveBrowAsymmetry = browsFromGeometry && geometry.confidence.brows >= 0.75 && Math.abs(leftBrowRawRow - rightBrowRawRow) >= 0.55;
   if (preserveBrowAsymmetry && leftBrowRow === rightBrowRow) {
     if (leftBrowRawRow < rightBrowRawRow && leftBrowRow > 1) leftBrowRow = (leftBrowRow - 1) as FaceLayoutPlan["leftBrowRow"];
@@ -689,16 +762,22 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const eyeTiltOffset: FaceLayoutPlan["eyeTiltOffset"] = eyesFromGeometry
     ? rounded(geometry.eyes.verticalAsymmetry * 4, -1, 1)
     : fallback.eyeTiltOffset;
-  const browTiltOffset: FaceLayoutPlan["browTiltOffset"] = browsFromGeometry
-    ? geometry.confidence.brows >= 0.8 && Math.abs(geometry.brows.tilt) >= 0.08
-      ? (geometry.brows.tilt > 0 ? 1 : -1)
-      : 0
-    : fallback.browTiltOffset;
+  const browTiltOffset = browTiltFor(browSlopeTopology);
   const mouthOpening = mouthFromGeometry ? geometry.mouth.opening : fallback.mouthOpening;
   let mouthWidth = mouthFromGeometry ? mouthWidthChoice.value as FaceLayoutPlan["mouthWidth"] : fallback.mouthWidth;
-  const mouthCornerOffsets: FaceLayoutPlan["mouthCornerOffsets"] = mouthFromGeometry
+  const measuredMouthCornerOffsets: FaceLayoutPlan["mouthCornerOffsets"] = mouthFromGeometry
     ? [cornerOffset(geometry.mouth.leftCornerY), cornerOffset(geometry.mouth.rightCornerY)]
     : fallback.mouthCornerOffsets;
+  const preserveMouthAsymmetry = mouthFromGeometry && geometry.confidence.mouth >= 0.75 && measuredMouthCornerOffsets[0] !== measuredMouthCornerOffsets[1];
+  const measuredSmile = measuredMouthCornerOffsets[0] < 0 && measuredMouthCornerOffsets[1] < 0;
+  const mouthExpressionTopology: FaceLayoutPlan["mouthExpressionTopology"] = measuredSmile
+    ? "smile"
+    : sourceMouthExpressionTopology(analysis);
+  const mouthCornerOffsets: FaceLayoutPlan["mouthCornerOffsets"] = preserveMouthAsymmetry
+    ? measuredMouthCornerOffsets
+    // A two-cell mouth has no independent centre: lifting both cells would
+    // move the absolute mouth anchor rather than describe corner topology.
+    : mouthExpressionTopology === "smile" && mouthWidth >= 3 ? [-1, -1] : [0, 0];
   const sourceP5Text = p5Text(analysis);
   const perceptuallyWideExpression =
     (protectedGeometry.includes("mouth") && hasWideMouthEvidence(analysis)) ||
@@ -706,7 +785,6 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   if (perceptuallyWideExpression) {
     mouthWidth = Math.max(4, mouthWidth) as FaceLayoutPlan["mouthWidth"];
   }
-  const preserveMouthAsymmetry = mouthFromGeometry && geometry.confidence.mouth >= 0.75 && mouthCornerOffsets[0] !== mouthCornerOffsets[1];
   const mouthTopology = mouthTopologyFor(mouthOpening, mouthWidth, mouthCornerOffsets, preserveMouthAsymmetry);
   const preserveEyeAsymmetry = eyesFromGeometry && geometry.confidence.eyes >= 0.75 && (
     preserveEyeRowAsymmetry || leftEyeWidth !== rightEyeWidth
@@ -803,23 +881,30 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
     salience,
     eyeRow: eyesFromGeometry ? eyeRowChoice.value as FaceLayoutPlan["eyeRow"] : fallback.eyeRow,
     leftEyeRow: eyesFromGeometry ? leftEyeRow : fallback.leftEyeRow, rightEyeRow: eyesFromGeometry ? rightEyeRow : fallback.rightEyeRow,
-    leftEyeXs, rightEyeXs, eyeWidth, leftEyeWidth, rightEyeWidth, eyeOpenness, eyeTopology, eyeTiltOffset,
+    leftEyeXs, rightEyeXs, eyeWidth, leftEyeWidth, rightEyeWidth,
+    eyeSpacingTopology, eyeFootprintTopology, eyeOpenness, eyeTopology, eyeTiltOffset,
     browRow: browsFromGeometry ? rounded((leftBrowRow + rightBrowRow) / 2, 1, 4) : rounded((fallbackLeftBrowRow + fallbackRightBrowRow) / 2, 1, 4),
     leftBrowRow: browsFromGeometry ? leftBrowRow : fallbackLeftBrowRow, rightBrowRow: browsFromGeometry ? rightBrowRow : fallbackRightBrowRow,
+    browDistanceTopology,
+    browSlopeTopology,
     browThickness: browsFromGeometry ? geometry.brows.thickness >= 0.55 ? "strong" : "subtle" : fallback.browThickness,
     browTiltOffset,
     mouthRow: mouthFromGeometry ? mouthRowChoice.value as FaceLayoutPlan["mouthRow"] : fallback.mouthRow,
     mouthWidth,
     mouthCenterX: mouthFromGeometry ? rounded(xRaw(geometry.mouth.centerX), 1, 6) : fallback.mouthCenterX,
     mouthCornerOffsets,
+    mouthExpressionTopology,
     mouthOpening,
     mouthTopology,
     hairlineDepth: hairlineFromGeometry ? hairlineDepth : fallback.hairlineDepth, hairlineDepthByColumn,
     fringeOpening, fringePeaks, fringeDirection, templeGeometry, crownGeometry, majorVolumePeaks, faceWindow, faceShape,
     exposedFaceWidth: completeFaceWindowFromGeometry ? faceWindow.visibleWidthAtEyes : faceFromGeometry ? rounded(5 + geometry.face.widthWithinHead * 3, 5, 8) : fallback.exposedFaceWidth,
-    noseX: noseFromGeometry ? rounded(xRaw(geometry.nose.centerX) + geometry.nose.leftRightBias * 0.45, 2, 5) : fallback.noseX,
+    // centerX is already normalized inside the measured face window. Adding
+    // leftRightBias here double-counted the same screen-space displacement.
+    noseX: noseFromGeometry ? rounded(xRaw(geometry.nose.centerX), 2, 5) : fallback.noseX,
     noseY: noseFromGeometry ? rounded(facialYRaw(geometry.nose.contrastY), 4, 6) : fallback.noseY,
     noseStrength: noseFromGeometry ? geometry.nose.visibleStrength : fallback.noseStrength,
+    noseShapeTopology: analysis.renderHints.noseShape,
     glassesMask,
     uncertainAxes: ambiguities.map((ambiguity) => ambiguity.axis),
     quantizationAmbiguities: ambiguities,
@@ -841,6 +926,8 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
       mouthCenterX: mouthFromGeometry ? xRaw(geometry.mouth.centerX) : fallback.mouthCenterX,
       mouthRow: mouthFromGeometry ? facialYRaw(geometry.mouth.centerY) : fallback.mouthRow,
       mouthWidth: mouthFromGeometry ? (geometry.mouth.width / faceWidth) * 8 : fallback.mouthWidth,
+      noseX: noseFromGeometry ? xRaw(geometry.nose.centerX) : fallback.noseX,
+      noseY: noseFromGeometry ? facialYRaw(geometry.nose.contrastY) : fallback.noseY,
       visibleFaceWidthAtEyes: completeFaceWindowFromGeometry ? geometry.faceWindow.visibleFaceWidthAtEyes * 8 : visibleWidthAtEyesForEyes,
     },
     geometryUsage: { faceBounds: faceFromGeometry, eyes: eyesFromGeometry, brows: browsFromGeometry, nose: noseFromGeometry, mouth: mouthFromGeometry, hairline: hairlineFromGeometry, glasses: glassesFromGeometry, fringePeaks: fringeFromGeometry, temple: templeFromGeometry, crown: crownFromGeometry, majorVolumePeaks: majorVolumePeaksFromGeometry, faceWindow: faceWindowFromGeometry, faceShape: faceShapeFromGeometry },
@@ -891,13 +978,23 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
   let rightEyeXs = hints.eyeSpacing === "wide" ? [6, 7] : hints.eyeSpacing === "close" ? [5] : [5, 6];
   let eyeWidth: FaceLayoutPlan["eyeWidth"] = hints.eyeSize === "large" ? 3 : hints.eyeSize === "small" ? 1 : 2;
   const eyeOpenness: FaceLayoutPlan["eyeOpenness"] = openness === "open" ? "open" : openness === "narrow" ? "compact" : openness === "normal" ? "readable" : hints.eyeShape === "round" ? "open" : hints.eyeSize === "small" ? "compact" : "readable";
+  const eyeSpacingTopology: FaceLayoutPlan["eyeSpacingTopology"] = spacing && spacing !== "unknown"
+    ? spacing
+    : hints.eyeSpacing === "close" ? "narrow" : hints.eyeSpacing === "wide" ? "wide" : "medium";
+  const eyeFootprintTopology: FaceLayoutPlan["eyeFootprintTopology"] = footprint && footprint !== "unknown"
+    ? footprint
+    : hints.eyeSize === "small" ? "compact" : hints.eyeSize === "large" ? "wide" : "medium";
   const eyeTiltOffset: FaceLayoutPlan["eyeTiltOffset"] = hints.eyeTilt === "upturned" ? -1 : hints.eyeTilt === "downturned" ? 1 : 0;
-  const browTiltOffset = browSlope === "arched" ? 1 : browSlope === "angled" ? -1 : browSlope === "straight" ? 0 : fallbackBrowTilt(analysis);
-  const browRow = rounded(
-    eyeRow - (browGap === "high" ? 2 : browGap === "close" || browGap === "normal" ? 1 : hints.eyeSize === "large" || browTiltOffset === 1 ? 2 : 1),
-    1,
-    4,
-  );
+  const browSlopeTopology: FaceLayoutPlan["browSlopeTopology"] = browSlope && browSlope !== "unknown"
+    ? browSlope
+    : fallbackBrowSlope(analysis);
+  const browTiltOffset = browTiltFor(browSlopeTopology);
+  const browDistanceTopology: FaceLayoutPlan["browDistanceTopology"] = browGap && browGap !== "unknown"
+    ? browGap
+    // Preserve the legacy raised row for large eyes/arched brows without
+    // pretending that semantic fallback is a calibrated coordinate.
+    : hints.eyeSize === "large" || browSlopeTopology === "arched" ? "normal" : "close";
+  const browRow = browRowFor(eyeRow, browDistanceTopology);
   // A readable tooth row needs the lower facial row even on round faces; row
   // five makes its boundary collide with the nose and turns the legacy broad
   // smile into a dark lower line after the exact plan is reasserted.
@@ -910,8 +1007,11 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
   const mouthOpening: FaceLayoutPlan["mouthOpening"] = hints.mouthOpening === "teeth_visible" ? "teeth" : hints.mouthOpening === "slightly_open" ? "open" : "closed";
   const mouthWidth: FaceLayoutPlan["mouthWidth"] = hints.mouthShape === "wide" || (protectedGeometry.includes("mouth") && hasWideMouthEvidence(analysis))
     ? mouthOpening === "teeth" && protectedGeometry.includes("mouth") ? 5 : 4
-    : mouthWidthCue === "narrow" ? 2 : mouthWidthCue === "medium" || hints.mouthShape === "full" || hints.lipFullness === "full" ? 3 : 2;
-  const mouthCornerOffsets: FaceLayoutPlan["mouthCornerOffsets"] = (expression ?? analysis.fallbackFeatures.expression) === "smile" ? [-1, -1] : [0, 0];
+    : mouthWidthCue === "narrow" ? 2 : mouthWidthCue === "medium" || hints.mouthShape === "full" ? 3 : 2;
+  const mouthExpressionTopology: FaceLayoutPlan["mouthExpressionTopology"] = expression === "smile"
+    ? "smile"
+    : expression === "neutral" ? "neutral" : sourceMouthExpressionTopology(analysis);
+  const mouthCornerOffsets: FaceLayoutPlan["mouthCornerOffsets"] = mouthExpressionTopology === "smile" && mouthWidth >= 3 ? [-1, -1] : [0, 0];
   const mouthTopology = mouthTopologyFor(mouthOpening, mouthWidth, mouthCornerOffsets, false);
   const eyeTopology = eyeTopologyFor(eyeOpenness, false, p5Text(analysis));
   const hairlineDepth: FaceLayoutPlan["hairlineDepth"] = hints.bangs === "none" || hints.bangsLength === "none" ? 0 : hints.bangsLength === "eye" ? 3 : hints.bangsLength === "brow" ? 2 : 1;
@@ -964,12 +1064,17 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
   return {
     salience,
     eyeRow, leftEyeRow: eyeRow, rightEyeRow: eyeRow, leftEyeXs, rightEyeXs, eyeWidth,
-    leftEyeWidth: eyeWidth, rightEyeWidth: eyeWidth, eyeOpenness, eyeTopology, eyeTiltOffset,
+    leftEyeWidth: eyeWidth, rightEyeWidth: eyeWidth,
+    eyeSpacingTopology, eyeFootprintTopology, eyeOpenness, eyeTopology, eyeTiltOffset,
     browRow, leftBrowRow: browRow, rightBrowRow: browRow,
+    browDistanceTopology, browSlopeTopology,
     browThickness: "subtle", browTiltOffset,
-    mouthRow, mouthWidth, mouthCenterX: 4, mouthCornerOffsets, mouthOpening, mouthTopology,
+    mouthRow, mouthWidth, mouthCenterX: 4, mouthCornerOffsets, mouthExpressionTopology, mouthOpening, mouthTopology,
     hairlineDepth, hairlineDepthByColumn, fringeOpening: hints.fringeOpening, fringePeaks, fringeDirection, templeGeometry, crownGeometry, majorVolumePeaks, faceWindow, faceShape, exposedFaceWidth,
-    noseX: hints.noseShape === "prominent" ? 3 : 4, noseY: Math.min(6, eyeRow + 1), noseStrength: hints.noseShape === "small" ? 0.25 : 0.7,
+    // Without calibrated geometry all semantic shapes retain the same safe
+    // centre anchor. noseShape can choose grammar/contrast, never coordinates.
+    noseX: 4, noseY: Math.min(6, eyeRow + 1), noseStrength: hints.noseShape === "small" ? 0.25 : 0.7,
+    noseShapeTopology: hints.noseShape,
     glassesMask, uncertainAxes,
     quantizationAmbiguities,
     protectedGeometry,
@@ -990,6 +1095,8 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
       mouthCenterX: 4,
       mouthRow,
       mouthWidth,
+      noseX: 4,
+      noseY: Math.min(6, eyeRow + 1),
       visibleFaceWidthAtEyes: exposedFaceWidth,
     },
     geometryUsage: { faceBounds: false, eyes: false, brows: false, nose: false, mouth: false, hairline: false, glasses: false, fringePeaks: false, temple: false, crown: false, majorVolumePeaks: false, faceWindow: false, faceShape: false },

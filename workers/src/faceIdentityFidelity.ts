@@ -9,15 +9,25 @@ export interface FaceIdentitySignature {
   rightEyeRow: number;
   leftEyeWidth: number;
   rightEyeWidth: number;
+  eyeSpacingTopology: FacePixelPlan["layout"]["eyeSpacingTopology"];
+  eyeFootprintTopology: FacePixelPlan["layout"]["eyeFootprintTopology"];
   eyeTopology: FacePixelPlan["layout"]["eyeTopology"];
   leftBrowRow: number;
   rightBrowRow: number;
   leftBrowCells: string[];
   rightBrowCells: string[];
+  browDistanceTopology: FacePixelPlan["layout"]["browDistanceTopology"];
+  browSlopeTopology: FacePixelPlan["layout"]["browSlopeTopology"];
   browThickness: FacePixelPlan["layout"]["browThickness"];
   mouthWidth: number;
   mouthRow: number;
+  mouthCornerOffsets: [number, number];
+  mouthExpressionTopology: FacePixelPlan["layout"]["mouthExpressionTopology"];
   mouthTopology: MouthTopology;
+  noseCells: string[];
+  noseX: number;
+  noseY: number;
+  noseShapeTopology: FacePixelPlan["layout"]["noseShapeTopology"];
   faceWindow: number;
 }
 
@@ -71,6 +81,7 @@ export interface FaceIdentityAxisSignatures {
   mouth: string;
   face: string;
   glasses: string;
+  nose: string;
   full: string;
 }
 
@@ -118,6 +129,7 @@ export function measureFaceIdentitySignature(plan: FacePixelPlan): FaceIdentityS
   const leftBrow = feature("left_eye", ["brow"]);
   const rightBrow = feature("right_eye", ["brow"]);
   const mouth = plan.pixels.filter((pixel) => pixel.cluster === "mouth");
+  const nose = plan.pixels.filter((pixel) => pixel.cluster === "nose");
   return {
     leftEyeColumns: [...new Set(leftEye.map((pixel) => pixel.x))].sort((a, b) => a - b),
     rightEyeColumns: [...new Set(rightEye.map((pixel) => pixel.x))].sort((a, b) => a - b),
@@ -125,6 +137,8 @@ export function measureFaceIdentitySignature(plan: FacePixelPlan): FaceIdentityS
     rightEyeRow: Math.min(...rightEye.map((pixel) => pixel.y), plan.layout.rightEyeRow),
     leftEyeWidth: rangeWidth(leftEye),
     rightEyeWidth: rangeWidth(rightEye),
+    eyeSpacingTopology: plan.layout.eyeSpacingTopology,
+    eyeFootprintTopology: plan.layout.eyeFootprintTopology,
     eyeTopology: plan.layout.eyeTopology,
     // A strong brow adds a second pixel above the anchor. The lower rendered
     // row is therefore the position comparable to the quantized brow row.
@@ -132,10 +146,18 @@ export function measureFaceIdentitySignature(plan: FacePixelPlan): FaceIdentityS
     rightBrowRow: Math.max(...rightBrow.map((pixel) => pixel.y), plan.layout.rightBrowRow),
     leftBrowCells: leftBrow.map((pixel) => `${pixel.x},${pixel.y}`).sort(),
     rightBrowCells: rightBrow.map((pixel) => `${pixel.x},${pixel.y}`).sort(),
+    browDistanceTopology: plan.layout.browDistanceTopology,
+    browSlopeTopology: plan.layout.browSlopeTopology,
     browThickness: plan.layout.browThickness,
     mouthWidth: rangeWidth(mouth),
     mouthRow: Math.min(...mouth.map((pixel) => pixel.y), plan.layout.mouthRow),
+    mouthCornerOffsets: [...plan.layout.mouthCornerOffsets],
+    mouthExpressionTopology: plan.layout.mouthExpressionTopology,
     mouthTopology: plan.layout.mouthTopology,
+    noseCells: nose.map((pixel) => `${pixel.x},${pixel.y}:${pixel.role}`).sort(),
+    noseX: plan.layout.noseX,
+    noseY: plan.layout.noseY,
+    noseShapeTopology: plan.layout.noseShapeTopology,
     faceWindow: visibleFaceWidth(plan),
   };
 }
@@ -147,12 +169,22 @@ export function measureFaceIdentityRetention(analysis: PhotoAnalysis, plan: Face
     leftEyeColumns: [...plan.layout.leftEyeXs], rightEyeColumns: [...plan.layout.rightEyeXs],
     leftEyeRow: plan.layout.leftEyeRow, rightEyeRow: plan.layout.rightEyeRow,
     leftEyeWidth: plan.layout.leftEyeWidth, rightEyeWidth: plan.layout.rightEyeWidth,
+    eyeSpacingTopology: plan.layout.eyeSpacingTopology,
+    eyeFootprintTopology: plan.layout.eyeFootprintTopology,
     eyeTopology: plan.layout.eyeTopology,
     leftBrowRow: plan.layout.leftBrowRow, rightBrowRow: plan.layout.rightBrowRow,
     leftBrowCells: [], rightBrowCells: [],
+    browDistanceTopology: plan.layout.browDistanceTopology,
+    browSlopeTopology: plan.layout.browSlopeTopology,
     browThickness: plan.layout.browThickness,
     mouthWidth: plan.layout.mouthWidth, mouthRow: plan.layout.mouthRow,
+    mouthCornerOffsets: [...plan.layout.mouthCornerOffsets],
+    mouthExpressionTopology: plan.layout.mouthExpressionTopology,
     mouthTopology: plan.layout.mouthTopology,
+    noseCells: [],
+    noseX: plan.layout.noseX,
+    noseY: plan.layout.noseY,
+    noseShapeTopology: plan.layout.noseShapeTopology,
     faceWindow: visibleFaceWidth(plan),
   };
   const rendered = measureFaceIdentitySignature(plan);
@@ -172,9 +204,12 @@ export function measureFaceIdentityRetention(analysis: PhotoAnalysis, plan: Face
   const quantizedRightCenter = mean(quantized.rightEyeColumns);
   const renderedLeftCenter = mean(rendered.leftEyeColumns);
   const renderedRightCenter = mean(rendered.rightEyeColumns);
-  const intendedRenderedBrowRow = (anchor: number, eyeRow: number) => plan.layout.browTiltOffset > 0
+  const categoricalBrowTopology = plan.layout.measurementTrace?.browEyeDistance.selected === "categorical_grammar"
+    || plan.layout.measurementTrace?.browSlope.selected === "categorical_grammar";
+  const sourceBrowTopology = plan.layout.geometryUsage.brows || categoricalBrowTopology;
+  const intendedRenderedBrowRow = (anchor: number, eyeRow: number) => !sourceBrowTopology && plan.layout.browTiltOffset > 0
     ? Math.min(eyeRow - 1, anchor + 1)
-    : anchor;
+    : Math.min(eyeRow - 1, anchor);
   const metrics = {
     eyeSpacingRetention: retention((quantizedRightCenter - quantizedLeftCenter) - target.eyeSpacing, 2),
     leftEyeWidthRetention: retention(quantized.leftEyeWidth - target.leftEyeWidth, 2),
@@ -248,13 +283,16 @@ export function measureFaceIdentityAxisSignatures(plan: FacePixelPlan): FaceIden
     signature.rightEyeRow,
     signature.leftEyeWidth,
     signature.rightEyeWidth,
+    signature.eyeSpacingTopology,
+    signature.eyeFootprintTopology,
     signature.eyeTopology,
   ]);
   const brows = JSON.stringify([
     signature.leftBrowCells,
     signature.rightBrowCells,
+    signature.browDistanceTopology,
+    signature.browSlopeTopology,
     signature.browThickness,
-    plan.layout.browTiltOffset,
     browGap,
   ]);
   const mouth = JSON.stringify([
@@ -262,7 +300,8 @@ export function measureFaceIdentityAxisSignatures(plan: FacePixelPlan): FaceIden
     signature.mouthWidth,
     signature.mouthRow,
     plan.layout.mouthCenterX,
-    plan.layout.mouthCornerOffsets,
+    signature.mouthCornerOffsets,
+    signature.mouthExpressionTopology,
   ]);
   const face = JSON.stringify([
     signature.faceWindow,
@@ -279,7 +318,13 @@ export function measureFaceIdentityAxisSignatures(plan: FacePixelPlan): FaceIden
       .sort(),
     plan.glassesPlan.lensOpenings.map((pixel) => `${pixel.x},${pixel.y}`).sort(),
   ]);
-  return { eyes, brows, mouth, face, glasses, full: JSON.stringify([eyes, brows, mouth, face, glasses]) };
+  const nose = JSON.stringify([
+    signature.noseCells,
+    signature.noseX,
+    signature.noseY,
+    signature.noseShapeTopology,
+  ]);
+  return { eyes, brows, mouth, face, glasses, nose, full: JSON.stringify([eyes, brows, mouth, face, glasses, nose]) };
 }
 
 export function findFacePlanCollisions(samples: Array<{ id: string; plan: FacePixelPlan }>): FacePlanCollision[] {
@@ -344,8 +389,8 @@ export function measureGenericFaceConvergence(plans: FacePixelPlan[]): {
     pairCount++;
     const a = signatures[left];
     const b = signatures[right];
-    const eye = JSON.stringify([a.leftEyeColumns, a.rightEyeColumns, a.leftEyeRow, a.rightEyeRow, a.eyeTopology]) === JSON.stringify([b.leftEyeColumns, b.rightEyeColumns, b.leftEyeRow, b.rightEyeRow, b.eyeTopology]);
-    const brow = JSON.stringify([a.leftBrowCells, a.rightBrowCells, a.browThickness]) === JSON.stringify([b.leftBrowCells, b.rightBrowCells, b.browThickness]);
+    const eye = JSON.stringify([a.leftEyeColumns, a.rightEyeColumns, a.leftEyeRow, a.rightEyeRow, a.eyeSpacingTopology, a.eyeFootprintTopology, a.eyeTopology]) === JSON.stringify([b.leftEyeColumns, b.rightEyeColumns, b.leftEyeRow, b.rightEyeRow, b.eyeSpacingTopology, b.eyeFootprintTopology, b.eyeTopology]);
+    const brow = JSON.stringify([a.leftBrowCells, a.rightBrowCells, a.browDistanceTopology, a.browSlopeTopology, a.browThickness]) === JSON.stringify([b.leftBrowCells, b.rightBrowCells, b.browDistanceTopology, b.browSlopeTopology, b.browThickness]);
     const mouth = JSON.stringify([a.mouthWidth, a.mouthRow, a.mouthTopology]) === JSON.stringify([b.mouthWidth, b.mouthRow, b.mouthTopology]);
     if (eye) identicalEyePairs++;
     if (brow) identicalBrowRelations++;

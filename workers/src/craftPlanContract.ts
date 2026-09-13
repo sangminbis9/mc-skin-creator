@@ -1,10 +1,11 @@
-import type { HairPlan, HeadIdentityPlan } from "./identityPlans";
+import type { FacePixelPlan, HairPlan, HeadIdentityPlan } from "./identityPlans";
 import type { OutfitAccessoryPlan, OutfitPlan } from "./outfitIdentity";
 import { applyOutfitPlan } from "./outfitRenderer";
 import type { RawImage } from "./png";
 import { ATLAS_SIZE, CLASSIC_LAYOUT, type BodyPart, type BoxUV, type Rect } from "./uvLayout";
 
 export interface AtlasCraftPlanContext {
+  facePixelPlan?: FacePixelPlan;
   hairPlan?: HairPlan;
   headIdentityPlan?: HeadIdentityPlan;
   outfitPlan?: OutfitPlan;

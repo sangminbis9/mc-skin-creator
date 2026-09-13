@@ -37,6 +37,12 @@ const mix = (a: FacialRgb, b: FacialRgb, amount: number): FacialRgb => [
 const shade = (color: FacialRgb, factor: number): FacialRgb => color.map((channel) => clamp(channel * factor)) as FacialRgb;
 const luminance = (color: FacialRgb) => color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
 
+function complexionRelativeShade(skin: FacialRgb, targetDistance: number): FacialRgb {
+  const channelSum = Math.max(1, skin[0] + skin[1] + skin[2]);
+  const factor = Math.max(0.58, Math.min(0.94, 1 - targetDistance / channelSum));
+  return shade(skin, factor);
+}
+
 export function facialColorDistance(first: FacialRgb, second: FacialRgb): number {
   return Math.abs(first[0] - second[0]) + Math.abs(first[1] - second[1]) + Math.abs(first[2] - second[2]);
 }
@@ -91,7 +97,9 @@ export function buildFacialContrastPlan(
   // Teeth are warm and complexion-linked, avoiding a fixed white sparkle.
   const teethBase = ensureContrast(mix(skin, [232, 222, 202], 0.58), skin, 46 + Math.round(salience(identity, "mouth_topology") * 12), false);
   const teethLight = ensureMinimumLuminance(teethBase, Math.max(115, luminance(lipMid) + 24, luminance(lipDark) + 24));
-  const noseShade = ensureContrast(mix(skin, [104, 67, 58], 0.22), skin, 30 + boost / 2, true);
+  // Nose contrast follows the complexion itself; no universal brown/black
+  // pigment is introduced for a source whose lighting direction is unknown.
+  const noseShade = complexionRelativeShade(skin, 30 + boost / 2);
   return {
     eyeDark,
     eyeMid,

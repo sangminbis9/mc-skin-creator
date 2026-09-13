@@ -7,7 +7,7 @@
  */
 
 import type { RawImage } from "./png";
-import type { FacePixelPlan, FacePaletteRole, HairPlan, HeadIdentityPlan, HairStructureRole } from "./identityPlans";
+import type { FacePixelInstruction, FacePixelPlan, FacePaletteRole, HairPlan, HeadIdentityPlan, HairStructureRole } from "./identityPlans";
 import { buildFacialContrastPlan, type FacialContrastPlan } from "./facialContrast";
 import type { OutfitPlan } from "./outfitIdentity";
 import { applyOutfitPlan } from "./outfitRenderer";
@@ -1774,9 +1774,13 @@ function faceRoleColor(
     case "glasses": return hexToRgb(style.glassesColor, shadeRgb(hairColor, 0.52));
     case "iris": return contrastPlan?.eyeDark ?? ensureComplexionContrast(shadeRgb(eye, contrastBoost ? 0.46 : style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5), contrastBoost ? 92 : 72);
     case "sclera": return contrastPlan?.eyeMid ?? mixRgb(skinColor, [236, 232, 218], 0.72);
-    case "nose_shadow": return contrastPlan?.noseShade ?? mixRgb(skinColor, [111, 63, 51], contrastBoost ? 0.42 : 0.24);
+    case "nose_bridge": return contrastPlan ? mixRgb(skinColor, contrastPlan.noseShade, 0.72) : shadeRgb(skinColor, 0.9);
+    case "nose_tip": return contrastPlan?.noseShade ?? shadeRgb(skinColor, 0.84);
+    case "nose_shadow": return contrastPlan ? shadeRgb(contrastPlan.noseShade, 0.94) : shadeRgb(skinColor, 0.78);
     case "lip": return contrastPlan?.lipMid ?? ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.76 : 1), contrastBoost ? 62 : 45);
-    case "teeth": return contrastPlan?.teethLight ?? [236, 229, 210];
+    // Keep the source-linked tooth cue compact in topology, but bright enough
+    // to remain distinct from the lower mouth shadow at preview scale.
+    case "teeth": return contrastPlan ? mixRgb(contrastPlan.teethLight, [238, 230, 212], 0.42) : [236, 229, 210];
     case "mouth_shadow": return contrastPlan?.lipDark ?? ensureComplexionContrast(shadeRgb(lipBase[style.lipColor ?? "natural"] ?? lipBase.natural, contrastBoost ? 0.46 : 0.6), contrastBoost ? 74 : 58);
   }
 }
@@ -1797,7 +1801,25 @@ function applyFacePixelPlan(
     irisLightness: style.irisLightness ?? "medium",
     contrastBoost,
   }, plan.salience);
-  const eyeCells = new Map<string, Array<{ x: number; y: number }>>();
+  // composeFace still provides the surrounding complexion, but its historical
+  // semantic nose pixels are not authoritative. Clear that bounded base/outer
+  // region before replaying the exact FacePixelPlan nose cells.
+  const plannedNonNose = new Set(plan.pixels
+    .filter((pixel) => pixel.cluster !== "complexion" && pixel.cluster !== "nose")
+    .map((pixel) => `${pixel.x},${pixel.y}`));
+  const plannedFrames = new Set(plan.glassesPlan.framePixels
+    .filter((point) => point.face === "front")
+    .map((point) => `${point.x},${point.y}`));
+  for (const x of [3, 4]) for (const y of [3, 4, 5]) {
+    const offset = ((face.y + y) * ATLAS_SIZE + face.x + x) * 4;
+    const restored = shadeRgb(skinColor, 0.96 + (x < 4 ? 0.015 : 0.035));
+    atlas.rgba.set([...restored, 255], offset);
+    if (!plannedNonNose.has(`${x},${y}`) && !plannedFrames.has(`${x},${y}`)) {
+      const overlayOffset = ((faceOverlay.y + y) * ATLAS_SIZE + faceOverlay.x + x) * 4;
+      atlas.rgba.fill(0, overlayOffset, overlayOffset + 4);
+    }
+  }
+  const eyeCells = new Map<string, FacePixelInstruction[]>();
   for (const cluster of ["left_eye", "right_eye"] as const) {
     eyeCells.set(cluster, plan.pixels.filter((pixel) => pixel.cluster === cluster && (pixel.role === "iris" || pixel.role === "sclera")));
   }
@@ -1851,7 +1873,8 @@ function applyFacePixelPlan(
       const cells = eyeCells.get(pixel.cluster) ?? [];
       if (cells.length > 1) {
         const outerX = pixel.cluster === "left_eye" ? Math.min(...cells.map((cell) => cell.x)) : Math.max(...cells.map((cell) => cell.x));
-        if (pixel.x === outerX && !cells.some((cell) => cell.x === pixel.x && cell.y !== pixel.y)) {
+        const hasExplicitSclera = cells.some((cell) => cell.role === "sclera");
+        if (!hasExplicitSclera && pixel.x === outerX && !cells.some((cell) => cell.x === pixel.x && cell.y !== pixel.y)) {
           planned = contrastPlan.eyeMid;
           usesEyeMid = true;
         }
@@ -1859,7 +1882,12 @@ function applyFacePixelPlan(
     } else if (pixel.role === "brow") {
       planned = plan.layout.browThickness === "strong" ? contrastPlan.browDark : contrastPlan.browMid;
     }
-    const color = pixel.role === "iris" || pixel.role === "sclera" ? localContrast(planned, pixel.x, pixel.y, usesEyeMid ? Math.max(70, contrastPlan.targets.eye - 25) : contrastPlan.targets.eye, true)
+    // The mid/sclera role is already derived from the complexion-aware eye
+    // ramp. Keep it bilateral; a per-cell neighborhood adjustment made the
+    // same near-symmetric pair white on one side and dark on the other when
+    // fringe or glasses changed only the surrounding context.
+    const color = pixel.role === "sclera" ? planned
+      : pixel.role === "iris" ? localContrast(planned, pixel.x, pixel.y, usesEyeMid ? Math.max(70, contrastPlan.targets.eye - 25) : contrastPlan.targets.eye, true)
       : ["lip", "mouth_shadow"].includes(pixel.role) ? localContrast(planned, pixel.x, pixel.y, 62, contrastBoost)
         : planned;
     atlas.rgba[offset] = color[0];
@@ -2200,10 +2228,11 @@ export function applyHeadIdentityPlan(
  * windows after hair composition; sunglasses intentionally remain opaque.
  * Bangs keep their surrounding pixels.
  */
-function preserveFaceReadability(
+export function preserveFaceReadability(
   atlas: RawImage,
   style: FaceStyle,
   hairColor: Rgb,
+  facePlan?: FacePixelPlan,
 ): void {
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
   const clearOverlayPixel = (x: number, y: number) => {
@@ -2231,8 +2260,17 @@ function preserveFaceReadability(
     return;
   }
 
-  const eyePairs =
-    style.eyeSpacing === "wide"
+  const plannedEyeCells = facePlan?.pixels.filter((pixel) =>
+    (pixel.cluster === "left_eye" || pixel.cluster === "right_eye") &&
+    (pixel.role === "iris" || pixel.role === "sclera"),
+  ) ?? [];
+  if (plannedEyeCells.length > 0) {
+    // FacePixelPlan is the authoritative topology. Opening legacy FaceStyle
+    // cells here left extra transparent columns/rows that visually widened a
+    // compact eye pair even though its base-layer landmarks were correct.
+    for (const pixel of plannedEyeCells) clearOverlayPixel(pixel.x, pixel.y);
+  } else {
+    const eyePairs = style.eyeSpacing === "wide"
       ? ([
           [0, 1],
           [7, 6],
@@ -2247,50 +2285,43 @@ function preserveFaceReadability(
             [6, 5],
           ] as const);
 
-  // Reveal both the sclera/corner and the iris. Clearing only the iris pixel
-  // left an opaque, near-black outer-layer corner beside it; at normal preview
-  // scale that merged with the fringe and made the face look eyeless. Tilt now
-  // keeps both anchors on row 4 and uses a neighboring base-layer accent, so
-  // open that optional accent position through a dense fringe as well.
-  const tiltAccentY =
-    style.eyeTilt === "upturned"
-      ? 3
-      : style.eyeTilt === "downturned"
-        ? 5
-        : null;
-  const eyeLengthCurtainFringe =
-    style.bangs === "curtain" && style.bangsLength === "eye";
-  const wideEyeSideHairOverlap =
-    style.eyeSpacing === "wide" &&
-    !["none", "bald", "buzz"].includes(style.hairstyle ?? "none") &&
-    ["cheek", "jaw", "shoulder"].includes(style.sideHairLength ?? "none");
-  const curtainOuterCorners = new Set<number>();
-  if (eyeLengthCurtainFringe) {
-    // Keep the iris openings readable, but let the photographed curtain
-    // fringe overlap an outer eye corner. Clearing all four eye-row pixels
-    // made eye-length bangs indistinguishable from brow-length bangs in 3D.
-    // A side part keeps only its heavier side; a centred/unspecified curtain
-    // naturally frames both outer corners.
-    if (style.hairPart === "left") {
-      curtainOuterCorners.add(eyePairs[1][0]);
-    } else if (style.hairPart === "right") {
-      curtainOuterCorners.add(eyePairs[0][0]);
-    } else {
-      curtainOuterCorners.add(eyePairs[0][0]);
-      curtainOuterCorners.add(eyePairs[1][0]);
+    // Reveal both the sclera/corner and the iris for callers without an exact
+    // face plan. This is the backward-compatible legacy grammar only.
+    const tiltAccentY =
+      style.eyeTilt === "upturned"
+        ? 3
+        : style.eyeTilt === "downturned"
+          ? 5
+          : null;
+    const eyeLengthCurtainFringe =
+      style.bangs === "curtain" && style.bangsLength === "eye";
+    const wideEyeSideHairOverlap =
+      style.eyeSpacing === "wide" &&
+      !["none", "bald", "buzz"].includes(style.hairstyle ?? "none") &&
+      ["cheek", "jaw", "shoulder"].includes(style.sideHairLength ?? "none");
+    const curtainOuterCorners = new Set<number>();
+    if (eyeLengthCurtainFringe) {
+      if (style.hairPart === "left") {
+        curtainOuterCorners.add(eyePairs[1][0]);
+      } else if (style.hairPart === "right") {
+        curtainOuterCorners.add(eyePairs[0][0]);
+      } else {
+        curtainOuterCorners.add(eyePairs[0][0]);
+        curtainOuterCorners.add(eyePairs[1][0]);
+      }
     }
-  }
-  for (const [outer, inner] of eyePairs) {
-    clearOverlayPixel(inner, 4);
-    if (!curtainOuterCorners.has(outer) && !wideEyeSideHairOverlap) {
-      clearOverlayPixel(outer, 4);
-    }
-    if (tiltAccentY !== null) {
-      clearOverlayPixel(outer, tiltAccentY);
-    }
-    if (style.eyeSize === "large") {
-      clearOverlayPixel(outer, 5);
-      clearOverlayPixel(inner, 5);
+    for (const [outer, inner] of eyePairs) {
+      clearOverlayPixel(inner, 4);
+      if (!curtainOuterCorners.has(outer) && !wideEyeSideHairOverlap) {
+        clearOverlayPixel(outer, 4);
+      }
+      if (tiltAccentY !== null) {
+        clearOverlayPixel(outer, tiltAccentY);
+      }
+      if (style.eyeSize === "large") {
+        clearOverlayPixel(outer, 5);
+        clearOverlayPixel(inner, 5);
+      }
     }
   }
 
@@ -9550,7 +9581,7 @@ export function packFrontViewToAtlas(
   if (faceStyle.glasses !== "none" && faceStyle.bangs === "none") {
     composeGlassesOverlay(atlas, faceStyle);
   }
-  if (!preservedGeneratedFace) preserveFaceReadability(atlas, faceStyle, hairColor);
+  if (!preservedGeneratedFace) preserveFaceReadability(atlas, faceStyle, hairColor, options.facePixelPlan);
   composeHat(atlas, hatColor, faceStyle);
   // Large statement frames are a primary identity cue. Reassert them after
   // hair and headwear so long fringe, locs, or a close-fitting scarf cannot
@@ -9574,7 +9605,7 @@ export function packFrontViewToAtlas(
   // passes must never leave a base-layer iris hidden—especially for wide-set
   // eyes whose anchors sit close to the head overlay's vertical seams.
   if (!preservedGeneratedFace && faceStyle.glasses === "none") {
-    preserveFaceReadability(atlas, faceStyle, hairColor);
+    preserveFaceReadability(atlas, faceStyle, hairColor, options.facePixelPlan);
   }
   // resetPortraitFaceOverlay and the generic hair/glasses passes run after
   // the initial face plan. Reassert the measured landmarks last so normalized
@@ -9583,6 +9614,12 @@ export function packFrontViewToAtlas(
     options.headTrace?.("before_authoritative_head", atlas);
     if (options.headIdentityPlan?.ownership) applyHeadIdentityPlan(atlas, options.headIdentityPlan, options.hairPlan, hairColor, skinColor, faceStyle);
     else applyFacePixelPlan(atlas, options.facePixelPlan, hairColor, skinColor, faceStyle);
+    // The authoritative ownership replay may repaint the outer layer after
+    // the earlier opening pass. Re-open only the exact planned cells once the
+    // final head has settled so dense fringe cannot hide one eye again.
+    if (faceStyle.glasses === "none") {
+      preserveFaceReadability(atlas, faceStyle, hairColor, options.facePixelPlan);
+    }
     options.headTrace?.("after_authoritative_head", atlas);
   }
   if (preservedFacePixels) {

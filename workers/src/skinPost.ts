@@ -900,12 +900,32 @@ export function validateAtlasCraft(
   if (validateIdentity) {
     const face = CLASSIC_LAYOUT.head.base.front;
     const faceOverlay = CLASSIC_LAYOUT.head.overlay.front;
-    const defaultEyeRow = facePixelPlan?.layout.eyeRow ?? 4;
-    const tiltOffset = facePixelPlan?.layout.eyeTiltOffset ?? (style.eyeTilt === "upturned" ? -1 : style.eyeTilt === "downturned" ? 1 : 0);
-    const eyePairs: ReadonlyArray<{ outer: number; inner: number; row: number; outerRow: number }> = facePixelPlan
+    // The plan context always carries the final deterministic eye topology.
+    // Use it for eye visibility without enabling unrelated strict face
+    // contracts that callers intentionally opt into via `facePixelPlan`.
+    const eyeTopologyPlan = facePixelPlan ?? planContext?.facePixelPlan;
+    const defaultEyeRow = eyeTopologyPlan?.layout.eyeRow ?? 4;
+    const tiltOffset = eyeTopologyPlan?.layout.eyeTiltOffset ?? (style.eyeTilt === "upturned" ? -1 : style.eyeTilt === "downturned" ? 1 : 0);
+    const plannedEyePair = (cluster: "left_eye" | "right_eye", fallbackOuter: number, fallbackInner: number, fallbackRow: number) => {
+      const cells = eyeTopologyPlan?.pixels.filter((pixel) =>
+        pixel.cluster === cluster && (pixel.role === "iris" || pixel.role === "sclera"),
+      ) ?? [];
+      const iris = cells
+        .filter((pixel) => pixel.role === "iris")
+        // Open eyes use the lower iris cell as their readability anchor; it
+        // sits against stable cheek skin while the upper cell may border a
+        // brow or fringe and intentionally retain softer local contrast.
+        .sort((first, second) => second.y - first.y || first.x - second.x)[0];
+      if (!iris) return { outer: fallbackOuter, inner: fallbackInner, row: fallbackRow, outerRow: fallbackRow + tiltOffset };
+      const support = cells
+        .filter((pixel) => pixel.x !== iris.x)
+        .sort((first, second) => first.y - second.y || Math.abs(second.x - iris.x) - Math.abs(first.x - iris.x))[0] ?? iris;
+      return { outer: support.x, inner: iris.x, row: iris.y, outerRow: support.y };
+    };
+    const eyePairs: ReadonlyArray<{ outer: number; inner: number; row: number; outerRow: number }> = eyeTopologyPlan
       ? [
-          { outer: facePixelPlan.layout.leftEyeXs[0], inner: facePixelPlan.layout.leftEyeXs.at(-1)!, row: facePixelPlan.layout.leftEyeRow, outerRow: facePixelPlan.layout.leftEyeRow + tiltOffset },
-          { outer: facePixelPlan.layout.rightEyeXs.at(-1)!, inner: facePixelPlan.layout.rightEyeXs[0], row: facePixelPlan.layout.rightEyeRow, outerRow: facePixelPlan.layout.rightEyeRow + tiltOffset },
+          plannedEyePair("left_eye", eyeTopologyPlan.layout.leftEyeXs[0], eyeTopologyPlan.layout.leftEyeXs.at(-1)!, eyeTopologyPlan.layout.leftEyeRow),
+          plannedEyePair("right_eye", eyeTopologyPlan.layout.rightEyeXs.at(-1)!, eyeTopologyPlan.layout.rightEyeXs[0], eyeTopologyPlan.layout.rightEyeRow),
         ]
       : style.eyeSpacing === "wide"
         ? ([
@@ -932,15 +952,23 @@ export function validateAtlasCraft(
       excluded.add(`${outer},${outerRow}`);
       excluded.add(`${inner},${row}`);
     }
-    const mouthRow = facePixelPlan?.layout.mouthRow ?? 6;
-    const mouthWidth = facePixelPlan?.layout.mouthWidth ?? (style.mouthShape === "wide" ? 4 : 2);
-    const mouthStart = facePixelPlan
-      ? Math.max(0, Math.min(8 - mouthWidth, Math.round(facePixelPlan.layout.mouthCenterX - (mouthWidth - 1) / 2)))
+    // Production passes the integrated SkinPlan as planContext. Use the same
+    // authoritative FacePixelPlan selected above for eyes; otherwise smile
+    // corners and asymmetric/offset mouths are checked at legacy coordinates.
+    const mouthTopologyPlan = facePixelPlan ?? planContext?.facePixelPlan;
+    const noseTopologyPlan = mouthTopologyPlan;
+    const mouthRow = mouthTopologyPlan?.layout.mouthRow ?? 6;
+    const mouthWidth = mouthTopologyPlan?.layout.mouthWidth ?? (style.mouthShape === "wide" ? 4 : 2);
+    const mouthStart = mouthTopologyPlan
+      ? Math.max(0, Math.min(8 - mouthWidth, Math.round(mouthTopologyPlan.layout.mouthCenterX - (mouthWidth - 1) / 2)))
       : Math.floor((8 - mouthWidth) / 2);
-    const mouthCoordinates = facePixelPlan
-      ? facePixelPlan.pixels.filter((pixel) => pixel.cluster === "mouth").map((pixel) => ({ x: pixel.x, y: pixel.y }))
+    const mouthCoordinates = mouthTopologyPlan
+      ? mouthTopologyPlan.pixels.filter((pixel) => pixel.cluster === "mouth").map((pixel) => ({ x: pixel.x, y: pixel.y }))
       : Array.from({ length: mouthWidth }, (_, index) => ({ x: mouthStart + index, y: mouthRow }));
     for (const point of mouthCoordinates) excluded.add(`${point.x},${point.y}`);
+    for (const point of noseTopologyPlan?.pixels.filter((pixel) => pixel.cluster === "nose") ?? []) {
+      excluded.add(`${point.x},${point.y}`);
+    }
     for (let y = 3; y <= 7; y++) {
       for (let x = 0; x < face.w; x++) {
         if (excluded.has(`${x},${y}`)) continue;
@@ -974,10 +1002,10 @@ export function validateAtlasCraft(
       [4, 4],
       [3, 5],
       [4, 5],
-      [1, 6],
-      [6, 6],
-      [1, 7],
-      [6, 7],
+      [3, 6],
+      [4, 6],
+      [3, 7],
+      [4, 7],
     ] as const).filter(([x, y]) => !excluded.has(`${x},${y}`));
     const medianChannel = (channel: number) => {
       const values = skinAnchors
@@ -1030,8 +1058,23 @@ export function validateAtlasCraft(
         `face has only ${readableEyes} readable eye(s) (${eyeDiagnostics.join(", ")})`,
       );
 
+    const mouthDistanceFromSurface = (x: number, y: number) => {
+      if (!mouthTopologyPlan) return distanceFromSkin(x, y);
+      const neighbours = ([-1, 0, 1] as const).flatMap((dx) => ([-1, 0, 1] as const)
+        .filter((dy) => Math.abs(dx) + Math.abs(dy) === 1)
+        .map((dy) => ({ x: x + dx, y: y + dy })))
+        .filter((point) => point.x >= 0 && point.x < face.w && point.y >= 3 && point.y < face.h && !excluded.has(`${point.x},${point.y}`));
+      if (neighbours.length === 0) return distanceFromSkin(x, y);
+      const localSurface: [number, number, number] = [0, 1, 2].map((channel) =>
+        neighbours.reduce((sum, point) => sum + atlas.rgba[offsetAt(face, point.x, point.y) + channel], 0) / neighbours.length,
+      ) as [number, number, number];
+      const offset = offsetAt(face, x, y);
+      return Math.abs(atlas.rgba[offset] - localSurface[0]) +
+        Math.abs(atlas.rgba[offset + 1] - localSurface[1]) +
+        Math.abs(atlas.rgba[offset + 2] - localSurface[2]);
+    };
     const mouthPixels = mouthCoordinates.filter(
-      ({ x, y }) => distanceFromSkin(x, y) >= 30,
+      ({ x, y }) => mouthDistanceFromSurface(x, y) >= 30,
     ).length;
     if (mouthPixels < Math.min(2, mouthCoordinates.length))
       problems.push(`mouth landmark is not readable (${mouthPixels} pixels)`);

@@ -57,6 +57,8 @@ export type FacePaletteRole =
   | "glasses"
   | "iris"
   | "sclera"
+  | "nose_bridge"
+  | "nose_tip"
   | "nose_shadow"
   | "lip"
   | "teeth"
@@ -484,41 +486,111 @@ function facePixelPlan(
     const ordered = index === 0 ? [...xs] : [...xs].reverse();
     const extension = index === 0 ? Math.max(...ordered) + 1 : Math.min(...ordered) - 1;
     const eyeXs = width === 1 ? [ordered[0]] : width === 3 && ordered.length < 3 ? [...ordered, extension] : ordered;
+    // Spacing controls where the iris sits inside the eye body; footprint
+    // controls only the body's width. This bounded three-family grammar lets
+    // wide-set eyes read outward without shrinking them and narrow-set eyes
+    // read inward without inflating them.
+    const irisPosition = layout.eyeSpacingTopology === "wide"
+      ? 0
+      : layout.eyeSpacingTopology === "medium" && eyeXs.length >= 3
+        ? Math.floor(eyeXs.length / 2)
+        : eyeXs.length - 1;
     eyeXs.forEach((x, position) => {
       const tiltOffset = position === 0 ? layout.eyeTiltOffset : 0;
       const openTopology = layout.eyeTopology === "open_iris_sclera" || (layout.eyeTopology === "asymmetric" && index === asymmetricOpenSide);
       const smilingSquint = layout.eyeTopology === "smiling_squint";
-      pushPixel(pixels, x, row + tiltOffset, openTopology && position === 0 ? "sclera" : "iris", cluster);
-      if (openTopology && position === eyeXs.length - 1) pushPixel(pixels, x, Math.min(7, row + 1), "iris", cluster);
+      const separatesIris = eyeXs.length > 1 && !smilingSquint;
+      pushPixel(pixels, x, row + tiltOffset, separatesIris && position !== irisPosition ? "sclera" : "iris", cluster);
+      if (openTopology && position === irisPosition) pushPixel(pixels, x, Math.min(7, row + 1), "iris", cluster);
       if (smilingSquint && position === 0 && eyeXs.length > 1) pushPixel(pixels, x, Math.max(3, row - 1), "iris", cluster);
-      const browTilt = position === 0 ? layout.browTiltOffset : 0;
-      const browY = Math.max(1, Math.min(row - 1, browRow + browTilt));
-      pushPixel(pixels, x, browY, "brow", cluster);
-      if (layout.browThickness === "strong" && position === 0) pushPixel(pixels, x, Math.max(1, browY - 1), "brow", cluster);
     });
-    // One-cell eyes otherwise collapse a confident brow tilt to a single
-    // dot. Spend one adjacent cell to retain the measured slope while keeping
-    // both cells above the eye row.
-    if (width === 1 && layout.browTiltOffset !== 0 && layout.salience.pixelBudget.brows >= 2) {
-      const innerX = ordered[0] + (index === 0 ? 1 : -1);
-      const innerY = layout.browTiltOffset > 0
-        ? Math.max(1, browRow - 1)
-        : Math.min(row - 1, browRow);
-      pushPixel(pixels, innerX, innerY, "brow", cluster);
+
+    // Distance owns the anchor row; slope only transforms the stroke around
+    // that anchor. Compact eyes receive one outward support cell so straight,
+    // arched and angled remain readable instead of collapsing to the same dot.
+    const categoricalBrowTopology = layout.measurementTrace?.browEyeDistance.selected === "categorical_grammar"
+      || layout.measurementTrace?.browSlope.selected === "categorical_grammar";
+    const sourceBrowTopology = layout.geometryUsage.brows || categoricalBrowTopology;
+    if (!sourceBrowTopology) {
+      // Preserve the established semantic fallback byte-for-byte. The new
+      // grammar is evidence-gated so generic arched hints cannot move a brow
+      // into a hair accessory or fringe ownership cell.
+      eyeXs.forEach((x, position) => {
+        const browTilt = position === 0 ? layout.browTiltOffset : 0;
+        const browY = Math.max(1, Math.min(row - 1, browRow + browTilt));
+        pushPixel(pixels, x, browY, "brow", cluster);
+        if (layout.browThickness === "strong" && position === 0) pushPixel(pixels, x, Math.max(1, browY - 1), "brow", cluster);
+      });
+      if (width === 1 && layout.browTiltOffset !== 0 && layout.salience.pixelBudget.brows >= 2) {
+        const innerX = ordered[0] + (index === 0 ? 1 : -1);
+        const innerY = layout.browTiltOffset > 0
+          ? Math.max(1, browRow - 1)
+          : Math.min(row - 1, browRow);
+        pushPixel(pixels, innerX, innerY, "brow", cluster);
+      }
+      return;
     }
+    const compactBrowNeedsStroke = eyeXs.length === 1
+      && layout.salience.pixelBudget.brows >= 2;
+    const browXs = compactBrowNeedsStroke
+      ? layout.browSlopeTopology === "straight"
+        ? [eyeXs[0] + (index === 0 ? -1 : 1), eyeXs[0]]
+        : [eyeXs[0], eyeXs[0] + (index === 0 ? 1 : -1)]
+      : eyeXs;
+    const anchorY = Math.max(1, Math.min(row - 1, browRow));
+    browXs.forEach((x, position) => {
+      const isOuter = position === 0;
+      const isInner = position === browXs.length - 1;
+      const isCenter = browXs.length >= 3 && position === Math.floor((browXs.length - 1) / 2);
+      const elevated = layout.browSlopeTopology === "arched"
+        ? (browXs.length === 2 ? isInner : isCenter)
+        : layout.browSlopeTopology === "angled" && isOuter;
+      const browY = elevated ? Math.max(1, anchorY - 1) : anchorY;
+      pushPixel(pixels, x, browY, "brow", cluster);
+      if (layout.browThickness === "strong" && isOuter) pushPixel(pixels, x, Math.max(1, browY - 1), "brow", cluster);
+    });
   });
   // glassesMask is declarative layout evidence. The renderer applies it on
   // the outer layer so frames do not overwrite the base-layer irises.
-  if (layout.salience.pixelBudget.nose > 0 && layout.noseStrength >= 0.35) pushPixel(pixels, layout.noseX, layout.noseY, "nose_shadow", "nose");
+  if (layout.salience.pixelBudget.nose > 0 && layout.noseStrength >= 0.35) {
+    const putNose = (x: number, y: number, role: "nose_bridge" | "nose_tip" | "nose_shadow") => {
+      const owner = pixels.find((pixel) => pixel.x === x && pixel.y === y);
+      if (owner && owner.cluster !== "complexion") return;
+      pushPixel(pixels, x, y, role, "nose");
+    };
+    const shape = layout.noseShapeTopology;
+    if (shape === "small" || layout.salience.pixelBudget.nose === 1) {
+      putNose(layout.noseX, layout.noseY, "nose_tip");
+    } else if (shape === "rounded") {
+      // A centred two-cell tip is a footprint cue, not a lighting direction.
+      const partnerX = layout.noseX < 4 ? layout.noseX + 1 : layout.noseX - 1;
+      putNose(Math.min(layout.noseX, partnerX), layout.noseY, "nose_tip");
+      putNose(Math.max(layout.noseX, partnerX), layout.noseY, "nose_tip");
+    } else {
+      // Straight/prominent noses receive one restrained bridge cell and one
+      // tip/shadow cell. Two pixels are enough to avoid a villager-like T/L.
+      putNose(layout.noseX, Math.max(3, layout.noseY - 1), "nose_bridge");
+      putNose(layout.noseX, layout.noseY, shape === "prominent" ? "nose_shadow" : "nose_tip");
+    }
+  }
   const mouthStart = Math.max(0, Math.min(8 - layout.mouthWidth, Math.round(layout.mouthCenterX - (layout.mouthWidth - 1) / 2)));
   const mouthEnd = mouthStart + layout.mouthWidth - 1;
   const mouthY = (offset = 0) => Math.max(4, Math.min(7, layout.mouthRow + offset));
-  const semanticCornerLift = layout.mouthTopology === "wide_teeth_smile" && layout.renderContract.mouth?.cornerDirection === "upward_or_level" ? -1 : 0;
-  const leftCornerY = mouthY(Math.min(layout.mouthCornerOffsets[0], semanticCornerLift));
-  const rightCornerY = mouthY(Math.min(layout.mouthCornerOffsets[1], semanticCornerLift));
+  // Corner topology is already source-resolved in the plan. A hidden legacy
+  // lift here made only wide toothy mouths smile while closed and compact
+  // smiles flattened back to a horizontal bar.
+  const leftCornerY = mouthY(layout.mouthCornerOffsets[0]);
+  const rightCornerY = mouthY(layout.mouthCornerOffsets[1]);
   const putMouth = (x: number, y: number, role: FacePaletteRole) => pushPixel(pixels, x, y, role, "mouth");
   if (layout.mouthOpening === "closed" || layout.mouthTopology === "closed_compact" || layout.mouthTopology === "closed_wide") {
     for (let x = mouthStart; x <= mouthEnd; x++) putMouth(x, x === mouthStart ? leftCornerY : x === mouthEnd ? rightCornerY : mouthY(), "lip");
+    // Fullness changes the lip body, not its horizontal footprint. Keep the
+    // extra emphasis central and below the fixed anchor so it cannot invent a
+    // new mouth Y or widen a compact source mouth.
+    if (analysis.renderHints.lipFullness === "full" && layout.mouthRow < 7) {
+      const center = Math.max(mouthStart, Math.min(mouthEnd, Math.round(layout.mouthCenterX)));
+      putMouth(center, mouthY(1), "lip");
+    }
   } else {
     putMouth(mouthStart, leftCornerY, "lip");
     putMouth(mouthEnd, rightCornerY, "lip");

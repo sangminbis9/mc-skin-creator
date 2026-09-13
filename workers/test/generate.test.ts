@@ -4029,7 +4029,7 @@ describe("generateSkin", () => {
     }
   });
 
-  it("applies a rejected facial-likeness critique as stronger final face pixels", async () => {
+  it("applies a rejected facial-likeness critique to measured final face pixels without inventing a nose", async () => {
     const base = makeAnalysis();
     const analysis = makeAnalysis({
       observed: {
@@ -4112,7 +4112,10 @@ describe("generateSkin", () => {
         atlas.rgba[((face.y + y) * ATLAS_SIZE + face.x + x) * 4];
 
       expect(red(corrected, 2, 4)).toBeLessThan(red(baseline, 2, 4));
-      expect(red(corrected, 3, 5)).toBeLessThan(red(baseline, 3, 5));
+      // A semantic nose shape selects topology only. Without measured nose
+      // coordinates, critique contrast must not resurrect the old generic
+      // nose cell at (3,5).
+      expect(red(corrected, 3, 5)).toBeGreaterThan(red(baseline, 3, 5));
       expect(red(corrected, 3, 6)).toBeLessThan(red(baseline, 3, 6));
       expect(env.MCSKIN_KV.put).toHaveBeenCalledWith(
         "diagnostic:last-procedural-critique-rejection",

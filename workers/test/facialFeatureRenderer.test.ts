@@ -114,7 +114,11 @@ describe("facial feature renderer readability", () => {
     const light = createFacePlanAtlasCandidate(solidAtlas(SKINS[0].rgb), plan, style(SKINS[0].hex, { mouthOpening: "teeth_visible" }));
     const dark = createFacePlanAtlasCandidate(solidAtlas(SKINS[2].rgb), plan, style(SKINS[2].hex, { mouthOpening: "teeth_visible" }));
     const tooth = plan.pixels.find((pixel) => pixel.role === "teeth")!;
+    const shadow = plan.pixels.find((pixel) => pixel.role === "mouth_shadow")!;
     expect(rgbAtPlan(light, tooth)).not.toEqual(rgbAtPlan(dark, tooth));
+    const luminance = (color: FacialRgb) => color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+    expect(luminance(rgbAtPlan(light, tooth))).toBeGreaterThan(luminance(rgbAtPlan(light, shadow)) + 80);
+    expect(luminance(rgbAtPlan(dark, tooth))).toBeGreaterThan(luminance(rgbAtPlan(dark, shadow)) + 80);
     const reading = measureFacialFeatureReadability(dark, plan);
     expect(reading.mouth.topologyReadable).toBe(true);
     expect(reading.mouth.widthReadable).toBe(true);
@@ -129,6 +133,55 @@ describe("facial feature renderer readability", () => {
     expect(plan.salience.pixelBudget.nose).toBe(0);
     expect(plan.pixels.some((pixel) => pixel.cluster === "nose")).toBe(false);
     expect(measureFacialFeatureReadability(createFacePlanAtlasCandidate(solidAtlas(SKINS[1].rgb), plan, style(SKINS[1].hex)), plan).nose.optional).toBe(true);
+  });
+
+  it("derives restrained nose contrast from each complexion instead of one fixed pigment", () => {
+    const source = makeIdentityGeometry();
+    const base = makeAnalysis();
+    const plan = buildIdentityPixelPlans(makeAnalysis({
+      ...base,
+      renderHints: { ...base.renderHints, noseShape: "straight" },
+      identityGeometry: makeIdentityGeometry({
+        glasses: null,
+        nose: { centerX: 0.51, contrastY: 0.58, leftRightBias: 0, visibleStrength: 0.82 },
+        confidence: { ...source.confidence, nose: 0.94 },
+      }),
+    })).facePixelPlan;
+    const nosePixels = plan.pixels.filter((pixel) => pixel.cluster === "nose");
+    expect(nosePixels).toHaveLength(2);
+    const colors = SKINS.map(({ rgb, hex }) => nosePixels.map((pixel) => rgbAtPlan(
+      createFacePlanAtlasCandidate(solidAtlas(rgb), plan, style(hex)),
+      pixel,
+    )));
+    expect(new Set(colors.map((ramp) => ramp.map((color) => color.join(",")).join("|"))).size).toBe(SKINS.length);
+    for (let index = 0; index < SKINS.length; index++) {
+      for (const color of colors[index]) {
+        expect(facialColorDistance(color, SKINS[index].rgb)).toBeGreaterThanOrEqual(20);
+        expect(facialColorDistance(color, SKINS[index].rgb)).toBeLessThanOrEqual(90);
+      }
+    }
+  });
+
+  it("clears the previous nose topology before drawing a smaller source-backed plan", () => {
+    const source = makeIdentityGeometry();
+    const base = makeAnalysis();
+    const plan = (noseShape: "small" | "straight") => buildIdentityPixelPlans(makeAnalysis({
+      ...base,
+      renderHints: { ...base.renderHints, noseShape },
+      identityGeometry: makeIdentityGeometry({
+        glasses: null,
+        nose: { centerX: 0.51, contrastY: 0.58, leftRightBias: 0, visibleStrength: 0.82 },
+        confidence: { ...source.confidence, nose: 0.94 },
+      }),
+    })).facePixelPlan;
+    const previous = plan("straight");
+    const next = plan("small");
+    const initiallyRendered = createFacePlanAtlasCandidate(solidAtlas(SKINS[1].rgb), previous, style(SKINS[1].hex));
+    const rendered = createFacePlanAtlasCandidate(initiallyRendered, next, style(SKINS[1].hex), previous);
+    const removed = previous.pixels.find((pixel) => pixel.cluster === "nose" && !next.pixels.some((candidate) => candidate.cluster === "nose" && candidate.x === pixel.x && candidate.y === pixel.y));
+    expect(removed).toBeDefined();
+    expect(facialColorDistance(rgbAtPlan(rendered, removed!), SKINS[1].rgb)).toBeLessThan(20);
+    expect(next.pixels.filter((pixel) => pixel.cluster === "nose")).toHaveLength(1);
   });
 
   it("builds deterministic role-relative contrast instead of a global threshold", () => {

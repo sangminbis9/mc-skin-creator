@@ -28,7 +28,7 @@ export interface FaceIdentitySaliencePlan {
     brows: number;
     mouth: number;
     faceBoundary: number;
-    nose: 0 | 1;
+    nose: 0 | 1 | 2;
   };
 }
 
@@ -128,7 +128,9 @@ export function buildFaceIdentitySaliencePlan(analysis: PhotoAnalysis): FaceIden
             Math.abs(geometry.faceShape.cheekWidth - geometry.faceShape.jawWidth) * 10,
           ))))
         : 0,
-      nose: geometry && geometry.confidence.nose >= 0.72 && geometry.nose.visibleStrength >= 0.62 ? 1 : 0,
+      nose: geometry && geometry.confidence.nose >= 0.72 && geometry.nose.visibleStrength >= 0.62
+        ? analysis.renderHints.noseShape === "small" ? 1 : 2
+        : 0,
     },
   };
 }
