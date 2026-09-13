@@ -17,6 +17,8 @@
     // Free-compatible native vision fallback. Gemma uses a named provider DTO,
     // then the same strict Compact runtime validation as Gemini output.
     "WORKERS_VISION_MODEL": "@cf/google/gemma-4-26b-a4b-it",
+    // Optional face-only geometry pass; failures preserve the primary deterministic atlas.
+    "FACE_GEOMETRY_ENRICHMENT_ENABLED": "true",
     "GEMINI_STRUCTURED_TIMEOUT_MS": "45000",
     "GEMINI_IMAGE_TIMEOUT_MS": "120000",
     "GEMINI_IMAGE_MODEL": "gemini-3.1-flash-image",
