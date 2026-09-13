@@ -50,6 +50,8 @@ export type FacePaletteRole =
   | "skin_light"
   | "skin_mid"
   | "skin_shadow"
+  | "cheek_contour"
+  | "jaw_contour"
   | "hair_light"
   | "hair_mid"
   | "hair_shadow"
@@ -460,16 +462,23 @@ function facePixelPlan(
     if (owner && owner.cluster !== "fringe" && owner.cluster !== "complexion") return;
     pushPixel(pixels, x, y, role, "fringe");
   };
-  if (layout.geometryUsage.faceShape && layout.salience.pixelBudget.faceBoundary > 0) {
-    const shadeBoundary = (row: number, width: number) => {
-      const inset = Math.max(0, Math.min(2, Math.floor((8 - width) / 2)));
-      if (inset === 0) return;
+  const useCalibratedFaceContour = layout.geometryUsage.faceShape
+    && layout.salience.pixelBudget.faceBoundary > 0
+    && analysis.fallbackFeatures.facialHair === "none";
+  if (useCalibratedFaceContour) {
+    const contourPair = (row: number, inset: 1 | 2, role: "cheek_contour" | "jaw_contour") => {
       const shifted = layout.faceShape.asymmetryOffset;
-      pushPixel(pixels, Math.max(0, inset - 1 + shifted), row, "skin_shadow", "complexion");
-      pushPixel(pixels, Math.min(7, 8 - inset + shifted), row, "skin_shadow", "complexion");
+      const inner = (x: number) => Math.max(1, Math.min(6, x));
+      pushPixel(pixels, inner(inset + shifted), row, role, "complexion");
+      pushPixel(pixels, inner(7 - inset + shifted), row, role, "complexion");
     };
-    shadeBoundary(5, layout.faceShape.cheekWidth);
-    shadeBoundary(6, layout.faceShape.jawWidth);
+    // A broad cheek/jaw needs no drawn outline. Narrow cheeks receive a soft
+    // mid-face pair, while the independently quantized jaw chooses either a
+    // one-step lower contour or a two-step chin taper. All cells stay inside
+    // the physical front face; landmarks pushed later retain ownership.
+    if (layout.faceShape.cheekWidth <= 5) contourPair(5, 1, "cheek_contour");
+    if (layout.faceShape.jawWidth <= 4) contourPair(7, 2, "jaw_contour");
+    else if (layout.faceShape.jawWidth <= 5) contourPair(6, 1, "jaw_contour");
   }
 
   const eyePairs = [
@@ -606,6 +615,28 @@ function facePixelPlan(
           : Math.min(mouthEnd - 1, center + 1);
         putMouth(secondBoundary, mouthY(1), "mouth_shadow");
       }
+    }
+  }
+
+  if (useCalibratedFaceContour) {
+    const preserveBilateralContour = (role: "cheek_contour" | "jaw_contour") => {
+      const matches = pixels.filter((pixel) => pixel.cluster === "complexion" && pixel.role === role);
+      if (matches.length !== 1) return;
+      const index = pixels.indexOf(matches[0]);
+      pixels.splice(index, 1);
+    };
+    preserveBilateralContour("cheek_contour");
+    const jawCells = pixels.filter((pixel) => pixel.cluster === "complexion" && pixel.role === "jaw_contour");
+    if (layout.faceShape.jawWidth === 5 && jawCells.length < 2) {
+      for (const cell of jawCells) pixels.splice(pixels.indexOf(cell), 1);
+      const fallback = [{ x: 2, y: 7 }, { x: 5, y: 7 }];
+      // A landmark collision must not leave an arbitrary one-sided jaw mark.
+      // The lower inset pair is the smallest symmetric, feature-free fallback.
+      if (fallback.every((point) => !pixels.some((pixel) => pixel.x === point.x && pixel.y === point.y))) {
+        for (const point of fallback) pushPixel(pixels, point.x, point.y, "jaw_contour", "complexion");
+      }
+    } else {
+      preserveBilateralContour("jaw_contour");
     }
   }
 

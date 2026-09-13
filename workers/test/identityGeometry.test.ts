@@ -62,6 +62,7 @@ describe("IdentityGeometryAnalysis parsing", () => {
     expect(parsed!.faceWindow.leftEvidence).toBe("inferred");
     expect(parsed!.diagnostics.provenance["crown.left"]).toBe("observed_geometry");
     expect(parsed!.diagnostics.provenance["faceWindow.left"]).toBe("derived_geometry");
+    expect(parsed!.diagnostics.provenance.faceShape).toBe("derived_geometry");
     expect(parsed!.visibility.sourceClippingKnown).toBe(false);
   });
 
@@ -398,7 +399,7 @@ describe("normalized identity geometry quantization", () => {
     expect(plans.hairPlan.headMask.faces.front.some((point) => point.y === plans.facePixelPlan.layout.crownGeometry.centerRow)).toBe(true);
     expect(plans.hairPlan.structure.groups.filter((group) => group.kind === "curl_lobe").map((group) => group.id)).toEqual(expect.arrayContaining(["curl-lobe-crown-right", "curl-lobe-lower-left"]));
     expect(plans.facePixelPlan.layout.exposedFaceWidth).toBe(plans.facePixelPlan.layout.faceWindow.visibleWidthAtEyes);
-    expect(plans.facePixelPlan.pixels.some((pixel) => pixel.role === "skin_shadow" && pixel.cluster === "complexion")).toBe(true);
+    expect(plans.facePixelPlan.pixels.some((pixel) => pixel.role === "jaw_contour" && pixel.cluster === "complexion")).toBe(true);
   });
 
   it("falls back independently for a weak geometry group while retaining other observed groups", () => {

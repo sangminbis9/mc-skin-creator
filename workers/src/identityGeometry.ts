@@ -1177,6 +1177,7 @@ export function validateIdentityGeometry(
     "crown.right": evidenceProvenance(next.crown.rightEvidence, derived.has("crown")),
     "faceWindow.left": evidenceProvenance(next.faceWindow.leftEvidence, derived.has("faceWindow")),
     "faceWindow.right": evidenceProvenance(next.faceWindow.rightEvidence, derived.has("faceWindow")),
+    faceShape: evidenceProvenance(next.faceShape.evidence, derived.has("faceShape")),
   };
   for (const peak of next.majorVolumePeaks) provenance[`majorVolumePeaks.${peak.region}`] = evidenceProvenance(peak.evidence, derived.has("majorVolumePeaks"));
   next.diagnostics = {

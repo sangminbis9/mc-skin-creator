@@ -122,11 +122,13 @@ export function buildFaceIdentitySaliencePlan(analysis: PhotoAnalysis): FaceIden
       eyes: Math.max(2, Math.min(6, eyeWidthPixels + ((geometry?.eyes.openness ?? 0) >= 0.7 ? 2 : 0))),
       brows: Math.max(0, Math.min(6, browPixels)),
       mouth: Math.max(2, Math.min(7, mouthWidthPixels + (geometry?.mouth.opening === "closed" ? 0 : 2))),
+      // At 8x8, each visible contour step is a bilateral pair. Preserve
+      // cheek and jaw as independent axes, but spend no pixels on a broad
+      // lower face that already reads correctly from the complexion field.
       faceBoundary: geometry && geometry.confidence.faceBounds >= 0.55
-        ? Math.max(2, Math.min(4, Math.round(Math.max(
-            Math.abs(geometry.face.widthWithinHead - 0.7) * 10,
-            Math.abs(geometry.faceShape.cheekWidth - geometry.faceShape.jawWidth) * 10,
-          ))))
+        ? Math.min(4,
+            (Math.round(geometry.faceShape.cheekWidth * 8) <= 5 ? 2 : 0) +
+            (Math.round(geometry.faceShape.jawWidth * 8) <= 5 ? 2 : 0))
         : 0,
       nose: geometry && geometry.confidence.nose >= 0.72 && geometry.nose.visibleStrength >= 0.62
         ? analysis.renderHints.noseShape === "small" ? 1 : 2

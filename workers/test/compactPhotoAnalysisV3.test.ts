@@ -356,11 +356,11 @@ describe("Compact v3 offline contract", () => {
 
   it("keeps renderer/quantizer/validator and compact contract bytes unchanged during activation", async () => {
     const frozen: Record<string, string> = {
-      "skinPack.ts": "eca41804637a08f2afb434d259243153efbd07f85c443f87be0fd95239b0d6b7",
+      "skinPack.ts": "eac3e622e7569c66d9c793d16e4e265442034b2ad477f5f7dc2e8b5bdca95e9a",
       "skinPost.ts": "8ef942a2060514e4b83537a4189d25bb2dddd77517d4dff4ff1d7a9002d1f7b7",
       "skinPlan.ts": "54bbde6408608feb6b3458a42a1042988f09204af269fd028e19b5cda97989bc",
-      "identityQuantization.ts": "00fc9fa86e186ecdc7c15ee993dbb7759a93cc5b4bb4d768505aa8557b8e9e6d",
-      "identityPlans.ts": "1effcd1cc48c1163c6936be341096a1867beee653704369fb06b03f13a0164b2",
+      "identityQuantization.ts": "0a0f9557cdd6247c5066a4a13d398cede9a540d1cf6260d9adabfdbfee2aa600",
+      "identityPlans.ts": "807f4a668c7c412eed8b6a2c0b50028981906ffd1de2f58d2e6032f604bde568",
       "compactPhotoAnalysis.ts": "4c5c13947b0196c0a6a718ed8b9d57cac484a9bd59ccabebd5b59f6523743d89",
       "compactPhotoAnalysisV3.ts": "99d8ca426f96410aad424a459b91f6da3e796979010d8443cebf653487b8a702",
     };

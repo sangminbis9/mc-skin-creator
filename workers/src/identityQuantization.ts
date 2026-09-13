@@ -657,7 +657,21 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
   const fallbackRightBrowRow = !browsFromGeometry && eyesFromGeometry
     ? browRowFor(rightEyeRow, fallback.browDistanceTopology)
     : fallback.rightBrowRow;
-  const faceShapeFromGeometry = evidenceUsable(geometry.faceShape.evidence, geometry.faceShape.confidence, clippingKnown && geometry.visibility.chinClipped);
+  // Older normalized cache entries listed faceShape in derivedMeasurements
+  // before the per-field provenance map included that key. Preserve that
+  // source-grounded derivation instead of silently demoting it to a semantic
+  // rectangle; newly normalized geometry carries the explicit map entry.
+  const faceShapeProvenance = provenance.faceShape ?? (
+    geometry.diagnostics.derivedMeasurements.includes("faceShape")
+      ? "derived_geometry"
+      : undefined
+  );
+  const faceShapeFromGeometry = evidenceUsable(
+    geometry.faceShape.evidence,
+    geometry.faceShape.confidence,
+    clippingKnown && geometry.visibility.chinClipped,
+    faceShapeProvenance,
+  );
   const volumePeaks = geometry.majorVolumePeaks.filter((peak) => evidenceUsable(
     peak.evidence,
     peak.confidence,
@@ -948,7 +962,7 @@ export function quantizeIdentityGeometry(analysis: PhotoAnalysis, geometry: Iden
       majorVolumePeaks: majorVolumePeaksFromGeometry ? (volumePeaks.some((peak) => provenance[`majorVolumePeaks.${peak.region}`] === "observed_geometry") ? "observed_geometry" : volumePeaks.some((peak) => provenance[`majorVolumePeaks.${peak.region}`] === "derived_geometry") ? "derived_geometry" : "inferred_geometry") : "semantic_fallback",
       "faceWindow.left": leftFaceWindowFromGeometry ? provenance["faceWindow.left"] ?? "observed_geometry" : "semantic_fallback",
       "faceWindow.right": rightFaceWindowFromGeometry ? provenance["faceWindow.right"] ?? "observed_geometry" : "semantic_fallback",
-      faceShape: faceShapeFromGeometry ? provenance.faceShape ?? "observed_geometry" : "semantic_fallback",
+      faceShape: faceShapeFromGeometry ? faceShapeProvenance ?? "observed_geometry" : "semantic_fallback",
     },
     geometryCompleteness: geometry.diagnostics.completeness,
   };

@@ -369,6 +369,8 @@ const ROLE_COLORS: Record<FacePixelPlan["pixels"][number]["role"], [number, numb
   skin_light: [239, 190, 158, 255],
   skin_mid: [211, 154, 116, 255],
   skin_shadow: [153, 99, 75, 255],
+  cheek_contour: [180, 123, 94, 255],
+  jaw_contour: [166, 108, 82, 255],
   hair_light: [92, 72, 58, 255],
   hair_mid: [55, 42, 35, 255],
   hair_shadow: [28, 21, 18, 255],

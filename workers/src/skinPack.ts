@@ -1767,6 +1767,11 @@ function faceRoleColor(
     case "skin_light": return shadeRgb(skinColor, 1.07);
     case "skin_mid": return skinColor;
     case "skin_shadow": return shadeRgb(skinColor, 0.88);
+    // Face-outline cues stay inside the complexion family. The gentler cheek
+    // step avoids a vertical outline; the jaw step is only slightly deeper so
+    // it reads as taper rather than beard or fixed-colour linework.
+    case "cheek_contour": return mixRgb(skinColor, shadeRgb(skinColor, 0.88), 0.38);
+    case "jaw_contour": return mixRgb(skinColor, shadeRgb(skinColor, 0.82), 0.46);
     case "hair_light": return shadeRgb(hairColor, 1.12);
     case "hair_mid": return hairColor;
     case "hair_shadow": return shadeRgb(hairColor, 0.72);
@@ -1862,9 +1867,10 @@ function applyFacePixelPlan(
     }
   }
   for (const pixel of plan.pixels) {
-    // composeFace owns the connected complexion ramp and expression shading.
-    // The plan replaces only discrete identity landmarks and fringe geometry.
-    if (pixel.cluster === "complexion") continue;
+    // composeFace owns the general complexion ramp. Only explicit calibrated
+    // contour roles may replay complexion cells; legacy skin roles remain a
+    // no-op so semantic fallbacks cannot fabricate measured face geometry.
+    if (pixel.cluster === "complexion" && pixel.role !== "cheek_contour" && pixel.role !== "jaw_contour") continue;
     if (!Number.isInteger(pixel.x) || !Number.isInteger(pixel.y) || pixel.x < 0 || pixel.x >= 8 || pixel.y < 0 || pixel.y >= 8) continue;
     const offset = ((face.y + pixel.y) * ATLAS_SIZE + face.x + pixel.x) * 4;
     let planned = faceRoleColor(pixel.role, hairColor, skinColor, style, contrastPlan);
