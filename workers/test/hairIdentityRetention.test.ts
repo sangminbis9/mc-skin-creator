@@ -62,7 +62,8 @@ describe("source-conditioned hair identity allocation", () => {
     expect(rightSweep.id).toBe("part-sweep-left");
     expect(rightSweep.points.every((point) => point.face === "front" && point.layer === "outer" && point.x <= 2)).toBe(true);
     expect(rightPart.hairPlan.structure.requiredGroupIds).toContain(rightSweep.id);
-    expect(rightPart.headIdentityPlan.ownership!.execution).toBe("preserve_existing_grammar");
+    expect(rightPart.hairPlan.headMask.semanticSilhouette?.provenance).toBe("observed_categorical");
+    expect(rightPart.headIdentityPlan.ownership!.execution).toBe("resolved");
 
     const leftPart = build("left", true);
     const leftSweep = leftPart.hairPlan.structure.groups.find((group) => group.kind === "part_sweep")!;

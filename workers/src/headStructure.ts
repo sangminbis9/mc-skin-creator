@@ -300,15 +300,19 @@ export function buildHairStructurePlan(
     const maximumTipRow = layout.geometryUsage.fringePeaks
       ? clamp(Math.max(2, ...layout.fringePeaks.map((peak) => peak.row)), 2, 6)
       : analysis.renderHints.bangsLength === "eye" ? 4 : analysis.renderHints.bangsLength === "brow" ? 3 : 2;
-    for (const [index, x] of selected.sort((a, b) => a - b).entries()) {
+    for (const x of selected.sort((a, b) => a - b)) {
       const measuredPeak = measuredPeakByColumn.get(x);
       const directionalTip = layout.fringeDirection === "left_swept" ? x <= 3 : layout.fringeDirection === "right_swept" ? x >= 4 : sideDirection !== 0 && (sideDirection > 0 ? x >= 4 : x <= 3);
       const irregularTip = analysis.renderHints.fringeEdge !== "blunt" && (x + phase) % 3 === 0;
       const displacement = fringeScore >= 0.55 && (directionalTip || irregularTip) ? 1 : 0;
       const y = clamp(Math.max(1, measuredPeak?.row ?? layout.hairlineDepthByColumn[x] + displacement), 1, maximumTipRow);
+      // The unchanged face composer always opens this compact central region
+      // for nose/face readability. Do not promise a semantic outer tip in a
+      // cell that the authoritative face pass is guaranteed to clear.
+      if (headMask.source === "semantic_template" && (x === 3 || x === 4) && y >= 3 && y <= 5) continue;
       fringeTipPoints.push({ x, y });
       const id = addGroup({
-        id: `fringe-tip-${index + 1}`,
+        id: `fringe-tip-${fringeTipPoints.length}`,
         kind: "fringe",
         direction: x < 4 ? "down_right" : "down_left",
         sourceAnchor: { x: x / 7, y: y / 7, width: 1 / 8, height: 1 / 8, protrusion: Math.max(0, y - layout.hairlineDepthByColumn[x] + 1) / 8 },

@@ -219,6 +219,7 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
   // Existing complex ornament/loc and unmeasured curl grammars remain intact;
   // they are not converted into the wavy/tied completion introduced here.
   const observedOrnament = /\b(?:flower|ribbon|bow|clip|headband)\b[^.;]{0,35}\bhair\b|\bhair\b[^.;]{0,35}\b(?:flower|ribbon|bow|clip|headband)\b/i.test(headEvidence);
-  const preserve = !tied && !covering && (observedOrnament || analysis.renderHints.hairAccessory !== "none" || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none") || (hair.structure.source === "semantic_analysis" && ["curl_lobes", "coily_clusters"].includes(hair.structure.grammar)));
+  const sourceDerivedSemanticMask = hair.headMask.source === "semantic_template" && Boolean(hair.headMask.semanticSilhouette);
+  const preserve = !tied && !covering && (observedOrnament || analysis.renderHints.hairAccessory !== "none" || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (hair.structure.source === "semantic_analysis" && ["curl_lobes", "coily_clusters"].includes(hair.structure.grammar)));
   return { execution: preserve ? "preserve_existing_grammar" : "resolved", hairFamily: hair.template, covering, tiedMass: tiedGeometry, cells: [...cells.values()], continuities };
 }

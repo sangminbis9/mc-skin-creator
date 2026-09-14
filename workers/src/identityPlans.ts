@@ -169,6 +169,13 @@ export interface HeadMaskPlan {
   foreheadExposure: number;
   earExposure: { left: number; right: number };
   curlySilhouette?: CurlySilhouettePlan;
+  semanticSilhouette?: {
+    provenance: "observed_categorical";
+    endpointCue: PhotoAnalysis["renderHints"]["overallHairLength"];
+    sideEndpointCue: PhotoAnalysis["renderHints"]["sideHairLength"];
+    sideWidthFamily: "narrow" | "ordinary" | "broad";
+    backShape: PhotoAnalysis["renderHints"]["hairBackShape"];
+  };
 }
 
 export interface HairPlan {
@@ -699,7 +706,10 @@ function facePixelPlan(
     // covering or glasses. Ask the unchanged ownership resolver for the
     // surface with no contour, then retain only complete unobstructed pairs.
     const unshaded: FacePixelPlan = { ...plan, pixels: pixels.filter(pixel => pixel.cluster !== "complexion"), candidateCost: measureFacePixelPlanCost(plan) };
-    const owners = resolveHeadOwnership(analysis, hairPlan(analysis, unshaded), unshaded);
+    // Face contour acceptance is frozen independently of later semantic hair
+    // silhouette refinement. Reusing the legacy semantic mask here prevents a
+    // wider/narrower categorical hair contour from changing cheek/jaw pixels.
+    const owners = resolveHeadOwnership(analysis, hairPlan(analysis, unshaded, "legacy"), unshaded);
     const blocked = new Set(owners.cells.filter(cell => cell.face === "front" &&
       ["hair_base", "hair_outer", "covering", "tied_hair", "glasses"].includes(cell.owner)).map(cell => `${cell.x},${cell.y}`));
     for (const role of ["cheek_contour", "jaw_contour", "chin_contour"] as const) {
@@ -737,7 +747,11 @@ export function buildFacePixelPlanVariants(
   return [...(primary ? [primary] : []), ...alternatives].slice(0, Math.max(1, Math.min(3, maximum)));
 }
 
-function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
+function hairPlan(
+  analysis: PhotoAnalysis,
+  facePlan: FacePixelPlan,
+  semanticMaskMode: "source_derived" | "legacy" = "source_derived",
+): HairPlan {
   const hints = analysis.renderHints;
   const tiedHair = observedTiedHair(analysis);
   const hairEvidence = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ").toLowerCase();
@@ -771,7 +785,7 @@ function hairPlan(analysis: PhotoAnalysis, facePlan: FacePixelPlan): HairPlan {
   const hairLayout = analysis.faceIdentityGeometry
     ? buildQuantizedLayoutVariants({ ...analysis, faceIdentityGeometry: undefined }, 1)[0].layout
     : facePlan.layout;
-  const headMask = buildHeadMaskPlan(analysis, hairLayout, template, lengthClass, salience);
+  const headMask = buildHeadMaskPlan(analysis, hairLayout, template, lengthClass, salience, semanticMaskMode);
   const structure = buildHairStructurePlan(analysis, hairLayout, headMask, salience);
   return {
     template,
@@ -921,6 +935,7 @@ function buildHeadMaskPlan(
   template: HairTemplate,
   lengthClass: HairPlan["lengthClass"],
   salience: HairIdentitySaliencePlan,
+  semanticMaskMode: "source_derived" | "legacy" = "source_derived",
 ): HeadMaskPlan {
   const geometry = analysis.identityGeometry?.headSilhouette;
   const useGeometry = Boolean(geometry && geometry.confidence >= 0.55 && analysis.identityGeometry!.confidence.headSilhouette >= 0.55);
@@ -1149,21 +1164,155 @@ function buildHeadMaskPlan(
       curlySilhouette,
     };
   }
-  const endpoint = lengthClass === "long" ? 7 : lengthClass === "medium" ? 6 : 4;
-  for (let y = 0; y <= endpoint; y++) for (let x = 0; x < 8; x++) {
-    if (y <= 1 || x <= 1 || x >= 6) add("front", x, y);
-    add("back", x, y);
-    if (x < (lengthClass === "short" ? 4 : 6)) add("left", x, y);
-    if (x >= (lengthClass === "short" ? 4 : 2)) add("right", x, y);
+  const addLegacySemanticMask = (): HeadMaskPlan => {
+    const endpoint = lengthClass === "long" ? 7 : lengthClass === "medium" ? 6 : 4;
+    for (let y = 0; y <= endpoint; y++) for (let x = 0; x < 8; x++) {
+      if (y <= 1 || x <= 1 || x >= 6) add("front", x, y);
+      add("back", x, y);
+      if (x < (lengthClass === "short" ? 4 : 6)) add("left", x, y);
+      if (x >= (lengthClass === "short" ? 4 : 2)) add("right", x, y);
+    }
+    for (let y = 0; y <= endpoint; y++) {
+      const taper = y >= endpoint - 1 ? 1 : 0;
+      widthByRow.left[y] = Math.max(1, (lengthClass === "short" ? 4 : 6) - taper);
+      widthByRow.right[y] = Math.max(1, (lengthClass === "short" ? 4 : 6) - taper);
+      widthByRow.back[y] = 8 - taper * 2;
+    }
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y);
+    return { coordinateSpace: "head.overlay", source: "semantic_template", faces, partColumn: null, endpointRows: { left: endpoint, right: endpoint }, widthByRow, foreheadExposure: 0.4, earExposure: { left: 0.5, right: 0.5 } };
+  };
+
+  const semanticEvidence = [
+    analysis.observed.hair,
+    ...analysis.canonicalIdentity.features
+      .filter((feature) => feature.category === "hair" || feature.category === "silhouette")
+      .map((feature) => feature.feature),
+  ].join("; ");
+  const covering = analysis.fallbackFeatures.hat === "headscarf" ||
+    /\b(?:hijab|headscarf|head scarf)\b/i.test(semanticEvidence);
+  const clippedOrUnknown = !analysis.visibleRegions.hair ||
+    /\b(?:clipped|cropped out|out of (?:the )?frame|not visible|obscured|unknown hair)\b/i.test(semanticEvidence);
+  if (
+    semanticMaskMode === "legacy" ||
+    covering ||
+    clippedOrUnknown ||
+    template === "tied_bun"
+  ) return addLegacySemanticMask();
+
+  const hints = analysis.renderHints;
+  const sideEndpointByCue: Record<typeof hints.sideHairLength, number> = {
+    none: 3,
+    short: 4,
+    cheek: 5,
+    jaw: 6,
+    shoulder: 7,
+  };
+  const backEndpointByCue: Record<typeof hints.overallHairLength, number> = {
+    cropped: 3,
+    ear: 4,
+    jaw: 6,
+    shoulder: 7,
+    chest: 7,
+    waist: 7,
+    hip: 7,
+  };
+  let endpointLeft = sideEndpointByCue[hints.sideHairLength];
+  let endpointRight = endpointLeft;
+  if (hints.sideHairAsymmetry === "left") endpointLeft = Math.min(7, endpointLeft + 1);
+  if (hints.sideHairAsymmetry === "right") endpointRight = Math.min(7, endpointRight + 1);
+  const backEndpoint = backEndpointByCue[hints.overallHairLength];
+
+  let sideWidthFamily: NonNullable<HeadMaskPlan["semanticSilhouette"]>["sideWidthFamily"] = "ordinary";
+  if (
+    hints.sideHairShape === "undercut" ||
+    hints.hairVolume === "flat" ||
+    (hints.sideHairShape === "tapered" && hints.hairTexture === "straight") ||
+    (hints.sideHairShape === "face_framing" && hints.hairVolume !== "full")
+  ) sideWidthFamily = "narrow";
+  if (
+    hints.sideHairShape === "flared" ||
+    hints.hairVolume === "full" && hints.sideHairShape !== "undercut"
+  ) sideWidthFamily = "broad";
+
+  const ordinaryWidth = lengthClass === "short" ? 4 : 6;
+  const baseSideWidth = Math.max(2, Math.min(7,
+    ordinaryWidth + (sideWidthFamily === "broad" ? 1 : sideWidthFamily === "narrow" ? -1 : 0),
+  ));
+  const earExposure = hints.earExposure === "visible" ? 0.85 : hints.earExposure === "covered" ? 0.15 : 0.5;
+  const sideWidths = (endpoint: number): number[] => {
+    const widths = Array(8).fill(0) as number[];
+    for (let y = 0; y <= endpoint; y++) {
+      let width = y <= 1 ? Math.min(7, baseSideWidth + 1) : baseSideWidth;
+      // A rounded full-volume outline is a connected bulge, not a uniform
+      // one-cell dilation of every side row. Keep the crown shoulder one cell
+      // inside the maximum mass so the 3D contour reads as curved.
+      if (sideWidthFamily === "broad" && hints.hairSilhouette === "rounded" && y === 0) width--;
+      const taperAtEnd = hints.sideHairShape === "tapered" || hints.sideHairShape === "undercut" || hints.earExposure === "visible";
+      if (taperAtEnd && y >= endpoint - 1) width--;
+      widths[y] = Math.max(1, width);
+    }
+    return widths;
+  };
+  widthByRow.left = sideWidths(endpointLeft);
+  widthByRow.right = sideWidths(endpointRight);
+
+  // The back face keeps even widths for a genuinely symmetric contour on an
+  // 8-cell grid. Full/long evidence may retain the complete lower band;
+  // tapered and undercut evidence step down by two cells over two rows.
+  for (let y = 0; y <= backEndpoint; y++) {
+    let width = hints.hairBackShape === "long" && hints.hairSilhouette === "rounded" && y === 0 ? 6 : 8;
+    if (hints.hairBackShape === "tapered" || hints.hairBackShape === "undercut") {
+      if (y >= backEndpoint - 1) width = 6;
+      if (hints.hairBackShape === "undercut" && y === backEndpoint) width = 4;
+    } else if (hints.hairBackShape === "rounded" && y === backEndpoint) {
+      width = 6;
+    } else if (hints.hairBackShape === "long" && y === backEndpoint) {
+      width = 6;
+    } else if (hints.hairBackShape === "long" && hints.hairVolume !== "full" && y >= backEndpoint - 1) {
+      width = 6;
+    }
+    widthByRow.back[y] = width;
   }
-  for (let y = 0; y <= endpoint; y++) {
-    const taper = y >= endpoint - 1 ? 1 : 0;
-    widthByRow.left[y] = Math.max(1, (lengthClass === "short" ? 4 : 6) - taper);
-    widthByRow.right[y] = Math.max(1, (lengthClass === "short" ? 4 : 6) - taper);
-    widthByRow.back[y] = 8 - taper * 2;
+
+  for (let y = 0; y <= Math.max(endpointLeft, endpointRight); y++) {
+    if (y <= 1) for (let x = 0; x < 8; x++) add("front", x, y);
+    if (y <= endpointLeft) {
+      // Long face-framing keeps the established two-column front boundary so
+      // unchanged lip/eye colors cannot become neighborhood-dependent. The
+      // narrow short-cap case alone exposes one extra face column/ear area.
+      const frontWidth = lengthClass === "short" && sideWidthFamily === "narrow" ? 1 : 2;
+      for (let x = 0; x < frontWidth; x++) add("front", x, y);
+      for (let x = 0; x < widthByRow.left[y]; x++) add("left", x, y);
+    }
+    if (y <= endpointRight) {
+      const frontWidth = lengthClass === "short" && sideWidthFamily === "narrow" ? 1 : 2;
+      for (let x = 8 - frontWidth; x < 8; x++) add("front", x, y);
+      for (let x = 8 - widthByRow.right[y]; x < 8; x++) add("right", x, y);
+    }
+  }
+  for (let y = 0; y <= backEndpoint; y++) {
+    const width = widthByRow.back[y];
+    const inset = (8 - width) / 2;
+    for (let x = inset; x < 8 - inset; x++) add("back", x, y);
   }
   for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y);
-  return { coordinateSpace: "head.overlay", source: "semantic_template", faces, partColumn: null, endpointRows: { left: endpoint, right: endpoint }, widthByRow, foreheadExposure: 0.4, earExposure: { left: 0.5, right: 0.5 } };
+  return {
+    coordinateSpace: "head.overlay",
+    source: "semantic_template",
+    faces,
+    partColumn: null,
+    endpointRows: { left: endpointLeft, right: endpointRight },
+    widthByRow,
+    foreheadExposure: 0.4,
+    earExposure: { left: earExposure, right: earExposure },
+    semanticSilhouette: {
+      provenance: "observed_categorical",
+      endpointCue: hints.overallHairLength,
+      sideEndpointCue: hints.sideHairLength,
+      sideWidthFamily,
+      backShape: hints.hairBackShape,
+    },
+  };
 }
 
 export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelPlans {
