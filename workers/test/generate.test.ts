@@ -1973,10 +1973,10 @@ describe("generateSkin", () => {
     const rightLeg = CLASSIC_LAYOUT.rightLeg.overlay.front;
     const alphaAt = (rect: { x: number; y: number }, x: number, y: number) =>
       atlas.rgba[((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4 + 3];
-    const glassesHighlight = ((glasses.y + 2) * ATLAS_SIZE + glasses.x + 1) * 4;
+    const glassesHighlight = ((glasses.y + 3) * ATLAS_SIZE + glasses.x + 2) * 4;
 
     expect(alphaAt(glasses, 1, 4)).toBe(255);
-    expect(alphaAt(glasses, 2, 2)).toBe(255);
+    expect(alphaAt(glasses, 2, 2)).toBe(0);
     expect(alphaAt(glasses, 2, 3)).toBe(255);
     expect(alphaAt(glasses, 2, 4)).toBe(0);
     expect(alphaAt(glasses, 3, 4)).toBe(255);

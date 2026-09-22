@@ -176,6 +176,13 @@ export interface HeadMaskPlan {
     sideWidthFamily: "narrow" | "ordinary" | "broad";
     backShape: PhotoAnalysis["renderHints"]["hairBackShape"];
   };
+  coveringTopology?: {
+    provenance: "observed_categorical";
+    fit: "fitted_headscarf";
+    accentSide: "viewer_left" | "viewer_right" | "none";
+    patterned: boolean;
+    frontOpeningWidthByRow: number[];
+  };
 }
 
 export interface HairPlan {
@@ -1192,9 +1199,65 @@ function buildHeadMaskPlan(
     /\b(?:hijab|headscarf|head scarf)\b/i.test(semanticEvidence);
   const clippedOrUnknown = !analysis.visibleRegions.hair ||
     /\b(?:clipped|cropped out|out of (?:the )?frame|not visible|obscured|unknown hair)\b/i.test(semanticEvidence);
+  if (semanticMaskMode === "source_derived" && covering) {
+    const coveringEvidence = [
+      analysis.observed.hair,
+      analysis.observed.accessories,
+      ...analysis.canonicalIdentity.features
+        .filter((feature) => feature.category === "hair" || feature.category === "accessory" || feature.category === "silhouette")
+        .flatMap((feature) => [feature.feature, feature.evidence]),
+    ].join("; ").toLowerCase();
+    const accentSide = /viewer(?:'s)?[- ]left/.test(coveringEvidence)
+      ? "viewer_left" as const
+      : /viewer(?:'s)?[- ]right/.test(coveringEvidence)
+        ? "viewer_right" as const
+        : "none" as const;
+    const patterned = /pattern|paisley|floral|geometric|striped|print/.test(coveringEvidence);
+    // A fitted headscarf follows the face rather than forming a rectangular
+    // hood. This is a categorical mask grammar: crown, temple, cheek and jaw
+    // bands are discrete and bounded; no continuous contour is fabricated.
+    const leftWidths = [4, 2, 1, 1, 1, 2, 2, 3];
+    const rightWidths = [...leftWidths];
+    if (accentSide === "viewer_left") for (const y of [5, 6, 7]) leftWidths[y] = Math.min(4, leftWidths[y] + 1);
+    if (accentSide === "viewer_right") for (const y of [5, 6, 7]) rightWidths[y] = Math.min(4, rightWidths[y] + 1);
+    const frontOpeningWidthByRow = leftWidths.map((left, y) => Math.max(0, 8 - left - rightWidths[y]));
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < leftWidths[y]; x++) add("front", x, y, "covering");
+      for (let x = 8 - rightWidths[y]; x < 8; x++) add("front", x, y, "covering");
+    }
+    const sideWidths = [6, 6, 6, 6, 6, 5, 4, 3];
+    widthByRow.left = [...sideWidths];
+    widthByRow.right = [...sideWidths];
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < widthByRow.left[y]; x++) add("left", x, y, "covering");
+      for (let x = 8 - widthByRow.right[y]; x < 8; x++) add("right", x, y, "covering");
+    }
+    widthByRow.back = [8, 8, 8, 8, 8, 8, 6, 4];
+    for (let y = 0; y < 8; y++) {
+      const inset = (8 - widthByRow.back[y]) / 2;
+      for (let x = inset; x < 8 - inset; x++) add("back", x, y, "covering");
+    }
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y, "covering");
+    return {
+      coordinateSpace: "head.overlay",
+      source: "semantic_template",
+      faces,
+      partColumn: null,
+      endpointRows: { left: 7, right: 7 },
+      widthByRow,
+      foreheadExposure: 0.25,
+      earExposure: { left: 0, right: 0 },
+      coveringTopology: {
+        provenance: "observed_categorical",
+        fit: "fitted_headscarf",
+        accentSide,
+        patterned,
+        frontOpeningWidthByRow,
+      },
+    };
+  }
   if (
     semanticMaskMode === "legacy" ||
-    covering ||
     clippedOrUnknown ||
     template === "tied_bun"
   ) return addLegacySemanticMask();

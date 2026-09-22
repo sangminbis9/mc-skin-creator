@@ -1413,6 +1413,13 @@ export interface IdentityCropSet {
     faceCropDimensions: { width: number; height: number };
     headCropDimensions: { width: number; height: number };
     faceCoverageRatio: number;
+    faceCropLateralGuard: {
+      applied: boolean;
+      reason: "expanded_face_below_head_height_floor" | "expanded_face_meets_head_height_floor" | "head_or_source_clamp_prevented_expansion" | "localized_head_unavailable";
+      /** Face-crop width divided by localized head height, both in source pixels. */
+      originalExpandedWidthRatio: number | null;
+      guardedWidthRatio: number | null;
+    };
     desiredExpandedHeadBox: PortraitRegion["headBox"] | null;
     finalFaceBox: PortraitRegion["faceBox"] | null;
     finalHeadBox: PortraitRegion["headBox"] | null;
@@ -1454,6 +1461,7 @@ interface ResolvedIdentityBounds {
   face: PixelCropBounds;
   head: PixelCropBounds;
   faceCoverageRatio: number;
+  faceCropLateralGuard: IdentityCropSet["diagnostics"]["faceCropLateralGuard"];
   clippingRisk: boolean;
   crownClipped: boolean;
   leftHairClipped: boolean;
@@ -1525,6 +1533,49 @@ function toPixelBounds(
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
+/**
+ * A localized head can be vertically credible while its lateral coordinates
+ * collapse toward the central face. Keep the existing face expansion unless
+ * it is narrower than the conservative lower bound observed for a head in
+ * source-pixel space. Only horizontal bounds change; the adaptive head/source
+ * box remains the hard limit.
+ */
+function guardFaceCropLateralBounds(
+  source: RawImage,
+  expandedFace: PortraitRegion["faceBox"],
+  headBox: PortraitRegion["headBox"],
+  limit: PortraitRegion["headBox"],
+): { box: PortraitRegion["faceBox"]; diagnostic: IdentityCropSet["diagnostics"]["faceCropLateralGuard"] } {
+  const headHeightPixels = (headBox.bottom - headBox.top) * source.height;
+  const expandedWidthPixels = (expandedFace.right - expandedFace.left) * source.width;
+  const minimumLateralWidthPixels = headHeightPixels * 0.65;
+  const originalExpandedWidthRatio = expandedWidthPixels / headHeightPixels;
+  if (expandedWidthPixels >= minimumLateralWidthPixels) {
+    return { box: expandedFace, diagnostic: {
+      applied: false,
+      reason: "expanded_face_meets_head_height_floor",
+      originalExpandedWidthRatio,
+      guardedWidthRatio: originalExpandedWidthRatio,
+    } };
+  }
+  const headCenterX = (headBox.left + headBox.right) / 2;
+  const halfWidth = minimumLateralWidthPixels / source.width / 2;
+  const guarded = clampedBox({
+    left: Math.min(expandedFace.left, headCenterX - halfWidth),
+    top: expandedFace.top,
+    right: Math.max(expandedFace.right, headCenterX + halfWidth),
+    bottom: expandedFace.bottom,
+  }, limit);
+  const guardedWidthPixels = (guarded.right - guarded.left) * source.width;
+  const applied = guardedWidthPixels > expandedWidthPixels + 0.5;
+  return { box: applied ? guarded : expandedFace, diagnostic: {
+    applied,
+    reason: applied ? "expanded_face_below_head_height_floor" : "head_or_source_clamp_prevented_expansion",
+    originalExpandedWidthRatio,
+    guardedWidthRatio: (applied ? guardedWidthPixels : expandedWidthPixels) / headHeightPixels,
+  } };
+}
+
 function detectedIdentityBounds(
   source: RawImage,
   portraitRegion: PortraitRegion | null | undefined,
@@ -1547,7 +1598,8 @@ function detectedIdentityBounds(
   );
   const expandedHead = adaptivePlan.cropBox;
   const expandedFace = clampedBox(expandedBox(region.faceBox, 0.2, 0.22, 0.2), expandedHead);
-  const face = toPixelBounds(expandedFace, source);
+  const lateralGuard = guardFaceCropLateralBounds(source, expandedFace, region.headBox, expandedHead);
+  const face = toPixelBounds(lateralGuard.box, source);
   const head = toPixelBounds(expandedHead, source);
   if (face.width < rawFace.width || face.height < rawFace.height || head.width < rawHead.width || head.height < rawHead.height) {
     return { ok: false, reason: "expanded_bounds_clipped_subject" };
@@ -1567,7 +1619,7 @@ function detectedIdentityBounds(
   const clippingRisk = crownClipped || leftHairClipped || rightHairClipped || chinClipped || leftEarClipped || rightEarClipped;
   return {
     ok: true,
-    bounds: { face, head, faceCoverageRatio, clippingRisk, crownClipped, leftHairClipped, rightHairClipped, chinClipped, leftEarClipped, rightEarClipped, adaptivePlan },
+    bounds: { face, head, faceCoverageRatio, faceCropLateralGuard: lateralGuard.diagnostic, clippingRisk, crownClipped, leftHairClipped, rightHairClipped, chinClipped, leftEarClipped, rightEarClipped, adaptivePlan },
     region,
     mode: validation.ok ? "subject_aware" : "face_fallback",
     recoveryReason: validation.ok ? null : validation.reason,
@@ -1608,6 +1660,12 @@ function heuristicIdentityBounds(source: RawImage, context: AdaptiveHeadCropCont
     face,
     head,
     faceCoverageRatio: (face.width * face.height) / Math.max(1, head.width * head.height),
+    faceCropLateralGuard: {
+      applied: false,
+      reason: "localized_head_unavailable",
+      originalExpandedWidthRatio: null,
+      guardedWidthRatio: null,
+    },
     clippingRisk: head.y === 0,
     // Without a localized head boundary, touching the source edge is unknown,
     // not proof that either the source or this crop cut the feature. Let the
@@ -1676,6 +1734,7 @@ async function identityCropsFromDecoded(
       faceCropDimensions,
       headCropDimensions,
       faceCoverageRatio: bounds.faceCoverageRatio,
+      faceCropLateralGuard: bounds.faceCropLateralGuard,
       desiredExpandedHeadBox: adaptive?.desiredBox ?? null,
       finalFaceBox: {
         left: bounds.face.x / source.width,

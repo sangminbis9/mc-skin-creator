@@ -1851,6 +1851,29 @@ function applyFacePixelPlan(
     if (preferDark) return dark;
     return distance(dark) >= distance(light) ? dark : light;
   };
+  const boundedLocalContrast = (candidate: Rgb, x: number, y: number, minimum: number): Rgb => {
+    const samples: Rgb[] = [];
+    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || nx >= 8 || ny < 0 || ny >= 8 || landmarkKeys.has(`${nx},${ny}`)) continue;
+      const at = ((face.y + ny) * ATLAS_SIZE + face.x + nx) * 4;
+      samples.push([atlas.rgba[at], atlas.rgba[at + 1], atlas.rgba[at + 2]]);
+    }
+    const background: Rgb = samples.length === 0 ? skinColor : [
+      Math.round(samples.reduce((sum, color) => sum + color[0], 0) / samples.length),
+      Math.round(samples.reduce((sum, color) => sum + color[1], 0) / samples.length),
+      Math.round(samples.reduce((sum, color) => sum + color[2], 0) / samples.length),
+    ];
+    const distance = (color: Rgb) => Math.abs(color[0] - background[0]) + Math.abs(color[1] - background[1]) + Math.abs(color[2] - background[2]);
+    if (distance(candidate) >= minimum) return candidate;
+    const endpoint = shadeRgb(candidate, 0.52);
+    for (let step = 1; step <= 24; step++) {
+      const adjusted = mixRgb(candidate, endpoint, step / 24);
+      if (distance(adjusted) >= minimum) return adjusted;
+    }
+    return endpoint;
+  };
   {
     const plannedFrameKeys = new Set(plan.glassesPlan.framePixels.filter((point) => point.face === "front").map((point) => `${point.x},${point.y}`));
     const hairRamp = [hairColor, shadeRgb(hairColor, 0.72), shadeRgb(hairColor, 1.12)];
@@ -1895,7 +1918,8 @@ function applyFacePixelPlan(
     // fringe or glasses changed only the surrounding context.
     const color = pixel.role === "sclera" ? planned
       : pixel.role === "iris" ? localContrast(planned, pixel.x, pixel.y, usesEyeMid ? Math.max(70, contrastPlan.targets.eye - 25) : contrastPlan.targets.eye, true)
-      : ["lip", "mouth_shadow"].includes(pixel.role) ? localContrast(planned, pixel.x, pixel.y, 62, contrastBoost)
+      : ["lip", "mouth_shadow"].includes(pixel.role)
+        ? boundedLocalContrast(planned, pixel.x, pixel.y, Math.max(62, Math.round(contrastPlan.targets.mouth * 0.9)))
         : planned;
     atlas.rgba[offset] = color[0];
     atlas.rgba[offset + 1] = color[1];

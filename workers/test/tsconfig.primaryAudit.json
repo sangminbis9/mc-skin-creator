@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.json",
+  "include": [
+    "../worker-configuration.d.ts", "../src",
+    "primaryAuditLifecycle.ts", "primaryAuditRunnerSupport.ts", "primaryAuditRemoteReadiness.ts",
+    "primaryFaceMeasurementAuditWorker.ts", "productionPrimaryCloudflareAudit.test.ts", "primaryRemoteHealthOnly.test.ts",
+    "primaryAuditAuthInspection.ts", "primaryAuditAuthInspection.test.ts",
+    "primaryAuditCredentialContext.ts", "primaryAuditCredentialContext.test.ts",
+    "primaryAuditBoundProfile.ts", "primaryAuditBoundProfile.test.ts",
+    "primaryAuditCliLifecycle.ts", "primaryAuditCliLifecycle.test.ts",
+    "primaryAuditInteractiveLifecycle.test.ts", "primaryAuditProtectedHealthPreflight.test.ts",
+    "primaryAuditCliHealthAcl.test.ts", "faceGeometryLowEyeTargetAuditArtifacts.test.ts",
+    "primaryAuditCliProtectedHealth.test.ts", "primaryAuditReadyBoundary.test.ts"
+  ]
+}

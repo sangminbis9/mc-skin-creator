@@ -359,11 +359,11 @@ describe("Compact v3 offline contract", () => {
     // faceGeometryFrozenRegression independently compares the prior executable
     // plans and atlas bytes across all twelve cases. Provider/craft stay frozen.
     const frozen: Record<string, string> = {
-      "skinPack.ts": "6a2056990293cb1f07f0343fa83d039f48adb6c79cd53dc7d46bcbf142ed9421",
+      "skinPack.ts": "d0d2b76ce937eb5d671488d02e057f8819390030a64c412278c050583de7c9d4",
       "skinPost.ts": "8ef942a2060514e4b83537a4189d25bb2dddd77517d4dff4ff1d7a9002d1f7b7",
       "skinPlan.ts": "54bbde6408608feb6b3458a42a1042988f09204af269fd028e19b5cda97989bc",
       "identityQuantization.ts": "66f11a6a3499ed16e775ab6df08cda4891fc9fcc2b26cd31bcccf144cb8a7468",
-      "identityPlans.ts": "e9f97d2a55926fd89a118cfece97aa74a68cd7fae349697193f838cfb30ae95a",
+      "identityPlans.ts": "1add87c253c3581d519dff2c3c2ae9c9a98e2c05ca53ee7e3f3e3c8fe6f2ddff",
       "compactPhotoAnalysis.ts": "4c5c13947b0196c0a6a718ed8b9d57cac484a9bd59ccabebd5b59f6523743d89",
       "compactPhotoAnalysisV3.ts": "99d8ca426f96410aad424a459b91f6da3e796979010d8443cebf653487b8a702",
     };

@@ -105,7 +105,7 @@ describe("source-derived semantic hair silhouette planning", () => {
     expect(Math.abs(asymmetric.hairPlan.headMask.endpointRows.left - asymmetric.hairPlan.headMask.endpointRows.right)).toBe(1);
   });
 
-  it("uses the conservative template for clipped hair and head coverings", () => {
+  it("uses the conservative hair template for clipped hair and a separate fitted covering grammar", () => {
     const base = makeAnalysis();
     const clipped = buildSkinPlan(semanticHair(
       { hairTexture: "wavy", hairVolume: "full" },
@@ -122,8 +122,16 @@ describe("source-derived semantic hair silhouette planning", () => {
       },
     ));
     expect(covering.hairPlan.headMask.semanticSilhouette).toBeUndefined();
-    expect(covering.hairPlan.headMask.widthByRow.left).toEqual([4, 4, 4, 3, 3, 0, 0, 0]);
+    expect(covering.hairPlan.headMask.coveringTopology).toMatchObject({
+      provenance: "observed_categorical",
+      fit: "fitted_headscarf",
+      accentSide: "none",
+      patterned: true,
+      frontOpeningWidthByRow: [0, 4, 6, 6, 6, 4, 4, 2],
+    });
+    expect(covering.hairPlan.headMask.widthByRow.left).toEqual([6, 6, 6, 6, 6, 5, 4, 3]);
     expect(covering.headIdentityPlan.ownership.covering).toBe(true);
+    expect(covering.headIdentityPlan.ownership.cells.some((cell) => cell.owner.startsWith("hair"))).toBe(false);
   });
 
   it("leaves the identity-geometry mask path and facial landmark plan independent", () => {

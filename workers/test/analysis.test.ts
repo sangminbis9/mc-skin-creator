@@ -774,6 +774,70 @@ describe("validatePhotoAnalysis", () => {
     }
   });
 
+  it("does not mistake hair that frames the face for eyeglass frames", () => {
+    const base = makeAnalysis();
+    const result = validatePhotoAnalysis(
+      makeAnalysis({
+        observed: {
+          ...base.observed,
+          face: "oval face with visible eyes and arched brows",
+          hair: "long blonde waves frame the face on both sides",
+          accessories: "fine gold necklace; no visible eyewear",
+          clothing: "open black blazer over a beige inner shirt",
+        },
+        canonicalIdentity: {
+          overallImpression: "Long blonde waves and a bare, unobstructed face.",
+          mustPreserve: [
+            "long blonde waves",
+            "visible blue eyes",
+            "open black blazer",
+            "fine gold necklace",
+          ],
+          features: [
+            {
+              feature: "long blonde waves",
+              category: "hair",
+              priority: 5,
+              confidence: "high",
+              evidence: "waves frame both sides of the face",
+              targetRegions: ["head.front", "head.overlay"],
+            },
+            {
+              feature: "visible blue eyes",
+              category: "face",
+              priority: 5,
+              confidence: "high",
+              evidence: "both eyes are unobstructed",
+              targetRegions: ["head.front"],
+            },
+            {
+              feature: "open black blazer",
+              category: "outfit",
+              priority: 4,
+              confidence: "high",
+              evidence: "dark lapels surround a beige inner shirt",
+              targetRegions: ["torso.front", "torso.overlay"],
+            },
+            {
+              feature: "fine gold necklace",
+              category: "accessory",
+              priority: 3,
+              confidence: "high",
+              evidence: "a thin necklace is visible at the neckline",
+              targetRegions: ["torso.front"],
+            },
+          ],
+        },
+        identityPrompt: "Long blonde waves frame a bare face with visible blue eyes.",
+        outfitPrompt: "Open black blazer, beige inner shirt, and fine gold necklace.",
+        fallbackFeatures: {} as never,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.analysis.fallbackFeatures.glasses).toBe("none");
+  });
+
   it("얼굴만 보이는 사진(framing=face)도 품질 실패로 처리되지 않는다", () => {
     const result = validatePhotoAnalysis(
       makeAnalysis({

@@ -109,4 +109,25 @@ describe("glasses topology", () => {
     expect(plan.framePixels.some((pixel) => pixel.role === "bridge")).toBe(true);
     expect(new Set(plan.sideArms.map((pixel) => pixel.face))).toEqual(new Set(["left", "right"]));
   });
+
+  it("keeps explicitly large round lenses open and distinct from ordinary round frames", () => {
+    const ordinary = glasses("round thick glasses", "round");
+    const large = glasses("large round thick glasses", "round");
+    expect(ordinary.topology).toBe("round_heavy");
+    expect(large.topology).toBe("oversized");
+    expect(large.lensOpenings).toHaveLength(4);
+    expect(large.framePixels).toHaveLength(12);
+    expect(large.lensOpenings.every((opening) => !large.framePixels.some(
+      (frame) => frame.face === "front" && frame.x === opening.x && frame.y === opening.y,
+    ))).toBe(true);
+    const lensBox = (centerX: number) => {
+      const points = large.framePixels.filter((pixel) => pixel.face === "front" && Math.abs(pixel.x - centerX) <= 1);
+      return {
+        width: Math.max(...points.map((point) => point.x)) - Math.min(...points.map((point) => point.x)) + 1,
+        height: Math.max(...points.map((point) => point.y)) - Math.min(...points.map((point) => point.y)) + 1,
+      };
+    };
+    expect(lensBox(2)).toEqual({ width: 3, height: 4 });
+    expect(lensBox(5)).toEqual({ width: 3, height: 4 });
+  });
 });

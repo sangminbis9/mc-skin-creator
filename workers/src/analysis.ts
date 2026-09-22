@@ -294,7 +294,7 @@ STEP 5A — canonicalIdentity and likeness salience:
 - Prefer stable face geometry, hair silhouette/part/fringe, signature glasses/accessories, characteristic color blocks and outfit silhouette. Do not use race, gender, age guesses, attractiveness, or personality as identity cues.
 
 STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft skin:
-- Also return faceMeasurementEvidence for sourceSelection.portraitImageIndex only, in the SAME primary response. Set referenceImageIndex to that index and cues for eyeSpacing (narrow/medium/wide), eyeOpenness (narrow/normal/open), eyeFootprint (compact/medium/wide), browEyeDistance (close/normal/high), browSlope (straight/arched/angled), mouthWidth (narrow/medium/wide), mouthOpenness (closed/open/teeth), expression (neutral/smile). Each cue contains value, provenance (observed_categorical/inferred/unknown), confidence (0..1). Use value unknown, provenance unknown, confidence 0 when occluded, too small, distorted by pose, or confidence is below 0.75. Sunglasses hide eye evidence. Downcast gaze is not stable narrow-eye identity. Judge spacing relative to face width, aperture separately from eyeliner, brow gap relative to eye height, and mouth width independently from lip fullness. Do not emit coordinates, infer hidden landmarks, or claim calibrated geometry. Legacy renderHints are rendering choices, not evidence of observation.
+- Also return faceMeasurementEvidence for sourceSelection.portraitImageIndex only, in the SAME primary response. Set referenceImageIndex to that index and cues for eyeSpacing (narrow/medium/wide), eyeOpenness (narrow/normal/open), eyeFootprint (compact/medium/wide), browEyeDistance (close/normal/high), browSlope (straight/arched/angled), mouthWidth (narrow/medium/wide), mouthOpenness (closed/open/teeth), expression (neutral/smile). Each cue contains value, provenance (observed_categorical/inferred/unknown), confidence (0..1). Use value unknown, provenance unknown, confidence 0 when occluded, too small, distorted by pose, or confidence is below 0.75. Sunglasses hide eye evidence. Downcast gaze is not stable narrow-eye identity. Judge eyeSpacing as the distance between the two eyes relative to face width. Judge eyeOpenness from vertical eyelid aperture only: narrow means a visibly small vertical opening, normal means an ordinary vertical aperture, and open means a visibly large vertical aperture; do not derive it from one-eye width, inter-eye spacing, eyeSize, eyeliner, or brow position. Judge eyeFootprint as one eye's overall visible horizontal span relative to the face: compact means a visibly short one-eye span, medium means an ordinary span, and wide means a visibly long span; do not derive it from inter-eye spacing or vertical openness. Judge brow gap relative to eye height and mouth width independently from lip fullness. Do not emit coordinates, infer hidden landmarks, or claim calibrated geometry. Legacy renderHints are rendering choices, not evidence of observation.
 - Classify the visible skin undertone, face geometry, eye geometry/size/iris lightness/spacing/tilt, eyebrow shape, nose shape, mouth footprint/opening, lip fullness/color, jaw shape, bangs, bangs length/density/fringe edge/opening, hair texture/volume, hair silhouette, back-hair shape, overall hair length, hair parting, side-hair length/shape, ear exposure, garment texture, outer-layer thickness, and necklace.
 - skinUndertone records the skin itself after discounting studio color casts, background spill, blush and makeup: warm for golden/peach/yellow, cool for rosy/pink/blue-red, and neutral when neither direction clearly dominates. Keep it independent from skin lightness.
 - eyeSize describes the visible eye aperture relative to this person's face: small for compact or narrow openings, average for moderate openings, and large when the eyes are a dominant identity cue with clearly visible vertical iris/sclera area. Judge the actual eye opening, not eyeliner, glasses magnification, raised eyebrows, or facial expression.
@@ -1942,15 +1942,25 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
             )
           ? "long"
           : "short";
+  // Free-form evidence can explicitly say "no glasses" and commonly uses
+  // "hair frames the face". Neither is positive eyewear evidence. Keep an
+  // explicit cache value authoritative, but make text reconstruction require
+  // an unnegated eyewear noun or frames located around the eyes.
+  const positiveGlassesEvidence = fallbackEvidence.replace(
+    /\b(?:no|without)\s+(?:(?:visible|any)\s+)?(?:glasses|spectacles|eyeglasses|eyewear|(?:eyeglass|spectacle)[- ]frames?|frames?)\b/g,
+    " ",
+  );
   const inferredGlasses: FallbackFeatures["glasses"] = /\bsunglasses?\b/.test(
-    fallbackEvidence,
+    positiveGlassesEvidence,
   )
     ? "sunglasses"
     : /\b(?:round|circular)[- ](?:frame|framed)|\bround glasses\b/.test(
-          fallbackEvidence,
+          positiveGlassesEvidence,
         )
       ? "round"
-      : /\b(?:glasses|spectacles|eyeglasses|frames)\b/.test(fallbackEvidence)
+      : /\b(?:glasses|spectacles|eyeglasses|eyewear)\b|\b(?:eyeglass|spectacle)[- ]frames?\b|\bframes?\s+(?:around|over)\s+(?:both\s+)?eyes?\b/.test(
+            positiveGlassesEvidence,
+          )
         ? "regular"
         : "none";
   const inferredTopType: FallbackFeatures["topType"] = /\bhoodie\b/.test(

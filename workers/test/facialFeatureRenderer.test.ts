@@ -197,6 +197,25 @@ describe("facial feature renderer readability", () => {
     expect(first.targets.brow).toBeGreaterThan(first.targets.nose);
   });
 
+  it.each(SKINS)("meets the natural-lip floor with the smallest complexion-relative adjustment on $name skin", ({ rgb }) => {
+    const plan = buildIdentityPixelPlans(analysisWithGeometry()).facePixelPlan;
+    const contrast = buildFacialContrastPlan(rgb, [57, 43, 37], {
+      eyeColor: [79, 64, 50], lipColor: "natural", irisLightness: "medium", contrastBoost: false,
+    }, plan.salience);
+    const distance = facialColorDistance(contrast.lipMid, rgb);
+    expect(distance).toBeGreaterThanOrEqual(contrast.targets.mouth);
+    expect(distance).toBeLessThanOrEqual(contrast.targets.mouth + 12);
+  });
+
+  it("does not couple the stronger mouth floor into eye or nose colours", () => {
+    const plan = buildIdentityPixelPlans(analysisWithGeometry()).facePixelPlan;
+    const common = { eyeColor: [79, 64, 50] as FacialRgb, irisLightness: "medium" as const, contrastBoost: false };
+    const natural = buildFacialContrastPlan(SKINS[1].rgb, [57, 43, 37], { ...common, lipColor: "natural" }, plan.salience);
+    const berry = buildFacialContrastPlan(SKINS[1].rgb, [57, 43, 37], { ...common, lipColor: "berry" }, plan.salience);
+    expect({ eyeDark: natural.eyeDark, eyeMid: natural.eyeMid, noseShade: natural.noseShade })
+      .toEqual({ eyeDark: berry.eyeDark, eyeMid: berry.eyeMid, noseShade: berry.noseShade });
+  });
+
   it("retains feature colours in the actual 32px front-view raster", () => {
     const plan = buildIdentityPixelPlans(analysisWithGeometry()).facePixelPlan;
     const atlas = createFacePlanAtlasCandidate(solidAtlas(SKINS[1].rgb), plan, style(SKINS[1].hex));

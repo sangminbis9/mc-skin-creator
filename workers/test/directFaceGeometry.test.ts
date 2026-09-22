@@ -103,9 +103,11 @@ describe("direct source boundaries, no derived-ratio fabrication", () => {
       expect(after.hairPlan, item.id).toEqual(base.hairPlan);
       expect(after.outfitPlan, item.id).toEqual(base.outfitPlan);
       expect(after.headIdentityPlan.glasses, item.id).toEqual(base.headIdentityPlan.glasses);
+      const contourCells = [...base.facePixelPlan.pixels, ...after.facePixelPlan.pixels]
+        .filter(p => p.cluster === "complexion");
       const nonContourOwnership = (value: typeof after.headIdentityPlan.ownership) => value && ({ ...value,
         cells: value.cells.filter(cell => cell.sourceGroupId !== "complexion"
-          && !base.facePixelPlan.pixels.some(p => p.cluster === "complexion" && cell.layer === "base" && cell.face === "front" && p.x === cell.x && p.y === cell.y))
+          && !contourCells.some(p => cell.layer === "base" && cell.face === "front" && p.x === cell.x && p.y === cell.y))
           .sort((a, b) => `${a.layer}:${a.face}:${a.x}:${a.y}`.localeCompare(`${b.layer}:${b.face}:${b.x}:${b.y}`)),
       });
       expect(nonContourOwnership(after.headIdentityPlan.ownership), item.id).toEqual(nonContourOwnership(base.headIdentityPlan.ownership));

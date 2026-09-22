@@ -69,6 +69,30 @@ function ensureMinimumLuminance(candidate: FacialRgb, minimum: number): FacialRg
   return warmWhite;
 }
 
+/**
+ * Moves a source-derived colour only as far as needed to clear a perceptual
+ * floor. Unlike ensureContrast's legacy fallback, this cannot jump straight
+ * to the most distant light/dark endpoint when a colour misses by one step.
+ */
+function ensureBoundedContrast(
+  candidate: FacialRgb,
+  background: FacialRgb,
+  minimumDistance: number,
+  minimumLuminanceDifference: number,
+  preferDark: boolean,
+): FacialRgb {
+  const readable = (color: FacialRgb) => facialColorDistance(color, background) >= minimumDistance
+    && Math.abs(luminance(color) - luminance(background)) >= minimumLuminanceDifference;
+  if (readable(candidate)) return candidate;
+  const darken = preferDark || luminance(candidate) <= luminance(background);
+  const endpoint = darken ? shade(candidate, 0.42) : mix(candidate, [238, 230, 212], 0.7);
+  for (let step = 1; step <= 32; step++) {
+    const adjusted = mix(candidate, endpoint, step / 32);
+    if (readable(adjusted)) return adjusted;
+  }
+  return endpoint;
+}
+
 export function buildFacialContrastPlan(
   skin: FacialRgb,
   hair: FacialRgb,
@@ -77,8 +101,13 @@ export function buildFacialContrastPlan(
 ): FacialContrastPlan {
   const boost = style.contrastBoost ? 16 : 0;
   const eyeTarget = 92 + boost + Math.round(Math.max(salience(identity, "eye_width"), salience(identity, "eye_openness")) * 16);
-  const browTarget = 62 + boost + Math.round(salience(identity, "brow_strength") * 20);
-  const mouthTarget = 54 + boost + Math.round(Math.max(salience(identity, "mouth_width"), salience(identity, "mouth_topology")) * 18);
+  const browSalience = Math.max(salience(identity, "brow_position"), salience(identity, "brow_strength"));
+  const mouthSalience = Math.max(salience(identity, "mouth_width"), salience(identity, "mouth_topology"));
+  const browTarget = 62 + boost + Math.round(browSalience * 20);
+  // Closed/source-natural lips commonly clear a small RGB-distance threshold
+  // through chroma alone, then visually merge with the complexion at preview
+  // scale. Keep the hue family and raise only the role-specific floor.
+  const mouthTarget = 112 + boost + Math.round(mouthSalience * 30);
   const lipSources: Record<FacialContrastStyle["lipColor"], FacialRgb> = {
     natural: mix(skin, [126, 67, 60], 0.38),
     rose: mix(skin, [157, 78, 89], 0.58),
@@ -90,10 +119,12 @@ export function buildFacialContrastPlan(
   const eyeFactor = style.irisLightness === "light" ? 0.76 : style.irisLightness === "medium" ? 0.6 : 0.48;
   const eyeDark = ensureContrast(shade(style.eyeColor, eyeFactor), skin, eyeTarget, true);
   const eyeMid = ensureContrast(mix(eyeDark, skin, 0.27), skin, Math.max(70, eyeTarget - 25), true);
-  const browDark = ensureContrast(shade(hair, 0.54), skin, browTarget, true);
-  const browMid = ensureContrast(mix(shade(hair, 0.72), skin, 0.1), skin, Math.max(48, browTarget - 18), true);
-  const lipMid = ensureContrast(lipSources[style.lipColor], skin, mouthTarget, false);
-  const lipDark = ensureContrast(shade(lipMid, 0.56), skin, mouthTarget + 18, true);
+  const browLuminanceFloor = 56 + Math.round(browSalience * 12);
+  const browDark = ensureBoundedContrast(shade(hair, 0.54), skin, browTarget, browLuminanceFloor, true);
+  const browMid = ensureBoundedContrast(mix(shade(hair, 0.72), skin, 0.1), skin, Math.max(48, browTarget - 18), browLuminanceFloor, true);
+  const mouthLuminanceFloor = 34 + Math.round(mouthSalience * 14);
+  const lipMid = ensureBoundedContrast(lipSources[style.lipColor], skin, mouthTarget, mouthLuminanceFloor, false);
+  const lipDark = ensureBoundedContrast(shade(lipMid, 0.56), skin, mouthTarget + 18, mouthLuminanceFloor + 8, true);
   // Teeth are warm and complexion-linked, avoiding a fixed white sparkle.
   const teethBase = ensureContrast(mix(skin, [232, 222, 202], 0.58), skin, 46 + Math.round(salience(identity, "mouth_topology") * 12), false);
   const teethLight = ensureMinimumLuminance(teethBase, Math.max(115, luminance(lipMid) + 24, luminance(lipDark) + 24));

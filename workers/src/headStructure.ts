@@ -605,7 +605,11 @@ export function buildGlassesStructurePlan(analysis: PhotoAnalysis, layout: FaceL
   const round = glasses === "round" || nearGlasses("round|circular|coke[-\\s]+bottle");
   const heavyFrame = nearGlasses("thick|heavy|bold|coke[-\\s]+bottle");
   const thin = nearGlasses("thin|wire|fine|delicate|narrow") && !heavyFrame;
-  const oversized = nearGlasses("oversized|very[-\\s]+large|coke[-\\s]+bottle");
+  // "large round glasses" is the canonical source wording used by the
+  // production analysis. Treat size independently from roundness: `round`
+  // selects the contour family, while an explicitly large footprint selects
+  // the oversized member of that family.
+  const oversized = round && nearGlasses("large|oversized|very[-\\s]+large|coke[-\\s]+bottle");
   const topology: GlassesTopology = oversized ? "oversized" : round ? thin ? "round_thin" : "round_heavy" : thin ? "rectangular_thin" : "rectangular_heavy";
   const framePixels: GlassesStructurePixel[] = [];
   const sideArms: GlassesStructurePixel[] = [];
@@ -616,19 +620,32 @@ export function buildGlassesStructurePlan(analysis: PhotoAnalysis, layout: FaceL
   const centers = [clamp(Math.round(mean(layout.leftEyeXs)), 2, 2), clamp(Math.round(mean(layout.rightEyeXs)), 5, 5)];
   const centerY = clamp(Math.round((layout.leftEyeRow + layout.rightEyeRow) / 2), 3, 5);
   for (const [index, centerX] of centers.entries()) {
-    lensOpenings.push({ x: centerX, y: centerY });
+    if (topology === "oversized") {
+      // Two transparent centre cells keep the base-layer iris readable. The
+      // upper brow row remains outside the lens instead of being hidden by a
+      // nominally larger but less recognizable frame.
+      for (const y of [centerY, centerY + 1]) lensOpenings.push({ x: centerX, y });
+    } else lensOpenings.push({ x: centerX, y: centerY });
     const outerRole: GlassesPixelRole = index === 0 ? "rim_light" : "rim_shadow";
     if (topology === "round_thin") {
       putGlassesPixel(framePixels, "front", centerX - 1, centerY, outerRole);
       putGlassesPixel(framePixels, "front", centerX, centerY - 1, "rim_mid");
       putGlassesPixel(framePixels, "front", centerX + 1, centerY, "rim_shadow");
       putGlassesPixel(framePixels, "front", centerX, centerY + 1, "rim_mid");
-    } else if (topology === "round_heavy" || topology === "oversized") {
-      const radiusY = topology === "oversized" ? 2 : 1;
+    } else if (topology === "oversized") {
+      // A 3x4 open diamond/oval is visibly larger than the 3x3 round frame,
+      // while avoiding the measured brow cells on row centerY-2.
+      putGlassesPixel(framePixels, "front", centerX, centerY - 1, "rim_light");
       putGlassesPixel(framePixels, "front", centerX - 1, centerY, outerRole);
       putGlassesPixel(framePixels, "front", centerX + 1, centerY, "rim_shadow");
-      putGlassesPixel(framePixels, "front", centerX, centerY - radiusY, "rim_light");
-      putGlassesPixel(framePixels, "front", centerX, centerY + radiusY, "rim_shadow");
+      putGlassesPixel(framePixels, "front", centerX - 1, centerY + 1, "rim_mid");
+      putGlassesPixel(framePixels, "front", centerX + 1, centerY + 1, "rim_shadow");
+      putGlassesPixel(framePixels, "front", centerX, centerY + 2, "rim_shadow");
+    } else if (topology === "round_heavy") {
+      putGlassesPixel(framePixels, "front", centerX - 1, centerY, outerRole);
+      putGlassesPixel(framePixels, "front", centerX + 1, centerY, "rim_shadow");
+      putGlassesPixel(framePixels, "front", centerX, centerY - 1, "rim_light");
+      putGlassesPixel(framePixels, "front", centerX, centerY + 1, "rim_shadow");
       putGlassesPixel(framePixels, "front", centerX - 1, centerY - 1, "rim_mid");
       putGlassesPixel(framePixels, "front", centerX + 1, centerY + 1, "rim_mid");
     } else if (topology === "rectangular_thin") {
