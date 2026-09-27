@@ -7,6 +7,7 @@ import {
   type CompactPhotoAnalysisV2,
 } from "./compactPhotoAnalysis";
 import { COMPACT_PHOTO_ANALYSIS_V3_PROMPT } from "./compactPhotoAnalysisV3";
+import { COMPACT_PHOTO_ANALYSIS_V4_PROMPT, withStructuredPortraitRegion } from "./compactPhotoAnalysisV4";
 
 export const GEMMA_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
@@ -87,6 +88,16 @@ For this provider response, renderHints groups are named objects, not positional
 Return every group, every field below, and no additional fields. Each field must use its own exact vocabulary:
 ${namedHintContract}
 This override changes representation only. Keep every other Compact v3 field and meaning exactly as instructed above.`;
+
+export const GEMMA_NAMED_PHOTO_ANALYSIS_V4_SCHEMA = withStructuredPortraitRegion(
+  GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA,
+);
+if (GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT.split(COMPACT_PHOTO_ANALYSIS_V3_PROMPT).length !== 2) {
+  throw new Error("v4 Gemma prompt derivation no longer matches frozen v3 contract");
+}
+export const GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT = GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT
+  .replace(COMPACT_PHOTO_ANALYSIS_V3_PROMPT, COMPACT_PHOTO_ANALYSIS_V4_PROMPT)
+  .replace("Keep every other Compact v3 field", "Keep every other Compact v4 field");
 
 function validateSchema(schema: Schema, raw: unknown): string[] {
   const errors: string[] = [];

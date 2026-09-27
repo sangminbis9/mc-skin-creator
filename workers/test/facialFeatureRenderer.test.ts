@@ -82,9 +82,15 @@ describe("facial feature renderer readability", () => {
     const plan: FacePixelPlan = {
       ...quantized,
       pixels: [
-        ...quantized.pixels,
-        { x: quantized.layout.leftEyeXs.at(-1)!, y: quantized.layout.leftEyeRow, role: "iris", cluster: "left_eye" },
-        { x: quantized.layout.rightEyeXs.at(-1)!, y: quantized.layout.rightEyeRow, role: "iris", cluster: "right_eye" },
+        // Replace the eye fixture explicitly: appending to a quantized eye
+        // duplicates existing cells and can accidentally create a vertical
+        // pair when tilt is present. This test covers horizontal paint roles.
+        ...quantized.pixels.filter(pixel => pixel.role !== "iris" && pixel.role !== "sclera"
+          && !(pixel.y === 4 && [1, 2, 5, 6].includes(pixel.x))),
+        { x: 1, y: 4, role: "iris", cluster: "left_eye" },
+        { x: 2, y: 4, role: "iris", cluster: "left_eye" },
+        { x: 5, y: 4, role: "iris", cluster: "right_eye" },
+        { x: 6, y: 4, role: "iris", cluster: "right_eye" },
       ],
     };
     const rendered = createFacePlanAtlasCandidate(solidAtlas([181, 126, 91]), plan, style("#b57e5b"));

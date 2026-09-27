@@ -72,9 +72,22 @@ function drawPattern(
   } else if (pattern.kind === "vertical_stripe") {
     for (let x = 1; x < rect.w; x += pattern.frequency) for (let y = 1; y < Math.min(rect.h, maxRows); y++) put(atlas, rect, x, y, faceColor);
   } else if (pattern.kind === "checker_block") {
-    for (let y = 1; y < Math.min(rect.h, maxRows); y += 2) for (let x = y % 4 === 1 ? 0 : 2; x < rect.w; x += 4) {
-      put(atlas, rect, x, y, faceColor);
-      put(atlas, rect, Math.min(rect.w - 1, x + 1), y, shade(faceColor, 0.86));
+    if (pattern.construction === "crossed_bands") {
+      // Continue horizontal bands around the UV sides and cross them with a
+      // quieter vertical thread. Both axes remain connected at 8px scale.
+      for (let y = 1; y < Math.min(rect.h, maxRows); y++) for (let x = 0; x < rect.w; x++) {
+        const band = y % 3 === 2, thread = x % 4 === 1;
+        if (band) put(atlas, rect, x, y, thread ? shade(faceColor, 0.78) : faceColor);
+        else if (thread) {
+          const i = offset(atlas, rect, x, y);
+          put(atlas, rect, x, y, blend([atlas.rgba[i], atlas.rgba[i + 1], atlas.rgba[i + 2]], faceColor, 0.35));
+        }
+      }
+    } else {
+      for (let y = 1; y < Math.min(rect.h, maxRows); y += 2) for (let x = y % 4 === 1 ? 0 : 2; x < rect.w; x += 4) {
+        put(atlas, rect, x, y, faceColor);
+        put(atlas, rect, Math.min(rect.w - 1, x + 1), y, shade(faceColor, 0.86));
+      }
     }
   } else if (pattern.kind === "center_graphic" && face === "front") {
     const cx = pattern.anchor === "left" ? 1 : pattern.anchor === "right" ? rect.w - 3 : Math.floor(rect.w / 2) - 1;
@@ -204,7 +217,10 @@ function drawOuter(atlas: RawImage, plan: OutfitPlan): void {
   const accent = rgb(plan.upper.accentColor, [236, 231, 220]);
   const lower = rgb(plan.lower.baseColor, [55, 67, 88]);
   const has = (region: OutfitPlan["outerLayer"]["regions"][number]) => plan.outerLayer.regions.includes(region);
-  if (has("collar")) for (const [x, y] of [[1, 0], [2, 0], [2, 1], [5, 0], [6, 0], [5, 1]] as const) put(atlas, body.front, x, y, x < 4 ? accent : shade(accent, 0.88));
+  if (has("collar")) {
+    const collar = rgb(plan.upper.collarColor ?? plan.upper.accentColor, accent);
+    for (const [x, y] of [[1, 0], [2, 0], [2, 1], [5, 0], [6, 0], [5, 1]] as const) put(atlas, body.front, x, y, x < 4 ? collar : shade(collar, 0.88));
+  }
   if (has("lapels")) {
     for (let y = 0; y < Math.min(8, plan.lower.waistRow); y++) {
       const spread = Math.min(2, Math.floor(y / 3));

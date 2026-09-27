@@ -15,12 +15,21 @@ function registerBridgeIdentity(registry, candidatePid, terminalPid) {
   }
   return registry.pid === candidatePid ? "duplicate" : "reject";
 }
-module.exports = { registerBridgeIdentity };
+function auditFeatureArgs(mode = "primary-only") {
+  if (mode !== "primary-only" && mode !== "current-default-e2e") throw new Error("invalid_audit_feature_mode");
+  // E2E inherits the production face-geometry flag; do not force it true or weaken its gate.
+  return [...(mode === "primary-only" ? ["--var", "FACE_GEOMETRY_ENRICHMENT_ENABLED:false"] : []),
+    "--var", "IDENTITY_GEOMETRY_ENRICHMENT_ENABLED:false",
+    "--var", "SYNCHRONOUS_ENHANCEMENTS_ENABLED:false"];
+}
+module.exports = { registerBridgeIdentity, auditFeatureArgs };
 
 if (require.main === module && role === "owner") {
   const pty = require(process.argv[3]);
   const config = process.argv[4];
   const envFile = process.argv[5];
+  const featureMode = process.argv[6] || "primary-only";
+  auditFeatureArgs(featureMode); // Validate before opening the owner/bridge session.
   const pipe = `\\\\.\\pipe\\primary-audit-${randomUUID()}`;
   let terminal;
   let ready = false;
@@ -98,7 +107,7 @@ if (require.main === module && role === "owner") {
     connection.on("error", () => {});
   });
   server.listen(pipe, () => {
-    terminal = pty.spawn(process.execPath, [__filename, "bridge", pipe, config, envFile], {
+    terminal = pty.spawn(process.execPath, [__filename, "bridge", pipe, config, envFile, featureMode], {
       cwd: process.cwd(), cols: 120, rows: 30,
       env: { ...process.env, CI: "true", WRANGLER_WRITE_LOGS: "false", WRANGLER_SEND_METRICS: "false",
         WRANGLER_SEND_ERROR_REPORTS: "false", CLOUDFLARE_INCLUDE_PROCESS_ENV: "false" },
@@ -134,6 +143,7 @@ if (require.main === module && role === "owner") {
   const pipe = process.argv[3];
   const config = process.argv[4];
   const envFile = process.argv[5];
+  const featureArgs = auditFeatureArgs(process.argv[6] || "primary-only");
   const connection = net.createConnection(pipe);
   const send = value => connection.write(JSON.stringify({ ...value, bridgePid: process.pid }) + "\n");
   connection.on("connect", () => {
@@ -141,9 +151,7 @@ if (require.main === module && role === "owner") {
       "test/primaryFaceMeasurementAuditWorker.ts", "--remote", "--config", config,
       "--env-file", envFile, "--ip", "127.0.0.1", "--port", "0", "--local-protocol", "http",
       "--show-interactive-dev-session", "true", "--log-level", "info", "--no-types",
-      "--var", "FACE_GEOMETRY_ENRICHMENT_ENABLED:false",
-      "--var", "IDENTITY_GEOMETRY_ENRICHMENT_ENABLED:false",
-      "--var", "SYNCHRONOUS_ENHANCEMENTS_ENABLED:false"], {
+      ...featureArgs], {
       cwd: process.cwd(), stdio: ["inherit", "inherit", "inherit", "ipc"], windowsHide: true,
     });
     send({ kind: "bridge_started", wrapperPid: child.pid,

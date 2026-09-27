@@ -1,4 +1,6 @@
 import { runFaceIdentityGeometryAnalysis } from "./faceIdentityGeometry";
+import { observedGoateeMustache } from "./facialHairEvidence";
+import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
 /**
  * 사진 → 마인크래프트 스킨 생성 파이프라인.
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
@@ -117,7 +119,7 @@ function primaryRenderContext(analysis: PhotoAnalysis) {
     ...(renderAnalysis.faceMeasurementEvidence ? { faceMeasurementEvidence: renderAnalysis.faceMeasurementEvidence } : {}),
     skinPlan,
   };
-  return { renderAnalysis, skinPlan, features, summary, faceStyle: buildFaceStyle(renderAnalysis, features) };
+  return { renderAnalysis, skinPlan, features, summary, faceStyle: buildFaceStyle(renderAnalysis, features, skinPlan.hairPlan) };
 }
 
 async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number): Promise<GenerateResult> {
@@ -691,7 +693,7 @@ export async function generateSkin(
     ...(renderAnalysis.faceMeasurementEvidence ? { faceMeasurementEvidence: renderAnalysis.faceMeasurementEvidence } : {}),
     skinPlan,
   };
-  const faceStyle = buildFaceStyle(renderAnalysis, features);
+  const faceStyle = buildFaceStyle(renderAnalysis, features, skinPlan.hairPlan);
 
   // ---------- 2) 이미지 생성 (feature flag) ----------
   let skinPngBase64: string | null = null;
@@ -2071,6 +2073,7 @@ export function applyFocusedNeckDetail(
 export function buildFaceStyle(
   analysis: PhotoAnalysis,
   features: Record<string, unknown>,
+  hairPlan?: SkinPlan["hairPlan"],
 ): FaceStyle {
   const raw = analysis.fallbackFeatures as unknown as Record<string, unknown>;
   const style: FaceStyle = {
@@ -2149,10 +2152,17 @@ export function buildFaceStyle(
     sleeveLength: String(raw.sleeveLength ?? DEFAULT_FACE_STYLE.sleeveLength),
     bottomType: String(raw.bottomType ?? DEFAULT_FACE_STYLE.bottomType),
   };
+  if (style.facialHair === "goatee" && observedGoateeMustache(
+    analysis.observed.face, analysis.canonicalIdentity.mustPreserve, analysis.visibleRegions.face,
+  )) style.goateeHasMustache = true;
   completeVisibleUpperDetails(analysis, style);
   completeVisibleAccessoryDetails(analysis, style);
   completeInferredLowerDetails(analysis, style);
   completeCanonicalIdentityDetails(analysis, style);
+  // The resolved plan owns depth. Keep the surface's coily/curly texture but
+  // do not let a coarse cached category demand raised clumps after the plan
+  // explicitly chose scalp-close hair. The no-plan path stays unchanged.
+  if (hairPlan?.surfaceOnly) style.hairstyle = "buzz";
   return style;
 }
 
@@ -3290,7 +3300,11 @@ export function normalizeAnalysisForRendering(
     // retaining a longer enum creates shoulder drapes absent from the photo.
     renderHints.overallHairLength =
       renderHints.hairBackShape === "undercut" ||
-      renderHints.sideHairShape === "undercut"
+      renderHints.sideHairShape === "undercut" ||
+      // General short-cut completion must not lengthen a directly observed
+      // cropped endpoint (including a higher-priority focused correction).
+      (focusedOverallHairLength ?? explicitOverallHairLength) === "cropped"
+      || (!focusedOverallHairLength && !explicitOverallHairLength && observedQualifiedScalpCloseHair(analysis))
         ? "cropped"
         : "ear";
   }
@@ -4577,7 +4591,7 @@ function completeCanonicalIdentityDetails(
     canonicalText,
   ];
   const hairIdentityText = joinedAnalysisText(headValues);
-  const explicitlyBaldScalp = relevantClauseList(
+  const explicitlyBaldScalp = !observedQualifiedScalpCloseHair(analysis) && relevantClauseList(
     headValues,
     /\b(?:bald|balding|bald[-\s]+top|bare[-\s]+scalp|smooth[-\s]+scalp|receding[-\s]+hairline)\b/,
   ).some(
@@ -4643,9 +4657,21 @@ function completeCanonicalIdentityDetails(
     ["chest", "waist", "hip"].includes(
       analysis.renderHints.overallHairLength ?? "",
     ) ||
-    /\b(?:long|chest[- ]length|waist[- ]length|hip[- ]length)\b(?:\s+[a-z-]+){0,4}\s+hair\b|\bhair\b(?:\s+[a-z-]+){0,4}\s+\b(?:long|chest[- ]length|waist[- ]length|hip[- ]length)\b/.test(
-      hairIdentityText,
-    );
+    // A hair noun and its length must share one evidence field/clause.
+    // Joining "no side hair" with "long-sleeve shirt" manufactures long
+    // hair, even after the same function correctly selected a bald scalp.
+    // Keep canonical entries separate too, and never use sleeve length as
+    // hair length when both are described in a single sentence.
+    relevantClauseList([
+      analysis.observed.hair,
+      analysis.observed.accessories,
+      analysis.observed.clothing,
+      analysis.identityPrompt,
+      analysis.outfitPrompt,
+      analysis.canonicalIdentity.overallImpression,
+      ...analysis.canonicalIdentity.mustPreserve,
+      ...analysis.canonicalIdentity.features.flatMap(feature => [feature.feature, feature.evidence]),
+    ], /\b(?:long(?![-\s–—]+sleeve(?:s|d)?\b)|chest[- ]length|waist[- ]length|hip[- ]length)\b(?:\s+[a-z-]+){0,4}\s+hair\b|\bhair\b(?:\s+[a-z-]+){0,4}\s+\b(?:long(?![-\s–—]+sleeve(?:s|d)?\b)|chest[- ]length|waist[- ]length|hip[- ]length)\b/).length > 0;
   if (
     longHairConstruction &&
     !["bun", "ponytail", "twintails"].includes(style.hairstyle ?? "")

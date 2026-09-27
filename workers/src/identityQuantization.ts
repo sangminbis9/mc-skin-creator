@@ -782,7 +782,10 @@ export function quantizeResolvedFaceGeometry(analysis: PhotoAnalysis, geometry: 
     ? geometry.eyes.openness >= 0.68 ? "open" : geometry.eyes.openness <= 0.34 ? "compact" : "readable"
     : fallback.eyeOpenness;
   const eyeTiltOffset: FaceLayoutPlan["eyeTiltOffset"] = eyesFromGeometry
-    ? rounded(geometry.eyes.verticalAsymmetry * 4, -1, 1)
+    // Inter-eye height difference already owns left/right anchor rows. It is
+    // not a measurement of either eyelid's slope; applying it again inside
+    // each eye can merge an iris with its brow or collapse its open extension.
+    ? 0
     : fallback.eyeTiltOffset;
   const browTiltOffset = browTiltFor(browSlopeTopology);
   const mouthOpening = mouthFromGeometry ? geometry.mouth.opening : fallback.mouthOpening;

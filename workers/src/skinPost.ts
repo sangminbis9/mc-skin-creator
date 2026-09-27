@@ -7,6 +7,7 @@
  */
 
 import type { RawImage } from "./png";
+import { facialHairBaseFootprint } from "./facialHairFootprint";
 import type { FacePixelPlan, HairPlan } from "./identityPlans";
 import {
   measurePlannedOuterContract,
@@ -449,6 +450,8 @@ function measureCraftTexture(atlas: RawImage): Pick<
 
 /** Analysis-derived expectations for rejecting flat default-looking skins. */
 export interface AtlasCraftStyle {
+  facialHair?: string;
+  goateeHasMustache?: boolean;
   eyeSpacing?: string;
   eyeTilt?: string;
   glasses?: string;
@@ -952,6 +955,12 @@ export function validateAtlasCraft(
       excluded.add(`${outer},${outerRow}`);
       excluded.add(`${inner},${row}`);
     }
+    // Readability uses one anchor per eye, but every authored eye cell is a
+    // landmark. In a two-row eye, the upper iris must not become a complexion
+    // sample and make the opposite eye compare against its own iris colour.
+    for (const point of eyeTopologyPlan?.pixels.filter(pixel => pixel.role === "iris" || pixel.role === "sclera") ?? []) {
+      excluded.add(`${point.x},${point.y}`);
+    }
     // Production passes the integrated SkinPlan as planContext. Use the same
     // authoritative FacePixelPlan selected above for eyes; otherwise smile
     // corners and asymmetric/offset mouths are checked at legacy coordinates.
@@ -969,6 +978,11 @@ export function validateAtlasCraft(
     for (const point of noseTopologyPlan?.pixels.filter((pixel) => pixel.cluster === "nose") ?? []) {
       excluded.add(`${point.x},${point.y}`);
     }
+    // Planned landmarks may leave only the chin in the central sample window.
+    // Authored facial hair is not complexion: otherwise a dark goatee can both
+    // reject a visible iris and falsely make skin-coloured missing eyes pass.
+    // Keep the established no-plan heuristic and the contrast cutoff unchanged.
+    if (eyeTopologyPlan) for (const point of facialHairBaseFootprint(style)) excluded.add(`${point.x},${point.y}`);
     for (let y = 3; y <= 7; y++) {
       for (let x = 0; x < face.w; x++) {
         if (excluded.has(`${x},${y}`)) continue;

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import Ajv from "ajv";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ANALYSIS_PROMPT, PHOTO_ANALYSIS_SCHEMA, validatePhotoAnalysis } from "../src/analysis";
@@ -19,7 +19,7 @@ import { validateAtlasCraft } from "../src/skinPost";
 import { analysisFromAnnotation, type AnnotatedCase } from "./generalizationSupport";
 import { semanticFixture, semanticNames, wireFixture, codeSchema, transcode, enumPaths } from "./compactV3Support";
 
-const ROOT = process.env.COMPACT_V3_OUTPUT_ROOT ?? "evaluation-artifacts/compact-v3-offline-20260910";
+let outputRoot: Promise<string> | undefined;
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const context = { imageCount: 1 };
 const providerValidate = new Ajv({ allErrors: true }).compile(COMPACT_PHOTO_ANALYSIS_V3_SCHEMA);
@@ -65,8 +65,12 @@ function relaxStructure(node: Schema, root = true): Schema {
 const candidateB = codeSchema(relaxStructure(v2));
 const promptB = `${COMPACT_PHOTO_ANALYSIS_V2_PROMPT}\nCODED OUTPUT ONLY: convert categorical values below to field-local codes after observation; codes never replace free text. Each array item uses the codebook at its [] path.\n${enumPaths(v2).map(e => `${e.path}: ${e.values.map((v, i) => `c${i.toString(36)}=${JSON.stringify(v)}`).join("|")}`).join("\n")}`;
 async function artifact(name: string, value: unknown) {
-  await mkdir(ROOT, { recursive: true });
-  await writeFile(`${ROOT}/${name}.json`, JSON.stringify(value, null, 2));
+  // Reserve once, fail closed on a reused explicit root, and never overwrite a file.
+  outputRoot ??= process.env.COMPACT_V3_OUTPUT_ROOT
+    ? mkdir(process.env.COMPACT_V3_OUTPUT_ROOT).then(() => process.env.COMPACT_V3_OUTPUT_ROOT!)
+    : mkdtemp("evaluation-artifacts/compact-v3-offline-");
+  const root = await outputRoot;
+  await writeFile(`${root}/${name}.json`, JSON.stringify(value, null, 2), { flag: "wx" });
 }
 function render(analysis: Parameters<typeof normalizeAnalysisForRendering>[0]) {
   const normalized = normalizeAnalysisForRendering(analysis);

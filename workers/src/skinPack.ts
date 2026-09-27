@@ -9,6 +9,7 @@
 import type { RawImage } from "./png";
 import type { FacePixelInstruction, FacePixelPlan, FacePaletteRole, HairPlan, HeadIdentityPlan, HairStructureRole } from "./identityPlans";
 import { buildFacialContrastPlan, type FacialContrastPlan } from "./facialContrast";
+import { facialHairBaseFootprint } from "./facialHairFootprint";
 import type { OutfitPlan } from "./outfitIdentity";
 import { applyOutfitPlan } from "./outfitRenderer";
 import {
@@ -52,6 +53,8 @@ export interface FaceStyle {
   eyebrowThickness: string; // thin | normal | thick
   expression: string; // smile | neutral | serious
   facialHair: string; // none | mustache | goatee | beard | stubble
+  /** Corroborated source combination; absent for an ordinary chin-only goatee. */
+  goateeHasMustache?: boolean;
   glasses: string; // none | regular | round | sunglasses
   glassesScale?: "normal" | "large";
   /** bald | buzz | short | medium | long | ponytail | bun | twintails | curly | afro */
@@ -889,6 +892,7 @@ function composeFace(
   hairColor: Rgb,
   skinColor: Rgb,
   style: FaceStyle,
+  hasFacePixelPlan = false,
 ): void {
   const face = CLASSIC_LAYOUT.head.base.front;
   const overlay = CLASSIC_LAYOUT.head.overlay.front;
@@ -1076,26 +1080,35 @@ function composeFace(
     const outerBrowY =
       style.eyeShape === "narrow" || eyeTilt === "upturned" ? 2 : 3;
     const innerBrowY = style.eyeShape === "narrow" ? 2 : 3;
-    put(
-      face,
-      outer,
-      outerBrowY,
-      browStronglyOccludedByFringe
-        ? mixRgb(brow, skinColor, 0.94)
-        : browOccludedByFringe
-          ? mixRgb(brow, skinColor, 0.72)
-          : brow,
-    );
-    put(
-      face,
-      inner,
-      innerBrowY,
-      browStronglyOccludedByFringe
-        ? mixRgb(brow, skinColor, 0.9)
-        : browOccludedByFringe
-          ? mixRgb(brow, skinColor, 0.58)
-          : brow,
-    );
+    // A selected FacePixelPlan owns the complete brow footprint, not just the
+    // cells it overwrites later. Painting this legacy footprint first leaves
+    // unplanned dark strokes behind when measured brows move or shrink.
+    if (!hasFacePixelPlan) {
+      put(
+        face,
+        outer,
+        outerBrowY,
+        browStronglyOccludedByFringe
+          ? mixRgb(brow, skinColor, 0.94)
+          : browOccludedByFringe
+            ? mixRgb(brow, skinColor, 0.72)
+            : brow,
+      );
+      put(
+        face,
+        inner,
+        innerBrowY,
+        browStronglyOccludedByFringe
+          ? mixRgb(brow, skinColor, 0.9)
+          : browOccludedByFringe
+            ? mixRgb(brow, skinColor, 0.58)
+            : brow,
+      );
+    }
+    // The exact eye footprint is authored by the same plan. Do not seed a
+    // second eye/eyelid at legacy FaceStyle coordinates underneath it: cells
+    // outside the measured footprint would survive the later plan replay.
+    if (hasFacePixelPlan) continue;
     const baseScleraMix =
       style.eyeShape === "round"
         ? 0.36
@@ -1186,30 +1199,31 @@ function composeFace(
       : shadeRgb(brow, 0.96);
   const browShadow = shadeRgb(brow, 0.74);
   const [[leftOuter, leftInner], [rightOuter, rightInner]] = eyePairs;
-  if (!browStronglyOccludedByFringe && eyebrowShape === "arched") {
+  if (!hasFacePixelPlan && !browStronglyOccludedByFringe && eyebrowShape === "arched") {
     put(face, leftInner, 2, browAccent);
     put(face, rightOuter, 2, browAccent);
     put(overlay, leftOuter, 3, shadeRgb(brow, 0.9));
     put(overlay, rightInner, 3, shadeRgb(brow, 0.9));
-  } else if (!browStronglyOccludedByFringe && eyebrowShape === "slanted") {
+  } else if (!hasFacePixelPlan && !browStronglyOccludedByFringe && eyebrowShape === "slanted") {
     put(face, leftOuter, 2, browAccent);
     put(face, rightInner, 2, browAccent);
     put(overlay, leftInner, 3, browShadow);
     put(overlay, rightOuter, 3, browShadow);
-  } else if (!browStronglyOccludedByFringe && eyebrowShape === "soft") {
+  } else if (!hasFacePixelPlan && !browStronglyOccludedByFringe && eyebrowShape === "soft") {
     const softBrow = mixRgb(brow, skinColor, 0.48);
     for (const [outer, inner] of eyePairs) {
       put(face, outer, 3, softBrow);
       put(face, inner, 3, mixRgb(softBrow, brow, 0.22));
     }
   } else if (
+    !hasFacePixelPlan &&
     !browStronglyOccludedByFringe &&
     style.eyebrowThickness === "thick"
   ) {
     put(face, leftOuter, 2, browAccent);
     put(face, rightInner, 2, browAccent);
   }
-  if (restrainedMatureEyes) {
+  if (!hasFacePixelPlan && restrainedMatureEyes) {
     const subtleBrow = mixRgb(brow, skinColor, 0.64);
     for (const [outer, inner] of eyePairs) {
       put(face, outer, 2, shadeRgb(skinColor, 1.01));
@@ -1347,9 +1361,13 @@ function composeFace(
   const lipFull = mixRgb(mouthColor, [188, 92, 78], 0.36);
   const lipLight = mixRgb(lipFull, skinColor, 0.42);
 
+  // A planned mouth may be narrower or on another row. Legacy lip/teeth
+  // strokes outside that footprint would otherwise survive the plan replay.
+  // Facial hair below remains independent and is still painted normally.
   if (
-    mouthShape === "wide" ||
-    (style.expression === "smile" && mouthShape === "small")
+    !hasFacePixelPlan &&
+    (mouthShape === "wide" ||
+      (style.expression === "smile" && mouthShape === "small"))
   ) {
     const smiling = style.expression === "smile";
     const teethVisible = mouthOpening === "teeth_visible";
@@ -1425,7 +1443,7 @@ function composeFace(
       put(face, 3, 7, mixRgb(lipFull, skinColor, 0.3));
       put(face, 4, 7, mixRgb(lipLight, skinColor, 0.36));
     }
-  } else if (mouthShape === "full") {
+  } else if (!hasFacePixelPlan && mouthShape === "full") {
     // mouthShape and lipFullness are independent observations. A genuinely
     // full/defined mouth has a broader footprint than a compact mouth with
     // full lips, but its soft pigment corners must not read as the dark,
@@ -1435,15 +1453,16 @@ function composeFace(
     put(face, 3, 6, lipFull);
     put(face, 4, 6, shadeRgb(lipLight, 0.94));
     put(face, 5, 6, mixRgb(shadeRgb(lipFull, 0.9), skinColor, 0.5));
-  } else if (lipFullness === "full") {
+  } else if (!hasFacePixelPlan && lipFullness === "full") {
     // Preserve the analysed "small full lips" combination as a saturated
     // two-pixel cluster rather than widening every full-lipped person.
     put(face, 3, 6, lipFull);
     put(face, 4, 6, shadeRgb(lipLight, 0.94));
   } else if (
-    mouthShape === "thin" ||
-    lipFullness === "thin" ||
-    style.expression === "serious"
+    !hasFacePixelPlan &&
+    (mouthShape === "thin" ||
+      lipFullness === "thin" ||
+      style.expression === "serious")
   ) {
     put(face, 3, 6, shadeRgb(mouthDark, 1.04));
     put(face, 4, 6, shadeRgb(mouthDark, 0.86));
@@ -1451,7 +1470,7 @@ function composeFace(
       put(overlay, 2, 6, mixRgb(mouthDark, skinColor, 0.35));
       put(overlay, 5, 6, mixRgb(mouthDark, skinColor, 0.35));
     }
-  } else {
+  } else if (!hasFacePixelPlan) {
     put(face, 3, 6, mouthDark);
     put(face, 4, 6, mixRgb(mouthColor, skinColor, 0.36));
   }
@@ -1487,21 +1506,7 @@ function composeFace(
       style.facialHair === "stubble"
         ? mixRgb(skinColor, hairColor, 0.4)
         : shadeRgb(hairColor, 0.9);
-    if (style.facialHair === "mustache" || style.facialHair === "beard") {
-      put(face, 2, 5, beard);
-      put(face, 5, 5, beard);
-    }
-    if (style.facialHair === "goatee") {
-      put(face, 3, 7, beard);
-      put(face, 4, 7, beard);
-    }
-    if (style.facialHair === "beard" || style.facialHair === "stubble") {
-      for (let x = 0; x < 8; x++) {
-        put(face, x, 7, beard);
-      }
-      put(face, 0, 6, beard);
-      put(face, 7, 6, beard);
-    }
+    for (const { x, y } of facialHairBaseFootprint(style)) put(face, x, y, beard);
   }
 
   // 볼·턱·관자놀이 라운딩: overlay는 부풀린 박스로 렌더되므로 얼굴이 둥글게 읽힌다.
@@ -2034,7 +2039,8 @@ function restoreRect(atlas: RawImage, rect: Rect, snapshot: Uint8Array): void {
 function styleForHairPlan(style: FaceStyle, plan: HairPlan | undefined): FaceStyle {
   if (!plan) return style;
   const hairstyle =
-    plan.template === "bald" ? "bald"
+    plan.surfaceOnly ? "buzz"
+      : plan.template === "bald" ? "bald"
       : plan.template === "curly_volume" && !["curly", "afro"].includes(style.hairstyle) ? "curly"
         : plan.template === "coily_volume" && style.hairstyle !== "afro" ? "afro"
           : style.hairstyle;
@@ -2045,7 +2051,7 @@ function styleForHairPlan(style: FaceStyle, plan: HairPlan | undefined): FaceSty
     bangs: plan.fringe,
     hairPart: plan.part,
     overallHairLength:
-      plan.lengthClass === "none" ? "cropped"
+      plan.surfaceOnly || plan.lengthClass === "none" ? "cropped"
         : plan.lengthClass === "short" ? "ear"
           : plan.lengthClass === "medium" ? "shoulder"
             : style.overallHairLength ?? "waist",
@@ -9253,7 +9259,7 @@ export function packFrontViewToAtlas(
     }
   }
   if (!preservedGeneratedFace) {
-    composeFace(atlas, hairColor, skinColor, faceStyle);
+    composeFace(atlas, hairColor, skinColor, faceStyle, options.facePixelPlan !== undefined);
     // A deterministic candidate exists to express the analysis-derived 8x8
     // layout. Structural validity of composeFace is not evidence that it
     // matches that plan, so apply the plan unconditionally on this path.

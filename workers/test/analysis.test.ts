@@ -57,6 +57,55 @@ describe("runPhotoAnalysis: strict Compact v3 production boundary", () => {
   }))) {
     return { GEMINI_API_KEY: "test-key", AI: { run }, MCSKIN_KV: {} } as unknown as Env;
   }
+  it("carries the same read-only localization trace through Gemini and Gemma without changing normalized analysis", async () => {
+    const original = makeAnalysis();
+    const source = { ...original, sourceSelection: { ...original.sourceSelection,
+      portraitEvidence: "Visible primary portrait | REGION:[0.08,0.04,0.62,0.98,0.16,0.08,0.52,0.5,0.21,0.17,0.47,0.44,0.91]" } };
+    const compact = wireFixture(source);
+    vi.stubGlobal("fetch", vi.fn(async () => response(compact)));
+    const gemini = await runPhotoAnalysis(envForFallback(), photo);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: {
+      status: "FAILED_PRECONDITION", message: "Provider location unavailable",
+    } }, { status: 400 })));
+    const gemmaEnv = envForFallback(vi.fn(async () => ({
+      choices: [{ message: { content: JSON.stringify(namedWorkerFixture(compact)) } }],
+    })));
+    gemmaEnv.WORKERS_VISION_MODEL = GEMMA_VISION_MODEL;
+    const gemma = await runPhotoAnalysis(gemmaEnv, photo);
+    expect(gemini.ok).toBe(true);
+    expect(gemma.ok).toBe(true);
+    if (!gemini.ok || !gemma.ok) return;
+    expect(gemini.localizationTrace).toMatchObject({ status: "VALID", numericCount: 13, regionValidation: "passed" });
+    expect(gemma.localizationTrace).toEqual(gemini.localizationTrace);
+    expect(gemma.analysis).toEqual(gemini.analysis);
+    expect(gemini.analysis).toEqual(validatePhotoAnalysis(source).ok
+      ? (validatePhotoAnalysis(source) as { ok: true; analysis: typeof gemini.analysis }).analysis
+      : null);
+  });
+  it("carries the same ratio subdiagnostic through both primary adapters without accepting the region", async () => {
+    const original = makeAnalysis();
+    const source = { ...original, sourceSelection: { ...original.sourceSelection,
+      portraitEvidence: "Synthetic contract portrait | REGION:[0,0,1,1,0,0,0.2549,0.3,0,0,0.25,0.2,0.9]" } };
+    const compact = wireFixture(source);
+    vi.stubGlobal("fetch", vi.fn(async () => response(compact)));
+    const gemini = await runPhotoAnalysis(envForFallback(), photo);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: {
+      status: "FAILED_PRECONDITION", message: "Provider location unavailable",
+    } }, { status: 400 })));
+    const gemmaEnv = envForFallback(vi.fn(async () => ({
+      choices: [{ message: { content: JSON.stringify(namedWorkerFixture(compact)) } }],
+    })));
+    gemmaEnv.WORKERS_VISION_MODEL = GEMMA_VISION_MODEL;
+    const gemma = await runPhotoAnalysis(gemmaEnv, photo);
+    expect(gemini.ok).toBe(true);
+    expect(gemma.ok).toBe(true);
+    if (!gemini.ok || !gemma.ok) return;
+    expect(gemini.localizationTrace).toMatchObject({ status: "INVALID_REGION",
+      validationReason: "face_head_relationship_invalid", relationshipFailure: "head_width_ratio" });
+    expect(gemma.localizationTrace).toEqual(gemini.localizationTrace);
+    expect(gemini.analysis).toEqual(gemma.analysis);
+    expect(gemini.analysis.sourceSelection.portraitRegion).toBeNull();
+  });
   it("uses current schema, strict validation and rich normalization through the shared 3.8 envelope", async () => {
     const fetchMock = vi.fn(async () => response(wireFixture(makeAnalysis())));
     vi.stubGlobal("fetch", fetchMock);

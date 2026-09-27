@@ -6,6 +6,7 @@
  * analysed complexion, hair and outfit colours at render time.
  */
 import type { PhotoAnalysis } from "./analysis";
+import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
 import {
   buildQuantizedLayoutVariants,
   type FaceLayoutPlan,
@@ -75,6 +76,9 @@ export interface FacePixelInstruction {
 }
 
 export interface FacePixelPlan {
+  /** Pixel-grid collision resolution, not a new source measurement. */
+  mouthCollisionResolution?: { fromRow: 5; toRow: 6; reason: "eye_pixel_collision" }
+    | { fromRow: 5 | 6; toRow: 5 | 6; reason: "eye_pixel_collision_level_corners"; fromCorners: [-1, -1] };
   width: 8;
   height: 8;
   coordinateSpace: "head.base.front";
@@ -187,6 +191,8 @@ export interface HeadMaskPlan {
 
 export interface HairPlan {
   template: HairTemplate;
+  /** Explicit close-cropped hair has texture on the head, not raised curl mass. */
+  surfaceOnly?: true;
   lengthClass: "none" | "short" | "medium" | "long";
   texture: PhotoAnalysis["renderHints"]["hairTexture"];
   fringe: PhotoAnalysis["renderHints"]["bangs"];
@@ -470,7 +476,7 @@ function facePixelPlan(
   analysis: PhotoAnalysis,
   layout: FaceLayoutPlan,
   variantId: FacePixelPlan["variantId"] = "primary",
-): FacePixelPlan {
+): FacePixelPlan | null {
   const pixels: FacePixelInstruction[] = [];
   const pushFringePixel = (x: number, y: number, role: "hair_mid" | "hair_shadow") => {
     const owner = pixels.find((pixel) => pixel.x === x && pixel.y === y);
@@ -503,11 +509,6 @@ function facePixelPlan(
     { xs: layout.leftEyeXs, width: layout.leftEyeWidth, row: layout.leftEyeRow, browRow: layout.leftBrowRow },
     { xs: layout.rightEyeXs, width: layout.rightEyeWidth, row: layout.rightEyeRow, browRow: layout.rightBrowRow },
   ];
-  const asymmetricOpenSide = layout.leftEyeWidth !== layout.rightEyeWidth
-    ? layout.leftEyeWidth > layout.rightEyeWidth ? 0 : 1
-    : layout.leftEyeRow !== layout.rightEyeRow
-      ? layout.leftEyeRow < layout.rightEyeRow ? 0 : 1
-      : 1;
   eyePairs.forEach(({ xs, width, row, browRow }, index) => {
     const cluster = index === 0 ? "left_eye" : "right_eye";
     const ordered = index === 0 ? [...xs] : [...xs].reverse();
@@ -524,7 +525,10 @@ function facePixelPlan(
         : eyeXs.length - 1;
     eyeXs.forEach((x, position) => {
       const tiltOffset = position === 0 ? layout.eyeTiltOffset : 0;
-      const openTopology = layout.eyeTopology === "open_iris_sclera" || (layout.eyeTopology === "asymmetric" && index === asymmetricOpenSide);
+      // Width/row asymmetry is not evidence that one eye is more open. The
+      // geometry contract provides one shared openness; retain the measured
+      // spans/anchors while letting only that axis select vertical eye mass.
+      const openTopology = layout.eyeTopology === "open_iris_sclera" || (layout.eyeTopology === "asymmetric" && layout.eyeOpenness === "open");
       const smilingSquint = layout.eyeTopology === "smiling_squint";
       const separatesIris = eyeXs.length > 1 && !smilingSquint;
       pushPixel(pixels, x, row + tiltOffset, separatesIris && position !== irisPosition ? "sclera" : "iris", cluster);
@@ -608,7 +612,10 @@ function facePixelPlan(
   // smiles flattened back to a horizontal bar.
   const leftCornerY = mouthY(layout.mouthCornerOffsets[0]);
   const rightCornerY = mouthY(layout.mouthCornerOffsets[1]);
-  const putMouth = (x: number, y: number, role: FacePaletteRole) => pushPixel(pixels, x, y, role, "mouth");
+  // Stage the complete mouth before assigning ownership. A raised smile
+  // corner can otherwise replace the only iris in a compact tilted eye.
+  const mouthPixels: FacePixelInstruction[] = [];
+  const putMouth = (x: number, y: number, role: FacePaletteRole) => pushPixel(mouthPixels, x, y, role, "mouth");
   if (layout.mouthOpening === "closed" || layout.mouthTopology === "closed_compact" || layout.mouthTopology === "closed_wide") {
     for (let x = mouthStart; x <= mouthEnd; x++) putMouth(x, x === mouthStart ? leftCornerY : x === mouthEnd ? rightCornerY : mouthY(), "lip");
     // Fullness changes the lip body, not its horizontal footprint. Keep the
@@ -635,6 +642,49 @@ function facePixelPlan(
       }
     }
   }
+
+  let mouthCollisionResolution: FacePixelPlan["mouthCollisionResolution"];
+  const eyeCollision = mouthPixels.some(mouth => pixels.some(pixel => pixel.x === mouth.x && pixel.y === mouth.y
+    && (pixel.role === "iris" || pixel.role === "sclera")));
+  const lowerRowAvailable = layout.mouthRow === 5 && mouthPixels.every(mouth => mouth.y < 7
+    && !pixels.some(pixel => pixel.x === mouth.x && pixel.y === mouth.y + 1 && pixel.cluster !== "complexion"));
+  if (eyeCollision && lowerRowAvailable) {
+    // Move the whole mouth by the smallest supported row step. Keep its
+    // width, corners, teeth/boundary roles and symmetry, and leave the raw
+    // geometry target and every eye coordinate unchanged.
+    layout = { ...layout, mouthRow: 6 };
+    mouthCollisionResolution = { fromRow: 5, toRow: 6, reason: "eye_pixel_collision" };
+    for (const mouth of mouthPixels) mouth.y++;
+  } else if (eyeCollision && layout.renderContract.mouth?.cornerDirection === "upward_or_level"
+    && !layout.renderContract.mouth.preserveAsymmetry
+    && layout.mouthCornerOffsets.every(offset => offset === -1)) {
+    // A two-row open iris can block both the raised corner and its one-row
+    // translation. The existing smile contract also permits level corners.
+    // Try that symmetric grammar at the nearest supported mouth row, without
+    // moving eyes, dropping mouth roles, changing width or flattening a
+    // source-distinctive asymmetric mouth. Raw geometry remains unchanged.
+    const rows: Array<5 | 6> = layout.mouthRow === 5 ? [5, 6] : [6];
+    for (const row of rows) {
+      const candidate = mouthPixels.map(mouth => ({ ...mouth,
+        y: mouth.role === "lip" && (mouth.x === mouthStart || mouth.x === mouthEnd)
+          ? row : mouth.y + row - layout.mouthRow }));
+      const unique = new Set(candidate.map(mouth => `${mouth.x},${mouth.y}`));
+      if (unique.size !== mouthPixels.length || candidate.some(mouth => mouth.y > 7
+        || pixels.some(pixel => pixel.x === mouth.x && pixel.y === mouth.y && pixel.cluster !== "complexion"))) continue;
+      mouthCollisionResolution = { fromRow: layout.mouthRow, toRow: row,
+        reason: "eye_pixel_collision_level_corners", fromCorners: [-1, -1] };
+      layout = { ...layout, mouthRow: row, mouthCornerOffsets: [0, 0] };
+      mouthPixels.splice(0, mouthPixels.length, ...candidate);
+      break;
+    }
+  }
+  // Do not accept a candidate whose remaining mouth assignment deletes an
+  // iris/sclera. In particular, a protected asymmetric mouth cannot use the
+  // level-corner grammar above. Let the existing bounded quantizer candidates
+  // compete instead of manufacturing coordinates or silently losing an eye.
+  if (mouthPixels.some(mouth => pixels.some(pixel => pixel.x === mouth.x && pixel.y === mouth.y
+    && (pixel.role === "iris" || pixel.role === "sclera")))) return null;
+  for (const mouth of mouthPixels) pushPixel(pixels, mouth.x, mouth.y, mouth.role, mouth.cluster);
 
   if (useCalibratedFaceContour) {
     const preserveBilateralContour = (role: "cheek_contour" | "jaw_contour") => {
@@ -685,6 +735,7 @@ function facePixelPlan(
   }
 
   const plan: Omit<FacePixelPlan, "candidateCost"> = {
+    ...(mouthCollisionResolution ? { mouthCollisionResolution } : {}),
     width: 8,
     height: 8,
     coordinateSpace: "head.base.front",
@@ -747,11 +798,23 @@ export function buildFacePixelPlanVariants(
     : analysis;
   const plans = buildQuantizedLayoutVariants(planningAnalysis, maximum)
     .map((variant) => facePixelPlan(planningAnalysis, variant.layout, variant.id))
+    .filter((plan): plan is FacePixelPlan => plan !== null)
     .filter((plan) => plan.candidateCost.violations.length === 0);
   if (plans.length <= 1) return plans;
   const primary = plans.find((plan) => plan.variantId === "primary");
   const alternatives = plans.filter((plan) => plan !== primary).sort((first, second) => first.candidateCost.totalCost - second.candidateCost.totalCost);
   return [...(primary ? [primary] : []), ...alternatives].slice(0, Math.max(1, Math.min(3, maximum)));
+}
+
+function affirmativeScalpCloseHair(observation: string): boolean {
+  // Absence of fringe/parting supports an unobstructed cropped silhouette; it
+  // does not negate the observed hair. Do not erase other negative/uncertain
+  // hair evidence, or a coordinated absence whose object we do not recognize.
+  const absentFeature = "(?:(?:any\\s+)?(?:visible\\s+)?(?:fringe|bangs|(?:a\\s+)?part(?:ing)?))";
+  const hairEvidence = observation.replace(new RegExp(
+    `\\b(?:no|without)\\s+${absentFeature}(?:\\s+(?:or|and)\\s+${absentFeature})*\\b(?!\\s+(?:or|and)\\b)`, "gi"), " ");
+  return !/\b(?:no|not|without|possibly|maybe|hidden|occluded|clipped)\b/i.test(hairEvidence)
+    && /\b(?:close(?:ly)?[- ]cropped|buzz(?:ed| cut)?|(?:very|extremely)[- ,]+short[- ,]+cropped)\b/i.test(hairEvidence);
 }
 
 function hairPlan(
@@ -761,8 +824,9 @@ function hairPlan(
 ): HairPlan {
   const hints = analysis.renderHints;
   const tiedHair = observedTiedHair(analysis);
+  const qualifiedScalpClose = observedQualifiedScalpCloseHair(analysis);
   const hairEvidence = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ").toLowerCase();
-  const bald = !tiedHair && (analysis.fallbackFeatures.hairstyle === "bald" || /\b(?:bald|balding|bald top|bare scalp|receding hairline)\b/.test(hairEvidence));
+  const bald = !tiedHair && !qualifiedScalpClose && (analysis.fallbackFeatures.hairstyle === "bald" || /\b(?:bald|balding|bald top|bare scalp|receding hairline)\b/.test(hairEvidence));
   const lengthClass: HairPlan["lengthClass"] = bald
     ? "none"
     : ["cropped", "ear"].includes(hints.overallHairLength)
@@ -794,8 +858,21 @@ function hairPlan(
     : facePlan.layout;
   const headMask = buildHeadMaskPlan(analysis, hairLayout, template, lengthClass, salience, semanticMaskMode);
   const structure = buildHairStructurePlan(analysis, hairLayout, headMask, salience);
+  const surfaceOnly = headMask.source === "semantic_template" &&
+    !tiedHair && !bald && analysis.visibleRegions.hair &&
+    !headMask.coveringTopology && analysis.fallbackFeatures.hat !== "headscarf" &&
+    hints.hairAccessory === "none" && structure.grammar !== "lock_groups" &&
+    hints.overallHairLength === "cropped" && hints.hairVolume === "flat" &&
+    hints.bangs === "none" && hints.sideHairLength === "none" &&
+    (affirmativeScalpCloseHair(analysis.observed.hair) || qualifiedScalpClose);
+  if (surfaceOnly) {
+    // Keep the observed texture vocabulary and connected material groups,
+    // but author them on the base cube instead of inventing protrusion.
+    for (const group of structure.groups) for (const point of group.points) point.layer = "base";
+  }
   return {
     template,
+    ...(surfaceOnly ? { surfaceOnly: true as const } : {}),
     lengthClass,
     texture: hints.hairTexture,
     fringe: hints.bangs,
@@ -1379,7 +1456,10 @@ function buildHeadMaskPlan(
 }
 
 export function buildIdentityPixelPlans(analysis: PhotoAnalysis): IdentityPixelPlans {
-  const facePixelPlan = buildFacePixelPlanVariants(analysis, 1)[0];
+  // Preserve the primary whenever admissible; otherwise consider only the
+  // quantizer's existing alternatives, still bounded at three candidates.
+  const facePixelPlan = buildFacePixelPlanVariants(analysis, 3)[0];
+  if (!facePixelPlan) throw new Error("No admissible face pixel plan");
   const plannedHair = hairPlan(analysis, facePixelPlan);
   const hueShift: PaletteRampPlan["hueShift"] =
     analysis.renderHints.skinUndertone === "warm"

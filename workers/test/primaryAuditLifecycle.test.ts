@@ -5,10 +5,16 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import auditWorker from "./primaryFaceMeasurementAuditWorker";
 import { assertProviderCalls, createAuditState, wrapAuditAI } from "./primaryAuditLifecycle";
-import { accountedRequest, accountingOf, atomicCheckpoint, healthReady, type LocalStage } from "./primaryAuditRunnerSupport";
+import { accountedRequest, accountingOf, atomicCheckpoint, healthReady,
+  readLatestAuditCheckpoint, type LocalStage } from "./primaryAuditRunnerSupport";
+import { calibrationLocalizationGate } from "./audit/calibrationLocalizationGate";
+import { checkpointValidatedLocalizationCapture } from "./audit/validatedLocalizationEvidence";
 import { namedGemmaFixture, wireFixture } from "./compactV3Support";
 import { makeAnalysis } from "./helpers";
 import { GEMMA_VISION_MODEL } from "../src/gemmaPhotoAnalysis";
+import { PRIMARY_COMPACT_V4_STRUCTURED_LOCALIZATION } from "../src/compactPhotoAnalysisV4";
+import { FACE_GEOMETRY_MODEL } from "../src/faceIdentityGeometry";
+import { validatePortraitRegion } from "../src/analysis";
 import type { Env } from "../src/types";
 
 const token = "audit-token-must-not-persist";
@@ -16,6 +22,20 @@ const key = "api-key-must-not-persist";
 const photo = "data:image/jpeg;base64,/9j/";
 const runId = () => randomBytes(16).toString("hex");
 const geminiSuccess = (analysis = makeAnalysis()) => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(wireFixture(analysis)) }] } }] });
+const geometryFixture = () => ({
+  face: { envelopeLeft: 0.1, envelopeRight: 0.9, foreheadY: 0.12, chinY: 0.96 },
+  eyes: { leftCenterX: 0.3, leftCenterY: 0.4, rightCenterX: 0.7, rightCenterY: 0.4,
+    leftWidth: 0.16, rightWidth: 0.16, openness: 0.72 },
+  brows: { leftY: 0.28, rightY: 0.28, thickness: 0.5, tilt: 0.1 },
+  nose: { centerX: 0.5, contrastY: 0.6, visibleStrength: 0.4 },
+  mouth: { centerX: 0.5, centerY: 0.74, width: 0.24, leftCornerY: 0.74, rightCornerY: 0.74, opening: "closed" },
+  confidence: { faceBounds: 0.9, eyes: 0.9, brows: 0.9, nose: 0.9, mouth: 0.9 },
+  directLowerFaceContour: {
+    cheek: { left: 0.2, right: 0.8, y: 0.6, evidence: "observed", confidence: 0.9 },
+    jaw: { left: 0.25, right: 0.75, y: 0.76, evidence: "observed", confidence: 0.9 },
+    chin: { left: 0.35, right: 0.65, y: 0.88, evidence: "observed", confidence: 0.9 },
+  },
+});
 function fixture(run?: ReturnType<typeof vi.fn>, analysis = makeAnalysis()) {
   const gatewayRun = run ?? vi.fn(async () => geminiSuccess(analysis));
   const gemma = vi.fn(async () => ({ choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(makeAnalysis()))) } }] }));
@@ -54,6 +74,110 @@ describe("audit Worker: actual production analysis, fake bindings only", () => {
     ]);
     assertProviderCalls(result.auditState); safe(await f.status(id));
     expect(network).not.toHaveBeenCalled(); expect(f.run).toHaveBeenCalledTimes(1);
+  });
+  it("selects V4 only on the protected audit route and returns bounded structured localization", async () => {
+    const network = prohibitNetwork();
+    const region = { subjectBox: { left: 0.08, top: 0.04, right: 0.62, bottom: 0.98 },
+      headBox: { left: 0.16, top: 0.08, right: 0.52, bottom: 0.5 },
+      faceBox: { left: 0.21, top: 0.17, right: 0.47, bottom: 0.44 }, confidence: 0.91 };
+    const compact = wireFixture(makeAnalysis());
+    const raw = { ...compact, sourceSelection: { ...compact.sourceSelection, portraitRegion: region } };
+    const f = fixture(vi.fn(async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(raw) }] } }] })));
+    const id = runId();
+    const result = await (await f.fetch("http://audit.invalid/primary-audit-v4-structured-localization", {
+      method: "POST", headers: { "x-primary-audit-token": token, "x-primary-audit-run-id": id },
+      body: JSON.stringify({ imageDataUrl: photo }),
+    })).json();
+    expect(result).toMatchObject({ ok: true, expectedContractVersion: PRIMARY_COMPACT_V4_STRUCTURED_LOCALIZATION,
+      contractValidation: { providerWireSchemaValid: true, primaryCoreValid: true, localizationValid: true },
+      localizationTrace: { traceVersion: 2, carrier: "structured_region", status: "VALID" },
+      validatedLocalization: { portraitImageIndex: 0, region },
+      analysis: { sourceSelection: { portraitImageIndex: 0, portraitRegion: region },
+        identityCropContext: { hairVolume: "normal", hairTexture: "straight",
+          overallHairLength: "ear", sideHairAsymmetry: "none", headCovering: false },
+        fallbackFeaturesGlasses: "regular" },
+      auditState: { geminiStarted: 1, gemmaStarted: 0, retry: 0 } });
+    expect(result.analysis).not.toHaveProperty("portraitEvidence");
+    expect(result.analysis).not.toHaveProperty("observed");
+    const protectedJson = JSON.parse(JSON.stringify(result));
+    expect(protectedJson.localizationTrace).not.toHaveProperty("version");
+    const checkpointPath = resolve(await mkdtemp(resolve(tmpdir(), "v4-audit-gate-")), "summary.json");
+    const capture = await checkpointValidatedLocalizationCapture({
+      primaryOk: protectedJson.ok && protectedJson.validation.richPhotoAnalysis === "passed",
+      expectedContractVersion: protectedJson.expectedContractVersion,
+      contractValidation: protectedJson.contractValidation,
+      protectedLocalization: protectedJson.validatedLocalization,
+      localizationTrace: protectedJson.localizationTrace,
+      imageCount: 1, runId: id, caseId: "wavy-open-blazer",
+      sourceSha256: "a".repeat(64), derivativeSha256: "b".repeat(64),
+      inputDimensions: { width: 597, height: 896 }, provider: "gemini", model: "gemini-3.8-flash",
+      promptSha256: "c".repeat(64), schemaJsonSha256: "d".repeat(64),
+    }, async observed => {
+      await atomicCheckpoint(checkpointPath,
+        { validatedLocalizationEvidence: observed.status === "captured" ? observed.evidence : null },
+        "validated_localization_observed");
+    });
+    expect(capture.status).toBe("captured");
+    if (capture.status !== "captured") return;
+    expect(capture.evidence.region).toEqual(region);
+    expect(capture.evidence.provenanceComplete).toBe(true);
+    const recovered = await readLatestAuditCheckpoint(checkpointPath);
+    expect(recovered).toMatchObject({ schemaVersion: 1, event: "validated_localization_observed",
+      snapshot: { validatedLocalizationEvidence: { region, portraitImageIndex: 0 } } });
+    const recoveredEvidence = (recovered!.snapshot as { validatedLocalizationEvidence: typeof capture.evidence })
+      .validatedLocalizationEvidence;
+    expect(recoveredEvidence.region).toEqual(region);
+    expect(validatePortraitRegion(recoveredEvidence.region).ok).toBe(true);
+    const gateInput = {
+      primaryPassed: protectedJson.ok === true && protectedJson.contractValidation.primaryCoreValid === true
+        && protectedJson.validation.richPhotoAnalysis === "passed",
+      quality: protectedJson.analysis.quality,
+      faceVisible: protectedJson.analysis.visibleRegions.face,
+      portraitImageIndex: protectedJson.analysis.sourceSelection.portraitImageIndex,
+      sourceVerified: true, imageCount: 1,
+      expectedContractVersion: protectedJson.expectedContractVersion,
+      trace: protectedJson.localizationTrace,
+      portraitRegion: protectedJson.analysis.sourceSelection.portraitRegion,
+    };
+    const gate = calibrationLocalizationGate(gateInput);
+    expect(gate.calibrationLocalizationEligible).toBe(true);
+    expect(gate.normalizedRegion.ok).toBe(true);
+    const classification = protectedJson.contractValidation.providerWireSchemaValid === true
+      && protectedJson.contractValidation.localizationValid === true
+      && gate.calibrationLocalizationEligible ? "V4_VALID_LOCALIZATION_OBSERVED" : "V4_LOCALIZATION_CONTRACT_FAILURE";
+    expect(classification).toBe("V4_VALID_LOCALIZATION_OBSERVED");
+    await atomicCheckpoint(checkpointPath, gateInput, "primary_completed");
+    const gateCheckpoint = await readLatestAuditCheckpoint(checkpointPath);
+    expect(gateCheckpoint).toMatchObject({ schemaVersion: 1, event: "primary_completed",
+      snapshot: { trace: { traceVersion: 2, status: "VALID" } } });
+    expect(calibrationLocalizationGate(gateCheckpoint!.snapshot as typeof gateInput).calibrationLocalizationEligible).toBe(true);
+    expect(f.run).toHaveBeenCalledTimes(1);
+    expect(f.gemma).not.toHaveBeenCalled();
+    expect(network).not.toHaveBeenCalled();
+    safe(result);
+  });
+  it.each([
+    ["explicit_null", null],
+    ["missing", undefined],
+    ["malformed", "rejected-provider-payload"],
+    ["semantic_invalid", { subjectBox: { left: 0.08, top: 0.04, right: 0.62, bottom: 0.98 },
+      headBox: { left: 0.16, top: 0.08, right: 0.52, bottom: 0.5 },
+      faceBox: { left: 0.7, top: 0.17, right: 0.9, bottom: 0.44 }, confidence: 0.91 }],
+  ])("never exposes a rejected V4 region payload (%s)", async (_label, regionValue) => {
+    const network = prohibitNetwork();
+    const compact = wireFixture(makeAnalysis());
+    const raw = { ...compact, sourceSelection: { ...compact.sourceSelection, portraitRegion: regionValue } };
+    const f = fixture(vi.fn(async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(raw) }] } }] })));
+    const result = await (await f.fetch("http://audit.invalid/primary-audit-v4-structured-localization", {
+      method: "POST", headers: { "x-primary-audit-token": token, "x-primary-audit-run-id": runId() },
+      body: JSON.stringify({ imageDataUrl: photo }),
+    })).json();
+    expect(result.validatedLocalization).toBeNull();
+    expect(JSON.stringify(result)).not.toContain("rejected-provider-payload");
+    expect(JSON.stringify(result)).not.toContain('"left":0.7');
+    expect(f.gemma).not.toHaveBeenCalled();
+    expect(network).not.toHaveBeenCalled();
+    safe(result);
   });
   it("captures only bounded glasses cross-field evidence", async () => {
     prohibitNetwork();
@@ -125,6 +249,31 @@ describe("audit Worker: actual production analysis, fake bindings only", () => {
     expect(stages).toEqual(["healthRequestStarted", "healthResponseReceived"]);
     expect((await f.fetch("http://audit.invalid/primary-audit-health")).status).toBe(403);
     expect(f.run).not.toHaveBeenCalled(); expect(f.gemma).not.toHaveBeenCalled();
+  });
+  it("passes one protected direct geometry image unchanged without primary analysis or recropping", async () => {
+    const network = prohibitNetwork();
+    const f = fixture();
+    f.gemma.mockResolvedValueOnce({ response: geometryFixture() });
+    const id = runId();
+    const response = await f.fetch("http://audit.invalid/face-geometry-direct-audit", {
+      method: "POST",
+      headers: { "x-primary-audit-token": token, "x-primary-audit-run-id": id },
+      body: JSON.stringify({ imageDataUrl: photo }),
+    });
+    const result = await response.json() as Record<string, unknown> & { auditState: Record<string, unknown> };
+    expect(response.status).toBe(200);
+    expect(result).toMatchObject({ ok: true, inputMode: "direct_frozen_face_crop", crop: null,
+      providerShapeValid: true, errors: [], geometry: { eyes: { openness: 0.72 } },
+      auditState: { geminiStarted: 0, gemmaStarted: 1, gemmaCompleted: 1, retry: 0, finalOk: true } });
+    const [model, input] = f.gemma.mock.calls[0] as unknown as [string, { messages: Array<{ content: Array<{ type: string; image_url?: { url: string } }> }> }];
+    expect(model).toBe(FACE_GEOMETRY_MODEL);
+    expect(input.messages[0].content.filter(part => part.type === "image_url")).toEqual([
+      { type: "image_url", image_url: { url: photo } },
+    ]);
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.gemma).toHaveBeenCalledTimes(1);
+    expect(network).not.toHaveBeenCalled();
+    safe(result);
   });
   it("returns only matching run state; unknown id is found=false, wrong token 403", async () => {
     const f = fixture(); const id = runId(); await f.post(id, {});

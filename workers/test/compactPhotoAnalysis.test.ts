@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import Ajv from "ajv";
 import { PHOTO_ANALYSIS_SCHEMA, validatePhotoAnalysis, type PhotoAnalysis } from "../src/analysis";
@@ -39,12 +39,15 @@ describe("compact primary PhotoAnalysis boundary", () => {
     for (const [key, field] of Object.entries(PHOTO_ANALYSIS_SCHEMA.properties.renderHints.properties)) {
       expect(COMPACT_PHOTO_ANALYSIS_PROMPT).toContain(`${key} = ${field.enum.join(" | ")}`);
     }
-    const outputRoot = process.env.COMPACT_V1_OUTPUT_ROOT ?? "evaluation-artifacts/compact-primary-20260909";
-    await mkdir(outputRoot, { recursive: true });
+    const explicitRoot = process.env.COMPACT_V1_OUTPUT_ROOT;
+    // Historical evidence is read-only. Explicit roots must also be unused.
+    const outputRoot = explicitRoot
+      ? (await mkdir(explicitRoot), explicitRoot)
+      : await mkdtemp("evaluation-artifacts/compact-primary-offline-");
     await writeFile(`${outputRoot}/offline.json`, JSON.stringify({
       rich: inspectGeminiResponseSchema(PHOTO_ANALYSIS_SCHEMA), compact,
       schemaHash: hash(COMPACT_PHOTO_ANALYSIS_SCHEMA), promptHash: hash(COMPACT_PHOTO_ANALYSIS_PROMPT),
-    }, null, 2));
+    }, null, 2), { flag: "wx" });
   });
 
   it.each(["face", "glasses", "covering", "curly", "bun", "layered", "plain", "full-body"])("preserves %s rich analysis, complete plans and final atlas", name => {

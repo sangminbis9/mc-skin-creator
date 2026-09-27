@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { rename, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { open, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { assertProviderCalls, providerCallsOf, validRunId, type ProviderCalls } from "./primaryAuditLifecycle";
 
 export type LocalStage = "unstableDevStartRequested" | "unstableDevReturned"
@@ -50,12 +51,87 @@ export type AuditFetcher = { fetch(url: string, init?: { method?: string; header
 export type Accounting = { dispatch: "known"; stage: string; final: boolean; providerCalls: ProviderCalls }
   | { dispatch: "unknown" };
 
-// Write a complete replacement beside the destination, then atomically rename.
-// A new run owns a fresh directory; historical checkpoints are never touched.
-export async function atomicCheckpoint(path: string, artifact: unknown): Promise<void> {
+// The immutable, versioned files are authoritative. summary.json is only a
+// compatibility projection: Windows/OneDrive can refuse replacement of an
+// existing destination even after the adjacent temporary file was written.
+export type CheckpointRecord = { schemaVersion: 1; sequence: number; event: string; snapshotSha256: string; snapshot: unknown };
+export type CheckpointWriteResult = { sequence: number; filesystemRetryCount: number; summaryProjectionFailed: boolean };
+export type CheckpointIo = {
+  writeVersion(path: string, text: string): Promise<void>;
+  replaceSummary(temporary: string, destination: string, text: string): Promise<void>;
+};
+const defaultCheckpointIo: CheckpointIo = {
+  async writeVersion(path, text) {
+    const file = await open(path, "wx");
+    try { await file.writeFile(text); await file.sync(); }
+    finally { await file.close(); }
+  },
+  async replaceSummary(temporary, destination, text) {
+    await writeFile(temporary, text, { flag: "wx" });
+    await rename(temporary, destination);
+  },
+};
+const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+const versionName = (path: string, sequence: number) => `${path}.checkpoint-${String(sequence).padStart(6, "0")}.json`;
+const versionPattern = (path: string) => new RegExp(`^${basename(path).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.checkpoint-(\\d+)\\.json$`);
+function filesystemCode(error: unknown): string | null {
+  return error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : null;
+}
+export async function readLatestAuditCheckpoint(path: string): Promise<CheckpointRecord | null> {
+  const directory = dirname(path);
+  let names: string[];
+  try { names = await readdir(directory); }
+  catch (error) { if (filesystemCode(error) === "ENOENT") return null; throw error; }
+  const pattern = versionPattern(path);
+  const versions = names.map(name => ({ name, sequence: Number(pattern.exec(name)?.[1]) }))
+    .filter(entry => Number.isSafeInteger(entry.sequence) && entry.sequence > 0)
+    .sort((a, b) => b.sequence - a.sequence);
+  for (const version of versions) {
+    try {
+      const record = JSON.parse(await readFile(join(directory, version.name), "utf8")) as CheckpointRecord;
+      if (record.schemaVersion !== 1 || record.sequence !== version.sequence || typeof record.event !== "string"
+        || !record.event || !record.snapshot || typeof record.snapshot !== "object"
+        || record.snapshotSha256 !== sha256(JSON.stringify(record.snapshot))) continue;
+      return record;
+    } catch { /* A crashed, incomplete newest file cannot supersede the previous good version. */ }
+  }
+  return null;
+}
+export async function atomicCheckpoint(
+  path: string, artifact: unknown, event = "checkpoint", io: CheckpointIo = defaultCheckpointIo,
+): Promise<CheckpointWriteResult> {
+  const serialized = JSON.stringify(artifact);
+  if (serialized === undefined) throw new TypeError("Audit checkpoint must be serializable");
+  const previous = await readLatestAuditCheckpoint(path);
+  const directory = dirname(path);
+  const names = await readdir(directory);
+  const pattern = versionPattern(path);
+  const highestSeen = Math.max(0, ...names.map(name => Number(pattern.exec(name)?.[1]) || 0));
+  const next = Math.max(previous?.sequence ?? 0, highestSeen) + 1;
+  let retries = 0;
+  let sequence = next;
+  for (;;) {
+    const record: CheckpointRecord = { schemaVersion: 1, sequence, event,
+      snapshotSha256: sha256(serialized), snapshot: artifact };
+    try {
+      await io.writeVersion(versionName(path, sequence), `${JSON.stringify(record, null, 2)}\n`);
+      break;
+    } catch (error) {
+      const completed = await readLatestAuditCheckpoint(path);
+      if (completed?.sequence === sequence && completed.event === event
+        && completed.snapshotSha256 === sha256(serialized)) break;
+      if (!["EPERM", "EACCES", "EEXIST"].includes(filesystemCode(error) ?? "") || retries >= 2) throw error;
+      retries++;
+      sequence++;
+      await new Promise(resolve => setTimeout(resolve, 20 * retries));
+    }
+  }
   const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(artifact, null, 2)}\n`, { flag: "wx" });
-  await rename(temporary, path);
+  let summaryProjectionFailed = false;
+  try { await io.replaceSummary(temporary, path, `${JSON.stringify(artifact, null, 2)}\n`); }
+  catch { summaryProjectionFailed = true; }
+  finally { try { await unlink(temporary); } catch (error) { if (filesystemCode(error) !== "ENOENT") summaryProjectionFailed = true; } }
+  return { sequence, filesystemRetryCount: retries, summaryProjectionFailed };
 }
 export function accountingOf(value: unknown, runId: string): Accounting {
   if (!value || typeof value !== "object") return { dispatch: "unknown" };

@@ -187,6 +187,13 @@ export interface StructuredProviderAttempt {
   provider: "gemini" | "workers_ai";
   model: string;
   outcome: "started" | "completed" | "failed";
+  traceVersion?: 1;
+  providerAttemptKind?: "gemini_gateway_or_fetch" | "workers_ai_binding";
+  attemptOrdinal?: number;
+  origin?: "LOCAL_DEADLINE" | "BINDING_REJECTION" | "OUTER_ABORT" | "UNKNOWN";
+  elapsedMs?: number;
+  configuredDeadlineMs?: number;
+  deadlineTimerFired?: boolean;
   responseFormatMode?: "gemini_response_json_schema" | "workers_response_format" | "workers_response_format_strict" | "workers_guided_json_strict" | "workers_prompt_json_strict" | "workers_named_json_schema_strict";
   providerSchemaValidation?: "passed" | "failed";
   strictValidation?: "passed" | "failed";
@@ -420,12 +427,13 @@ export function workersAiFallbackDecision(error: unknown): {
 
 /** Direct native binding entry point; no Gemini, retry, or fallback chain. */
 export function generateWorkersAiStructuredJson(env: Env, request: GeminiStructuredRequest): Promise<unknown> {
-  return runWorkersAiStructuredFallback(env, request);
+  return runWorkersAiStructuredFallback(env, request, 1);
 }
 
 async function runWorkersAiStructuredFallback(
   env: Env,
   request: GeminiStructuredRequest,
+  attemptOrdinal: number,
 ): Promise<unknown> {
   if (!env.AI) {
     throw new GeminiApiError("Workers AI binding is not configured", 500);
@@ -441,21 +449,32 @@ async function runWorkersAiStructuredFallback(
     : request.workersAiResponseSchema !== undefined
       ? "workers_guided_json_strict" as const
       : "workers_response_format" as const;
-  request.onProviderAttempt?.({ provider: "workers_ai", model, outcome: "started", responseFormatMode });
+  const configuredDeadlineMs = Math.min(request.timeoutCapMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS);
+  const startedAt = performance.now();
+  let deadlineTimerFired = false;
+  let bindingDispatched = false;
+  const trace = () => ({ traceVersion: 1 as const, providerAttemptKind: "workers_ai_binding" as const,
+    attemptOrdinal, elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    configuredDeadlineMs, deadlineTimerFired });
+  request.onProviderAttempt?.({ provider: "workers_ai", model, outcome: "started", responseFormatMode,
+    traceVersion: 1, providerAttemptKind: "workers_ai_binding", attemptOrdinal, configuredDeadlineMs });
   try {
-    // AI.run has no cancellation API. Stop awaiting at the deadline; never
-    // launch another provider after it. The binding may finish independently.
+    // The existing binding call passes no signal. Stop awaiting at the deadline;
+    // the binding may finish independently and must not change the settled result.
     const result = await withinDeadline(
-      () => env.AI!.run(model as never, workersAiStructuredInput(request, model) as never),
-      Math.min(request.timeoutCapMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS),
-      () => new GeminiApiError("Workers AI analysis deadline exceeded", 504, "DEADLINE_EXCEEDED"),
+      () => { const input = workersAiStructuredInput(request, model); bindingDispatched = true;
+        return env.AI!.run(model as never, input as never); },
+      configuredDeadlineMs,
+      () => { deadlineTimerFired = true;
+        return new GeminiApiError("Workers AI analysis deadline exceeded", 504, "DEADLINE_EXCEEDED"); },
     );
-    request.onProviderAttempt?.({ provider: "workers_ai", model, outcome: "completed", responseFormatMode });
+    request.onProviderAttempt?.({ provider: "workers_ai", model, outcome: "completed", responseFormatMode, ...trace() });
     return result;
   } catch (error) {
     const diagnostic = geminiProviderErrorDiagnostic(error);
     request.onProviderAttempt?.({
       provider: "workers_ai", model, outcome: "failed", responseFormatMode,
+      ...trace(), origin: deadlineTimerFired ? "LOCAL_DEADLINE" : bindingDispatched ? "BINDING_REJECTION" : "UNKNOWN",
       dailyQuotaExhausted: isDailyProviderQuota(error),
       ...(diagnostic.httpStatus !== null ? { status: diagnostic.httpStatus } : {}),
       ...(diagnostic.providerStatus !== null ? { providerStatus: diagnostic.providerStatus } : {}),
@@ -641,17 +660,23 @@ export async function generateGeminiStructuredJson(
   // Workers AI binding as its sole provider when no Gemini key exists. This
   // remains exactly one call rather than Gemini followed by a recovery call.
   if (!env.GEMINI_API_KEY && env.AI) {
-    return runWorkersAiStructuredFallback(env, request);
+    return runWorkersAiStructuredFallback(env, request, 1);
   }
 
   // The app accepts up to five same-person source photos. Structured review
   // adds one rendered inspection montage, so this shared wrapper retains all
   // six inputs. The same envelope builder is used by preflight tests and the
   // actual request to prevent serialization drift.
+  const timeoutMs = Math.min(request.timeoutCapMs ?? Infinity,
+    requestTimeoutMs(env.GEMINI_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS));
+  const startedAt = performance.now();
+  let deadlineTimerFired = false;
+  const trace = () => ({ traceVersion: 1 as const, providerAttemptKind: "gemini_gateway_or_fetch" as const,
+    attemptOrdinal: 1, elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    configuredDeadlineMs: timeoutMs, deadlineTimerFired });
   try {
-    request.onProviderAttempt?.({ provider: "gemini", model: request.model, outcome: "started", responseFormatMode: "gemini_response_json_schema" });
-    const timeoutMs = Math.min(request.timeoutCapMs ?? Infinity,
-      requestTimeoutMs(env.GEMINI_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS));
+    request.onProviderAttempt?.({ provider: "gemini", model: request.model, outcome: "started", responseFormatMode: "gemini_response_json_schema",
+      traceVersion: 1, providerAttemptKind: "gemini_gateway_or_fetch", attemptOrdinal: 1, configuredDeadlineMs: timeoutMs });
     const controller = new AbortController();
     const payload = await withinDeadline(async () => {
       const endpoint = request.apiFamily === "interactions"
@@ -672,7 +697,8 @@ export async function generateGeminiStructuredJson(
           method: "POST", headers, body: JSON.stringify(envelope.body), signal: controller.signal,
         });
       return parseGeminiResponse<GeminiGenerateContentResponse & GeminiInteractionResponse>(response);
-    }, timeoutMs, () => new GeminiApiError("Gemini structured deadline exceeded", 504, "DEADLINE_EXCEEDED"), () => controller.abort());
+    }, timeoutMs, () => { deadlineTimerFired = true;
+      return new GeminiApiError("Gemini structured deadline exceeded", 504, "DEADLINE_EXCEEDED"); }, () => controller.abort());
     const interactionOutput = payload.output_text || payload.steps
       ?.filter((step) => step.type === "model_output")
       .flatMap((step) => step.content || [])
@@ -691,7 +717,7 @@ export async function generateGeminiStructuredJson(
         502,
       );
     }
-    request.onProviderAttempt?.({ provider: "gemini", model: request.model, outcome: "completed", status: 200, responseFormatMode: "gemini_response_json_schema" });
+    request.onProviderAttempt?.({ provider: "gemini", model: request.model, outcome: "completed", status: 200, responseFormatMode: "gemini_response_json_schema", ...trace() });
     return {
       response: output,
       ...(payload.candidates?.[0]?.finishReason
@@ -715,6 +741,7 @@ export async function generateGeminiStructuredJson(
     request.onProviderAttempt?.({
       provider: "gemini", model: request.model, outcome: "failed",
       responseFormatMode: "gemini_response_json_schema",
+      ...trace(), origin: deadlineTimerFired ? "LOCAL_DEADLINE" : "UNKNOWN",
       dailyQuotaExhausted: isDailyProviderQuota(error),
       fallbackEligible, fallbackReason,
       ...(diagnostic.httpStatus !== null ? { status: diagnostic.httpStatus } : {}),
@@ -723,7 +750,7 @@ export async function generateGeminiStructuredJson(
     });
     if (error instanceof GeminiApiError && !error.requestShape) error.requestShape = envelope.shape;
     if (fallbackEligible) {
-      return runWorkersAiStructuredFallback(env, request);
+      return runWorkersAiStructuredFallback(env, request, 2);
     }
     throw error;
   }

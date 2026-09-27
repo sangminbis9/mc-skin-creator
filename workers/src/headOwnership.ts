@@ -102,7 +102,7 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
       const topInterior = f === "top" && p.x > 0 && p.x < 7 && p.y > 0 && p.y < 7;
       const backInterior = !covering && f === "back" && p.x > 1 && p.x < 6 && p.y > 0 && p.y < 7;
       const tiedCrown = tied && (f === "top" || f === "back" || p.y === 0 || p.y > 3 || (f === "front" && p.x > 1 && p.x < 6));
-      if (!topInterior && !backInterior && !tiedCrown && analysis.fallbackFeatures.hairstyle !== "buzz") put({ ...p, face: f, layer: "outer", owner: covering ? "covering" : "hair_outer", sourceGroupId: `silhouette-${face}`, provenance: covering ? "observed" : provenance, role: p.y % 3 === 0 ? "light" : "mid" });
+      if (!topInterior && !backInterior && !tiedCrown && !hair.surfaceOnly && analysis.fallbackFeatures.hairstyle !== "buzz") put({ ...p, face: f, layer: "outer", owner: covering ? "covering" : "hair_outer", sourceGroupId: `silhouette-${face}`, provenance: covering ? "observed" : provenance, role: p.y % 3 === 0 ? "light" : "mid" });
     }
     if (!covering) for (const g of hair.structure.groups) for (const p of g.points) {
       if (tied && p.layer === "outer") continue;
@@ -215,11 +215,11 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
     continuities.push({ id, cells: keys, sourceGroupIds: [...new Set(masses.map(p => p.sourceGroupId))] });
     for (const p of members) put({ ...winner, face: p.face, x: p.x, y: p.y, continuityGroupId: id, sourceGroupId: p.owner === "clear" ? winner.sourceGroupId : p.sourceGroupId });
   }
-  if (analysis.fallbackFeatures.hairstyle === "buzz" && !covering && !tied) for (const p of cells.values()) p.retain = true;
+  if (analysis.fallbackFeatures.hairstyle === "buzz" && !hair.surfaceOnly && !covering && !tied) for (const p of cells.values()) p.retain = true;
   // Existing complex ornament/loc and unmeasured curl grammars remain intact;
   // they are not converted into the wavy/tied completion introduced here.
   const observedOrnament = /\b(?:flower|ribbon|bow|clip|headband)\b[^.;]{0,35}\bhair\b|\bhair\b[^.;]{0,35}\b(?:flower|ribbon|bow|clip|headband)\b/i.test(headEvidence);
   const sourceDerivedSemanticMask = hair.headMask.source === "semantic_template" && Boolean(hair.headMask.semanticSilhouette);
-  const preserve = !tied && !covering && (observedOrnament || analysis.renderHints.hairAccessory !== "none" || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (hair.structure.source === "semantic_analysis" && ["curl_lobes", "coily_clusters"].includes(hair.structure.grammar)));
+  const preserve = !tied && !covering && (observedOrnament || analysis.renderHints.hairAccessory !== "none" || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (!hair.surfaceOnly && hair.structure.source === "semantic_analysis" && ["curl_lobes", "coily_clusters"].includes(hair.structure.grammar)));
   return { execution: preserve ? "preserve_existing_grammar" : "resolved", hairFamily: hair.template, covering, tiedMass: tiedGeometry, cells: [...cells.values()], continuities };
 }

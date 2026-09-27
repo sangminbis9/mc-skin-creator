@@ -79,6 +79,8 @@ export interface OutfitSleevePlan {
 
 export interface OutfitPatternPlan {
   kind: OutfitPatternKind;
+  /** Plaid is crossing bands rather than disconnected check tiles. */
+  construction?: "crossed_bands";
   color: string;
   placement: "front" | "wrap" | "front_and_sleeves";
   anchor: "left" | "center" | "right";
@@ -131,6 +133,9 @@ export interface OutfitPlan {
       source: OutfitEvidence;
     };
     collar: "none" | "paired" | "lapel" | "hood";
+    /** Explicit collar palette, or continuation of the shirt material. Legacy
+     * plans without this field retain their prior cached accent behavior. */
+    collarColor?: string;
     leftSleeve: OutfitSleevePlan;
     rightSleeve: OutfitSleevePlan;
     colorBlocks: OutfitColorBlock[];
@@ -189,6 +194,8 @@ const COLORS: Record<string, string> = {
   black: "#242326", white: "#eeeae1", gray: "#77777c", grey: "#77777c",
   "light-gray": "#b7b7b7", red: "#b53a35", orange: "#c96d32", yellow: "#d5af3f",
   green: "#467a50", "dark-green": "#284c38", blue: "#416b9d", navy: "#273954",
+  // Preserve the observed value class using the existing dark-blue palette.
+  "dark-blue": "#273954",
   denim: "#49647d", purple: "#755386", pink: "#c8798c", brown: "#684b38",
   beige: "#c5aa82", cream: "#ded2b6", gold: "#c6a34b", silver: "#b9bec5",
 };
@@ -233,6 +240,35 @@ function garmentColorFromText(text: string, garmentWords: string, fallback: stri
   if (!match) return fallback;
   const modified = match[1] ? `${match[1]}-${match[2]}` : "";
   return COLORS[modified] ?? color(match[2], fallback);
+}
+
+/** A named stripe/check color belongs to the pattern, not to an inner layer,
+ * sleeve, accessory or lower garment that happens to share the cached accent. */
+function observedPatternColor(text: string, fallback: string, material: string): string {
+  if (/\b(?:no|not|without|possibly|maybe|hidden|occluded)\b/.test(text)) return fallback;
+  const match = new RegExp(`\\b(${COLOR_WORD}|tan)[- ]+(?:(?:horizontal|vertical|plaid|checkered)[- ]+)?(?:stripes?|lines?|checks?|bands?)\\b`).exec(text);
+  // Tan is represented by the existing warm neutral Minecraft palette entry.
+  if (match) return match[1] === "tan" ? COLORS.beige : color(match[1], fallback);
+  // A postposed palette belongs to the observed pattern, not the cached collar accent.
+  // Accept only an explicit color list, within the already scoped garment.
+  const token = `(?:(?:dark|light)[- ])?(?:${COLOR_WORD}|tan)`;
+  const list = new RegExp(`\\b(?:stripes?|lines?|checks?|bands?|(?:plaid(?:/checkered)?|checkered) pattern) in (?:shades of )?(${token}(?:(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${token})*)\\b`).exec(text)?.[1];
+  if (!list) return fallback;
+  const palette = [...list.matchAll(new RegExp(token, "g"))].map(item => item[0] === "tan" ? COLORS.beige : color(item[0], material));
+  return palette.find(value => value !== material) ?? palette[0] ?? fallback;
+}
+
+function observedCrossedStripes(text: string): boolean {
+  if (/\b(?:no|not|without|possibly|maybe|hidden|occluded)\b/.test(text)) return false;
+  const axes = /\b(horizontal|vertical)(?: stripes?)?\s+(?:and|&)\s+(horizontal|vertical)\s+(?:stripes?|lines?|bands?)\b/.exec(text);
+  return !!axes && axes[1] !== axes[2];
+}
+
+function shirtCollarColor(text: string, material: string, accent: string): string {
+  if (/\b(?:no|not|without|possibly|maybe|hidden|occluded)\b/.test(text)) return material;
+  const match = new RegExp(`\\b(?:(dark|light)[- ])?(${COLOR_WORD}|tan)[- ]+(?:collar|collared)\\b`).exec(text);
+  if (match) return match[2] === "tan" ? COLORS.beige : color(match[1] ? `${match[1]}-${match[2]}` : match[2], color(match[2], material));
+  return /\bcontrast(?:ing)?[- ]collar\b/.test(text) ? accent : material;
 }
 
 function evidenceText(analysis: PhotoAnalysis): string {
@@ -285,14 +321,18 @@ function sleeveRows(length: OutfitSleeveLength): number {
   return { sleeveless: 0, short: 4, elbow: 7, rolled: 8, layered: 10, long: 11 }[length];
 }
 
-function pattern(text: string, texture: PhotoAnalysis["renderHints"]["garmentTexture"], accent: string): OutfitPatternPlan {
+function pattern(text: string, texture: PhotoAnalysis["renderHints"]["garmentTexture"], accent: string, crossedStripes = false): OutfitPatternPlan {
   let kind: OutfitPatternKind = "none";
   let placement: OutfitPatternPlan["placement"] = "front";
-  if (/\b(?:horizontal|striped|stripes)\b/.test(text) || texture === "striped") {
-    kind = /\bvertical(?:ly)?\b/.test(text) ? "vertical_stripe" : "horizontal_stripe";
-    placement = "wrap";
-  } else if (/\b(?:plaid|checkered|checked)\b/.test(text)) {
+  // Plaid is formed by crossing stripes. The component word must not erase
+  // the explicitly named two-axis pattern belonging to this garment.
+  const explicitPlaid = /\b(?:plaid|checkered|checked)\b/.test(text) &&
+    !/\b(?:no|not|without)\b[^.;]{0,24}\b(?:plaid|checkered|checked)\b/.test(text);
+  if (explicitPlaid || crossedStripes) {
     kind = "checker_block";
+    placement = "wrap";
+  } else if (/\b(?:horizontal|striped|stripes)\b/.test(text) || texture === "striped") {
+    kind = /\bvertical(?:ly)?\b/.test(text) ? "vertical_stripe" : "horizontal_stripe";
     placement = "wrap";
   } else if (/\b(?:graphic|badge|marking|large logo|center logo)\b/.test(text)) {
     kind = "center_graphic";
@@ -300,7 +340,7 @@ function pattern(text: string, texture: PhotoAnalysis["renderHints"]["garmentTex
     kind = "irregular_group";
   }
   const anchor = /viewer[- ]left|left chest/.test(text) ? "left" : /viewer[- ]right|right chest/.test(text) ? "right" : "center";
-  return { kind, color: accent, placement, anchor, frequency: kind === "horizontal_stripe" ? 3 : 2, source: kind === "none" ? "conservative" : "observed", evidence: text };
+  return { kind, ...(crossedStripes || (explicitPlaid && /\bplaid\b/.test(text)) ? { construction: "crossed_bands" as const } : {}), color: accent, placement, anchor, frequency: kind === "horizontal_stripe" ? 3 : 2, source: kind === "none" ? "conservative" : "observed", evidence: text };
 }
 
 function lowerPattern(analysis: PhotoAnalysis, text: string, accent: string): OutfitPatternPlan {
@@ -401,15 +441,24 @@ function baseOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
   const leftSleeveColor = contrastingSleeves || /\bleft sleeve[^.]{0,24}(?:contrasting|accent)\b/.test(text) ? accentColor : topColor;
   const rightSleeveColor = contrastingSleeves || /\bright sleeve[^.]{0,24}(?:contrasting|accent)\b/.test(text) ? accentColor : topColor;
   const neck = neckline(garmentType, text, analysis.renderHints.neckAccessory);
-  const upperPattern = pattern(upperText, analysis.renderHints.garmentTexture, accentColor);
+  const observedUpper = garmentEvidence(observedClothing, UPPER_WORDS);
+  const upperPattern = pattern(upperText, analysis.renderHints.garmentTexture, analysis.visibleRegions.upperBody
+    ? observedPatternColor(observedUpper, accentColor, topColor)
+    : accentColor, analysis.visibleRegions.upperBody && observedCrossedStripes(observedUpper));
   const upperEvidence: OutfitEvidence = analysis.visibleRegions.upperBody ? "observed" : "conservative";
   const isOuter = ["jacket", "coat", "vest"].includes(garmentType) || analysis.renderHints.outerGarment !== "none";
   const openConstruction = /\b(?:open[- ]front|open [^.]{0,20}(?:jacket|cardigan|coat)|unbuttoned)\b/.test(clothingText);
-  const innerVisible = neck.innerVisible && (!isOuter || openConstruction);
+  // A shirt collar is construction, not evidence of an exposed undershirt.
+  // Keep existing outerwear behavior; only the collared-shirt inference needs
+  // explicit observed layering before allocating a full-height inner panel.
+  const observedInnerLayer = !/\b(?:no|not|without|possibly|maybe)\b/.test(observedClothing) &&
+    /\b(?:inner (?:shirt|top)|undershirt|(?:t-?shirt|tee|blouse) underneath|over (?:a |an |the )?(?:[a-z-]+ ){0,3}(?:t-?shirt|tee|blouse|top))\b/.test(observedClothing);
+  const innerVisible = neck.innerVisible && (!isOuter || openConstruction) &&
+    (isOuter || neck.kind !== "shirt_collar" || observedInnerLayer);
   const colorBlocks: OutfitColorBlock[] = [{ id: "upper_base", region: "all", color: topColor, source: upperEvidence, priority: 1 }];
   if (innerVisible) colorBlocks.push({ id: "inner_panel", region: "front_center", color: accentColor, source: upperEvidence, priority: 0.95 });
   if (isOuter && openConstruction) colorBlocks.push({ id: "opening", region: "vertical_opening", color: accentColor, source: upperEvidence, priority: 0.9 });
-  if (upperPattern.kind === "horizontal_stripe") colorBlocks.push({ id: "stripe_band", region: "horizontal_band", color: accentColor, source: upperEvidence, priority: 0.88 });
+  if (upperPattern.kind === "horizontal_stripe") colorBlocks.push({ id: "stripe_band", region: "horizontal_band", color: upperPattern.color, source: upperEvidence, priority: 0.88 });
   let lowerType = lowerTypeFromText(analysis, text, garmentType);
   const structuredLower = analysis.inferred.lowerBodyDesign;
   const preppyConservativeCompletion = !analysis.visibleRegions.lowerBody && isOuter && /\b(?:bow collar|neck bow)\b/.test(text) && structuredLower?.bottomType === "pants" && structuredLower.bottomPattern === "plain" && structuredLower.legwear === "none";
@@ -486,7 +535,9 @@ function baseOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
     coordinateSpace: "minecraft.classic.body_uv",
     upper: {
       garmentType, baseColor: topColor, accentColor,
-      neckline: neck, collar,
+      neckline: !isOuter && neck.kind === "shirt_collar" ? { ...neck, innerVisible } : neck, collar,
+      ...(collar === "paired" && /\bcollar(?:ed)?\b/.test(garmentEvidence(observedClothing, UPPER_WORDS))
+        ? { collarColor: shirtCollarColor(garmentEvidence(observedClothing, UPPER_WORDS), topColor, accentColor) } : {}),
       leftSleeve: { length: leftLength, terminationRow: sleeveRows(leftLength), color: leftSleeveColor, source: upperEvidence, evidence: analysis.observed.clothing },
       rightSleeve: { length: rightLength, terminationRow: sleeveRows(rightLength), color: rightSleeveColor, source: upperEvidence, evidence: analysis.observed.clothing },
       colorBlocks, pattern: upperPattern,

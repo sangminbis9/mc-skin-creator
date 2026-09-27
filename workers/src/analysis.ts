@@ -23,6 +23,7 @@ import type { StructuredProviderOutputDiagnostic } from "./gemini";
 import type { Env } from "./types";
 import type { IdentityGeometryAnalysis, NormalizedBox } from "./identityGeometry";
 import { FACE_MEASUREMENT_EVIDENCE_SCHEMA, parseFaceMeasurementEvidence, type FaceMeasurementEvidence } from "./faceMeasurementEvidence";
+import { observedFacialHairCategory } from "./facialHairEvidence";
 
 const DEFAULT_VISION_MODEL = "gemini-3.8-flash";
 const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
@@ -155,6 +156,12 @@ export interface PortraitRegion {
   faceBox: NormalizedBox;
   confidence: number;
 }
+
+/** Internal validation context. The public PhotoAnalysis shape stays unchanged. */
+export type PhotoAnalysisLocalizationAuthority = {
+  kind: "structured_region";
+  region: PortraitRegion | null;
+};
 
 export interface SourceSelection {
   portraitImageIndex: number;
@@ -442,6 +449,18 @@ Respond with ONLY a JSON object matching this shape:
   "negativePrompt": str,
   "fallbackFeatures": { ...as specified above }
 }`;
+
+const legacyLocalizationClause = '- Localize only the same primary person selected by portraitImageIndex. Append to portraitEvidence exactly " | REGION:[subject L,T,R,B,head L,T,R,B,face L,T,R,B,confidence]" using 13 comma-separated numbers, or " | REGION:null" when bounds cannot be measured. All coordinates are normalized 0..1 within that selected source image, not within a montage or another reference. subjectBox encloses that person\'s visible body, headBox encloses crown/hair/head covering through jaw and a small amount of neck, and faceBox encloses the visible forehead, brows, eyes, nose, mouth, chin, glasses and face edges. Do not include another person\'s face.';
+const structuredLocalizationClause = '- Localize only the same primary person selected by portraitImageIndex. Return sourceSelection.portraitRegion as a named object with subjectBox, headBox, faceBox and confidence, or explicit null when bounds cannot be measured. Every box has left, top, right, bottom finite normalized coordinates from 0 to 1 within the actual supplied image selected by portraitImageIndex. subjectBox encloses that person\'s visible body, headBox encloses crown/hair/head covering through jaw and a small amount of neck, and faceBox encloses the visible forehead, brows, eyes, nose, mouth, chin, glasses and face edges. Do not include another person\'s face. portraitEvidence is descriptive prose only; do not write any REGION suffix. Never invent bounds merely because a face is visible.';
+const legacySelectionShape = '    "generationEvidence": str\n  },';
+const structuredSelectionShape = '    "generationEvidence": str,\n    "portraitRegion": { "subjectBox": { "left": number, "top": number, "right": number, "bottom": number }, "headBox": { "left": number, "top": number, "right": number, "bottom": number }, "faceBox": { "left": number, "top": number, "right": number, "bottom": number }, "confidence": number } | null\n  },';
+if (ANALYSIS_PROMPT.split(legacyLocalizationClause).length !== 2
+  || ANALYSIS_PROMPT.split(legacySelectionShape).length !== 2) {
+  throw new Error("v4 shared prompt derivation no longer matches frozen v3 contract");
+}
+export const ANALYSIS_PROMPT_V4 = ANALYSIS_PROMPT
+  .replace(legacyLocalizationClause, structuredLocalizationClause)
+  .replace(legacySelectionShape, structuredSelectionShape);
 
 /** response_format용 JSON Schema — 모델 출력 유도용. 최종 판정은 validatePhotoAnalysis가 한다. */
 const INFERRED_ITEM_SCHEMA = {
@@ -924,12 +943,40 @@ const FRAMINGS: Framing[] = [
   "full_body",
 ];
 
+export type PortraitRegionValidationReason =
+  | "portrait_region_missing"
+  | "malformed_normalized_bounds"
+  | "invalid_localization_confidence"
+  | "face_bounds_too_small"
+  | "face_head_relationship_invalid"
+  | "face_outside_head"
+  | "head_outside_subject";
+
 export type PortraitRegionValidation =
   | { ok: true; region: PortraitRegion }
-  | { ok: false; reason: string };
+  | { ok: false; reason: PortraitRegionValidationReason };
+
+export type PortraitRelationshipFailure = "head_width_ratio" | "head_height_ratio" | "both_ratios";
 
 /** Validate normalized primary-subject localization without trusting model output. */
 export function validatePortraitRegion(value: unknown): PortraitRegionValidation {
+  return validatePortraitRegionInternal(value);
+}
+
+/** Same validator, with only its fixed relationship predicate exposed for diagnostics. */
+export function validatePortraitRegionWithDiagnostics(value: unknown): {
+  validation: PortraitRegionValidation;
+  relationshipFailure?: PortraitRelationshipFailure;
+} {
+  let relationshipFailure: PortraitRelationshipFailure | undefined;
+  const validation = validatePortraitRegionInternal(value, failure => { relationshipFailure = failure; });
+  return { validation, ...(relationshipFailure ? { relationshipFailure } : {}) };
+}
+
+function validatePortraitRegionInternal(
+  value: unknown,
+  observeRelationshipFailure?: (failure: PortraitRelationshipFailure) => void,
+): PortraitRegionValidation {
   if (Array.isArray(value) && value.length === 13 && value.every((item) => typeof item === "number" && Number.isFinite(item))) {
     value = {
       subjectBox: { left: value[0], top: value[1], right: value[2], bottom: value[3] },
@@ -961,7 +1008,11 @@ export function validatePortraitRegion(value: unknown): PortraitRegionValidation
   const width = (box: NormalizedBox) => box.right - box.left;
   const height = (box: NormalizedBox) => box.bottom - box.top;
   if (width(faceBox) < 0.025 || height(faceBox) < 0.035) return { ok: false, reason: "face_bounds_too_small" };
-  if (width(headBox) < width(faceBox) * 1.02 || height(headBox) < height(faceBox) * 1.08) {
+  const widthBelowMinimum = width(headBox) < width(faceBox) * 1.02;
+  const heightBelowMinimum = height(headBox) < height(faceBox) * 1.08;
+  if (widthBelowMinimum || heightBelowMinimum) {
+    observeRelationshipFailure?.(widthBelowMinimum && heightBelowMinimum ? "both_ratios"
+      : widthBelowMinimum ? "head_width_ratio" : "head_height_ratio");
     return { ok: false, reason: "face_head_relationship_invalid" };
   }
   const containsWithTolerance = (outer: NormalizedBox, inner: NormalizedBox, tolerance: number) =>
@@ -970,6 +1021,51 @@ export function validatePortraitRegion(value: unknown): PortraitRegionValidation
   if (!containsWithTolerance(headBox, faceBox, 0.06)) return { ok: false, reason: "face_outside_head" };
   if (!containsWithTolerance(subjectBox, headBox, 0.08)) return { ok: false, reason: "head_outside_subject" };
   return { ok: true, region: { subjectBox, headBox, faceBox, confidence: source.confidence } };
+}
+
+/** Read-only, bounded pre-normalization diagnostic; never contains evidence prose or coordinates. */
+export type PortraitLocalizationTrace = {
+  version: 1;
+  status: "VALID" | "EXPLICIT_NULL" | "MISSING" | "MALFORMED" | "INVALID_REGION";
+  markerPresent: boolean;
+  terminalTokenPresent: boolean;
+  numericCount: number | null;
+  numericParse: "passed" | "failed" | "not_applicable";
+  regionValidation: "passed" | "failed" | "not_applicable";
+  validationReason: PortraitRegionValidationReason | null;
+  /** Audit-only predicate detail; omitted except for face/head ratio rejection. */
+  relationshipFailure?: PortraitRelationshipFailure;
+};
+
+export function classifyPortraitLocalization(portraitEvidence: string): PortraitLocalizationTrace {
+  const markerPresent = /\|\s*REGION\b/i.test(portraitEvidence);
+  const base = { version: 1 as const, markerPresent, validationReason: null };
+  if (/\|\s*REGION\s*:\s*null\s*$/i.test(portraitEvidence)) {
+    return { ...base, status: "EXPLICIT_NULL", terminalTokenPresent: true, numericCount: null,
+      numericParse: "not_applicable", regionValidation: "not_applicable" };
+  }
+  const array = /\|\s*REGION\s*:\s*\[([^\]]*)\]\s*$/i.exec(portraitEvidence);
+  if (!array) {
+    return { ...base, status: markerPresent ? "MALFORMED" : "MISSING",
+      terminalTokenPresent: false, numericCount: null, numericParse: "not_applicable",
+      regionValidation: "not_applicable" };
+  }
+  const tokens = array[1].trim() === "" ? [] : array[1].split(",");
+  const numericCount = tokens.length;
+  if (numericCount !== 13 || tokens.some(token => token.trim() === "" || !Number.isFinite(Number(token.trim())))) {
+    return { ...base, status: "MALFORMED", terminalTokenPresent: true, numericCount,
+      numericParse: "failed", regionValidation: "not_applicable" };
+  }
+  let relationshipFailure: PortraitRelationshipFailure | undefined;
+  const validated = validatePortraitRegionInternal(tokens.map(token => Number(token.trim())),
+    failure => { relationshipFailure = failure; });
+  if (!validated.ok) {
+    return { ...base, status: "INVALID_REGION", terminalTokenPresent: true, numericCount,
+      numericParse: "passed", regionValidation: "failed", validationReason: validated.reason,
+      ...(relationshipFailure ? { relationshipFailure } : {}) };
+  }
+  return { ...base, status: "VALID", terminalTokenPresent: true, numericCount,
+    numericParse: "passed", regionValidation: "passed" };
 }
 
 const GENERIC_IDENTITY_KEYS = new Set([
@@ -1142,7 +1238,10 @@ function concretizeCanonicalIdentity(
  * (fallbackFeatures의 팔레트 값만은 뒤에서 paletteHex가 관용적으로 처리한다 —
  *  fallback 경로 전용 데이터라 생성 품질 판단에 영향이 없기 때문)
  */
-export function validatePhotoAnalysis(raw: unknown): ValidationResult {
+export function validatePhotoAnalysis(
+  raw: unknown,
+  localizationAuthority?: PhotoAnalysisLocalizationAuthority,
+): ValidationResult {
   const errors: string[] = [];
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, errors: ["응답이 객체가 아님"] };
@@ -1321,10 +1420,13 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       "sourceSelection.generationImageIndex",
       selection.generationImageIndex,
     ),
-    portraitEvidence: str(
+    portraitEvidence: (localizationAuthority ? str(
       "sourceSelection.portraitEvidence",
       selection.portraitEvidence,
-    ).replace(/\s*\|\s*REGION\s*:\s*(?:\[[^\]]*\]|null)\s*$/i, ""),
+    ) : str(
+      "sourceSelection.portraitEvidence",
+      selection.portraitEvidence,
+    ).replace(/\s*\|\s*REGION\s*:\s*(?:\[[^\]]*\]|null)\s*$/i, "")),
     outfitEvidence: str(
       "sourceSelection.outfitEvidence",
       selection.outfitEvidence,
@@ -1334,6 +1436,12 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       selection.generationEvidence,
     ),
     portraitRegion: (() => {
+      if (localizationAuthority) {
+        const candidate = localizationAuthority.region;
+        if (candidate === null) return null;
+        const validated = validatePortraitRegion(candidate);
+        return validated.ok ? validated.region : null;
+      }
       let candidate = selection.portraitRegion;
       if (candidate === null || candidate === undefined) {
         const evidence = typeof selection.portraitEvidence === "string" ? selection.portraitEvidence : "";
@@ -2037,7 +2145,9 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
       ["thin", "normal", "thick"],
       "normal",
     ),
-    facialHair: fallbackEnum(
+    facialHair: observedFacialHairCategory(
+      fallbackSource.facialHair, observed.face, mustPreserve, visibleRegions.face,
+    ) ?? fallbackEnum(
       fallbackSource.facialHair,
       ["none", "mustache", "goatee", "beard", "stubble"],
       "none",
@@ -2153,10 +2263,20 @@ export function validatePhotoAnalysis(raw: unknown): ValidationResult {
 
 // ---------- Scout 호출 ----------
 
-export type AnalysisCallResult = { providerAttempts?: import("./gemini").StructuredProviderAttempt[] } & (
+export type AnalysisCallResult = {
+  providerAttempts?: import("./gemini").StructuredProviderAttempt[];
+  primaryElapsedMs?: number;
+  expectedContractVersion?: import("./compactPhotoAnalysisV4").PrimaryContractVersion;
+  contractValidation?: {
+    providerWireSchemaValid: boolean;
+    primaryCoreValid: boolean;
+    localizationValid: boolean;
+  };
+} & (
   | {
       ok: true;
       analysis: PhotoAnalysis;
+      localizationTrace?: PortraitLocalizationTrace | import("./compactPhotoAnalysisV4").StructuredLocalizationTrace;
       attempts: number;
       neuronsSpent: number;
     }
@@ -2939,7 +3059,15 @@ export async function runPortraitDetailAnalysis(
 export async function runPhotoAnalysis(
   env: Env,
   imageDataUrls: string | string[],
+  options: { expectedContractVersion?: import("./compactPhotoAnalysisV4").PrimaryContractVersion } = {},
 ): Promise<AnalysisCallResult> {
+  const expectedContractVersion = options.expectedContractVersion ?? "primary_compact_v3_legacy_suffix";
+  if (expectedContractVersion !== "primary_compact_v3_legacy_suffix"
+    && expectedContractVersion !== "primary_compact_v4_structured_localization") {
+    return { ok: false, reason: "invalid_response", detail: "Unsupported internal primary contract version",
+      attempts: 0, neuronsSpent: 0, providerAttempts: [] };
+  }
+  const structuredContract = expectedContractVersion === "primary_compact_v4_structured_localization";
   const references = Array.isArray(imageDataUrls) ? imageDataUrls : [imageDataUrls];
   const providerAttempts: import("./gemini").StructuredProviderAttempt[] = [];
   let attempts = 0;
@@ -2950,16 +3078,19 @@ export async function runPhotoAnalysis(
     import("./compactPhotoAnalysis"),
     import("./gemmaPhotoAnalysis"),
   ]);
+  const v4 = structuredContract ? await import("./compactPhotoAnalysisV4") : null;
+  const primaryStartedAt = performance.now();
+  const primaryElapsedMs = () => Math.max(0, Math.round(performance.now() - primaryStartedAt));
   try {
     if (references.length < 1 || references.length > 5) throw new Error("Invalid image count");
     const referenceSuffix = `\n\nREFERENCE SET: ${references.length} image(s) of the same person are attached in order. Image 0 is primary; use the others to resolve stable identity cues and side/back evidence.`;
     const result = await generateGeminiStructuredJson(env, {
       model: env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL,
       imageDataUrls: references,
-      prompt: `${compact.COMPACT_PHOTO_ANALYSIS_V3_PROMPT}${referenceSuffix}`,
-      responseSchema: compact.COMPACT_PHOTO_ANALYSIS_V3_SCHEMA,
-      workersAiResponseSchema: gemma.GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA,
-      workersAiPrompt: `${gemma.GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT}${referenceSuffix}`,
+      prompt: `${v4?.COMPACT_PHOTO_ANALYSIS_V4_PROMPT ?? compact.COMPACT_PHOTO_ANALYSIS_V3_PROMPT}${referenceSuffix}`,
+      responseSchema: v4?.COMPACT_PHOTO_ANALYSIS_V4_PROVIDER_SCHEMA ?? compact.COMPACT_PHOTO_ANALYSIS_V3_SCHEMA,
+      workersAiResponseSchema: v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_SCHEMA : gemma.GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA,
+      workersAiPrompt: `${v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT : gemma.GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT}${referenceSuffix}`,
       maxOutputTokens: 8192,
       timeoutCapMs: 45_000,
       onProviderAttempt: (event) => {
@@ -2974,6 +3105,54 @@ export async function runPhotoAnalysis(
       .find((attempt) => attempt.outcome === "completed");
     if (completedAttempt?.provider === "workers_ai") {
       completedAttempt.outputDiagnostic = analysisPayloadDiagnostic(result);
+    }
+    if (v4) {
+      const gemmaCompleted = completedAttempt?.provider === "workers_ai"
+        && completedAttempt.model === gemma.GEMMA_VISION_MODEL;
+      const wireErrors = v4.validateV4Shape(
+        gemmaCompleted ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_SCHEMA
+          : v4.COMPACT_PHOTO_ANALYSIS_V4_PROVIDER_SCHEMA,
+        providerParsed,
+        gemmaCompleted,
+      );
+      const captured = v4.captureStructuredLocalization(providerParsed);
+      const localization = v4.validateStructuredLocalization(captured.fieldPresent, captured.fieldValue);
+      let core: unknown = captured.core;
+      let coreErrors: string[] = [];
+      if (gemmaCompleted) {
+        coreErrors = gemma.validateGemmaNamedPhotoAnalysis(core);
+        if (!coreErrors.length) {
+          const adapted = gemma.adaptGemmaNamedPhotoAnalysis(core);
+          if (adapted.ok) core = adapted.compact;
+          else coreErrors = adapted.errors;
+        }
+      }
+      const authority: PhotoAnalysisLocalizationAuthority = {
+        kind: "structured_region", region: localization.region,
+      };
+      if (!coreErrors.length) coreErrors = compact.validateCompactPhotoAnalysisV3(core, context);
+      const contractValidation = {
+        providerWireSchemaValid: wireErrors.length === 0,
+        primaryCoreValid: coreErrors.length === 0,
+        localizationValid: localization.localizationValid,
+      };
+      if (completedAttempt) {
+        completedAttempt.providerSchemaValidation = contractValidation.providerWireSchemaValid ? "passed" : "failed";
+        completedAttempt.strictValidation = contractValidation.primaryCoreValid ? "passed" : "failed";
+      }
+      const neuronsSpent = Math.max(0, attempts - 1) * NEURONS_VISION_ANALYSIS
+        + visionNeuronsFromUsage(result, NEURONS_VISION_ANALYSIS);
+      if (coreErrors.length) return { ok: false, reason: "invalid_response",
+        detail: "V4 primary core validation failed", attempts, neuronsSpent, providerAttempts,
+        primaryElapsedMs: primaryElapsedMs(), expectedContractVersion, contractValidation };
+      const normalized = v4.normalizeCompactPhotoAnalysisV4Core(core, context, authority);
+      const rich = normalized.ok ? validatePhotoAnalysis(normalized.analysis, authority) : null;
+      if (!rich?.ok) return { ok: false, reason: "invalid_response",
+        detail: "V4 primary rich validation failed", attempts, neuronsSpent, providerAttempts,
+        primaryElapsedMs: primaryElapsedMs(), expectedContractVersion, contractValidation };
+      return { ok: true, analysis: rich.analysis, localizationTrace: localization.trace,
+        attempts, neuronsSpent, providerAttempts, primaryElapsedMs: primaryElapsedMs(),
+        expectedContractVersion, contractValidation };
     }
     let providerErrors: string[];
     if (completedAttempt?.provider === "workers_ai"
@@ -2997,6 +3176,9 @@ export async function runPhotoAnalysis(
       completedAttempt.providerSchemaValidation = providerErrors.length ? "failed" : "passed";
       completedAttempt.strictValidation = strictErrors.length ? "failed" : "passed";
     }
+    const localizationTrace = errors.length ? undefined : classifyPortraitLocalization(
+      (parsed as { sourceSelection: { portraitEvidence: string } }).sourceSelection.portraitEvidence,
+    );
     const normalized = errors.length ? null : compact.normalizeCompactPhotoAnalysisV3(parsed, context);
     const rich = normalized?.ok ? validatePhotoAnalysis(normalized.analysis) : null;
     const neuronsSpent = Math.max(0, attempts - 1) * NEURONS_VISION_ANALYSIS
@@ -3004,9 +3186,10 @@ export async function runPhotoAnalysis(
     if (!rich?.ok) {
       return { ok: false, reason: "invalid_response",
         detail: errors.length ? errors.join("; ") : "Compact v3 rich normalization failed",
-        attempts, neuronsSpent, providerAttempts };
+        attempts, neuronsSpent, providerAttempts, primaryElapsedMs: primaryElapsedMs() };
     }
-    return { ok: true, analysis: rich.analysis, attempts, neuronsSpent, providerAttempts };
+    return { ok: true, analysis: rich.analysis, localizationTrace, attempts, neuronsSpent, providerAttempts,
+      primaryElapsedMs: primaryElapsedMs() };
   } catch (error) {
     // No model rounds, sleeps, retries or semantic repair. The transport alone
     // may use the other provider once for transient/model availability errors.
@@ -3022,6 +3205,7 @@ export async function runPhotoAnalysis(
           || error instanceof TypeError) ? "provider_unavailable" : "ai_error",
       detail: `Primary analysis failed (${diagnostic.httpStatus ?? "network/local"} / ${diagnostic.providerStatus ?? "unclassified"})`,
       attempts, neuronsSpent: attempts * NEURONS_VISION_ANALYSIS, providerAttempts,
+      primaryElapsedMs: primaryElapsedMs(),
     };
   }
 }
