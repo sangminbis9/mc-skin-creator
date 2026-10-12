@@ -1,6 +1,8 @@
 import { runFaceIdentityGeometryAnalysis } from "./faceIdentityGeometry";
 import { observedGoateeMustache } from "./facialHairEvidence";
+import { observedStandaloneHoodedSweatshirt, observedStandaloneSweatshirt, observedStripedTie } from "./outfitIdentity";
 import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
+import { unambiguousHairEndpointText } from "./hairEndpointEvidence";
 /**
  * 사진 → 마인크래프트 스킨 생성 파이프라인.
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
@@ -69,6 +71,7 @@ import {
 import { mergeTargetedAtlas } from "./skinCorrection";
 import { applyProceduralCritiqueCorrections } from "./proceduralCorrection";
 import { buildSkinPlan, type SkinPlan } from "./skinPlan";
+import { renderReferencePrimaryAtlas, type ReferencePrimarySummary } from "./referencePrimaryRenderer";
 import {
   buildSkinViewMontage,
   buildPairwiseHeadEvidence,
@@ -94,6 +97,7 @@ import type { Env } from "./types";
 import { runIdentityGeometryAnalysis } from "./identityGeometry";
 import { runIdentityGeometryEnrichment } from "./identityGeometryEnrichment";
 import { withinDeadline } from "./deadline";
+import { generationObserver, type GenerationObserver } from "./generationObservation";
 
 /** 업로드 허용 최대 크기 (base64 data URL 문자 수, 약 1.1MB 이미지) */
 export const MAX_IMAGE_CHARS = 1_500_000;
@@ -122,10 +126,25 @@ function primaryRenderContext(analysis: PhotoAnalysis) {
   return { renderAnalysis, skinPlan, features, summary, faceStyle: buildFaceStyle(renderAnalysis, features, skinPlan.hairPlan) };
 }
 
-async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number): Promise<GenerateResult> {
-  const { skinPlan, features, summary, faceStyle } = primaryRenderContext(analysis);
-  const skinPngBase64 = await buildProceduralFallbackPng(features, faceStyle, skinPlan);
-  if (!skinPngBase64) return fail(500, "유효한 스킨을 만들지 못했어요", "SKIN_RENDER_FAILED", neuronsSpent);
+async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number, mark: GenerationObserver): Promise<GenerateResult> {
+  mark("render_context_started");
+  const { renderAnalysis, skinPlan, features, summary, faceStyle } = primaryRenderContext(analysis);
+  mark("render_context_finished");
+  mark("source_atlas_started");
+  const sourceAtlas = buildProceduralSourceAtlas(features, faceStyle, skinPlan);
+  mark("source_atlas_finished");
+  if (!sourceAtlas) return fail(500, "유효한 스킨을 만들지 못했어요", "SKIN_RENDER_FAILED", neuronsSpent);
+  mark("reference_atlas_started");
+  const styled = renderReferencePrimaryAtlas(sourceAtlas, skinPlan, renderAnalysis, faceStyle);
+  mark("reference_atlas_finished");
+  if (!styled.ok) {
+    console.log(JSON.stringify({ event: "reference_primary_render_rejected", reason: styled.reason, renderAttempts: styled.renderAttempts }));
+    return fail(500, "유효한 스킨을 만들지 못했어요", "SKIN_RENDER_FAILED", neuronsSpent);
+  }
+  summary.referenceStyle = styled.summary;
+  mark("png_started");
+  const skinPngBase64 = bytesToBase64(await encodePng(styled.atlas));
+  mark("png_finished");
   return { status: 200, success: true, neuronsSpent, body: {
     ok: true, quality: analysis.quality, features, analysis: summary, skinPngBase64,
     generationMode: "procedural_fallback", fallbackReason: "reliability_baseline",
@@ -327,6 +346,7 @@ export interface AnalysisSummary {
   identityGeometry?: PhotoAnalysis["identityGeometry"];
   faceMeasurementEvidence?: PhotoAnalysis["faceMeasurementEvidence"];
   skinPlan: SkinPlan;
+  referenceStyle?: ReferencePrimarySummary;
 }
 
 export interface GenerateResult {
@@ -397,6 +417,7 @@ export async function generateSkin(
   }
 
   const analysisReferences = [analysisImageDataUrl, ...references];
+  const mark = generationObserver(env);
   // Indices match analysisReferences. Only image 0 has a separate 448px
   // generation copy; alternate uploads already satisfy the provider input
   // limit and are resized inside the Workers provider when needed.
@@ -404,6 +425,7 @@ export async function generateSkin(
 
   // ---------- 1) 사진 분석 ----------
   const analysisResult = await runPhotoAnalysis(env, analysisReferences);
+  mark("primary_returned");
   // Every Gemini invocation consumes provider capacity, including schema
   // retries and fallback-model attempts. Count all of them in the advisory
   // local meter; provider-reported exhaustion remains authoritative.
@@ -412,6 +434,7 @@ export async function generateSkin(
     attempts: analysisResult.attempts, providerAttempts: analysisResult.providerAttempts ?? [],
     ...(!analysisResult.ok ? { reason: analysisResult.reason, detail: analysisResult.detail.slice(0, 1500) } : {}),
   });
+  mark("primary_diagnostic_finished");
   if (!analysisResult.ok) {
     console.log(
       "analysis failed:",
@@ -482,16 +505,23 @@ export async function generateSkin(
     try {
       const index = analysis.sourceSelection.portraitImageIndex;
       const source = analysisReferences[index];
+      mark("crop_started");
       const crops = source && await createIdentityCrops(source, analysis.sourceSelection.portraitRegion, {
         hairVolume: analysis.renderHints.hairVolume, hairTexture: analysis.renderHints.hairTexture,
         overallHairLength: analysis.renderHints.overallHairLength, sideHairAsymmetry: analysis.renderHints.sideHairAsymmetry,
         headCovering: analysis.fallbackFeatures.hat !== "none" || /headscarf|hood|hat/i.test(analysis.observed.accessories),
       });
+      mark("crop_returned");
       if (crops) {
         if (env.FACE_GEOMETRY_ENRICHMENT_ENABLED === "true") {
-          const enrichment = await runFaceIdentityGeometryAnalysis(env, crops.faceDataUrl);
-          spent += enrichment.neuronsSpent;
-          if (enrichment.ok && enrichment.geometry) analysis = { ...analysis, faceIdentityGeometry: enrichment.geometry };
+          // Resolution alone does not establish that an image-centred crop
+          // contains this subject's face. Keep primary evidence when coverage
+          // is unknown; do not measure a fragment and treat it as a whole face.
+          if (faceGeometryCropEligibility(crops.diagnostics).status === "eligible") {
+            const enrichment = await runFaceIdentityGeometryAnalysis(env, crops.faceDataUrl);
+            spent += enrichment.neuronsSpent;
+            if (enrichment.ok && enrichment.geometry) analysis = { ...analysis, faceIdentityGeometry: enrichment.geometry };
+          }
         } else {
         const d = crops.diagnostics;
         const enrichment = await runIdentityGeometryEnrichment(env, crops.faceDataUrl, crops.headDataUrl, {
@@ -511,17 +541,19 @@ export async function generateSkin(
   // modify the analysis or reject a candidate. Public synchronous requests
   // use this path; enhancement implementation is retained for quality work.
   let baseline: GenerateResult;
+  mark("enrichment_finished");
   try {
-    baseline = await renderPrimaryBaseline(analysis, spent);
+    baseline = await renderPrimaryBaseline(analysis, spent, mark);
     if (!baseline.success && analysis !== primaryOnlyAnalysis) {
       analysis = primaryOnlyAnalysis;
-      baseline = await renderPrimaryBaseline(analysis, spent);
+      baseline = await renderPrimaryBaseline(analysis, spent, mark);
     }
   } catch (error) {
     if (analysis === primaryOnlyAnalysis) throw error;
     analysis = primaryOnlyAnalysis;
-    baseline = await renderPrimaryBaseline(analysis, spent);
+    baseline = await renderPrimaryBaseline(analysis, spent, mark);
   }
+  mark("baseline_returned");
   // Never combine the single-call enrichment budget with the legacy chain.
   if (env.FACE_GEOMETRY_ENRICHMENT_ENABLED === "true" || env.IDENTITY_GEOMETRY_ENRICHMENT_ENABLED === "true") return baseline;
   if (env.SYNCHRONOUS_ENHANCEMENTS_ENABLED !== "true") return baseline;
@@ -1452,6 +1484,28 @@ export interface IdentityCropSet {
   };
 }
 
+export type FaceGeometryCropEligibility =
+  | { status: "eligible"; reason: "localized_face_retained" }
+  | { status: "coverage_unknown"; reason: "localized_face_unavailable" }
+  | { status: "ineligible"; reason: "face_resolution_inadequate" | "localized_face_clipped" };
+
+/** Input eligibility, not a judgment on unobserved provider geometry. Hair/head
+ * clipping is deliberately separate: a cropped crown need not clip the face. */
+export function faceGeometryCropEligibility(d: IdentityCropSet["diagnostics"]): FaceGeometryCropEligibility {
+  if (!d.quality.faceResolutionAdequate || !d.quality.usableForFaceGeometry) {
+    return { status: "ineligible", reason: "face_resolution_inadequate" };
+  }
+  const face = d.faceBox;
+  const crop = d.finalFaceBox;
+  if (d.cropMode === "center_fallback" || !face || !crop) {
+    return { status: "coverage_unknown", reason: "localized_face_unavailable" };
+  }
+  if (crop.left > face.left || crop.top > face.top || crop.right < face.right || crop.bottom < face.bottom) {
+    return { status: "ineligible", reason: "localized_face_clipped" };
+  }
+  return { status: "eligible", reason: "localized_face_retained" };
+}
+
 interface PixelCropBounds {
   x: number;
   y: number;
@@ -2154,6 +2208,7 @@ export function buildFaceStyle(
   };
   if (style.facialHair === "goatee" && observedGoateeMustache(
     analysis.observed.face, analysis.canonicalIdentity.mustPreserve, analysis.visibleRegions.face,
+    analysis.canonicalIdentity.features,
   )) style.goateeHasMustache = true;
   completeVisibleUpperDetails(analysis, style);
   completeVisibleAccessoryDetails(analysis, style);
@@ -2330,6 +2385,27 @@ export function buildProceduralFallbackAtlas(
   skinPlan?: SkinPlan,
   headTrace?: (stage: string, atlas: RawImage) => void,
 ): RawImage | null {
+  const atlas = buildProceduralSourceAtlas(features, style, skinPlan, headTrace);
+  if (!atlas) return null;
+  const craftVerdict = validateAtlasCraft(atlas, style, undefined, undefined, skinPlan);
+  if (!craftVerdict.ok) {
+    console.log("procedural fallback craft quality validation failed:", craftVerdict.problems.join(" / "));
+    return null;
+  }
+  return atlas;
+}
+
+/** Legal source material reference, not an approved final output. Legacy mask
+ * and shoulder-continuation rules belong to the old fallback output contract.
+ * Reference candidates must instead pass their independent source/construction
+ * contract and unchanged shared craft floors before encoding any final PNG.
+ */
+export function buildProceduralSourceAtlas(
+  features: Record<string, unknown>,
+  style: FaceStyle,
+  skinPlan?: SkinPlan,
+  headTrace?: (stage: string, atlas: RawImage) => void,
+): RawImage | null {
   const packed = packFrontViewToAtlas(
     buildProceduralFrontView(features, style),
     style,
@@ -2364,14 +2440,6 @@ export function buildProceduralFallbackAtlas(
     console.log(
       "procedural fallback final validation failed:",
       finalVerdict.problems.join(" / "),
-    );
-    return null;
-  }
-  const craftVerdict = validateAtlasCraft(atlas, style, undefined, undefined, skinPlan);
-  if (!craftVerdict.ok) {
-    console.log(
-      "procedural fallback craft quality validation failed:",
-      craftVerdict.problems.join(" / "),
     );
     return null;
   }
@@ -2628,6 +2696,15 @@ function joinedAnalysisText(
 
 function recoverObservedHairColor(text: string): string | null {
   const cues: ReadonlyArray<[RegExp, string]> = [
+    // The existing dyed palette is also valid material evidence. It uses the
+    // same noun ownership and uncertainty guards as natural hair colors.
+    [/\b(?:dyed[- ]+)?pink\b/, HAIR_COLORS["dyed-pink"]],
+    [/\b(?:dyed[- ]+)?blue\b/, HAIR_COLORS["dyed-blue"]],
+    [/\b(?:dyed[- ]+)?purple\b/, HAIR_COLORS["dyed-purple"]],
+    [/\b(?:dyed[- ]+)?green\b/, HAIR_COLORS["dyed-green"]],
+    // An explicit neutral silver-white compound is not the warmer generic
+    // platinum-blonde category. Existing noun/uncertainty guards still apply.
+    [/\b(?:silver[- ]white(?:[- ]platinum)?|platinum[- ](?:silver[- ]white|white))\b/, HAIR_COLORS.white],
     [/\b(?:platinum|platinum[- ]blonde)\b/, HAIR_COLORS.platinum],
     [
       /\b(?:blonde|blond|golden[- ]blonde|honey[- ]blonde)\b/,
@@ -2642,7 +2719,53 @@ function recoverObservedHairColor(text: string): string | null {
     [/\b(?:black|jet[- ]black)\b/, HAIR_COLORS.black],
     [/\bbrown\b/, HAIR_COLORS.brown],
   ];
-  return cues.find(([pattern]) => pattern.test(text))?.[1] ?? null;
+  // observed.hair also contains ribbons, clips and background descriptions.
+  // A color anywhere in that field is not evidence of the hair material.
+  const material = "(?:hair|curls?|braids?|locs|dreadlocks?|locks|fringe)";
+  const descriptor = "(?:long|short|medium(?:[- ]length)?|straight|wavy|curly|coily|thick|thin|dense|fine|soft|natural|flowing|layered|silky|shiny|shoulder[- ]length|chest[- ]length)";
+  const colors = new Set<string>();
+  // These slash-separated names share the existing gray material palette.
+  // Resolve only equivalent names before applying the unchanged noun ownership,
+  // uncertainty and genuinely multicolor guards below.
+  const materialAliasesText = text
+    .replace(/\b(?:gray|grey|silver)\s*\/\s*(?:gray|grey|silver)\b/g, "gray")
+    .replace(/\b(gray|grey|silver)[- ]toned\b/g, "$1");
+  // observed.hair may begin with a field-scoped material declaration rather
+  // than repeat the noun ("ashy gray color, ..."). Only that complete first
+  // clause binds implicitly; later accessory colors/qualifiers do not.
+  const declaration = materialAliasesText.split(/[.;,\n]/, 1)[0].trim();
+  for (const [pattern, hex] of cues) {
+    if (new RegExp(`^(?:(?:ash|ashy)[- ]+)?${pattern.source} colo(?:u)?r$`).test(declaration)) colors.add(hex);
+  }
+  // A comma between a color and a bounded hair-descriptor chain is not an
+  // ownership boundary ("gray, medium-length hair"). Keep other commas:
+  // accessories, garments, uncertainty and independent color claims must not
+  // be joined into new hair evidence.
+  const materialText = materialAliasesText.replace(new RegExp(`,(?= +${descriptor}(?:[- ]+${descriptor}){0,5} +${material}\\b)`, "g"), " ");
+  for (const clause of materialText.split(/[.;,\n]/)) {
+    if (/\b(?:no|not|without|possibly|maybe|uncertain|unknown|hidden|occluded)\b/.test(clause)) continue;
+    // An unresolved multicolor relationship must not be collapsed by cue order.
+    if (/\b(?:black|white|brown|blonde?|red|gray|grey|silver|pink|blue|purple|green)\s*(?:and|\/|&)\s*(?:black|white|brown|blonde?|red|gray|grey|silver|pink|blue|purple|green)\b/.test(clause)) continue;
+    const matches: { start: number; end: number; hex: string }[] = [];
+    const accessory = "(?![- ]+(?:bow|ribbon|clip|band|tie|accessory|flower)\\b)";
+    for (const [pattern, hex] of cues) {
+      const prefix = new RegExp(`${pattern.source}(?:[- ]+${descriptor}){0,6}[- ]+${material}\\b${accessory}`, "g");
+      const postfix = new RegExp(`\\b${material}(?: (?:is|looks|appears))?(?:[- ]+${descriptor}){0,6}[- ]+${pattern.source}${accessory}`, "g");
+      // A complete material-subject predicate also binds its named color.
+      // Keep this clause-anchored: articles/shade qualifiers must not bridge
+      // an accessory, uncertainty, or a later independent color claim.
+      const predicate = new RegExp(`^\\s*(?:the )?${material} (?:is|are) (?:an? )?(?:medium )?(?:(?:ash|ashy)[- ]+)?${pattern.source} colo(?:u)?r\\s*$`, "g");
+      for (const m of [...clause.matchAll(prefix), ...clause.matchAll(postfix), ...clause.matchAll(predicate)])
+        matches.push({ start: m.index, end: m.index + m[0].length, hex });
+    }
+    for (const m of matches) {
+      // Compound colors own their generic substring; independent contradictory
+      // hair colors remain unresolved instead of using vocabulary priority.
+      if (!matches.some(other => other.start <= m.start && other.end >= m.end &&
+        (other.start < m.start || other.end > m.end))) colors.add(m.hex);
+    }
+  }
+  return colors.size === 1 ? [...colors][0] : null;
 }
 
 function recoverObservedEyeColor(text: string): string | null {
@@ -2707,6 +2830,34 @@ const NAMED_CLOTHING_COLOR_CUES: ReadonlyArray<{
   { pattern: "(?:khaki)", hex: CLOTHING_COLORS.khaki },
 ];
 
+/** Resolve only explicit observed cap/beanie material, not nearby hair, a
+ * printed hat motif, decoration, or an inferred outfit palette. Conflicting
+ * independent colors remain unresolved rather than picking by cue order.
+ */
+function observedHeadwearColor(analysis: PhotoAnalysis): string | null {
+  if (!["cap", "beanie"].includes(analysis.fallbackFeatures.hat)) return null;
+  const colors = new Set<string>();
+  const material = "(?:knit(?:ted)?|wool(?:len)?|soft[- ]textured|fuzzy(?:\\s*/\\s*textured)?|soft|textured|plush|baseball|large|small)";
+  // Commas within a bounded material-adjective list do not detach its color.
+  // Keep other comma boundaries; never bridge an accessory noun or color list.
+  const text = analysis.observed.accessories.toLowerCase()
+    .replace(new RegExp(`,\\s*(?=${material}\\b)`, "g"), " ");
+  for (const clause of text.split(/[;,.!?]/)) {
+    if (/\b(?:no|not|without|possibly|maybe|might|uncertain|unknown|print|printed|pattern|motif|logo)\b/.test(clause)) continue;
+    const found: Array<{ start: number; end: number; hex: string }> = [];
+    for (const cue of NAMED_CLOTHING_COLOR_CUES) {
+      const headwear = "(?:hat|cap(?![- ]sleeves?\\b)|beanie)";
+      // "teal-colored" binds the same explicit material as "teal"; it must
+      // still attach directly to headwear, not a ribbon, hair or cap sleeves.
+      const rx = new RegExp(`\\b${cue.pattern}(?:[- ]colou?red)?\\s+(?:${material}\\s+){0,2}${headwear}\\b|\\b${headwear}\\s+(?:is\\s+)?${cue.pattern}\\b`, "gi");
+      for (const m of clause.matchAll(rx)) found.push({ start: m.index!, end: m.index! + m[0].length, hex: cue.hex });
+    }
+    // "blue hat" nested inside "light-blue hat" is one specific color claim.
+    for (const f of found) if (!found.some(g => g.start <= f.start && g.end >= f.end && (g.start < f.start || g.end > f.end))) colors.add(f.hex);
+  }
+  return colors.size === 1 ? [...colors][0] : null;
+}
+
 function recoverNamedColorNearItem(
   text: string,
   itemPattern: string,
@@ -2718,7 +2869,7 @@ function recoverNamedColorNearItem(
   );
   const allGarmentMatches = Array.from(
     text.matchAll(
-      /\b(?:top|shirt|blouse|sweater|pullover|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey|bottoms?|skirt|skort|shorts|pants|trousers|jeans|culottes|socks?|stockings?|tights?|leg[- ]?warmers?|shoes?|boots?|loafers?|sneakers?|sandals?|mary[- ]?janes?|hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|hair[- ]?covering|glasses|spectacles|eyeglasses|frames|earrings?|ear[- ]?studs?|hoops?)\b/gi,
+      /\b(?:top|shirt|blouse|sweater|sweatshirt|pullover|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey|bottoms?|skirt|skort|shorts|pants|trousers|jeans|culottes|socks?|stockings?|tights?|leg[- ]?warmers?|shoes?|boots?|loafers?|sneakers?|sandals?|mary[- ]?janes?|hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|hair[- ]?covering|glasses|spectacles|eyeglasses|frames|earrings?|ear[- ]?studs?|hoops?)\b/gi,
     ),
   );
   const wordDistance = (
@@ -2938,14 +3089,14 @@ export function normalizeAnalysisForRendering(
   const hairClauseMatches = (pattern: RegExp) =>
     hairDescriptionClauses.some((clause) => pattern.test(clause));
   const hairEndpointDescriptionClauses = hairDescriptionClauses.map((clause) =>
-    clause.replace(
+    unambiguousHairEndpointText(clause).replace(
       /\b(?:relative|compared)\s+to\b|\bin\s+relation\s+to\b/g,
       "compared against",
     ),
   );
   const hairEndpointClauseMatches = (pattern: RegExp) =>
     hairEndpointDescriptionClauses.some((clause) => pattern.test(clause));
-  const hairEndpointText = hairText.replace(
+  const hairEndpointText = unambiguousHairEndpointText(hairText).replace(
     /\b(?:relative|compared)\s+to\b|\bin\s+relation\s+to\b/g,
     "compared against",
   );
@@ -2965,20 +3116,35 @@ export function normalizeAnalysisForRendering(
       ),
   );
   const thighAccessoryText = thighAccessoryClauses.join(" ");
+  // Head accessory scale must not inherit a neck/waist/garment bow's size.
+  // Keep positive clauses separate so a size word cannot cross an ownership
+  // boundary and attach to a different accessory in the following clause.
+  const hairAccessoryScaleText = [
+    analysis.observed.hair,
+    analysis.observed.accessories,
+    analysis.identityPrompt,
+    analysis.inferred.hairBack?.value,
+    analysis.inferred.hairBack?.rationale,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .flatMap(value => value.toLowerCase().split(/[.!?;,\n]+/))
+    .filter(clause =>
+      !/\b(?:neck|throat|waist|thigh|garter|cardigan|shirt|blouse|dress|skirt|belt|bag|shoe|no|not|without|possibly|maybe|uncertain|hidden|occluded|unknown)\b/.test(clause),
+    ).join("\n");
   const explicitlyLargeHairAccessory =
     /\b(?:large|big|oversized|prominent|statement)\b.{0,36}\b(?:flower|flowers|floral|bow|ribbon|accessory)\b/.test(
-      hairText,
+      hairAccessoryScaleText,
     ) ||
     /\b(?:flower|floral)[-\s]+(?:cluster|arrangement|bouquet|crown)\b/.test(
-      hairText,
+      hairAccessoryScaleText,
     ) ||
     /\b(?:cluster|arrangement|bouquet|crown)\b.{0,40}\b(?:flowers?|blooms?|floral)\b/.test(
-      hairText,
+      hairAccessoryScaleText,
     ) ||
-    /\b(?:multiple|several|two|three)\b.{0,24}\bflowers?\b/.test(hairText);
+    /\b(?:multiple|several|two|three)\b.{0,24}\bflowers?\b/.test(hairAccessoryScaleText);
   const explicitlySmallHairAccessory =
     /\b(?:small|tiny|delicate|subtle|miniature)\b.{0,28}\b(?:flower|bow|ribbon|clip|barrette|hairpin|accessory)\b/.test(
-      hairText,
+      hairAccessoryScaleText,
     );
   const explicitlyLargeEyes =
     /\b(?:large|big|prominent)(?:[-\s]+(?:slightly|open|bright|dark|light|brown|black|blue|green|gray|grey|hazel|almond|round|upturned|downturned)){0,4}[-\s]+eyes?\b/.test(
@@ -3033,11 +3199,13 @@ export function normalizeAnalysisForRendering(
     /\b(center|centre|middle)[-\s]+part(?:ed|ing)?\b/.test(hairText) ||
     /\bpart(?:ed|ing)?\s+(?:down\s+)?the\s+middle\b/.test(hairText);
   const explicitViewerLeftPart =
-    /\bpart(?:ed|ing)?\b.{0,24}\bviewer(?:'s)?[-\s]+left\b|\bviewer(?:'s)?[-\s]+left\b.{0,24}\bpart(?:ed|ing)?\b/.test(
+    // The direction must modify the part itself. A nearby bow/flower side,
+    // even in the same sentence, is not a root-part observation.
+    /\bpart(?:ed|ing)?\s+(?:(?:is|falls?|sits?)\s+)?(?:slightly\s+)?(?:(?:on|to|at|towards?)\s+)?(?:the\s+)?viewer(?:'s)?[-\s]+left\b|\bviewer(?:'s)?[-\s]+left(?:[-\s]+side)?[-\s]+part(?:ed|ing)?\b/.test(
       analysis.observed.hair.toLowerCase(),
     );
   const explicitViewerRightPart =
-    /\bpart(?:ed|ing)?\b.{0,24}\bviewer(?:'s)?[-\s]+right\b|\bviewer(?:'s)?[-\s]+right\b.{0,24}\bpart(?:ed|ing)?\b/.test(
+    /\bpart(?:ed|ing)?\s+(?:(?:is|falls?|sits?)\s+)?(?:slightly\s+)?(?:(?:on|to|at|towards?)\s+)?(?:the\s+)?viewer(?:'s)?[-\s]+right\b|\bviewer(?:'s)?[-\s]+right(?:[-\s]+side)?[-\s]+part(?:ed|ing)?\b/.test(
       analysis.observed.hair.toLowerCase(),
     );
   const explicitCurtainBangs =
@@ -3063,9 +3231,15 @@ export function normalizeAnalysisForRendering(
     /\b(?:side(?:[-\s]+(?:hair|locks?|layers?))?|temples?|ears?)\b.{0,44}\b(?:flare(?:s|d)?|fan(?:s|ned)?[-\s]+out|push(?:es|ed)?[-\s]+outward|puff(?:s|ed)?[-\s]+outward|winged)\b|\b(?:flare(?:s|d)?|fan(?:s|ned)?[-\s]+out|push(?:es|ed)?[-\s]+outward|puff(?:s|ed)?[-\s]+outward|winged)\b.{0,44}\b(?:side(?:[-\s]+(?:hair|locks?|layers?))?|temples?|ears?)\b/,
   );
   const longHair =
-    hairClauseMatches(
-      /\blong\b(?:(?!\b(?:face|jaw|nose|neck)\b)[\s\S]){0,48}\b(?:hair|locks?|strands?|tresses)\b|\b(?:hair|locks?|strands?|tresses)\b.{0,32}\b(?:long|past[-\s]+the[-\s]+shoulders?)\b|\b(?:chest|waist|hip)[-\s]+length\b|\bmid[-\s]+back\b/,
-    ) || renderHints.hairBackShape === "long";
+    hairEndpointDescriptionClauses.some(clause => {
+      // "Long side hair" may only cover the ears. It is not evidence for
+      // chest-length overall hair; retain independently stated endpoints.
+      const overallClause = clause.replace(
+        /\bside[-\s]+(?:hair|locks?|strands?)\s+(?:is|are|looks?|seems?)\s+(?:very\s+)?long\b|\blong\s+side[-\s]+(?:hair|locks?|strands?)\b/g,
+        "local side extent",
+      );
+      return /\blong\b(?![-\s]+enough\b)(?:(?!\b(?:face|jaw|nose|neck)\b)[\s\S]){0,48}\b(?:hair|locks?|strands?|tresses)\b|\b(?:hair|locks?|strands?|tresses)\b.{0,32}\b(?:long\b(?![-\s]+enough\b)|past[-\s]+the[-\s]+shoulders?)\b|\b(?:chest|waist|hip)[-\s]+length\b|\bmid[-\s]+back\b/.test(overallClause);
+    }) || renderHints.hairBackShape === "long";
   const explicitlyCompactHair = hairClauseMatches(
     /\b(?:short|cropped|buzz(?:ed)?|close[-\s]+cut)\b.{0,28}\b(?:hair|cut|style)\b|\b(?:hair|cut|style)\b.{0,24}\b(?:short|cropped|buzzed|close[-\s]+cut)\b/,
   );
@@ -3112,7 +3286,7 @@ export function normalizeAnalysisForRendering(
   const focusedHairText = /focused portrait crop confirms/i.test(
     analysis.observed.hair,
   )
-    ? (analysis.observed.hair
+    ? (unambiguousHairEndpointText(analysis.observed.hair)
         .split(/focused portrait crop confirms/i)
         .at(-1)
         ?.toLowerCase() ?? "")
@@ -3553,7 +3727,15 @@ export function refineFeatureColorsFromAnalysis(
   features: Record<string, unknown>,
 ): Record<string, unknown> {
   const refined = { ...features };
-  const canonicalText = canonicalIdentityText(analysis);
+  // Palette recovery may refine a coarse swatch, but not from speculative text.
+  // Keep the original analysis intact for provenance and other consumers.
+  const paletteFeatures = analysis.canonicalIdentity.features.filter(
+    (feature) => feature.confidence !== "low",
+  );
+  const canonicalText = canonicalIdentityText({
+    ...analysis,
+    canonicalIdentity: { ...analysis.canonicalIdentity, features: paletteFeatures },
+  });
   const faceText = joinedAnalysisText([
     analysis.observed.face,
     analysis.identityPrompt,
@@ -3587,10 +3769,14 @@ export function refineFeatureColorsFromAnalysis(
     canonicalText,
   ]);
 
+  // The coarse top enum has no sweatshirt category. Preserve an unambiguous
+  // visible sweatshirt's own material without treating a print/speculation as
+  // a new garment or changing the existing outer-jacket priority.
+  const sweatshirt = observedStandaloneSweatshirt(analysis) ? "|sweatshirt" : "";
   const topGarmentPattern =
-    "(?:top|shirt|blouse|sweater|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey)";
+    `(?:top|shirt|blouse|sweater|cardigan|jacket|coat|vest|hoodie|dress|tunic|camisole|jersey${sweatshirt})`;
   const dominantTopGarmentPattern =
-    "(?:jacket|coat|cardigan|hoodie|sweater|pullover|top|tunic|dress|jersey)";
+    `(?:jacket|coat|cardigan|hoodie|sweater|pullover|top|tunic|dress|jersey${sweatshirt})`;
   const lowerGarmentPattern =
     "(?:bottoms?|skirt|skort|shorts|pants|trousers|jeans|culottes)";
   const shoePattern =
@@ -3672,6 +3858,8 @@ export function refineFeatureColorsFromAnalysis(
   if (recoveredBottomColor) refined.bottomColor = recoveredBottomColor;
   if (recoveredShoesColor) refined.shoesColor = recoveredShoesColor;
   if (recoveredHeadCoveringColor) refined.hatColor = recoveredHeadCoveringColor;
+  const explicitHeadwearColor = observedHeadwearColor(analysis);
+  if (explicitHeadwearColor) refined.hatColor = explicitHeadwearColor;
   const darkNeutralPattern =
     "(?:dark(?:[-\\s]+colou?red)?|charcoal|monochrome|near[-\\s]+black)";
   const explicitlyDarkVisibleTop = relevantClauseList(
@@ -3776,19 +3964,18 @@ export function refineFeatureColorsFromAnalysis(
   }
 
   const recoveredEyeColor = [
-    joinedAnalysisText([analysis.observed.face]),
-    joinedAnalysisText([analysis.identityPrompt]),
-    joinedAnalysisText([
-      analysis.canonicalIdentity.overallImpression,
-      analysis.canonicalIdentity.mustPreserve,
+    analysis.observed.face,
+    analysis.identityPrompt,
+    analysis.canonicalIdentity.overallImpression,
+    ...analysis.canonicalIdentity.mustPreserve,
+    ...paletteFeatures.flatMap((feature) => [
+      feature.feature,
+      feature.evidence,
     ]),
-    joinedAnalysisText(
-      analysis.canonicalIdentity.features.flatMap((feature) => [
-        feature.feature,
-        feature.evidence,
-      ]),
-    ),
   ]
+    // Evidence entries are not a continuous sentence. Joining "dark eyes"
+    // and "blue shirt" creates an eye-color relation that neither asserts.
+    .map((text) => joinedAnalysisText([text]))
     .map(recoverObservedEyeColor)
     .find((color): color is string => color !== null);
   if (recoveredEyeColor) refined.eyeColor = recoveredEyeColor;
@@ -4026,6 +4213,8 @@ function completeVisibleUpperDetails(
     .join(" ")
     .toLowerCase();
 
+  if (observedStandaloneSweatshirt(analysis)) style.topType = observedStandaloneHoodedSweatshirt(analysis) ? "hoodie" : "sweater";
+
   if (/\b(cardigan|open cardigan)\b/.test(upperText)) {
     style.outerGarment = "cardigan";
     style.topType = style.topType === "tshirt" ? "shirt" : style.topType;
@@ -4146,7 +4335,7 @@ function completeVisibleUpperDetails(
     style.neckAccessoryColor =
       recoverNamedColorNearItem(tieText, "(?:tie|necktie)", 4) ??
       (/\bdark\b/.test(tieText) ? CLOTHING_COLORS.black : style.topAccentColor);
-    style.neckAccessoryPattern = /\b(?:striped|stripes)\b/.test(tieText)
+    style.neckAccessoryPattern = observedStripedTie(analysis.observed.clothing)
       ? "striped"
       : "plain";
   }
@@ -4385,12 +4574,29 @@ function completeVisibleAccessoryDetails(
           ? "large"
           : "normal";
     }
-    style.glassesColor =
-      recoverNamedColorNearItem(
-        glassesText,
-        "(?:glasses|spectacles|eyeglasses|frames)",
-        5,
-      ) ?? style.glassesColor;
+    // Do not flatten independent evidence into a new colour-to-item relation.
+    // Observed clauses take precedence; speculative canonical colours cannot
+    // override the structured palette. Preserve clause/field boundaries.
+    const observedGlassesColorClauses = relevantClauseList(
+      [analysis.observed.accessories, analysis.observed.face],
+      /\b(?:glasses|spectacles|eyeglasses|frames)\b/,
+    );
+    const glassesColorClauses = observedGlassesColorClauses.length > 0
+      ? observedGlassesColorClauses
+      : relevantClauseList(
+          [
+            analysis.identityPrompt,
+            analysis.canonicalIdentity.overallImpression,
+            ...analysis.canonicalIdentity.mustPreserve,
+            ...analysis.canonicalIdentity.features
+              .filter(feature => feature.confidence !== "low" && feature.category === "accessory")
+              .flatMap(feature => [feature.feature, feature.evidence]),
+          ],
+          /\b(?:glasses|spectacles|eyeglasses|frames)\b/,
+        );
+    style.glassesColor = glassesColorClauses
+      .map(clause => recoverNamedColorNearItem(clause, "(?:glasses|spectacles|eyeglasses|frames)", 5))
+      .find(color => color !== null) ?? style.glassesColor;
   }
 
   const earringText = relevantClauses(
@@ -4582,13 +4788,25 @@ function completeCanonicalIdentityDetails(
   style: FaceStyle,
 ): void {
   const canonicalText = canonicalIdentityText(analysis);
+  // Speculative head/face claims cannot override observed appearance after planning.
+  // Preserve the original evidence; filter only these late style consumers.
+  const headFeatures = analysis.canonicalIdentity.features.filter(
+    (feature) => !["hair", "accessory", "face", "silhouette"].includes(feature.category) || feature.confidence !== "low",
+  );
+  const headCanonicalText = canonicalIdentityText({
+    ...analysis,
+    canonicalIdentity: {
+      ...analysis.canonicalIdentity,
+      features: headFeatures,
+    },
+  });
   const headValues = [
     analysis.observed.hair,
     analysis.observed.accessories,
     analysis.observed.clothing,
     analysis.identityPrompt,
     analysis.outfitPrompt,
-    canonicalText,
+    headCanonicalText,
   ];
   const hairIdentityText = joinedAnalysisText(headValues);
   const explicitlyBaldScalp = !observedQualifiedScalpCloseHair(analysis) && relevantClauseList(
@@ -4628,7 +4846,7 @@ function completeCanonicalIdentityDetails(
   }
   if (
     /\b(?:angular|chiseled|chiselled|defined)[-\s]+(?:face|facial features?|jaw|jawline|cheekbones?)\b|\b(?:face|jaw|jawline|cheekbones?)\b[^.!?;,]{0,24}\b(?:angular|chiseled|chiselled|defined)\b/.test(
-      canonicalText,
+      headCanonicalText,
     )
   ) {
     style.faceShape = "angular";
@@ -4670,7 +4888,7 @@ function completeCanonicalIdentityDetails(
       analysis.outfitPrompt,
       analysis.canonicalIdentity.overallImpression,
       ...analysis.canonicalIdentity.mustPreserve,
-      ...analysis.canonicalIdentity.features.flatMap(feature => [feature.feature, feature.evidence]),
+      ...headFeatures.flatMap(feature => [feature.feature, feature.evidence]),
     ], /\b(?:long(?![-\s–—]+sleeve(?:s|d)?\b)|chest[- ]length|waist[- ]length|hip[- ]length)\b(?:\s+[a-z-]+){0,4}\s+hair\b|\bhair\b(?:\s+[a-z-]+){0,4}\s+\b(?:long(?![-\s–—]+sleeve(?:s|d)?\b)|chest[- ]length|waist[- ]length|hip[- ]length)\b/).length > 0;
   if (
     longHairConstruction &&
@@ -4739,8 +4957,16 @@ function completeCanonicalIdentityDetails(
     style.hairTexture = "coily";
   }
   const headCoveringEvidence = relevantClauseList(
-    headValues,
-    /\b(?:hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|hair[- ]?covering|scarf[^.!?;,]{0,40}(?:head|hair)|(?:head|hair)[^.!?;,]{0,40}scarf)\b/,
+    // Keep independent canonical claims separate. Mere hair/scarf proximity
+    // (even in one sentence) does not establish a head-covering relationship.
+    // Otherwise a neck scarf replaces brown hair with the unused hat palette.
+    [
+      ...headValues.slice(0, -1),
+      analysis.canonicalIdentity.overallImpression,
+      ...analysis.canonicalIdentity.mustPreserve,
+      ...headFeatures.flatMap(feature => [feature.feature, feature.evidence]),
+    ],
+    /\b(?:hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|hair[- ]?covering|scarf\s+(?:(?:is|worn|wrapped|draped)\s+){0,2}(?:over|around|on|covering)\s+(?:the\s+)?(?:head|hair)|(?:head|hair)\s+(?:is\s+)?(?:covered|wrapped)\s+(?:with|by|in)\s+(?:a\s+)?(?:[a-z-]+\s+){0,2}scarf)\b/,
   ).filter(
     (clause) =>
       !/\b(?:no|not wearing|without|removed|bareheaded)\b[^.!?;,]{0,30}\b(?:hijab|head[- ]?scarf|head[- ]?wrap|turban|veil|kerchief|covering)\b/.test(
@@ -4751,7 +4977,7 @@ function completeCanonicalIdentityDetails(
   if (headCoveringEvidence.length > 0) {
     const headText = headCoveringEvidence.join(" ");
     const itemPattern =
-      "(?:hijab|head[-\\s]?scarf|head[-\\s]?wrap|turban|veil|kerchief|hair[-\\s]?covering)";
+      "(?:hijab|head[-\\s]?scarf|head[-\\s]?wrap|turban|veil|kerchief|hair[-\\s]?covering|scarf)";
     const recoveredPrimary = recoverNamedColorNearItem(headText, itemPattern);
     if (recoveredPrimary) style.hatColor = recoveredPrimary;
     const primary = style.hatColor?.toLowerCase();
@@ -4769,7 +4995,7 @@ function completeCanonicalIdentityDetails(
       (color) => color.toLowerCase() !== primary,
     );
     const accentEvidence = relevantClauses(
-      headValues,
+      headCoveringEvidence,
       /\b(?:accent|section|panel|block|patch)\b/,
     );
 

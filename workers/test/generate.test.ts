@@ -24,6 +24,7 @@ import type {
 } from "../src/skinProvider";
 import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
+import type { SkinPlan } from "../src/skinPlan";
 import { ATLAS_SIZE, CLASSIC_LAYOUT } from "../src/uvLayout";
 import {
   CLEAR_IDENTITY_DIAGNOSIS,
@@ -2153,6 +2154,7 @@ describe("generateSkin", () => {
       neckAccessory: "tie",
       neckAccessoryColor: "#22201e",
       neckAccessoryPattern: "striped",
+      glasses: "none",
     });
     const result = await generateSkin(
       makeEnv(analysis, false),
@@ -2473,11 +2475,26 @@ describe("generateSkin", () => {
       decodeResult(teethResult),
     ]);
     const face = CLASSIC_LAYOUT.head.base.front;
-    const center = ((face.y + 6) * ATLAS_SIZE + face.x + 3) * 4;
-    const grinLeft = ((face.y + 6) * ATLAS_SIZE + face.x + 3) * 4;
-    const grinRight = ((face.y + 6) * ATLAS_SIZE + face.x + 4) * 4;
-    const raisedCorner = ((face.y + 5) * ATLAS_SIZE + face.x + 2) * 4;
-    const formerStraightCorner = ((face.y + 6) * ATLAS_SIZE + face.x + 2) * 4;
+    // The authoritative pixel plan, not the former legacy mouth grammar,
+    // owns these positions. Legacy (2,5)/(2,6) now sample only shaded skin.
+    const closedPlan = (closedResult.body.analysis as { skinPlan: SkinPlan }).skinPlan.facePixelPlan;
+    const teethPlan = (teethResult.body.analysis as { skinPlan: SkinPlan }).skinPlan.facePixelPlan;
+    const lips = closedPlan.pixels.filter(p => p.role === "lip").sort((a, b) => a.x - b.x);
+    const toothCells = teethPlan.pixels.filter(p => p.role === "teeth").sort((a, b) => a.x - b.x);
+    expect(lips).toHaveLength(4);
+    expect(closedPlan.pixels.some(p => p.role === "teeth")).toBe(false);
+    expect(toothCells).toHaveLength(2);
+    expect(lips[0].y).toBe(lips[1].y - 1);
+    expect(lips[3].y).toBe(lips[2].y - 1);
+    const offset = (cell: { x: number; y: number }) => ((face.y + cell.y) * ATLAS_SIZE + face.x + cell.x) * 4;
+    const closedCenter = offset(lips[1]);
+    const grinLeft = offset(toothCells[0]);
+    const grinRight = offset(toothCells[1]);
+    const raisedCorner = offset(lips[0]);
+    const formerStraightCorner = offset({ x: lips[0].x, y: lips[1].y });
+    expect(closedPlan.pixels.some(p => p.x === lips[0].x && p.y === lips[1].y)).toBe(false);
+    const toothCorner = teethPlan.pixels.find(p => p.role === "lip" && p.x < toothCells[0].x)!;
+    expect(toothCorner).toBeDefined();
     const rgbDistance = (first: number, second: number) =>
       [0, 1, 2].reduce(
         (sum, channel) =>
@@ -2488,13 +2505,13 @@ describe("generateSkin", () => {
         0,
       );
     expect(rgbDistance(raisedCorner, formerStraightCorner)).toBeGreaterThan(25);
-    expect(teeth.rgba[center]).toBeGreaterThan(closed.rgba[center] + 35);
-    expect(teeth.rgba[center + 1]).toBeGreaterThan(
-      closed.rgba[center + 1] + 55,
+    expect(teeth.rgba[grinLeft]).toBeGreaterThan(closed.rgba[closedCenter] + 35);
+    expect(teeth.rgba[grinLeft + 1]).toBeGreaterThan(
+      closed.rgba[closedCenter + 1] + 55,
     );
     expect(teeth.rgba[grinLeft]).toBeGreaterThan(200);
     expect(teeth.rgba[grinRight]).toBeGreaterThan(180);
-    expect(teeth.rgba[raisedCorner]).toBeLessThan(teeth.rgba[grinLeft]);
+    expect(teeth.rgba[offset(toothCorner)]).toBeLessThan(teeth.rgba[grinLeft]);
     expect(validateFinalAtlas(closed).ok).toBe(true);
     expect(validateFinalAtlas(teeth).ok).toBe(true);
   });

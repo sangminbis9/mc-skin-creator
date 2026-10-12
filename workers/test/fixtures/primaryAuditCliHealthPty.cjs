@@ -22,7 +22,26 @@ function auditFeatureArgs(mode = "primary-only") {
     "--var", "IDENTITY_GEOMETRY_ENRICHMENT_ENABLED:false",
     "--var", "SYNCHRONOUS_ENHANCEMENTS_ENABLED:false"];
 }
-module.exports = { registerBridgeIdentity, auditFeatureArgs };
+function createStageLogParser() {
+  let tail = "";
+  const seen = new Set();
+  return chunk => {
+    // Consume fixed frames only. Split chunks/ANSI are tolerated, arbitrary logs
+    // stay in a bounded transient buffer and are never forwarded or persisted.
+    // eslint-disable-next-line no-control-regex -- Strip intentional terminal ANSI CSI escapes.
+    const text = (tail + chunk).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+    const observations = [];
+    const pattern = /MCSKIN_E2E_STAGE_V1\|([a-f0-9]{32})\|(input_verified|handler_entered|handler_returned|propagation_started|propagation_finished|propagation_(?:(?:projection|png|normalization|plan)_(?:started|finished)|(?:features|parameters)_finished)|production_(?:primary_returned|primary_diagnostic_finished|crop_started|crop_returned|enrichment_finished|render_context_started|render_context_finished|source_atlas_started|source_atlas_finished|reference_atlas_started|reference_atlas_finished|png_started|png_finished|baseline_returned)|(?:geminiPrimary|gemmaPrimary|faceGeometry)_(?:invoked|returned|threw|inspection_started|inspection_finished))\|END/g;
+    for (const match of text.matchAll(pattern)) {
+      const key = `${match[1]}:${match[2]}`;
+      if (seen.has(key) || seen.size >= 64) continue;
+      seen.add(key); observations.push({ runId: match[1], stage: match[2] });
+    }
+    tail = text.slice(-256);
+    return observations;
+  };
+}
+module.exports = { registerBridgeIdentity, auditFeatureArgs, createStageLogParser };
 
 if (require.main === module && role === "owner") {
   const pty = require(process.argv[3]);
@@ -113,8 +132,12 @@ if (require.main === module && role === "owner") {
         WRANGLER_SEND_ERROR_REPORTS: "false", CLOUDFLARE_INCLUDE_PROCESS_ENV: "false" },
     });
     const classes = new Set();
+    const parseStages = createStageLogParser();
     let boundedText = "";
     terminal.onData(chunk => {
+      if (featureMode === "current-default-e2e") for (const observation of parseStages(chunk))
+        send({ kind: "e2e_stage", ...observation });
+      // eslint-disable-next-line no-control-regex -- Existing terminal ANSI CSI sanitizer.
       boundedText = (boundedText + chunk).slice(-4096).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
       // UI registration evidence is transient. No arbitrary output leaves owner.
       if (interactive && /\[x\]\s+to exit/.test(boundedText) && !ready) {

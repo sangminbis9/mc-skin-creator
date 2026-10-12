@@ -19,6 +19,31 @@ const protectedPaths = [excluded,
   "evaluation-artifacts/current-default-v3-e2e-baseline-20260926-005",
   "evaluation-artifacts/current-default-v3-e2e-baseline-20260926-006",
   "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-007",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-008",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-009",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-010",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-011",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-012",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-013",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-014",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-015",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-016",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260927-017",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-018",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-019",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-020",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-021",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-022",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-023",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-024",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-025",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-026",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-027",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-028",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-029",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-030",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-031",
+  "evaluation-artifacts/current-default-v3-e2e-baseline-20260928-032",
   "evaluation-artifacts/current-default-v3-e2e-409-gate-audit-20260926-001"];
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 function inventory() {
@@ -44,13 +69,19 @@ afterAll(() => {
   console.info(`OFFLINE_PREFLIGHT_ARTIFACT ${root}`);
 });
 
-it("pins the unused 008 selector/root without importing or executing the remote runner", () => {
+it("pins the historical 033 selector/root without importing or executing the remote runner", () => {
   const runner = fs.readFileSync("test/primaryAuditCliProtectedHealth.test.ts", "utf8");
-  expect(runner).toContain('process.env.RUN_CURRENT_DEFAULT_V3_E2E === "approved-29002888-20260927-008"');
-  expect(E2E_ROOT).toBe(path.resolve("evaluation-artifacts/current-default-v3-e2e-baseline-20260927-008"));
-  expect(fs.existsSync(E2E_ROOT)).toBe(false);
+  expect(runner).toContain('process.env.RUN_CURRENT_DEFAULT_V3_E2E === "approved-29002888-20260928-033"');
+  expect(E2E_ROOT).toBe(path.resolve("evaluation-artifacts/current-default-v3-e2e-baseline-20260928-033"));
+  expect(fs.readFileSync("test/audit/currentDefaultE2ELive.ts", "utf8"))
+    .toContain('if (fs.existsSync(E2E_ROOT)) throw new Error("e2e_fresh_root_required")');
   expect(runner).toContain('expect(fs.existsSync(root)).toBe(false)');
   expect(runner).toContain('fs.mkdirSync(root, { recursive: false })');
+  // Outer metadata must agree with the independently captured E2E workingTree,
+  // not retain the historical HEAD from the original audit implementation.
+  expect(runner).toContain('head: execFileSync("git", ["rev-parse", "HEAD"]');
+  expect(runner).toContain('branch: execFileSync("git", ["branch", "--show-current"]');
+  expect(runner).not.toMatch(/head: "[0-9a-f]{40}"/);
   expect(createE2EState(prepared()).runId).not.toBe(createE2EState(prepared()).runId);
   const self = fs.readFileSync("test/currentDefaultE2EFreshPreflight.test.ts", "utf8");
   expect(self).not.toMatch(/from ["'][^"']*currentDefaultE2EGates|import\(["'][^"']*primaryAuditCliProtectedHealth/);

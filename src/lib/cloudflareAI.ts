@@ -3,7 +3,7 @@
  * AI 생성 / quota 조회 / 현황 조회 / 이벤트 트래킹.
  */
 
-import type { GenerateResponse, QuotaStatus } from "./skinFeatures";
+import { normalizeFeatures, type GenerateResponse, type QuotaStatus } from "./skinFeatures";
 
 export const DEFAULT_API_BASE_URL =
   "https://mc-skin-creator-api.mc-skin-creator-server.workers.dev";
@@ -12,6 +12,42 @@ const API_BASE = (
 ).replace(/\/$/, "");
 const GENERATION_TIMEOUT_MS = 150_000;
 const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
+// Device-local reuse: only input hashes + generated skin/editor metadata.
+// Never persist photographs, requests, or analysis. Bump revision with a new
+// presentation release; expiry also bounds reuse across Worker-only releases.
+const completedGenerations = new Map<string, { expires: number; result: GenerateResponse }>();
+const REUSE_KEY = "mc-skin:completed:reference-layout-20261011-v1";
+let reuseLoaded = false;
+
+function loadCompletedGenerations(): void {
+  if (reuseLoaded) return;
+  reuseLoaded = true;
+  try {
+    const raw = localStorage.getItem(REUSE_KEY);
+    if (!raw || raw.length > 1_000_000) return;
+    const entries: unknown = JSON.parse(raw);
+    if (!Array.isArray(entries) || entries.length > 8) return;
+    for (const item of entries) {
+      if (!item || typeof item !== "object") continue;
+      const { key, expires, png, features, mode } = item;
+      if (typeof key !== "string" || !/^[a-f0-9]{64}(?::[a-f0-9]{64}){1,5}$/.test(key)
+        || typeof expires !== "number" || expires <= Date.now() || expires > Date.now() + 86_400_000
+        || typeof png !== "string" || !isSkinPngHeader(png)
+        || (mode !== "procedural_fallback" && mode !== "image")) continue;
+      completedGenerations.set(key, { expires, result: { ok: true, skinPngBase64: png,
+        features: normalizeFeatures(features && typeof features === "object" ? features : {}), generationMode: mode } });
+    }
+  } catch { /* Storage can be unavailable in a restricted WebView. */ }
+}
+
+function persistCompletedGenerations(): void {
+  try {
+    localStorage.setItem(REUSE_KEY, JSON.stringify([...completedGenerations].map(([key, entry]) => ({
+      key, expires: entry.expires, png: entry.result.skinPngBase64,
+      features: entry.result.features, mode: entry.result.generationMode,
+    }))));
+  } catch { /* A storage failure must never discard a successfully rendered skin. */ }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -24,19 +60,24 @@ export class ApiError extends Error {
 }
 
 /** 사진 → 인물 특징 추출 (Worker가 quota 확인 + AI 호출) */
-export function requestSkinGeneration(
+export async function requestSkinGeneration(
   imageDataUrl: string,
   analysisImageDataUrl?: string,
   referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResponse> {
   // React StrictMode remounts effects during local development. Share the same
   // in-flight request without retaining the full private photo in a Map key.
-  const requestKey = `${dataFingerprint(imageDataUrl)}:${dataFingerprint(
-    analysisImageDataUrl ?? "",
-  )}:${referenceImageDataUrls.map(dataFingerprint).join(":")}`;
+  const values = [imageDataUrl, analysisImageDataUrl ?? "", ...referenceImageDataUrls];
+  if (referenceImageDataUrls.length > 4 || values.some(v => v.length > 1_500_000))
+    throw new ApiError("사진 크기나 개수를 확인해 주세요", "bad_request");
+  const requestKey = (await Promise.all(values.map(dataFingerprint))).join(":");
+  loadCompletedGenerations();
+  for (const [key, entry] of completedGenerations) if (entry.expires <= Date.now()) completedGenerations.delete(key);
+  const completed = completedGenerations.get(requestKey);
+  if (completed) return structuredClone(completed.result);
   const existing = inFlightGenerations.get(requestKey);
   if (existing) {
-    return existing;
+    return structuredClone(await existing);
   }
 
   const request = performSkinGeneration(
@@ -50,16 +91,21 @@ export function requestSkinGeneration(
       inFlightGenerations.delete(requestKey);
     }
   };
-  request.then(clearRequest, clearRequest);
-  return request;
+  try {
+    const result = await request;
+    // Only validated successes are reusable. A failure must never pin an input.
+    const saved = structuredClone(result);
+    delete saved.quota; // Live quota is fetched separately, not frozen with a skin.
+    if (completedGenerations.size >= 8) completedGenerations.delete(completedGenerations.keys().next().value!);
+    completedGenerations.set(requestKey, { expires: Date.now() + 24 * 60 * 60 * 1000, result: saved });
+    persistCompletedGenerations();
+    return structuredClone(result);
+  } finally { clearRequest(); }
 }
 
-function dataFingerprint(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = Math.imul(hash ^ value.charCodeAt(i), 0x01000193);
-  }
-  return `${value.length}-${(hash >>> 0).toString(16)}`;
+async function dataFingerprint(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, "0")).join("");
 }
 
 async function performSkinGeneration(

@@ -6,7 +6,7 @@
  * analysed complexion, hair and outfit colours at render time.
  */
 import type { PhotoAnalysis } from "./analysis";
-import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
+import { observedQualifiedScalpCloseHair, observedShavedScalpHairShadow } from "./scalpCloseHairEvidence";
 import {
   buildQuantizedLayoutVariants,
   type FaceLayoutPlan,
@@ -27,6 +27,7 @@ import {
 import type { FaceIdentitySaliencePlan } from "./faceIdentitySalience";
 import { buildOutfitPlan, type OutfitPlan } from "./outfitIdentity";
 import { observedTiedHair, resolveHeadOwnership, type HeadOwnershipPlan } from "./headOwnership";
+import { categoricalHeadwearBrowOcclusion } from "./headwearFootprint";
 
 export type {
   GlassesPixelRole,
@@ -76,6 +77,8 @@ export interface FacePixelInstruction {
 }
 
 export interface FacePixelPlan {
+  /** Authored paint hidden by real cap/beanie material; source cues/layout stay intact. */
+  headwearOccludedBrows?: { reason: "headwear_material_occlusion"; cells: Array<{ x: number; y: number }> };
   /** Pixel-grid collision resolution, not a new source measurement. */
   mouthCollisionResolution?: { fromRow: 5; toRow: 6; reason: "eye_pixel_collision" }
     | { fromRow: 5 | 6; toRow: 5 | 6; reason: "eye_pixel_collision_level_corners"; fromCorners: [-1, -1] };
@@ -179,6 +182,15 @@ export interface HeadMaskPlan {
     sideEndpointCue: PhotoAnalysis["renderHints"]["sideHairLength"];
     sideWidthFamily: "narrow" | "ordinary" | "broad";
     backShape: PhotoAnalysis["renderHints"]["hairBackShape"];
+    /** Authored discrete profile grammar, not measured facial coordinates. */
+    profileOpening?: "curly_ringlets";
+    /** Explicit categorical forehead window; never inferred from a part alone. */
+    fringeOpening?: {
+      cue: "left" | "center" | "right";
+      cells: Array<{ x: number; y: number }>;
+    };
+    /** Short fringe ends above the extra cap row next to an explicit opening. */
+    fringeLengthWindows?: { cue: "short"; cells: Array<{ x: number; y: number }> };
   };
   coveringTopology?: {
     provenance: "observed_categorical";
@@ -193,6 +205,8 @@ export interface HairPlan {
   template: HairTemplate;
   /** Explicit close-cropped hair has texture on the head, not raised curl mass. */
   surfaceOnly?: true;
+  /** Visible shaved pigment is a skin/hair mixture, not an opaque buzz coat. */
+  surfaceMaterial?: "scalp_shadow";
   lengthClass: "none" | "short" | "medium" | "long";
   texture: PhotoAnalysis["renderHints"]["hairTexture"];
   fringe: PhotoAnalysis["renderHints"]["bangs"];
@@ -734,7 +748,11 @@ function facePixelPlan(
     for (let x = 0; x < rightSideMargin; x++) pushFringePixel(7 - x, y, "hair_mid");
   }
 
+  const occludedBrows = categoricalHeadwearBrowOcclusion(analysis.fallbackFeatures.hat, pixels, layout);
+  for (let i = pixels.length - 1; i >= 0; i--) if (pixels[i].role === "brow"
+    && occludedBrows.some(p => p.x === pixels[i].x && p.y === pixels[i].y)) pixels.splice(i, 1);
   const plan: Omit<FacePixelPlan, "candidateCost"> = {
+    ...(occludedBrows.length ? { headwearOccludedBrows: { reason: "headwear_material_occlusion" as const, cells: occludedBrows } } : {}),
     ...(mouthCollisionResolution ? { mouthCollisionResolution } : {}),
     width: 8,
     height: 8,
@@ -810,11 +828,28 @@ function affirmativeScalpCloseHair(observation: string): boolean {
   // Absence of fringe/parting supports an unobstructed cropped silhouette; it
   // does not negate the observed hair. Do not erase other negative/uncertain
   // hair evidence, or a coordinated absence whose object we do not recognize.
-  const absentFeature = "(?:(?:any\\s+)?(?:visible\\s+)?(?:fringe|bangs|(?:a\\s+)?part(?:ing)?))";
+  // An explicitly absent side-length extension is a contour endpoint, not
+  // absence of the observed buzz cut. Unknown coordinated objects still fail closed.
+  const absentFeature = "(?:(?:any\\s+)?(?:(?:visible|distinct)\\s+)?(?:fringe|bangs|(?:a\\s+)?part(?:ing)?|side\\s+hair\\s+length\\s+beyond\\s+(?:the\\s+)?temples))";
   const hairEvidence = observation.replace(new RegExp(
     `\\b(?:no|without)\\s+${absentFeature}(?:\\s+(?:or|and)\\s+${absentFeature})*\\b(?!\\s+(?:or|and)\\b)`, "gi"), " ");
+  // A qualified shaved cut can name a color between "shaved" and "hair".
+  // Require explicit shortness and scalp-following contour, not just the
+  // texture enum. This establishes occupancy only, never skin transparency.
+  const shavedContour = /\b(?:very|extremely)[-\s]+short\b/i.test(hairEvidence)
+    && /\b(?:nearly|almost)[-\s]+shaved(?:[-\s]+[a-z]+){0,2}[-\s]+hair\b/i.test(hairEvidence)
+    && /\bfollow(?:s|ing)?\s+(?:the\s+)?(?:contour\s+of\s+(?:the\s+)?(?:scalp|head)|(?:scalp|head)\s+contour)\b/i.test(hairEvidence)
+    && !/\b(?:sides|temples|beard|facial|m(?:ou|u)stache|eyebrows?|long|full|thinning|receding)\b/i.test(hairEvidence);
+  // Color modifiers must not break an explicitly cropped, very short cut
+  // following the whole scalp closely. Occupancy only; no transparency claim.
+  const croppedContour = /\b(?:very|extremely)[-\s]+short\b/i.test(hairEvidence)
+    && /\bcropped\s+hair\b/i.test(hairEvidence)
+    && /\bfollow(?:s|ing)?\s+(?:the\s+)?(?:contour\s+of\s+(?:the\s+)?(?:scalp|head)|(?:scalp|head)\s+contour)\s+closely\b/i.test(hairEvidence)
+    && !/\b(?:sides|temples|beard|facial|m(?:ou|u)stache|eyebrows?|long|full|thinning|receding)\b/i.test(hairEvidence);
   return !/\b(?:no|not|without|possibly|maybe|hidden|occluded|clipped)\b/i.test(hairEvidence)
-    && /\b(?:close(?:ly)?[- ]cropped|buzz(?:ed| cut)?|(?:very|extremely)[- ,]+short[- ,]+cropped)\b/i.test(hairEvidence);
+    // Shaved hair can still have visible scalp texture. Require both shortness
+    // and the hair/head object; shaved beard, eyebrows or sides are not enough.
+    && (shavedContour || croppedContour || /\b(?:close(?:ly)?[- ]cropped|buzz(?:ed| cut)?|(?:very|extremely)[- ,]+short[- ,]+cropped|short[- ,]+shaved[- ]+(?:hair|head))\b/i.test(hairEvidence));
 }
 
 function hairPlan(
@@ -825,8 +860,10 @@ function hairPlan(
   const hints = analysis.renderHints;
   const tiedHair = observedTiedHair(analysis);
   const qualifiedScalpClose = observedQualifiedScalpCloseHair(analysis);
-  const hairEvidence = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ").toLowerCase();
-  const bald = !tiedHair && !qualifiedScalpClose && (analysis.fallbackFeatures.hairstyle === "bald" || /\b(?:bald|balding|bald top|bare scalp|receding hairline)\b/.test(hairEvidence));
+  const scalpHairShadow = observedShavedScalpHairShadow(analysis);
+  // A low-confidence baldness claim cannot erase reliably observed hair.
+  const hairEvidence = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair" && f.confidence !== "low").map(f => f.feature)].join("; ").toLowerCase();
+  const bald = !tiedHair && !qualifiedScalpClose && !scalpHairShadow && (analysis.fallbackFeatures.hairstyle === "bald" || /\b(?:bald|balding|bald top|bare scalp|receding hairline)\b/.test(hairEvidence));
   const lengthClass: HairPlan["lengthClass"] = bald
     ? "none"
     : ["cropped", "ear"].includes(hints.overallHairLength)
@@ -856,7 +893,7 @@ function hairPlan(
   const hairLayout = analysis.faceIdentityGeometry
     ? buildQuantizedLayoutVariants({ ...analysis, faceIdentityGeometry: undefined }, 1)[0].layout
     : facePlan.layout;
-  const headMask = buildHeadMaskPlan(analysis, hairLayout, template, lengthClass, salience, semanticMaskMode);
+  const headMask = buildHeadMaskPlan(analysis, hairLayout, template, lengthClass, salience, semanticMaskMode, facePlan);
   const structure = buildHairStructurePlan(analysis, hairLayout, headMask, salience);
   const surfaceOnly = headMask.source === "semantic_template" &&
     !tiedHair && !bald && analysis.visibleRegions.hair &&
@@ -864,7 +901,7 @@ function hairPlan(
     hints.hairAccessory === "none" && structure.grammar !== "lock_groups" &&
     hints.overallHairLength === "cropped" && hints.hairVolume === "flat" &&
     hints.bangs === "none" && hints.sideHairLength === "none" &&
-    (affirmativeScalpCloseHair(analysis.observed.hair) || qualifiedScalpClose);
+    (affirmativeScalpCloseHair(analysis.observed.hair) || qualifiedScalpClose || scalpHairShadow);
   if (surfaceOnly) {
     // Keep the observed texture vocabulary and connected material groups,
     // but author them on the base cube instead of inventing protrusion.
@@ -873,6 +910,7 @@ function hairPlan(
   return {
     template,
     ...(surfaceOnly ? { surfaceOnly: true as const } : {}),
+    ...(surfaceOnly && scalpHairShadow ? { surfaceMaterial: "scalp_shadow" as const } : {}),
     lengthClass,
     texture: hints.hairTexture,
     fringe: hints.bangs,
@@ -1020,6 +1058,7 @@ function buildHeadMaskPlan(
   lengthClass: HairPlan["lengthClass"],
   salience: HairIdentitySaliencePlan,
   semanticMaskMode: "source_derived" | "legacy" = "source_derived",
+  facePlan?: FacePixelPlan,
 ): HeadMaskPlan {
   const geometry = analysis.identityGeometry?.headSilhouette;
   const useGeometry = Boolean(geometry && geometry.confidence >= 0.55 && analysis.identityGeometry!.confidence.headSilhouette >= 0.55);
@@ -1269,7 +1308,7 @@ function buildHeadMaskPlan(
   const semanticEvidence = [
     analysis.observed.hair,
     ...analysis.canonicalIdentity.features
-      .filter((feature) => feature.category === "hair" || feature.category === "silhouette")
+      .filter((feature) => feature.confidence !== "low" && (feature.category === "hair" || feature.category === "silhouette"))
       .map((feature) => feature.feature),
   ].join("; ");
   const covering = analysis.fallbackFeatures.hat === "headscarf" ||
@@ -1281,7 +1320,7 @@ function buildHeadMaskPlan(
       analysis.observed.hair,
       analysis.observed.accessories,
       ...analysis.canonicalIdentity.features
-        .filter((feature) => feature.category === "hair" || feature.category === "accessory" || feature.category === "silhouette")
+        .filter((feature) => feature.confidence !== "low" && (feature.category === "hair" || feature.category === "accessory" || feature.category === "silhouette"))
         .flatMap((feature) => [feature.feature, feature.evidence]),
     ].join("; ").toLowerCase();
     const accentSide = /viewer(?:'s)?[- ]left/.test(coveringEvidence)
@@ -1395,6 +1434,26 @@ function buildHeadMaskPlan(
   };
   widthByRow.left = sideWidths(endpointLeft);
   widthByRow.right = sideWidths(endpointRight);
+  // Face-framing curls retain the crown/rear mass plus a narrow front ringlet.
+  // A broad contiguous side width would reclaim the profile window that the
+  // source painter deliberately exposes. These are discrete template cells,
+  // selected from existing categorical evidence, never continuous geometry.
+  const curlyProfile = template === "curly_volume" &&
+    (hints.sideHairShape === "face_framing" || hints.sideHairShape === "flared");
+  const curlyRightRows: readonly (readonly number[])[] = [
+    [0, 1, 2, 3, 4, 5, 6, 7],
+    [0, 1, 2, 3, 4, 5, 7],
+    [0, 1, 2, 3, 4, 7],
+    [0, 1, 2, 7],
+    [0, 1, 7],
+    [0, 1, 2, 7],
+    [0, 1, 7],
+    [0, 7],
+  ];
+  if (curlyProfile) {
+    widthByRow.left = curlyRightRows.map((xs, y) => y <= endpointLeft ? xs.length : 0);
+    widthByRow.right = curlyRightRows.map((xs, y) => y <= endpointRight ? xs.length : 0);
+  }
 
   // The back face keeps even widths for a genuinely symmetric contour on an
   // 8-cell grid. Full/long evidence may retain the complete lower band;
@@ -1414,20 +1473,25 @@ function buildHeadMaskPlan(
     widthByRow.back[y] = width;
   }
 
+  // Categorical narrow loose locks need a narrow *front* boundary as well as
+  // a narrow side profile. A fixed two-column rail made observed face-framing
+  // hair merge with the eye pigment. Keep the connected outer column, side/
+  // rear mass and original endpoints; do not repaint eyes or invent geometry.
+  // Full-volume curls/coils, tied/covered/unknown and measured masks retain
+  // their existing branches. Short narrow caps keep their established width.
+  const frontWidth = sideWidthFamily === "narrow" && (lengthClass === "short"
+    || hints.sideHairShape === "face_framing" && (template === "medium_bob" || template === "long_curtain")) ? 1 : 2;
   for (let y = 0; y <= Math.max(endpointLeft, endpointRight); y++) {
     if (y <= 1) for (let x = 0; x < 8; x++) add("front", x, y);
     if (y <= endpointLeft) {
-      // Long face-framing keeps the established two-column front boundary so
-      // unchanged lip/eye colors cannot become neighborhood-dependent. The
-      // narrow short-cap case alone exposes one extra face column/ear area.
-      const frontWidth = lengthClass === "short" && sideWidthFamily === "narrow" ? 1 : 2;
       for (let x = 0; x < frontWidth; x++) add("front", x, y);
-      for (let x = 0; x < widthByRow.left[y]; x++) add("left", x, y);
+      if (curlyProfile) for (const x of curlyRightRows[y]) add("left", 7 - x, y);
+      else for (let x = 0; x < widthByRow.left[y]; x++) add("left", x, y);
     }
     if (y <= endpointRight) {
-      const frontWidth = lengthClass === "short" && sideWidthFamily === "narrow" ? 1 : 2;
       for (let x = 8 - frontWidth; x < 8; x++) add("front", x, y);
-      for (let x = 8 - widthByRow.right[y]; x < 8; x++) add("right", x, y);
+      if (curlyProfile) for (const x of curlyRightRows[y]) add("right", x, y);
+      else for (let x = 8 - widthByRow.right[y]; x < 8; x++) add("right", x, y);
     }
   }
   for (let y = 0; y <= backEndpoint; y++) {
@@ -1436,6 +1500,42 @@ function buildHeadMaskPlan(
     for (let x = inset; x < 8 - inset; x++) add("back", x, y);
   }
   for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) add("top", x, y);
+  // The front foundation used to close every explicit opening at row 1.
+  // Reserve a bounded categorical window after authoring the mask, while
+  // measured hairlines, hats, ornaments and actual facial/fringe pixels win.
+  // A part alone is texture/direction evidence, not evidence of exposed skin.
+  const openingCue = hints.fringeOpening;
+  const openingCells: Array<{ x: number; y: number }> = [];
+  const fringeLengthWindows: Array<{ x: number; y: number }> = [];
+  if (template === "short_cap" && openingCue !== "none"
+    && (hints.bangsLength === "short" || hints.bangsLength === "brow")
+    && analysis.fallbackFeatures.hat === "none" && hints.hairAccessory === "none"
+    && !layout.geometryUsage.hairline) {
+    const xs = openingCue === "center" ? [3, 4] : openingCue === "left" ? [2] : [5];
+    for (const x of xs) {
+      const y = 1;
+      if (layout.leftEyeRow <= y || layout.rightEyeRow <= y
+        || layout.hairlineDepthByColumn[x] > y
+        || facePlan?.pixels.some(p => p.x === x && p.y === y && p.cluster !== "complexion")) continue;
+      openingCells.push({ x, y });
+    }
+    faces.front = faces.front.filter(p => !openingCells.some(c => c.x === p.x && c.y === p.y));
+    // The fixed cap's second row also used to extend both short fringe wings
+    // to brow depth. Trim only the immediately adjacent interior end cells;
+    // an explicit opening, an already-quantized short fringe and no actual
+    // landmark/fringe instruction are required. Never infer a part or skin
+    // window from unspecified hair, nor erase a measured/covered hairline.
+    if (hints.bangsLength === "short" && hints.bangs !== "none") {
+      const adjacent = [...new Set(openingCells.flatMap(p => [p.x - 1, p.x + 1]))];
+      for (const x of adjacent) {
+        if (x < 2 || x > 5 || openingCells.some(p => p.x === x)
+          || layout.hairlineDepthByColumn[x] !== 1
+          || facePlan?.pixels.some(p => p.x === x && p.y === 1)) continue;
+        fringeLengthWindows.push({ x, y: 1 });
+      }
+      faces.front = faces.front.filter(p => !fringeLengthWindows.some(c => c.x === p.x && c.y === p.y));
+    }
+  }
   return {
     coordinateSpace: "head.overlay",
     source: "semantic_template",
@@ -1451,6 +1551,9 @@ function buildHeadMaskPlan(
       sideEndpointCue: hints.sideHairLength,
       sideWidthFamily,
       backShape: hints.hairBackShape,
+      ...(curlyProfile ? { profileOpening: "curly_ringlets" as const } : {}),
+      ...(openingCells.length && openingCue !== "none" ? { fringeOpening: { cue: openingCue, cells: openingCells } } : {}),
+      ...(fringeLengthWindows.length ? { fringeLengthWindows: { cue: "short" as const, cells: fringeLengthWindows } } : {}),
     },
   };
 }

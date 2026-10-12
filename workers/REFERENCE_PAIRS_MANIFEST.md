@@ -1,0 +1,32 @@
+# A–H photo → target skin: direct visual review
+
+Reviewed all sixteen supplied images, plus front/back and both arm-width interpretations rendered from their original atlases. Input identities and legal-UV alpha counts are in `evaluation-artifacts/reference-pairs-review-20261008-FI9CFg/measurements.json`; originals were read-only. The audit test is opt-in and never imports reference pixels into production.
+
+## Pair-specific preservation and simplification
+
+| Pair | Source-visible identity | Target abstraction | Reusable rule / caution |
+| --- | --- | --- | --- |
+| A | Long dark wavy hair, thin fringe, purple hair bow; pastel patch top with puff sleeves; lime belt/tabs, white cargo trousers | Two long dark front locks and broad rear mass, tiny bow accents; stepped pastel blocks, sleeve edge trim, thin lime waist strip; almost blank eye-led face | Preserve dark-hair/light-cloth separation and signature belt hue. Reduce ruffles to edge steps, not noise. Do not infer exact unseen back construction from a front photo. |
+| B | Short tousled black fringe; plain black crew sweatshirt, gray denim, white sneakers | Uneven separated fringe, green eye clusters, black garment with restrained tonal folds; gray legs and white shoe blocks | A plain sweatshirt needs neither a white undershirt panel nor a generic bright logo. Texture and silhouette distinguish it from E/F despite a similar dark palette. |
+| C | Brown wavy hair with flower clip; brown cardigan, cream knitted neck scarf, pink belt, blue ripped denim | Scarf becomes a conspicuous cream collar and one hanging stepped end; dark body, pink waist strip, asymmetrical knee color break; tiny face | Scarf belongs to neck/torso, not hair or head covering. Preserve the large scarf silhouette before fine knit. Source flower and cardigan buttons are less legible than scarf: acceptable detail reduction, not an instruction to erase all accessories. |
+| D | Long brown hair under turquoise beanie; pastel patch hoodie, white cuffs/trousers | Turquoise head-top band/points separate from long side locks; broad pastel blocks and a small dark chest motif; pale lower body | Hat and hair require distinct ownership. Hood/neck opening is local; it is not an open jacket exposing an inner top down to the waist. Preserve big color relationships, not every patch. |
+| E | Light parted hair; black crew sweatshirt/trousers with red/green floral motifs on one sleeve and one leg | Pale split fringe and dark eyes; quiet black body; a few large red/green clusters retain asymmetric motif placement | Motif location is identity. Do not replace a sleeve/leg motif with symmetrical chest flowers or copy the reference flower pixels. Source-specific placement needs observed evidence. |
+| F | Gray tousled fringe, black pullover hoodie with dark cross chest graphic, black cargo trousers | Gray grouped fringe, tiny eye clusters; black hood opening and dark cross, largely quiet black lower body | Keep pullover material continuous across chest. A hood is not evidence of an open front or a light inner shirt. The nearly flat target legs are not a universal requirement to delete observed pockets/folds. |
+| G | Pink long half-tied hair with side ribbons; cream cardigan, white collar, rose bow, plaid skirt, white thigh-highs | Pink front/rear locks, ribbon accents; cream outer cloth, white collar, central rose bow, short muted skirt, pale legwear | Separate hair ribbons from neck bow. Small pleats/checks can simplify to a few color groups; garment boundaries and exposed-leg interval must remain readable. |
+| H | Brown twin braids, white side hair bow, pink puff sleeves/cuffs and chest ribbon, gray pleated skirt, white socks, pink shoes | Two stepped brown front braids, tiny white head accent; broad pink chest ribbon and cuffs; gray skirt steps, pale socks, pink shoes | Braids need connected intentional body drape, not loose shoulder spill. Place short sleeve/cuff/bow structures separately rather than turn the outfit into a long-sleeve sweatshirt. |
+
+All eight targets use a quiet skin window and eye/fringe clusters without a conspicuous anatomical nose or mouth. Photos have visible lips/noses: their omission is deliberate stylization, not evidence those features were absent. Eye palettes are sometimes stylized; production should retain reliable source iris/complexion cues rather than impose the references' very pale skin or pink eyes on everyone. No demographic inference follows from these examples.
+
+## Layering evidence, not an arbitrary beauty score
+
+Measured occupied outer-head alpha / 384 legal head cells: approximately A 22%, B 17%, C 30%, D 29%, E 18%, F 16%, G 17%, H 21%. These include accessories/hat, not just hair. Head geometry is the same for classic and slim. Counts are descriptive and cannot justify deleting a real hat to meet a hair budget.
+
+Outer torso coverage is approximately A 20%, B 0%, C 23%, D 20%, E 0%, F 0%, G 32%, H 7%. The plain dark tops can read without any torso overlay, while scarf/cardigan details legitimately use more. Selective physical details, not a globally mandatory second shell, are the shared principle. Source backs are unseen; target rear hair continuation is designed completion, not fresh source truth.
+
+## Current implementation comparison and next action
+
+The 23-family authored gallery is topology/contract coverage, not twenty-three independent photo likeness successes. Its shared face and clothing defaults intentionally limit what can be inferred about personalization.
+
+Direct comparison exposed a concrete mismatch: the plain black hoodie authored unit produces a white full-height center panel. The source unit says only black hoodie; the planner sets `hood_opening.innerVisible=true`, and its generic inner-panel rule expands that neck opening to the waist. Earliest stage: **NORMALIZED_PRESERVED_PLAN_STRUCTURE_INVENTED**. This is not an AI observation miss. Separate local hood neckline visibility from full-front open-garment construction; protect genuinely open jackets and explicitly open hoodies with positive/negative tests.
+
+Other reference-versus-current differences require their own evidence, not instant patches: floral motif placement, face-family variation on truly different inputs, and long-hair wave material continuity. A gallery alone does not establish production observation fidelity. Latest-architecture fresh E2E and the full completion audit remain outstanding.

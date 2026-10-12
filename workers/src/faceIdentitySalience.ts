@@ -52,9 +52,11 @@ function clamp01(value: number): number {
 function semanticScore(analysis: PhotoAnalysis, axis: FaceIdentityAxis): number {
   let score = 0;
   for (const feature of analysis.canonicalIdentity.features) {
+    // A weak semantic guess cannot spend the source's facial pixel budget.
+    if (feature.confidence === "low") continue;
     const text = `${feature.feature} ${feature.evidence}`.toLowerCase();
     if (!AXIS_PATTERN[axis].test(text)) continue;
-    const confidence = feature.confidence === "high" ? 1 : feature.confidence === "medium" ? 0.72 : 0.42;
+    const confidence = feature.confidence === "high" ? 1 : 0.72;
     score = Math.max(score, (feature.priority / 5) * confidence);
   }
   return score;

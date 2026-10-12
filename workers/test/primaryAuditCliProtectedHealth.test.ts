@@ -3,9 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { decode as decodeJpeg } from "jpeg-js";
 import { expect, it } from "vitest";
+import { withoutHairObservationReinforcement } from "./primaryHairPromptSupport";
+import { withoutTiedHairObservation } from "./primaryTiedHairPromptSupport";
 import { bytesToBase64, decodeImage, decodePng } from "../src/png";
 import { createIdentityCrops, MAX_IMAGE_CHARS } from "../src/generate";
 import { FACE_IDENTITY_GEOMETRY_PROMPT, FACE_IDENTITY_GEOMETRY_SCHEMA, FACE_GEOMETRY_MODEL,
@@ -19,6 +21,7 @@ import { type PhotoAnalysis, type PortraitLocalizationTrace, type PortraitRegion
 import type { AdaptiveHeadCropContext } from "../src/adaptiveHeadCrop";
 import { boundedHealthProbe } from "./primaryAuditRemoteReadiness";
 import { accountingOf, atomicCheckpoint, exceptionDiagnostic, readLatestAuditCheckpoint } from "./primaryAuditRunnerSupport";
+import { AuditShutdownLatch, type AuditShutdownSnapshot } from "./auditShutdownLatch";
 import { calibrationLocalizationGate } from "./audit/calibrationLocalizationGate";
 import { checkpointValidatedLocalizationCapture, type ProtectedValidatedLocalization,
   type ValidatedLocalizationEvidence } from "./audit/validatedLocalizationEvidence";
@@ -30,8 +33,10 @@ import { APERTURE_PILOT_ROOT, prepareAperturePilot, createAperturePilotState, ru
   verifyApertureRecovery, type AperturePilotState } from "./audit/eyeAperturePilot";
 import { APERTURE_V2_LIVE_ROOT, prepareApertureV2Live, createApertureV2State, runApertureV2Batch,
   verifyApertureV2Recovery, type ApertureV2State } from "./audit/eyeApertureV2Live";
-import { E2E_ROOT, prepareCurrentDefaultE2E, createE2EState, runCurrentDefaultE2E, type E2EState } from "./audit/currentDefaultE2ELive";
+import { E2E_ROOT, GENERALIZATION_E2E_SELECTION, prepareCurrentDefaultE2E, createE2EState,
+  runCurrentDefaultE2E, captureE2EHttpResponse, type E2EState } from "./audit/currentDefaultE2ELive";
 import { E2E_MARKER } from "./audit/currentDefaultE2E";
+import { stageObservation, type StageObservation } from "./audit/e2eStageObservation";
 import { CURRENT_SOURCE_V4_ROOT, CURRENT_SOURCE_V4_SELECTOR, prepareCurrentSourceV4,
   createCurrentSourceV4State, runCurrentSourceV4, type CurrentSourceV4State } from "./audit/currentSourceV4LocalizationLive";
 
@@ -62,7 +67,8 @@ const cli = fs.readFileSync("node_modules/wrangler/wrangler-dist/cli.js", "utf8"
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const RUN_HEALTH = process.env.RUN_BOUND_PROFILE_CLI_HEALTH === "approved";
 const RUN_CURRENT_SOURCE_V4 = process.env.RUN_CURRENT_SOURCE_V4_LOCALIZATION === CURRENT_SOURCE_V4_SELECTOR;
-const RUN_CURRENT_DEFAULT_E2E = process.env.RUN_CURRENT_DEFAULT_V3_E2E === "approved-29002888-20260927-008";
+const RUN_CURRENT_DEFAULT_E2E = process.env.RUN_CURRENT_DEFAULT_V3_E2E === "approved-29002888-20260928-033"
+  || GENERALIZATION_E2E_SELECTION !== null;
 const RUN_SINGLE_PRIMARY = process.env.RUN_BOUND_PROFILE_CLI_PRIMARY_CANARY === "approved-canary";
 const RUN_SIX_CASE_PRIMARY = process.env.RUN_BOUND_PROFILE_CLI_PRIMARY_BATCH === "approved-six-case";
 const RUN_TARGETED_PRIMARY = process.env.RUN_BOUND_PROFILE_CLI_PRIMARY_TARGETED === "approved-three-case";
@@ -202,13 +208,13 @@ it("only exact structured loopback-ready payloads can open the single health gat
   }
 });
 
-it("pins the V4 wavy primary-only request contract without selecting remote execution", () => {
+it("pins the historical V4 wavy contract by reversing only reviewed shared prompt deltas", () => {
   expect(V4_WAVY_ARTIFACT_ROOT).toBe(RUN_V4_VALIDATED_PERSISTENCE ? V4_VALIDATED_PERSISTENCE_ARTIFACT_ROOT
     : path.resolve("evaluation-artifacts/structured-localization-v4-wavy-primary-live-20260925-001"));
   expect(hash(JSON.stringify(COMPACT_PHOTO_ANALYSIS_V4_PROVIDER_SCHEMA))).toBe(V4_GEMINI_SCHEMA_HASH);
-  expect(hash(`${COMPACT_PHOTO_ANALYSIS_V4_PROMPT}${V4_REFERENCE_SUFFIX}`)).toBe(V4_GEMINI_PROMPT_HASH);
+  expect(hash(`${withoutHairObservationReinforcement(withoutTiedHairObservation(COMPACT_PHOTO_ANALYSIS_V4_PROMPT))}${V4_REFERENCE_SUFFIX}`)).toBe(V4_GEMINI_PROMPT_HASH);
   expect(hash(JSON.stringify(GEMMA_NAMED_PHOTO_ANALYSIS_V4_SCHEMA))).toBe(V4_GEMMA_SCHEMA_HASH);
-  expect(hash(`${GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT}${V4_REFERENCE_SUFFIX}`)).toBe(V4_GEMMA_PROMPT_HASH);
+  expect(hash(`${withoutHairObservationReinforcement(withoutTiedHairObservation(GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT))}${V4_REFERENCE_SUFFIX}`)).toBe(V4_GEMMA_PROMPT_HASH);
   const region = COMPACT_PHOTO_ANALYSIS_V4_PROVIDER_SCHEMA.properties!.sourceSelection.properties!.portraitRegion;
   expect(COMPACT_PHOTO_ANALYSIS_V4_PROVIDER_SCHEMA.properties!.sourceSelection.required).toContain("portraitRegion");
   expect(region.type).toEqual(["object", "null"]);
@@ -508,7 +514,8 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
       : RUN_FACE_GEOMETRY_TARGETS ? "face_geometry_openness_contract_live_retest"
       : RUN_TARGETED_PRIMARY ? "targeted_eye_category_recheck"
       : RUN_SIX_CASE_PRIMARY ? "six_case_primary_batch" : RUN_PRIMARY ? "single_primary_canary" : "protected_health_only",
-    branch: "main", head: "3922d659989c237bf7dc011f1dac6659cc4b3a27",
+    branch: execFileSync("git", ["branch", "--show-current"], { encoding: "utf8", windowsHide: true }).trim(),
+    head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", windowsHide: true }).trim(),
     sourceRubricSha256: hash(rubricBytes),
     faceGeometryPromptSha256: RUN_FACE_GEOMETRY_TARGETS || RUN_ANY_NORMAL_ANCHOR || RUN_ANY_OPEN_ANCHOR || RUN_OPEN_DIRECTIONAL || RUN_SAVED_V4_FACE_GEOMETRY || RUN_V4_OPEN_GEOMETRY ? hash(FACE_IDENTITY_GEOMETRY_PROMPT) : null,
     faceGeometrySchemaSha256: RUN_FACE_GEOMETRY_TARGETS || RUN_ANY_NORMAL_ANCHOR || RUN_ANY_OPEN_ANCHOR || RUN_OPEN_DIRECTIONAL || RUN_SAVED_V4_FACE_GEOMETRY || RUN_V4_OPEN_GEOMETRY ? hash(JSON.stringify(FACE_IDENTITY_GEOMETRY_SCHEMA)) : null,
@@ -543,6 +550,8 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
     tokenBindingPreflightPassed: false,
     preflight: null as ReturnType<typeof support.metadataPreflight> | null,
     lifecycle: [] as { stage: string; elapsedMs: number }[], outputClasses: [] as string[],
+    terminalStageEvidence: { scope: "best_effort_cli_log_observation_not_provider_accounting",
+      observations: [] as Array<StageObservation & { receivedElapsedMs: number }> },
     startupAttempts: 0, devServerReadyReceived: false, localProxyReadyElapsedMs: null as number | null,
     hotkeyRegistrationProven: false, senderOwnedRelationshipVerified: false,
     healthAttempts: 0, healthElapsedMs: null as number | null,
@@ -603,15 +612,18 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
       imageGeneration: 0, skinImageGeneration: 0,
       critique: 0, pairwise: 0, evaluator: 0 },
     packageManagerCalls: 0, productionAdditionalDiff: 0,
+    shutdownLatch: null as AuditShutdownSnapshot | null,
     classification: "not_started",
   };
   const start = Date.now();
   const checkpoint = path.join(root, "summary.json");
   let writes: Promise<void> = Promise.resolve();
   let checkpointFailure: unknown = null;
+  let finalizationFailure: unknown = null;
   const persist = (stage = "checkpoint"): Promise<void> => {
     // Snapshot before asynchronous IO so later lifecycle changes cannot mutate
     // the checkpoint payload that is already queued.
+    artifact.shutdownLatch = shutdownLatch.snapshot();
     const snapshot = structuredClone(artifact);
     const next = writes.then(async () => {
       const result = await atomicCheckpoint(checkpoint, snapshot, stage);
@@ -642,7 +654,20 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
   let before: ProcessRecord[] = [];
   let ownerClosed = false;
   let ownerExited = false;
-  let qRequested = false;
+  const shutdownLatch = new AuditShutdownLatch({
+    ownerAlive: () => Boolean(owner && !ownerExited),
+    registrationProven: () => artifact.hotkeyRegistrationProven,
+    checkpointIntent: async () => {
+      artifact.shutdownRequested = true;
+      await durableObserve("shutdownRequested");
+    },
+    sendQ: () => { owner!.send({ command: "q", registrationProven: true }); },
+    onFailure: () => {
+      artifact.cleanupFailed = true;
+      artifact.classification = "BLOCKED: audit shutdown intent or q dispatch failed";
+      void observe("shutdownQFailed").catch(() => {});
+    },
+  });
   let exitPromise: Promise<number | null> | null = null;
   let closePromise: Promise<number | null> | null = null;
   const updateInventory = () => {
@@ -866,17 +891,25 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
     artifact.startupAttempts = 1;
     observe("cliOwnerSpawnRequested");
     exitPromise = new Promise(resolve => owner!.once("exit", code => {
-      ownerExited = true; artifact.ownerExitObserved = true; artifact.ownerExitCode = code;
-      observe("ownerExitObserved"); resolve(code);
+      ownerExited = true;
+      if (shutdownLatch.acceptsEvents) {
+        artifact.ownerExitObserved = true; artifact.ownerExitCode = code; observe("ownerExitObserved");
+      }
+      resolve(code);
     }));
     closePromise = new Promise(resolve => owner!.once("close", code => {
-      ownerClosed = true; artifact.ownerCloseObserved = true; observe("ownerCloseObserved"); resolve(code);
+      ownerClosed = true;
+      if (shutdownLatch.acceptsEvents) { artifact.ownerCloseObserved = true; observe("ownerCloseObserved"); }
+      resolve(code);
     }));
     let bridgePid: number | null = null;
     let wrapperPid: number | null = null;
-    owner.on("error", () => { artifact.classification = "BLOCKED: PTY owner startup failed"; observe("ownerSpawnError"); });
+    owner.on("error", () => {
+      if (!shutdownLatch.acceptsEvents) return;
+      artifact.classification = "BLOCKED: PTY owner startup failed"; observe("ownerSpawnError");
+    });
     owner.on("message", raw => {
-      if (!raw || typeof raw !== "object") return;
+      if (!shutdownLatch.acceptsEvents || !raw || typeof raw !== "object") return;
       const message = raw as Record<string, unknown>;
       if (message.kind === "owner_started") {
         if (message.ownerPid !== owner?.pid || !Number.isInteger(message.bridgePid)) return;
@@ -899,8 +932,18 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
         artifact.hotkeyRegistrationProven = true;
         artifact.localProxyReadyElapsedMs = Date.now() - start;
         observe("localProxyReady"); resolveReady(payload);
+        void shutdownLatch.tryQ();
       } else if (message.kind === "hotkeys_registered") {
         artifact.hotkeyRegistrationProven = true; observe("interactiveUiRegistered");
+        void shutdownLatch.tryQ();
+      } else if (message.kind === "e2e_stage") {
+        // Revalidate at the checkpoint boundary; do not trust arbitrary IPC keys.
+        // Receipt time is NOT event time/latency: remote logs may arrive batched.
+        if (artifact.health?.status !== "passed" || artifact.currentDefaultE2E?.generationPosts !== 1) return;
+        const observation = stageObservation(message, artifact.currentDefaultE2E.runId);
+        if (!observation || artifact.terminalStageEvidence.observations.some(v => v.stage === observation.stage)) return;
+        artifact.terminalStageEvidence.observations.push({ ...observation, receivedElapsedMs: Date.now() - start });
+        observe("e2eStageLogObserved");
       } else if (message.kind === "classification" && ["auth_error", "build_error", "unknown_error"].includes(message.value as string)) {
         if (!artifact.outputClasses.includes(message.value as string)) artifact.outputClasses.push(message.value as string);
         observe("cliOutputClassified");
@@ -964,15 +1007,19 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
         artifact.classification = "current_source_v4_completed_cleanup_pending";
       }
       if (RUN_CURRENT_DEFAULT_E2E && artifact.health.status === "passed" && e2ePreflight && artifact.currentDefaultE2E) {
-        await runCurrentDefaultE2E(artifact.currentDefaultE2E, e2ePreflight, async (payload, requestRunId) => {
-          const response = await fetch(`${url}/current-default-e2e-audit`, {
+        shutdownLatch.assertCapturing();
+        await runCurrentDefaultE2E(artifact.currentDefaultE2E, e2ePreflight, async (payload, requestRunId, onHeaders) => {
+          shutdownLatch.assertCapturing();
+          return captureE2EHttpResponse(() => fetch(`${url}/current-default-e2e-audit`, {
             method: "POST", headers: { "content-type": "application/json", "x-primary-audit-token": token,
               "x-primary-audit-run-id": requestRunId, "x-current-default-e2e": E2E_MARKER,
+              "x-e2e-propagation-trace": process.env.RUN_CURRENT_DEFAULT_V3_E2E?.startsWith("approved-detail-")
+                ? "primary_png_response_parameters_v3" : "primary_png_parameters_v2",
+              "x-e2e-source-case": e2ePreflight.metadata.source.caseId,
               "x-e2e-analysis-sha": e2ePreflight.metadata.analysis.sha256,
               "x-e2e-generation-sha": e2ePreflight.metadata.generation.sha256 },
             body: JSON.stringify(payload), signal: AbortSignal.timeout(150_000),
-          });
-          return { status: response.status, body: await response.json() as Record<string, unknown> };
+          }), onHeaders);
         }, durableObserve, root);
         artifact.providerAccounting = artifact.currentDefaultE2E.accounting === "known" ? "known" : "unknown";
         artifact.classification = "current_default_e2e_completed_cleanup_pending";
@@ -2110,11 +2157,10 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
     const safe = exceptionDiagnostic(error, "startup");
     observe(`exception_${safe.messageClassified}`);
   } finally {
-    if (owner && !ownerExited && artifact.hotkeyRegistrationProven && !qRequested) {
-      qRequested = true; artifact.shutdownRequested = true; observe("shutdownRequested");
-      await writes; // Record q intent before the one literal q, including on failure paths.
-      owner.send({ command: "q", registrationProven: true });
-    }
+    // Do not shut down while same-run analysis/plan/PNG capture is still awaited.
+    // Late hotkey/ready events can discharge this latch, but cannot reopen health.
+    shutdownLatch.beginShutdown();
+    await shutdownLatch.tryQ();
     if (owner && exitPromise && closePromise) {
       const completion = await bounded(Promise.all([exitPromise, closePromise]), 30_000);
       if (!completion.done || !ownerClosed) {
@@ -2140,6 +2186,11 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
         } catch { artifact.cleanupFailed = true; artifact.classification = "BLOCKED: temporary audit file cleanup failed"; }
       }
     }
+    // Freeze asynchronous child callbacks before the final snapshot/recovery.
+    // Recovery checkpoints below remain writable; no child event can supersede them.
+    shutdownLatch.beginFinalization();
+    await shutdownLatch.tryQ();
+    await writes;
     token = "";
     artifact.productionConfigHashAfter = hash(fs.readFileSync("wrangler.jsonc"));
     artifact.productionConfigChanged = artifact.productionConfigHashAfter !== artifact.productionConfigHashBefore;
@@ -2206,6 +2257,7 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
       else if (artifact.classification === "six_case_batch_completed_cleanup_pending") artifact.classification = "READY_TO_REVIEW_SIX_CASE_PRIMARY_FACE_MEASUREMENT_AUDIT";
       else if (artifact.classification === "targeted_recheck_completed_cleanup_pending") artifact.classification = "READY_TO_REVIEW_TARGETED_EYE_CATEGORY_RECHECK";
     }
+    try {
     observe("finalCheckpoint"); await writes;
     if (RUN_CURRENT_SOURCE_V4 && artifact.currentSourceV4 && currentV4Preflight) {
       const recovered = await readLatestAuditCheckpoint(checkpoint);
@@ -2239,9 +2291,9 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
     if (RUN_EYE_APERTURE && artifact.aperturePilot) {
       const recovered = await readLatestAuditCheckpoint(checkpoint);
       const restored = (recovered?.snapshot as { aperturePilot?: AperturePilotState } | undefined)?.aperturePilot;
-      if (!restored || !recovered || recovered.snapshotSha256 !== hash(JSON.stringify(recovered.snapshot)))
-        throw new Error("aperture_checkpoint_integrity_failed");
-      verifyApertureRecovery(restored, artifact.aperturePilot);
+      expect(Boolean(restored && recovered && recovered.snapshotSha256 === hash(JSON.stringify(recovered.snapshot))),
+        "aperture_checkpoint_integrity_failed").toBe(true);
+      verifyApertureRecovery(restored!, artifact.aperturePilot);
       expect(hash(fs.readFileSync("test/audit/eyeAperturePrototype.ts"))).toBe(artifact.aperturePilot.prototypeSourceSha256);
       for (const [file, expected] of Object.entries(artifact.aperturePilot.productionHashes))
         expect(hash(fs.readFileSync(file))).toBe(expected);
@@ -2292,8 +2344,24 @@ it.skipIf(!RUN_HEALTH && !RUN_REMOTE)("runs one approved temporary-config bound-
       if (!matches) artifact.classification = "BLOCKED: V4 OPEN checkpoint recovery failed";
       await observe("v4OpenDiskRecoveryChecked"); await writes;
     }
-    if (checkpointFailure) expect.fail("audit checkpoint persistence failed");
+    } catch (error) {
+      // Preserve a failed recovery as failure, while still sealing the run and
+      // attempting a terminal authoritative checkpoint. Never resume dispatch.
+      finalizationFailure = error;
+      artifact.cleanupFailed = true;
+      artifact.classification = "BLOCKED: audit final checkpoint recovery failed";
+      await observe("auditRecoveryFailed").catch(() => {});
+    }
+    shutdownLatch.finalize();
+    await durableObserve("auditLifecycleFinalized");
+    const finalized = await readLatestAuditCheckpoint(checkpoint);
+    expect(finalized?.event).toBe("auditLifecycleFinalized");
+    expect(finalized?.snapshotSha256).toBe(hash(JSON.stringify(finalized?.snapshot)));
+    expect((finalized?.snapshot as { shutdownLatch?: AuditShutdownSnapshot })?.shutdownLatch)
+      .toEqual(shutdownLatch.snapshot());
   }
+  if (finalizationFailure) throw finalizationFailure;
+  if (checkpointFailure) expect.fail("audit checkpoint persistence failed");
   expect(artifact.startupAttempts).toBeLessThanOrEqual(1);
   if (RUN_CURRENT_DEFAULT_E2E && artifact.currentDefaultE2E) {
     expect(artifact.currentDefaultE2E.generationPosts).toBeLessThanOrEqual(1);

@@ -130,6 +130,9 @@ describe("independent face geometry contract and existing grammar", () => {
   it.each(["valid", "unavailable", "malformed", "schema", "semantic", "timeout"])("valid primary => HTTP200/valid PNG for %s", async mode => {
     const image = `data:image/png;base64,${bytesToBase64(await encodePng({ width: 320, height: 480, rgba: new Uint8Array(320 * 480 * 4).fill(255) }))}`;
     const primary = wireFixture(makeAnalysis());
+    // Explicit synthetic localization is needed to establish complete input
+    // coverage before optional face geometry (V3 REGION contract unchanged).
+    primary.sourceSelection.portraitEvidence += " | REGION:[0.1,0,0.9,1,0.2,0.03,0.8,0.55,0.28,0.12,0.72,0.48,0.95]";
     const fetchMock = vi.fn(async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(primary) }] } }] }));
     vi.stubGlobal("fetch", fetchMock);
     const run = vi.fn(async () => {

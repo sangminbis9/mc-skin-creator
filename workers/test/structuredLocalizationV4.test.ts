@@ -25,6 +25,8 @@ import type { Env } from "../src/types";
 import { calibrationLocalizationGate } from "./audit/calibrationLocalizationGate";
 import { namedGemmaFixture, wireFixture } from "./compactV3Support";
 import { makeAnalysis } from "./helpers";
+import { withoutHairObservationReinforcement } from "./primaryHairPromptSupport";
+import { withoutTiedHairObservation } from "./primaryTiedHairPromptSupport";
 import { auditLocalizationTrace } from "./primaryFaceMeasurementAuditWorker";
 
 const photo = "data:image/jpeg;base64,/9j/";
@@ -70,8 +72,10 @@ describe("structured localization v4: internal opt-in only", () => {
     const suffix = "\n\nREFERENCE SET: 1 image(s) of the same person are attached in order. Image 0 is primary; use the others to resolve stable identity cues and side/back evidence.";
     expect(hash(JSON.stringify(COMPACT_PHOTO_ANALYSIS_V4_PROVIDER_SCHEMA))).toBe("5461f447d49f687b66c5cf03ee73b71c586f6e5349e8ca642f3ddac409e80b7d");
     expect(hash(JSON.stringify(GEMMA_NAMED_PHOTO_ANALYSIS_V4_SCHEMA))).toBe("b3fa270ff6e51e57959389ac8e06cbc496235c32556f3cc698171458530a90d3");
-    expect(hash(`${COMPACT_PHOTO_ANALYSIS_V4_PROMPT}${suffix}`)).toBe("af8ed44ca8cfd3d571706be2a87206d186383c66c7f6c5b5e38b056014ff2c08");
-    expect(hash(`${GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT}${suffix}`)).toBe("fbd169cc36a61662cc6a3c3a3300893b32cff44db6f49874c1844824d7b9d99a");
+    // V4 inherits both reviewed shared hair instructions. Reverse only those
+    // exact independently specified blocks; keep historical hashes immutable.
+    expect(hash(`${withoutHairObservationReinforcement(withoutTiedHairObservation(COMPACT_PHOTO_ANALYSIS_V4_PROMPT))}${suffix}`)).toBe("af8ed44ca8cfd3d571706be2a87206d186383c66c7f6c5b5e38b056014ff2c08");
+    expect(hash(`${withoutHairObservationReinforcement(withoutTiedHairObservation(GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT))}${suffix}`)).toBe("fbd169cc36a61662cc6a3c3a3300893b32cff44db6f49874c1844824d7b9d99a");
   });
 
   it("keeps v3 exports untouched while requiring the complete named nullable field in both v4 wires", () => {

@@ -83,6 +83,51 @@ it("does not source pattern colors from inferred prompts or hidden clothing", ()
   }
 });
 
+it.each([
+  ["Dark blue shirt with dark blue, tan, and thin yellow stripes/plaid", "Dark blue shirt with stripes in dark blue, tan and yellow", "#c5aa82"],
+  ["Red shirt with red, cream and thin blue stripes", "Red shirt with stripes in red, cream and blue", "#ded2b6"],
+  ["Green shirt with green and white checks", "Green shirt with checks in green and white", "#eeeae1"],
+  ["Navy shirt with navy, tan and yellow bands", "Navy shirt with bands in navy, tan and yellow", "#c5aa82"],
+] as const)("retains coordinated palette precedence in %s", (beforeNoun, afterNoun, expected) => {
+  expect(plan(beforeNoun).upper.pattern.color).toBe(expected);
+  expect(plan(beforeNoun).upper.pattern.color).toBe(plan(afterNoun).upper.pattern.color);
+});
+
+it.each([
+  "Blue shirt with no blue, tan and yellow stripes",
+  "Blue shirt with possibly blue, tan and yellow stripes",
+  "Blue shirt over a blue, tan and yellow striped undershirt",
+  "Blue shirt with pants with blue, tan and yellow stripes",
+  "Blue shirt with tan buttons and yellow stripes",
+] as const)("does not merge an uncertain, foreign or interrupted color list: %s", clothing => {
+  expect(plan(clothing).upper.pattern.color).toBe(clothing.includes("buttons") ? "#d5af3f" : "#eeeae1");
+});
+
+it("preserves coordinated color precedence instead of choosing the last color nearest stripes", () => {
+  expect(plan("A collared button-up shirt with a plaid pattern featuring dark blue, brown, and tan stripes").upper.pattern.color).toBe("#684b38");
+});
+
+it.each([
+  ["A long-sleeved button-up shirt with a plaid pattern consisting of navy blue, tan, and dark blue horizontal and vertical stripes.", "#c5aa82"],
+  ["Navy blue shirt with navy blue, tan and dark blue vertical and horizontal stripes", "#c5aa82"],
+  ["Navy-blue shirt with navy-blue, tan and dark-blue horizontal & vertical bands", "#c5aa82"],
+  ["Red shirt with red, cream and blue horizontal and vertical checks", "#ded2b6"],
+  ["Green shirt with green and yellow vertical and horizontal lines", "#d5af3f"],
+  ["Blue shirt with tan horizontal and vertical stripes", "#c5aa82"],
+] as const)("retains a palette across paired pattern directions: %s", (text, expected) => {
+  expect(plan(text).upper.pattern.color).toBe(expected);
+});
+it.each([
+  "Navy blue shirt with no navy blue, tan and dark blue horizontal and vertical stripes",
+  "Navy blue shirt with possibly navy blue, tan and dark blue horizontal and vertical stripes",
+  "Navy blue shirt over pants with navy blue, tan and dark blue horizontal and vertical stripes",
+  "Navy blue shirt over a blouse with navy blue, tan and dark blue horizontal and vertical stripes",
+  "Navy blue shirt with tan buttons and horizontal and vertical seams",
+  "Navy blue shirt with tan horizontal buttons and vertical stripes",
+])("does not bridge uncertain or foreign palette evidence across paired directions: %s", text => {
+  expect(plan(text).upper.pattern.color).toBe("#eeeae1");
+});
+
 it("carries observed tan pattern pixels into the atlas without changing head or other plan fields", async () => {
   const base = makeAnalysis();
   const analysis = normalizeAnalysisForRendering(makeAnalysis({ observed: saved.observed, renderHints: saved.renderHints,

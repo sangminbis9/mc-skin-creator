@@ -3,6 +3,9 @@ import type { PhotoAnalysis } from "./analysis";
 import type { FacePixelPlan, HairPlan } from "./identityPlans";
 import type { HairStructureRole } from "./headStructure";
 import { CLASSIC_LAYOUT, getBoxUvSeams, type BoxUV } from "./uvLayout";
+import { hairRibbonFootprint } from "./hairRibbonFootprint";
+import { hairFlowerFootprint } from "./hairFlowerFootprint";
+import { headwearFootprint } from "./headwearFootprint";
 
 export type HeadOwner = "face" | "hair_base" | "hair_outer" | "glasses" | "covering" | "tied_hair" | "other_p5" | "clear";
 export interface HeadOwnedCell {
@@ -34,15 +37,15 @@ export interface HeadOwnershipPlan {
 }
 export const headCellKey = (p: Pick<HeadOwnedCell, "layer" | "face" | "x" | "y">) => `${p.layer}:${p.face}:${p.x},${p.y}`;
 
-/** Only hair-owned evidence can affect this taxonomy (never bag/blazer adjectives). */
+/** Only reliable hair-owned evidence can affect this taxonomy (never bag/blazer adjectives). */
 export function observedTiedHair(analysis: PhotoAnalysis): boolean {
-  const text = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ");
+  const text = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair" && f.confidence !== "low").map(f => f.feature)].join("; ");
   return !/\b(?:no|without)\s+(?:a\s+)?(?:(?:high|low|tight|loose)\s+)?(?:bun|topknot|top[- ]knot)\b/i.test(text) && /\b(?:bun|topknot|top[- ]knot|tied[- ]up hair|hair (?:tied|pulled) (?:up|back))\b/i.test(text);
 }
 
 /** Quantize only already-observed tied-hair evidence into the 8px head grid. */
 export function quantizeTiedMassGeometry(analysis: PhotoAnalysis): TiedMassGeometry {
-  const text = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ");
+  const text = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair" && f.confidence !== "low").map(f => f.feature)].join("; ");
   const position: TiedMassGeometry["position"] = /\b(?:low|lower|nape)\b[^.;]{0,24}\b(?:bun|topknot|top[- ]knot)\b|\b(?:bun|topknot|top[- ]knot)\b[^.;]{0,24}\b(?:low|lower|nape)\b/i.test(text)
     ? "low_back"
     : /\b(?:high|upper|top)\b[^.;]{0,24}\b(?:bun|topknot|top[- ]knot)\b|\b(?:bun|topknot|top[- ]knot)\b[^.;]{0,24}\b(?:high|upper|top)\b/i.test(text)
@@ -79,10 +82,18 @@ function tiedXs(width: number, bias: TiedMassGeometry["horizontalBias"]): number
 }
 
 export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, facePlan: FacePixelPlan): HeadOwnershipPlan {
-  const headEvidence = [analysis.observed.hair, analysis.observed.accessories, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair" || f.category === "accessory").map(f => f.feature)].join("; ");
+  const headEvidence = [analysis.observed.hair, analysis.observed.accessories, ...analysis.canonicalIdentity.features.filter(f => f.confidence !== "low" && (f.category === "hair" || f.category === "accessory")).map(f => f.feature)].join("; ");
   const observedCovering = headEvidence.split(/[.;]/).some(clause => /\b(?:hijab|headscarf|head scarf)\b/i.test(clause) && !/\b(?:no|without|not wearing)\s+(?:a\s+)?(?:hijab|headscarf|head scarf)\b/i.test(clause));
   const covering = analysis.fallbackFeatures.hat === "headscarf" || Boolean(analysis.identityGeometry?.headSilhouette.covering) || observedCovering;
   const tied = !covering && observedTiedHair(analysis);
+  // Existing ornament painters have bounded footprints. An additional,
+  // unmodeled accessory still requires the preserved grammar.
+  const resolvedRibbon = ["bow", "ribbon"].includes(analysis.renderHints.hairAccessory) &&
+    !/\b(?:flower|clip|headband)\b/i.test(headEvidence);
+  const resolvedFlower = analysis.renderHints.hairAccessory === "flower" &&
+    !/\b(?:bow|ribbon|headband)\b/i.test(headEvidence) &&
+    !/\bclips?\b/i.test(headEvidence.replace(/\b(?:flower|daisy|blossom)[- ]+(?:hair[- ]+)?clips?\b/gi, ""));
+  const resolvedOrnament = resolvedRibbon || resolvedFlower;
   const tiedGeometry = tied ? quantizeTiedMassGeometry(analysis) : null;
   const provenance = hair.structure.source === "identity_geometry" ? "validated_derived" : "observed";
   const cells = new Map<string, HeadOwnedCell>();
@@ -110,6 +121,29 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
       put({ ...p, owner: p.layer === "base" ? "hair_base" : "hair_outer", sourceGroupId: g.id, provenance });
     }
     if (!covering) for (const p of hair.structure.partChannel.points) put({ ...p, owner: "hair_base", sourceGroupId: "part-channel", provenance });
+  }
+  if (hair.headMask.semanticSilhouette?.profileOpening === "curly_ringlets") {
+    for (const face of ["left", "right"] as const) {
+      const claimed = new Set(hair.headMask.faces[face].map(p => `${p.x},${p.y}`));
+      // Explicit openings also constrain seam closure: an unclaimed profile
+      // cell is intentional air, not a missing curl to be filled later.
+      for (let y = 1; y < 8; y++) for (let x = 0; x < 8; x++) if (!claimed.has(`${x},${y}`)) {
+        put({ face, x, y, layer: "outer", owner: "clear", sourceGroupId: "curly-profile-window", provenance: "observed" });
+      }
+    }
+  }
+  // Texture/part groups may overlap the categorical foundation's opening.
+  // Resolve that ownership here, before real landmarks/accessories take their
+  // usual precedence; do not reopen a measured or covering-owned hairline.
+  const semanticWindows = [
+    ...(hair.headMask.semanticSilhouette?.fringeOpening?.cells ?? []).map(p => ({ ...p, group: "semantic-fringe-window" })),
+    ...(hair.headMask.semanticSilhouette?.fringeLengthWindows?.cells ?? []).map(p => ({ ...p, group: "semantic-fringe-length-window" })),
+  ];
+  if (!covering && !tied) for (const { x, y, group } of semanticWindows) {
+    const p = { x, y };
+    if (facePlan.pixels.some(c => c.x === p.x && c.y === p.y)) continue;
+    put({ ...p, face: "front", layer: "base", owner: "face", sourceGroupId: group, provenance: "observed" });
+    put({ ...p, face: "front", layer: "outer", owner: "clear", sourceGroupId: group, provenance: "observed" });
   }
   if (tiedGeometry) {
     const massXs = tiedXs(tiedGeometry.massWidth, tiedGeometry.horizontalBias);
@@ -153,6 +187,21 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
       for (let y = 1; y <= 3; y++) paint("back", mirrored(massXs), y, "tied-mass", y === 1 ? "light" : "mid");
     }
   }
+  // Cap/beanie evidence owns only the painter's actual footprint, not the
+  // entire hair mask. Resolve before landmarks so eyes/glasses still win.
+  // Both layers share material: the reference composer moves the main mass
+  // onto the foundation and keeps selective depth instead of an outer shell.
+  if (!covering) for (const { face, x, y } of headwearFootprint(analysis.fallbackFeatures.hat)) {
+    for (const layer of ["base", "outer"] as const) {
+      // Crown cloth is already opaque on base. Keep only the seam-connected
+      // raised edge on outer; retaining the painter's filled top is a shell.
+      if (layer === "outer" && face === "top" && x > 0 && x < 7 && y > 0 && y < 7) {
+        put({ face, x, y, layer, owner: "clear", sourceGroupId: "headwear-depth-window", provenance: "observed" });
+        continue;
+      }
+      put({ face, x, y, layer, owner: "covering", sourceGroupId: "headwear-footprint", provenance: "observed", role: "mid" });
+    }
+  }
   // Face-window ownership is local. Do not globally elevate every P5 phrase.
   for (const p of facePlan.pixels.filter(p => p.cluster !== "fringe")) {
     put({ face: "front", layer: "base", x: p.x, y: p.y, owner: "face", sourceGroupId: p.cluster, provenance: "observed" });
@@ -179,7 +228,20 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
   if (analysis.fallbackFeatures.earrings) for (const [frontX, side, sideX] of [[0, "right", 7], [7, "left", 0]] as const) for (let y = 5; y < 8; y++) {
     for (const p of [{ face: "front" as const, x: frontX }, { face: side, x: sideX }]) put({ ...p, y, layer: "outer", owner: "other_p5", sourceGroupId: "ear-accessory", provenance: "observed" });
   }
-  if (analysis.renderHints.hairAccessory !== "none") {
+  if (resolvedOrnament) {
+    const footprint = resolvedRibbon ? hairRibbonFootprint(analysis.renderHints.hairAccessorySide, analysis.renderHints.hairAccessoryScale)
+      : hairFlowerFootprint(analysis.renderHints.hairAccessorySide, analysis.renderHints.hairAccessoryScale);
+    for (const p of footprint) {
+      const prior = cells.get(`outer:${p.face}:${p.x},${p.y}`)!;
+      // The legacy temple bow may overlap a brow (not an iris). Keep that
+      // observed ornament; a generic brow window must not cut off its lobe.
+      // Actual eyes/glasses retain priority, including unusually high eyes.
+      const landmarks = p.face === "front" ? facePlan.pixels.filter(q => q.x === p.x && q.y === p.y && q.cluster !== "complexion") : [];
+      const browOnly = landmarks.length > 0 && landmarks.every(q => q.role === "brow");
+      if (prior.owner !== "glasses" && (prior.sourceGroupId !== "face-window" || browOnly))
+        put({ ...prior, owner: "other_p5", sourceGroupId: resolvedRibbon ? "head-ribbon-footprint" : "head-flower-footprint", provenance: "observed", retain: true });
+    }
+  } else if (analysis.renderHints.hairAccessory !== "none") {
     const side = analysis.renderHints.hairAccessorySide;
     for (const p of cells.values()) if (p.layer === "outer") {
       const selectedX = side === "right" ? p.x >= 4 : side === "center" ? p.x >= 2 && p.x <= 5 : p.x < 4;
@@ -205,6 +267,14 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
   const continuities: HeadOwnershipPlan["continuities"] = [];
   for (const keys of classes.values()) {
     const members = keys.map(key => cells.get(key)!);
+    // A painted flower may cross a cuboid edge without occupying the matching
+    // hair cell on its other face. Preserve that existing attachment substrate
+    // instead of clearing it while retaining the petal. This is bounded to the
+    // physical seam class; observed face/profile openings still take priority.
+    if (members.some(p => p.sourceGroupId === "head-flower-footprint")) {
+      for (const p of members) if (["hair_outer", "covering", "tied_hair"].includes(p.owner)
+        || p.owner === "clear" && p.provenance !== "observed") put({ ...p, retain: true });
+    }
     const masses = members.filter(p => ["hair_outer", "covering", "tied_hair"].includes(p.owner));
     if (!masses.length) continue;
     // Explicit transparent face/lens windows and jewelry are boundaries, not
@@ -216,10 +286,14 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
     for (const p of members) put({ ...winner, face: p.face, x: p.x, y: p.y, continuityGroupId: id, sourceGroupId: p.owner === "clear" ? winner.sourceGroupId : p.sourceGroupId });
   }
   if (analysis.fallbackFeatures.hairstyle === "buzz" && !hair.surfaceOnly && !covering && !tied) for (const p of cells.values()) p.retain = true;
-  // Existing complex ornament/loc and unmeasured curl grammars remain intact;
-  // they are not converted into the wavy/tied completion introduced here.
+  // Existing complex ornament/loc and legacy unmeasured texture masks remain
+  // intact. Current source-derived coily silhouettes and profile-open curly
+  // masks supply a bounded foundation and clipped texture groups; absence of continuous
+  // geometry alone is not an ownership failure. Do not convert its texture to
+  // a wavy/tied family or resolve an accessory whose footprint is still unknown.
   const observedOrnament = /\b(?:flower|ribbon|bow|clip|headband)\b[^.;]{0,35}\bhair\b|\bhair\b[^.;]{0,35}\b(?:flower|ribbon|bow|clip|headband)\b/i.test(headEvidence);
   const sourceDerivedSemanticMask = hair.headMask.source === "semantic_template" && Boolean(hair.headMask.semanticSilhouette);
-  const preserve = !tied && !covering && (observedOrnament || analysis.renderHints.hairAccessory !== "none" || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (!hair.surfaceOnly && hair.structure.source === "semantic_analysis" && ["curl_lobes", "coily_clusters"].includes(hair.structure.grammar)));
+  const sourceDerivedCurlyProfile = sourceDerivedSemanticMask && hair.headMask.semanticSilhouette?.profileOpening === "curly_ringlets";
+  const preserve = !tied && !covering && ((observedOrnament || analysis.renderHints.hairAccessory !== "none") && !resolvedOrnament || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (!hair.surfaceOnly && hair.structure.source === "semantic_analysis" && (hair.structure.grammar === "curl_lobes" && !sourceDerivedCurlyProfile || hair.structure.grammar === "coily_clusters" && !sourceDerivedSemanticMask)));
   return { execution: preserve ? "preserve_existing_grammar" : "resolved", hairFamily: hair.template, covering, tiedMass: tiedGeometry, cells: [...cells.values()], continuities };
 }

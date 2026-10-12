@@ -1,4 +1,5 @@
 import { resolveFaceGeometry, type ResolvedFaceGeometry } from "./faceIdentityGeometry";
+import { narrowDenseSemanticOpening } from "./semanticFringeOpening";
 import type { PhotoAnalysis } from "./analysis";
 import { applyDirectContourVisibility, directBoundaryProvenance, directBoundaryUsable, directBoundaryWidth, DIRECT_CONTOUR_FIELDS } from "./directFaceContour";
 import type { GeometryCompleteness, GeometryDecisionProvenance, IdentityGeometryAnalysis } from "./identityGeometry";
@@ -224,6 +225,13 @@ interface JointEyeQuantization extends JointEyeCandidate {
   alternative?: JointEyeCandidate;
 }
 
+// The existing render contract requires confident crop-space width asymmetry.
+// Candidate construction must honor that same requirement, even when its
+// face-normalized width difference falls just below the pixel-space criterion.
+function requiredEyeWidthAsymmetry(geometry: ResolvedFaceGeometry): boolean {
+  return geometry.confidence.eyes >= 0.75 && Math.abs(geometry.eyes.leftWidth - geometry.eyes.rightWidth) >= 0.04;
+}
+
 function mean(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 }
@@ -247,7 +255,8 @@ export function quantizeEyesJointly(
   const sourceSpacing = sourceRight - sourceLeft;
   const rawLeftWidth = (geometry.eyes.leftWidth / faceWidth) * 8;
   const rawRightWidth = (geometry.eyes.rightWidth / faceWidth) * 8;
-  const confidentAsymmetry = geometry.confidence.eyes >= 0.75 && Math.abs(rawLeftWidth - rawRightWidth) >= 0.45;
+  const confidentAsymmetry = requiredEyeWidthAsymmetry(geometry)
+    || (geometry.confidence.eyes >= 0.75 && Math.abs(rawLeftWidth - rawRightWidth) >= 0.45);
   let leftWidth = rounded(confidentAsymmetry ? rawLeftWidth : (rawLeftWidth + rawRightWidth) / 2, 1, 3) as 1 | 2 | 3;
   let rightWidth = rounded(confidentAsymmetry ? rawRightWidth : (rawLeftWidth + rawRightWidth) / 2, 1, 3) as 1 | 2 | 3;
   if (confidentAsymmetry && leftWidth === rightWidth) {
@@ -314,6 +323,8 @@ export function quantizeEyesJointly(
 function p5ProtectedGeometry(analysis: PhotoAnalysis): ProtectedGeometry[] {
   const protectedGeometry: ProtectedGeometry[] = [];
   for (const feature of analysis.canonicalIdentity.features.filter((item) => item.priority === 5)) {
+    // Importance alone cannot turn a speculative claim into a protected contract.
+    if (feature.confidence === "low") continue;
     const text = `${feature.feature} ${feature.evidence}`.toLowerCase();
     if (/glass|spectacle|frame/.test(text)) protectedGeometry.push("glasses");
     if ((feature.category === "hair" || feature.category === "silhouette" || feature.category === "accessory") && /hairline|fringe|bang|forehead|part|headscarf|hijab|hood/.test(text)) protectedGeometry.push("hairline");
@@ -327,7 +338,7 @@ function p5ProtectedGeometry(analysis: PhotoAnalysis): ProtectedGeometry[] {
 
 function p5Text(analysis: PhotoAnalysis): string {
   return analysis.canonicalIdentity.features
-    .filter((feature) => feature.priority === 5)
+    .filter((feature) => feature.priority === 5 && feature.confidence !== "low")
     .map((feature) => `${feature.feature} ${feature.evidence}`)
     .join(" ")
     .toLowerCase();
@@ -335,7 +346,7 @@ function p5Text(analysis: PhotoAnalysis): string {
 
 function sourceFaceFeatureText(analysis: PhotoAnalysis): string {
   return analysis.canonicalIdentity.features
-    .filter((feature) => feature.category === "face")
+    .filter((feature) => feature.category === "face" && feature.confidence !== "low")
     .map((feature) => feature.feature)
     .join(" ")
     .toLowerCase();
@@ -370,7 +381,7 @@ function hasWideMouthEvidence(analysis: PhotoAnalysis): boolean {
   // A wide crown, large bag or broad eyes cannot impose a mouth-width floor.
   // Keep the P5 requirement, but bind its modifier to the named facial feature.
   const describesWideMouth = /\b(?:wide|broad|large)(?:[- ]+(?:closed|open|toothy|smiling))?[- ]+(?:mouth|smile|grin|lips?)\b|\b(?:mouth|smile|grin|lips?)\b(?:\s+(?:is|are|appears?))?\s+(?:wide|broad|large)\b/;
-  return analysis.canonicalIdentity.features.some(feature => feature.priority === 5 && feature.category === "face" &&
+  return analysis.canonicalIdentity.features.some(feature => feature.priority === 5 && feature.category === "face" && feature.confidence !== "low" &&
     describesWideMouth.test(`${feature.feature}; ${feature.evidence}`.toLowerCase()));
 }
 
@@ -439,9 +450,9 @@ function buildRenderContract(
   const asymmetricMouth = mouthCornerOffsets[0] !== mouthCornerOffsets[1] && (resolveFaceGeometry(analysis)?.confidence.mouth ?? 0) >= 0.75;
   const leftInner = Math.max(...leftEyeXs);
   const rightInner = Math.min(...rightEyeXs);
-  const eyeGeometry = resolveFaceGeometry(analysis)?.eyes;
-  const eyeAsymmetry = Boolean(eyeGeometry) && (resolveFaceGeometry(analysis)?.confidence.eyes ?? 0) >= 0.75 && (
-    Math.abs(eyeGeometry!.verticalAsymmetry) >= 0.16 || Math.abs(eyeGeometry!.leftWidth - eyeGeometry!.rightWidth) >= 0.04
+  const resolvedEyes = resolveFaceGeometry(analysis);
+  const eyeAsymmetry = !!resolvedEyes && resolvedEyes.confidence.eyes >= 0.75 && (
+    Math.abs(resolvedEyes.eyes.verticalAsymmetry) >= 0.16 || requiredEyeWidthAsymmetry(resolvedEyes)
   );
   const contract: IdentityRenderContract = {
     mouth: {
@@ -1055,7 +1066,8 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
   const mouthTopology = mouthTopologyFor(mouthOpening, mouthWidth, mouthCornerOffsets, false);
   const eyeTopology = eyeTopologyFor(eyeOpenness, false, p5Text(analysis));
   const hairlineDepth: FaceLayoutPlan["hairlineDepth"] = hints.bangs === "none" || hints.bangsLength === "none" ? 0 : hints.bangsLength === "eye" ? 3 : hints.bangsLength === "brow" ? 2 : 1;
-  const hairlineDepthByColumn = Array.from({ length: 8 }, (_, x) => hints.fringeOpening === "center" && (x === 3 || x === 4) ? 0 : hairlineDepth) as FaceLayoutPlan["hairlineDepthByColumn"];
+  const narrowOpening = narrowDenseSemanticOpening(hints);
+  const hairlineDepthByColumn = Array.from({ length: 8 }, (_, x) => hints.fringeOpening === "center" && (x === 3 || x === 4 && !narrowOpening) ? 0 : hairlineDepth) as FaceLayoutPlan["hairlineDepthByColumn"];
   const exposedFaceWidth: FaceLayoutPlan["exposedFaceWidth"] = hints.sideHairShape === "face_framing" || hints.earExposure === "covered" ? 5 : hints.earExposure === "partial" || hints.hairVolume === "full" ? 6 : hints.faceShape === "round" || hints.faceShape === "square" ? 8 : 7;
   if (spacing || footprint) {
     const start = Math.floor((8 - exposedFaceWidth) / 2);
@@ -1087,7 +1099,7 @@ export function deriveFallbackFaceLayout(analysis: PhotoAnalysis): FaceLayoutPla
     glassesMask.push({ x: 3, y: eyeRow }, { x: 4, y: eyeRow });
   }
   const uncertainAxes: QuantizationAxis[] = [];
-  const faceConfidence = analysis.canonicalIdentity.features.filter((feature) => feature.category === "face").map((feature) => feature.confidence);
+  const faceConfidence = analysis.canonicalIdentity.features.filter((feature) => feature.category === "face" && feature.confidence !== "low").map((feature) => feature.confidence);
   if (faceConfidence.length === 0 || faceConfidence.some((confidence) => confidence !== "high")) uncertainAxes.push("eye_row", "mouth_row");
   if (hairlineDepth > 0) uncertainAxes.push("hairline_profile");
   const quantizationAmbiguities: QuantizationAmbiguity[] = uncertainAxes.map((axis, index) => ({

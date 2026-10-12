@@ -73,6 +73,20 @@ it("freezes/compares synthetic status, response shape, handler count and provide
       : name.startsWith("handler_") ? Number(name.split("_")[1]) : name === "valid" ? 200 : 409);
     if (!name.startsWith("handler_") && name !== "valid") expect(r.handlerCount).toBe(0);
     expect(r.providerMockCount).toBe(name.endsWith("_dispatch") ? 1 : 0);
+    // The historical gate baseline predates passive propagation capture. Check
+    // that addition independently; keep its original status/dispatch envelope exact.
+    if (r.handlerCount === 1) {
+      const { imageIdentity } = await import("./audit/currentDefaultE2E");
+      expect(r.body.propagationTrace).toEqual({
+        version: "primary_png_propagation_v1", runId: "a".repeat(32),
+        inputs: { analysisSha256: (await imageIdentity(payload.analysisImage)).sha256,
+          generationSha256: (await imageIdentity(payload.image)).sha256 },
+        providerStage: null, evidenceScope: "this_request_only_not_historical_recovery",
+        primary: null, renderAnalysis: {}, selectedFamilies: null, referenceStyle: {},
+        sourceParameters: null, skinPlan: { skinPlan: null }, injectedParameters: null,
+        parameterEvidence: "unverified", replay: null, finalPng: null, projectionChanges: [],
+      });
+    } else if (typeof r.body === "object") expect(r.body).not.toHaveProperty("propagationTrace");
     results.push(r); vi.restoreAllMocks();
   }
   if (process.env.E2E_GATE_OFFLINE_CAPTURE === "before") {
@@ -80,7 +94,11 @@ it("freezes/compares synthetic status, response shape, handler count and provide
     fs.writeFileSync(path.join(root, "synthetic-before.json"), JSON.stringify(results, null, 2), { flag: "wx" });
   } else {
     const before = JSON.parse(fs.readFileSync(path.join(root, "synthetic-before.json"), "utf8"));
-    const withoutTrace = (rows: typeof results) => rows.map(row => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "trace")));
+    const withoutTrace = (rows: typeof results) => rows.map(row => ({
+      ...Object.fromEntries(Object.entries(row).filter(([key]) => key !== "trace" && key !== "body")),
+      body: typeof row.body === "object" && row.body !== null
+        ? Object.fromEntries(Object.entries(row.body).filter(([key]) => key !== "propagationTrace")) : row.body,
+    }));
     expect(withoutTrace(results)).toEqual(withoutTrace(before));
     if (process.env.E2E_GATE_OFFLINE_CAPTURE === "after")
       fs.writeFileSync(path.join(root, "synthetic-after.json"), JSON.stringify(results, null, 2), { flag: "wx" });

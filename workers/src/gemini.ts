@@ -17,6 +17,10 @@ Use only the listed enum values.`;
 const DEFAULT_WORKERS_VISION_MODEL =
   GEMMA_VISION_MODEL;
 const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
+// Reviewed validated primary completion maximum: 55,414 ms (2026-10-11 census).
+// +2 s margin, rounded up to a 5 s boundary. Fixed, not auto-adaptive.
+// Explicit primary opt-in only; Gemini, V4 and geometry caps stay intact.
+export const GEMMA_PRIMARY_TIMEOUT_MS = 60_000;
 const DEFAULT_IMAGE_TIMEOUT_MS = 120_000;
 
 interface GeminiErrorPayload {
@@ -180,6 +184,8 @@ export interface GeminiStructuredRequest {
   onRequestShape?: (shape: GeminiStructuredRequestShape) => void;
   /** Caller budget cap; not part of the provider wire. */
   timeoutCapMs?: number;
+  /** Primary Gemma-only local cap; never serialized or applied to Gemini/geometry. */
+  workersAiTimeoutCapMs?: number;
   onProviderAttempt?: (attempt: StructuredProviderAttempt) => void;
 }
 
@@ -449,7 +455,9 @@ async function runWorkersAiStructuredFallback(
     : request.workersAiResponseSchema !== undefined
       ? "workers_guided_json_strict" as const
       : "workers_response_format" as const;
-  const configuredDeadlineMs = Math.min(request.timeoutCapMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS);
+  const configuredDeadlineMs = model === GEMMA_VISION_MODEL && request.workersAiTimeoutCapMs !== undefined
+    ? Math.min(request.workersAiTimeoutCapMs, GEMMA_PRIMARY_TIMEOUT_MS)
+    : Math.min(request.timeoutCapMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS);
   const startedAt = performance.now();
   let deadlineTimerFired = false;
   let bindingDispatched = false;

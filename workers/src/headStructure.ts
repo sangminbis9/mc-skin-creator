@@ -1,4 +1,5 @@
 import type { PhotoAnalysis } from "./analysis";
+import { narrowDenseSemanticOpening } from "./semanticFringeOpening";
 import type { FaceLayoutPlan } from "./identityQuantization";
 import type { HeadMaskFace, HeadMaskPlan } from "./identityPlans";
 import { hairSalienceScore, type HairIdentitySaliencePlan } from "./hairIdentitySalience";
@@ -93,7 +94,8 @@ function hairIdentityImportance(analysis: PhotoAnalysis): 1 | 2 | 3 | 4 | 5 {
 }
 
 function textureGrammar(analysis: PhotoAnalysis): HairTextureGrammar {
-  const text = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair").map(f => f.feature)].join("; ").toLowerCase();
+  // Speculative identity text must not replace the observed texture grammar.
+  const text = [analysis.observed.hair, ...analysis.canonicalIdentity.features.filter(f => f.category === "hair" && f.confidence !== "low").map(f => f.feature)].join("; ").toLowerCase();
   if (/dread|\blocs?\b|lock group/.test(text)) return "lock_groups";
   if (analysis.renderHints.hairTexture === "coily") return "coily_clusters";
   if (analysis.renderHints.hairTexture === "curly") return "curl_lobes";
@@ -212,7 +214,7 @@ export function buildHairStructurePlan(
 
   const partColumn = headMask.partColumn ?? (analysis.renderHints.hairPart === "center" ? 3 : analysis.renderHints.hairPart === "left" ? 2 : analysis.renderHints.hairPart === "right" ? 5 : null);
   const openingColumns = analysis.renderHints.fringeOpening === "center"
-    ? [3, 4]
+    ? !layout.geometryUsage.hairline && narrowDenseSemanticOpening(analysis.renderHints) ? [3] : [3, 4]
     : analysis.renderHints.fringeOpening === "left"
       ? [2]
       : analysis.renderHints.fringeOpening === "right"
@@ -353,7 +355,14 @@ export function buildHairStructurePlan(
         layer: "base" as const,
         x: point.x,
         y: point.y,
-        role: point.y % 3 === 0 ? "mid" as const : "shadow" as const,
+        // Straight/wavy foundations flow down the owned side/rear mask. Repeating
+        // a bright row every three cells invented horizontal stripes before
+        // the strand finisher even ran. Keep the edge shadow and continuous
+        // interior material; crown/part and the independent curved strand
+        // groups stay intact. Curl/coil/lock material is not changed here.
+        role: (grammar === "straight_bands" || grammar === "wavy_bands") && face !== "top"
+          ? point.x === 0 || point.x === 7 ? "shadow" as const : "mid" as const
+          : point.y % 3 === 0 ? "mid" as const : "shadow" as const,
       }));
     addGroup({ id: `foundation-${face}`, kind: "foundation", direction: face === "top" ? "down_right" : "down", points });
   }

@@ -41,7 +41,14 @@ it.each([
   expect(plan.facePixelPlan).toEqual(live.analysis.skinPlan.facePixelPlan);
   // Unsaved inferred lower-body context differs from the live plan; compare
   // only the identical helper-filled before context, never pretend recovery.
-  expect(plan.outfitPlan).toEqual(JSON.parse(readFileSync(`${beforeRoot}/results.json`, "utf8")).plan.outfitPlan);
+  const historicalOutfit = JSON.parse(readFileSync(`${beforeRoot}/results.json`, "utf8")).plan.outfitPlan;
+  expect(plan.outfitPlan.upper.pattern.color).toBe("#684b38");
+  const fixedPalette = structuredClone(plan.outfitPlan);
+  expect(fixedPalette.upper.pattern.crossedBandColors).toEqual(["#684b38", "#c5aa82"]);
+  // This hair-only historical ablation predates multi-color crossed bands.
+  delete fixedPalette.upper.pattern.crossedBandColors;
+  fixedPalette.upper.pattern.color = historicalOutfit.upper.pattern.color;
+  expect(fixedPalette).toEqual(historicalOutfit);
 });
 it.each([
   "Bald head with no visible hair.", "Balding head with short hair at the sides.",
@@ -73,13 +80,20 @@ it.each(["hidden", "bald_enum", "measured", "covering", "accessory", "volume", "
 });
 it("captures fixed-context current-source replay and preserves every historical byte", async () => {
   const analysis = input(), plan = buildSkinPlan(analysis);
+  // Isolate hair against the immutable pre-palette snapshot. Assert the new
+  // coordinated-list color before pinning this ablation's outfit color only.
+  const currentPatternColor = plan.outfitPlan.upper.pattern.color;
+  expect(currentPatternColor).toBe("#684b38");
+  expect(plan.outfitPlan.upper.pattern.crossedBandColors).toEqual(["#684b38", "#c5aa82"]);
+  delete plan.outfitPlan.upper.pattern.crossedBandColors;
+  plan.outfitPlan.upper.pattern.color = JSON.parse(readFileSync(`${beforeRoot}/results.json`, "utf8")).plan.outfitPlan.upper.pattern.color;
   const style = buildFaceStyle(analysis, live.features, plan.hairPlan);
   const atlas = buildProceduralFallbackAtlas(live.features, style, plan);
   expect(atlas).not.toBeNull(); if (!atlas) throw new Error("atlas_rejected");
   const craft = validateAtlasCraft(atlas, style, plan.facePixelPlan, plan.hairPlan, plan);
   expect(craft.ok, craft.problems.join(";")).toBe(true); expect(validateFinalAtlas(atlas).ok).toBe(true);
   const root = mkdtempSync("evaluation-artifacts/qualified-cropped-hair-20260927-");
-  const changed = [];
+  const changed = [], explicitScleraPaletteChanges = [];
   if (beforeRoot) {
     const before = JSON.parse(readFileSync(`${beforeRoot}/results.json`, "utf8"));
     const old = await decodePng(readFileSync(`${beforeRoot}/atlas.png`));
@@ -94,7 +108,17 @@ it("captures fixed-context current-source replay and preserves every historical 
         expect(x).toBeGreaterThanOrEqual(32); // Head overlay only, no new shell.
         expect(atlas.rgba[p * 4 + 3]).toBe(0);
       }
-      expect(plan.facePixelPlan.pixels.some(cell => cell.cluster !== "fringe" && cell.x + 8 === x && cell.y + 8 === y)).toBe(false);
+      const landmark = plan.facePixelPlan.pixels.find(cell => cell.cluster !== "fringe" && cell.x + 8 === x && cell.y + 8 === y);
+      if (landmark) {
+        // This immutable snapshot predates the independent explicit-sclera
+        // palette repair. Permit only that exact RGB, never landmark movement.
+        expect(landmark.role).toBe("sclera");
+        const skin = [1, 3, 5].map(i => parseInt(live.features.skinTone.slice(i, i + 2), 16));
+        expect(Array.from(atlas.rgba.slice(p * 4, p * 4 + 4)))
+          .toEqual([...skin.map((v, i) => Math.round(v * .28 + [236, 232, 218][i] * .72)), 255]);
+        expect(old.rgba[p * 4 + 3]).toBe(255);
+        explicitScleraPaletteChanges.push({ x, y });
+      }
     }
     expect(changed.length).toBeGreaterThan(0);
   }
@@ -103,7 +127,8 @@ it("captures fixed-context current-source replay and preserves every historical 
     writeFileSync(`${root}/${view.name}.png`, await encodePng(scaleNearestNeighbor(view.image, view.image.width * 4, view.image.height * 4)), { flag: "wx" });
     if (view.name === "front") writeFileSync(`${root}/head.png`, await encodePng(scaleNearestNeighbor(extractRenderedHeadView(view), 256, 256)), { flag: "wx" });
   }
-  writeFileSync(`${root}/results.json`, JSON.stringify({ providerCalls: 0, beforeRoot, plan, style, craft, changed,
+  writeFileSync(`${root}/results.json`, JSON.stringify({ providerCalls: 0, beforeRoot, plan, style, craft, changed, explicitScleraPaletteChanges,
+    independentPaletteAblation: { currentPatternColor, pinnedHistoricalColor: plan.outfitPlan.upper.pattern.color },
     liveSummarySha256: sha(liveBytes), atlasHash: sha(atlas.rgba),
     limitation: "Fixed partial -007 primary context, not a new live PNG or complete provider-response reconstruction." }, null, 2), { flag: "wx" });
   expect(readFileSync(livePath)).toEqual(liveBytes);

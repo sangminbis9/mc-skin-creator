@@ -19,7 +19,6 @@ export function makeAnalysis(
   overrides: Partial<PhotoAnalysis> = {},
 ): PhotoAnalysis {
   return {
-    coordinateSpaces: { faceMeasurements: "tight_face_crop", headMeasurements: "wide_head_crop" },
     quality: "pass",
     failReason: null,
     framing: "upper_body",
@@ -185,6 +184,7 @@ export function makeIdentityGeometry(
   overrides: Partial<IdentityGeometryAnalysis> = {},
 ): IdentityGeometryAnalysis {
   return {
+    coordinateSpaces: { faceMeasurements: "tight_face_crop", headMeasurements: "wide_head_crop" },
     face: { visibleLeft: 0.18, visibleRight: 0.82, foreheadY: 0.12, chinY: 0.9, widthWithinHead: 0.7 },
     eyes: { leftCenterX: 0.36, leftCenterY: 0.46, rightCenterX: 0.65, rightCenterY: 0.47, leftWidth: 0.12, rightWidth: 0.12, interEyeDistance: 0.29, verticalAsymmetry: 0.01, openness: 0.58 },
     brows: { leftY: 0.36, rightY: 0.37, thickness: 0.45, tilt: 0.08 },

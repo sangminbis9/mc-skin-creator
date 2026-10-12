@@ -17,6 +17,8 @@ import { makeAnalysis } from "./helpers";
 import { wireFixture } from "./compactV3Support";
 import { strictBoundaryAnalysisFromAnnotation } from "./strictBoundaryFixtureSupport";
 import type { AnnotatedCase } from "./generalizationSupport";
+import { historicalHairMaterialPlan, assertHairMaterialPixelBoundary } from "./historicalHairMaterial";
+import { historicalScarfBeltPlan, assertAccessoryPaletteBoundary } from "./historicalScarfBeltColors";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const evidence = "Groomed dark mustache and goatee, oval face.";
@@ -172,17 +174,31 @@ it("keeps twelve strict-boundary round trips exact and confines historical chang
       analysis.identityGeometry = parseIdentityGeometry(stored.sourceGeometryAfter)!;
       restored.analysis.identityGeometry = analysis.identityGeometry;
     }
-    const before = render(analysis), after = render(restored.analysis);
-    expect(after.plan, fixture.id).toEqual(before.plan);
-    expect(after.atlas, fixture.id).toEqual(before.atlas);
-    expect(after.craft.ok, fixture.id).toBe(true);
-    expect(validateAtlasCraft(after.atlas, after.style, after.plan.facePixelPlan, after.plan.hairPlan, after.plan).ok, fixture.id).toBe(true);
+    const before = render(analysis), current = render(restored.analysis);
+    expect(current.plan, fixture.id).toEqual(before.plan);
+    expect(current.atlas, fixture.id).toEqual(before.atlas);
+    expect(current.craft.ok, fixture.id).toBe(true);
+    expect(validateAtlasCraft(current.atlas, current.style, current.plan.facePixelPlan, current.plan.hairPlan, current.plan).ok, fixture.id).toBe(true);
+    // Old face-repair evidence predates the separately verified directional
+    // hair material edit. Keep its exact comparisons on that material basis;
+    // current strict round-trip and craft are checked above, not projected.
+    const accessoryPlan = historicalScarfBeltPlan(current.plan);
+    const accessoryAtlas = buildProceduralFallbackAtlas(current.features, current.style, accessoryPlan)!;
+    expect(accessoryAtlas).not.toBeNull();
+    const accessoryPixels = assertAccessoryPaletteBoundary(current.atlas, accessoryAtlas, current.plan, current.style.skinTone!, true);
+    // Compare each reviewed material change separately; historical face checks
+    // below still use their original plans, hashes and pixel boundaries.
+    const projectedPlan = historicalHairMaterialPlan(accessoryPlan);
+    const projectedAtlas = buildProceduralFallbackAtlas(current.features, current.style, projectedPlan)!;
+    expect(projectedAtlas).not.toBeNull();
+    const materialPixels = assertHairMaterialPixelBoundary(accessoryAtlas, projectedAtlas, accessoryPlan);
+    const after = { ...current, plan: projectedPlan, atlas: projectedAtlas };
     const historicalHash = historical.find(r => r.id === fixture.id)!.atlasHash;
     const historicalAtlasUnchanged = digest(after.atlas.rgba) === historicalHash;
     let historicalChangedPixels = 0;
     const collisionRepair = after.plan.facePixelPlan.mouthCollisionResolution;
     const browBaseline = await decodePng(readFileSync(`${browBaselineRoot}/${fixture.id}-before.png`));
-    const browChanges = [];
+    const browChanges = [], explicitScleraPaletteChanges = [];
     for (let p = 0; p < 4096; p++) if ([0, 1, 2, 3].some(c => browBaseline.rgba[p * 4 + c] !== after.atlas.rgba[p * 4 + c])) browChanges.push({ x: p % 64 - 8, y: Math.floor(p / 64) - 8, p });
     if (browChanges.length > 0) {
       // This baseline was frozen before the brow/eye/mouth paint repairs, after the
@@ -199,6 +215,18 @@ it("keeps twelve strict-boundary round trips exact and confines historical chang
       const legacyStroke = (cell: { x: number; y: number }) => (legacyXs.includes(cell.x) && [2, 3, 4, 5].includes(cell.y)) || legacyMouth(cell);
       const seam = getBoxUvSeams(CLASSIC_LAYOUT.head.base).horizontal.find(s => s.primary.every(p => p.y === 15))!;
       for (const cell of browChanges) {
+        if (after.plan.facePixelPlan.pixels.some(p => p.role === "sclera" && p.x === cell.x && p.y === cell.y)) {
+          // Historical bytes stay frozen. Independently account for only the
+          // explicit sclera's complexion-linked off-white, not a broader face diff.
+          const skinTone = after.features.skinTone;
+          if (typeof skinTone !== "string") throw new Error("missing_skin_palette");
+          const skin = [1, 3, 5].map(i => parseInt(skinTone.slice(i, i + 2), 16));
+          expect(Array.from(after.atlas.rgba.slice(cell.p * 4, cell.p * 4 + 4)))
+            .toEqual([...skin.map((v, i) => Math.round(v * .28 + [236, 232, 218][i] * .72)), 255]);
+          expect(browBaseline.rgba[cell.p * 4 + 3]).toBe(255);
+          explicitScleraPaletteChanges.push({ x: cell.x, y: cell.y });
+          continue;
+        }
         const seamIndex = seam.adjacent.findIndex(p => p.x === cell.x + 8 && p.y === cell.y + 8);
         if (seamIndex >= 0) {
           expect(legacyMouth({ x: seam.primary[seamIndex].x - 8, y: 7 })).toBe(true);
@@ -249,9 +277,12 @@ it("keeps twelve strict-boundary round trips exact and confines historical chang
         writeFileSync(path.join(root, `${fixture.id}-${name}-front.png`), await encodePng(front.image), { flag: "wx" });
       }
     }
-    rows.push({ id: fixture.id, calibrated: !!fixture.existing, atlasHash: digest(after.atlas.rgba), planHash: digest(after.plan), craft: true, atlasDiff: 0,
+    rows.push({ id: fixture.id, calibrated: !!fixture.existing, atlasHash: digest(current.atlas.rgba), planHash: digest(current.plan), craft: true, atlasDiff: 0,
+      intentionalAccessoryPalettePixels: accessoryPixels,
+      intentionalHairMaterialPixels: materialPixels, historicalComparisonBasis: "pre_directional_material_and_accessory_palette_projection",
       historicalAtlasUnchanged, historicalChangedPixels: browChanges.length ? null : historicalChangedPixels,
       preBrowBaselineChangedPixels: browChanges.length,
+      explicitScleraPaletteChanges,
       historicalChangeReason: historicalAtlasUnchanged ? null : browChanges.length ? "legacy_brow_eye_mouth_paint_removed_after_prior_repairs" : collisionRepair ? "eye_mouth_pixel_collision_resolved" : "unsupported_inner_panel_removed_and_shirt_collar_material_continued" });
   }
   expect(rows).toHaveLength(12); expect(rows.filter(r => r.calibrated)).toHaveLength(5);

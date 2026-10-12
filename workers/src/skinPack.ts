@@ -12,6 +12,8 @@ import { buildFacialContrastPlan, type FacialContrastPlan } from "./facialContra
 import { facialHairBaseFootprint } from "./facialHairFootprint";
 import type { OutfitPlan } from "./outfitIdentity";
 import { applyOutfitPlan } from "./outfitRenderer";
+import { hairRibbonFootprint } from "./hairRibbonFootprint";
+import { headwearFootprint } from "./headwearFootprint";
 import {
   ALL_PARTS,
   ATLAS_SIZE,
@@ -1784,7 +1786,9 @@ function faceRoleColor(
     case "brow": return contrastPlan?.browMid ?? shadeRgb(hairColor, contrastBoost ? 0.58 : 0.7);
     case "glasses": return hexToRgb(style.glassesColor, shadeRgb(hairColor, 0.52));
     case "iris": return contrastPlan?.eyeDark ?? ensureComplexionContrast(shadeRgb(eye, contrastBoost ? 0.46 : style.irisLightness === "light" ? 1.16 : style.irisLightness === "medium" ? 0.62 : 0.5), contrastBoost ? 92 : 72);
-    case "sclera": return contrastPlan?.eyeMid ?? mixRgb(skinColor, [236, 232, 218], 0.72);
+    // An explicit sclera is the light eye surface, not an iris midtone. Keep
+    // its existing complexion-linked palette even when contrastPlan is present.
+    case "sclera": return mixRgb(skinColor, [236, 232, 218], 0.72);
     case "nose_bridge": return contrastPlan ? mixRgb(skinColor, contrastPlan.noseShade, 0.72) : shadeRgb(skinColor, 0.9);
     case "nose_tip": return contrastPlan?.noseShade ?? shadeRgb(skinColor, 0.84);
     case "nose_shadow": return contrastPlan ? shadeRgb(contrastPlan.noseShade, 0.94) : shadeRgb(skinColor, 0.78);
@@ -1917,8 +1921,8 @@ function applyFacePixelPlan(
     } else if (pixel.role === "brow") {
       planned = plan.layout.browThickness === "strong" ? contrastPlan.browDark : contrastPlan.browMid;
     }
-    // The mid/sclera role is already derived from the complexion-aware eye
-    // ramp. Keep it bilateral; a per-cell neighborhood adjustment made the
+    // Explicit sclera is already complexion-linked. Keep it bilateral; a
+    // per-cell neighborhood adjustment made the
     // same near-symmetric pair white on one side and dark on the other when
     // fringe or glasses changed only the surrounding context.
     const color = pixel.role === "sclera" ? planned
@@ -2237,16 +2241,20 @@ export function applyHeadIdentityPlan(
       // Reuse it inside a resolved mass; only new depth and explicit texture
       // groups need new paint. Shared edges still use the paired group color.
       if (p.owner === "hair_outer" && !p.continuityGroupId && p.sourceGroupId.startsWith("silhouette-") && atlas.rgba[at + 3]) continue;
-      const material = p.owner === "covering" ? shadeRgb(coveringColor, p.layer === "base" ? 0.86 : 1.02) : p.role === "light" ? mixRgb(hairColor, [190, 176, 164], 0.28) : hairStructureColor(p.role ?? "mid", hairColor, skinColor);
+      const scalpShadow = hairPlan?.surfaceOnly && hairPlan.surfaceMaterial === "scalp_shadow" && p.owner === "hair_base";
+      const material = scalpShadow ? mixRgb(skinColor, hairColor, 0.35)
+        : p.owner === "covering" ? shadeRgb(coveringColor, p.layer === "base" ? 0.86 : 1.02) : p.role === "light" ? mixRgb(hairColor, [190, 176, 164], 0.28) : hairStructureColor(p.role ?? "mid", hairColor, skinColor);
       // Connected, deterministic material shading survives the final stage.
       // Shared edges use their logical group's ramp rather than face-local RGB.
-      const ramp = p.continuityGroupId ? 1 : 1.12 - Math.floor(p.y / 2) * 0.10;
+      const ramp = p.continuityGroupId ? 1 : scalpShadow ? 1 - Math.floor(p.y / 2) * 0.02 : 1.12 - Math.floor(p.y / 2) * 0.10;
       const color = shadeRgb(material, ramp);
       atlas.rgba.set([...color, 255], at);
     }
     // Covering is not fringe hair. Preserve the same face/glasses grammar,
     // omitting only the conflicting hair instructions inside covered regions.
-    applyFacePixelPlan(atlas, ownership.covering ? { ...facePlan, pixels: facePlan.pixels.filter(p => p.cluster !== "fringe") } : facePlan, hairColor, skinColor, style);
+    const coveredFront = new Set(ownership.cells.filter(p => p.layer === "base" && p.face === "front" && p.owner === "covering").map(p => `${p.x}:${p.y}`));
+    applyFacePixelPlan(atlas, { ...facePlan, pixels: facePlan.pixels.filter(p => p.cluster !== "fringe" ||
+      (!ownership.covering && !coveredFront.has(`${p.x}:${p.y}`))) }, hairColor, skinColor, style);
     if (style.glasses === "sunglasses") for (const p of facePlan.glassesPlan.lensOpenings) {
       const rect = CLASSIC_LAYOUT.head.overlay.front;
       atlas.rgba.set([...hexToRgb(style.glassesColor ?? "", [25, 25, 27]), 255], ((rect.y + p.y) * ATLAS_SIZE + rect.x + p.x) * 4);
@@ -5483,13 +5491,6 @@ function composeHair(
       putColor(rect, cx + 1, cy, flowerShade);
       putColor(rect, cx, cy - 1, flowerLight);
     };
-    const drawRibbon = (rect: Rect, cx: number, cy: number) => {
-      putColor(rect, cx - 1, cy, ribbon);
-      putColor(rect, cx + 1, cy, ribbon);
-      putColor(rect, cx, cy, ribbonDark);
-      putColor(rect, cx - 2, cy - 1, shadeRgb(ribbon, 1.06));
-      putColor(rect, cx + 2, cy - 1, shadeRgb(ribbon, 0.92));
-    };
     const accessorySide = style.hairAccessorySide ?? "left";
     const accessoryScale = style.hairAccessoryScale ?? "medium";
     const mirrorAccessory = accessorySide === "right";
@@ -5512,10 +5513,6 @@ function composeHair(
       drawMiniFlower(over.front, mx(cx), cy);
     const drawSideMiniFlower = (cx: number, cy: number) =>
       drawMiniFlower(sideFace, sx(cx), cy);
-    const drawFrontRibbon = (cx: number, cy: number) =>
-      drawRibbon(over.front, mx(cx), cy);
-    const drawSideRibbon = (cx: number, cy: number) =>
-      drawRibbon(sideFace, sx(cx), cy);
 
     if (accessory === "flower") {
       if (accessorySide === "center") {
@@ -5592,14 +5589,8 @@ function composeHair(
         }
       }
     } else if (accessory === "bow" || accessory === "ribbon") {
-      if (accessorySide === "center") {
-        drawRibbon(over.front, 3, 2);
-        putColor(over.top, 3, 6, ribbon);
-      } else {
-        drawFrontRibbon(1, 2);
-        drawSideRibbon(6, 2);
-        putTopAccessory(1, 6, ribbon);
-      }
+      const pigments = { ribbon, knot: ribbonDark, light: shadeRgb(ribbon, 1.06), shade: shadeRgb(ribbon, 0.92) };
+      for (const p of hairRibbonFootprint(accessorySide, accessoryScale)) putColor(over[p.face], p.x, p.y, pigments[p.pigment]);
     } else if (accessory === "clip") {
       const clipPoints =
         accessorySide === "center"
@@ -6452,8 +6443,6 @@ function composeHat(atlas: RawImage, hatColor: Rgb, style: FaceStyle): void {
       }
     }
   };
-  const dark = 0.8;
-
   if (style.hat === "headscarf") {
     const base = CLASSIC_LAYOUT.head.base;
     const patternColor = hexToRgb(
@@ -6662,19 +6651,14 @@ function composeHat(atlas: RawImage, hatColor: Rgb, style: FaceStyle): void {
     return;
   }
 
-  fill(over.top, 0, 8);
-  if (style.hat === "cap") {
-    fill(over.front, 0, 2);
-    fill(over.front, 2, 1, dark); // 챙
-    fill(over.right, 0, 2);
-    fill(over.left, 0, 2);
-    fill(over.back, 0, 2);
-  } else if (style.hat === "beanie") {
-    for (const rect of [over.front, over.right, over.left, over.back]) {
-      fill(rect, 0, 2);
-      fill(rect, 2, 1, dark); // 접힌 밑단
+  const footprint = headwearFootprint(style.hat);
+  if (footprint.length) {
+    for (const { face, x, y, shade } of footprint) {
+      const rect = over[face];
+      put(rect, x, y, shadeRgb(hairPixel(hatColor, rect.x + x, rect.y + y, 0.04), shade));
     }
   } else {
+    fill(over.top, 0, 8);
     // hood: 이마 + 옆/뒤 전체
     fill(over.front, 0, 2);
     fill(over.right, 0, 8);
@@ -9604,7 +9588,11 @@ export function packFrontViewToAtlas(
   resetPortraitFaceOverlay(atlas);
   options.headTrace?.("before_head_composition", atlas);
   composeGlassesOverlay(atlas, faceStyle);
-  composeHair(atlas, hairColor, skinColor, faceStyle);
+  // Only the explicitly observed scalp material changes. Facial hair, brows
+  // and face-plan colors continue to use the unmodified provider hair color.
+  const scalpHairColor = options.hairPlan?.surfaceOnly && options.hairPlan.surfaceMaterial === "scalp_shadow"
+    ? mixRgb(skinColor, hairColor, 0.35) : hairColor;
+  composeHair(atlas, scalpHairColor, skinColor, faceStyle);
   applyHeadMaskPlan(atlas, options.hairPlan, hairColor, hatColor, faceStyle, options.facePixelPlan);
   if (options.headIdentityPlan) {
     applyHeadIdentityPlan(atlas, options.headIdentityPlan, options.hairPlan, hairColor, skinColor, faceStyle, false);

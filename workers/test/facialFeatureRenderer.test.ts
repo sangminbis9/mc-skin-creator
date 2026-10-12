@@ -71,6 +71,30 @@ describe("facial feature renderer readability", () => {
     expect(eyePixels.filter((pixel) => pixel.cluster === "right_eye")).toHaveLength(1);
   });
 
+  it.each(SKINS)("retains explicit sclera as complexion-linked off-white on $name skin", ({ rgb, hex }) => {
+    const quantized = buildIdentityPixelPlans(analysisWithGeometry()).facePixelPlan;
+    const plan: FacePixelPlan = { ...quantized, pixels: [
+      { x: 1, y: 4, role: "sclera", cluster: "left_eye" },
+      { x: 2, y: 4, role: "iris", cluster: "left_eye" },
+      { x: 5, y: 4, role: "iris", cluster: "right_eye" },
+      { x: 6, y: 4, role: "sclera", cluster: "right_eye" },
+    ] };
+    const before = structuredClone(plan), input = solidAtlas(rgb);
+    // Different neighboring pixels must not give the two sclera different hues.
+    const face = CLASSIC_LAYOUT.head.base.front;
+    input.rgba.set([15, 12, 10, 255], ((face.y + 3) * 64 + face.x + 1) * 4);
+    const rendered = createFacePlanAtlasCandidate(input, plan, style(hex));
+    const expected = rgb.map((v, i) => Math.round(v * .28 + [236, 232, 218][i] * .72));
+    for (const pixel of plan.pixels.filter(p => p.role === "sclera")) {
+      expect(rgbAtPlan(rendered, pixel)).toEqual(expected);
+      expect(Math.min(...rgbAtPlan(rendered, pixel))).toBeGreaterThan(160);
+    }
+    expect(plan).toEqual(before);
+    expect(createFacePlanAtlasCandidate(input, plan, style(hex)).rgba).toEqual(rendered.rgba);
+    const preview = extractRenderedHeadView(renderSkinViews(rendered).find(v => v.name === "front")!, 32);
+    expect(measurePreviewFeatureReadability(preview, rendered, plan).eyesRetained).toBe(1);
+  });
+
   it("uses a mirrored dark/mid grammar for multi-cell eyes", () => {
     const source = makeIdentityGeometry();
     const quantized = buildIdentityPixelPlans(analysisWithGeometry({

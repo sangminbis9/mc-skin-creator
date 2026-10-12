@@ -160,8 +160,15 @@ function sampleFace(
   let v = clampUnit((maxY - y) / (maxY - minY));
   if (face === "front") u = clampUnit((x - minX) / (maxX - minX));
   else if (face === "back") u = clampUnit((maxX - x) / (maxX - minX));
-  else if (face === "right") u = clampUnit((maxZ - z) / (maxZ - minZ));
-  else if (face === "left") u = clampUnit((z - minZ) / (maxZ - minZ));
+  // Match SkinModel's BoxGeometry UVs and getBoxUvSeams: right x=w-1
+  // and left x=0 touch the front (+z). Reversing these swaps fringe/nape.
+  else if (face === "right") u = clampUnit((z - minZ) / (maxZ - minZ));
+  else if (face === "left") u = clampUnit((maxZ - z) / (maxZ - minZ));
+  else if (face === "bottom") {
+    // The app's BoxGeometry bottom UV is mirrored in X and faces downward.
+    u = clampUnit((maxX - x) / (maxX - minX));
+    v = clampUnit((maxZ - z) / (maxZ - minZ));
+  }
   else {
     u = clampUnit((x - minX) / (maxX - minX));
     v = clampUnit((z - minZ) / (maxZ - minZ));

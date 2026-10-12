@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { freshAuditOutput } from "./freshAuditOutput";
+import { renderSkinViews, scaleNearestNeighbor } from "../src/skinRender";
 import { generateSkin } from "../src/generate";
 import { namedGemmaFixture, wireFixture } from "./compactV3Support";
 import type { PhotoAnalysis } from "../src/analysis";
@@ -175,6 +179,7 @@ describe("hair accessory recovery", () => {
     const petal = ((front.y + 2) * ATLAS_SIZE + front.x) * 4;
 
     expect(result.status).toBe(200);
+    expect(result.body.generationMode).toBe("image");
     expect(decoded.rgba[petal + 2]).toBeGreaterThan(decoded.rgba[petal]);
     expect(decoded.rgba[petal + 3]).toBe(255);
   });
@@ -216,6 +221,7 @@ describe("hair accessory recovery", () => {
     const leaf = (front.y * ATLAS_SIZE + front.x + 2) * 4;
 
     expect(result.status).toBe(200);
+    expect(result.body.generationMode).toBe("image");
     expect(result.body.analysis?.renderHints).toMatchObject({
       hairAccessoryScale: "large",
     });
@@ -413,12 +419,38 @@ describe("hair accessory recovery", () => {
     // readable inner wings while the continuous locks remain on the base.
     const bowWing = offset(body.overlay.front, 2, 2);
     const bowTail = offset(body.overlay.front, 3, 6);
-    const cardiganFabric = offset(body.base.front, 3, 7);
+    // The observed white blouse owns the open centre, not the cardigan. Check
+    // both materials at their actual regions so an all-white/all-pink torso
+    // cannot pass by replacing one outdated sample coordinate with another.
+    const blouseFabric = offset(body.base.front, 3, 7);
+    const outfitPlan = result.body.analysis!.skinPlan!.outfitPlan;
+    const auditRoot = freshAuditOutput("evaluation-artifacts/cardigan-material-boundary-offline-20261010-");
+    writeFileSync(`${auditRoot}/atlas.png`, await encodePng(decoded), { flag: "wx" });
+    for (const view of renderSkinViews(decoded)) writeFileSync(`${auditRoot}/${view.name}.png`,
+      await encodePng(scaleNearestNeighbor(view.image, view.image.width * 8, view.image.height * 8)), { flag: "wx" });
+    writeFileSync(`${auditRoot}/summary.json`, JSON.stringify({ scope: "synthetic_offline_regression",
+      externalCalls: 0, generationMode: result.body.generationMode,
+      observedClothing: result.body.analysis?.observed.clothing,
+      upperMaterial: { baseColor: outfitPlan.upper.baseColor, accentColor: outfitPlan.upper.accentColor,
+        colorBlocks: outfitPlan.upper.colorBlocks, sleeves: [outfitPlan.upper.leftSleeve.color, outfitPlan.upper.rightSleeve.color] },
+      classification: "STALE_TEST_SAMPLE_INSIDE_OBSERVED_INNER_BLOUSE",
+      torsoBaseRow7: Array.from({ length: 8 }, (_, x) => [...decoded.rgba.slice(offset(body.base.front, x, 7), offset(body.base.front, x, 7) + 4)]),
+      rgbaSha256: createHash("sha256").update(decoded.rgba).digest("hex"),
+    }, null, 2), { flag: "wx" });
     expect(decoded.rgba[bowWing + 3]).toBe(255);
     expect(decoded.rgba[bowTail + 3]).toBe(255);
-    expect(decoded.rgba[cardiganFabric]).toBeGreaterThan(
-      decoded.rgba[cardiganFabric + 1] + 20,
-    );
+    expect(outfitPlan.upper.baseColor).toBe("#c8798c");
+    expect(outfitPlan.upper.colorBlocks).toContainEqual(expect.objectContaining({
+      id: "inner_panel", region: "front_center", color: "#eeeae1", source: "observed",
+    }));
+    const blouseRgb = [...decoded.rgba.slice(blouseFabric, blouseFabric + 3)];
+    expect(Math.min(...blouseRgb)).toBeGreaterThan(210);
+    expect(Math.max(...blouseRgb) - Math.min(...blouseRgb)).toBeLessThan(20);
+    for (const arm of [CLASSIC_LAYOUT.leftArm, CLASSIC_LAYOUT.rightArm]) {
+      const fabric = offset(arm.base.front, 1, 7);
+      expect(decoded.rgba[fabric]).toBeGreaterThan(decoded.rgba[fabric + 1] + 20);
+      expect(decoded.rgba[fabric + 2]).toBeGreaterThan(decoded.rgba[fabric + 1]);
+    }
 
     const plaidDark = offset(body.overlay.front, 2, body.overlay.front.h - 4);
     const plaidLight = offset(body.overlay.front, 0, body.overlay.front.h - 4);

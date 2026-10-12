@@ -12,8 +12,10 @@ import { validateAtlasCraft } from "../src/skinPost";
 import { analysisFromAnnotation, type AnnotatedCase } from "./generalizationSupport";
 import { wireFixture } from "./compactV3Support";
 import { strictBoundaryAnalysisFromAnnotation } from "./strictBoundaryFixtureSupport";
+import { freshAuditOutput } from "./freshAuditOutput";
+import { HISTORICAL_COMPACT_V2_FROZEN_SHA256, readHistoricalCompactV2Frozen } from "./historicalCompactV2Evidence";
 
-const ROOT = process.env.COMPACT_MANUAL_COVERAGE_OUTPUT_ROOT ?? "evaluation-artifacts/compact-manual-fixture-coverage-20260910";
+const ROOT = freshAuditOutput("evaluation-artifacts/compact-manual-coverage-", process.env.COMPACT_MANUAL_COVERAGE_OUTPUT_ROOT);
 const context = { imageCount: 1 };
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
@@ -40,7 +42,16 @@ describe("source-supported manual fixture strict-boundary coverage", () => {
   it("recovers only atomized evidence already present in frozen annotations", async () => {
     const annotationText = await readFile("evaluation-artifacts/generalization-20260905/annotations.json", "utf8");
     const annotations = JSON.parse(annotationText) as AnnotatedCase[];
-    const frozen = JSON.parse(await readFile("evaluation-artifacts/compact-primary-v2-20260909/frozen-regression.json", "utf8"));
+    const historicalBytes = await readFile("evaluation-artifacts/compact-primary-v2-20260909/frozen-regression.json");
+    const historicalSha256 = createHash("sha256").update(historicalBytes).digest("hex");
+    const historicalComparisonAvailable = historicalSha256 === HISTORICAL_COMPACT_V2_FROZEN_SHA256;
+    // Current source-supported strict coverage does not require a historical
+    // atlas baseline. Never use mismatched bytes as that baseline, regenerate
+    // them, or report an unavailable comparison as zero historical drift.
+    const frozen = historicalComparisonAvailable ? JSON.parse(await readHistoricalCompactV2Frozen()) : null;
+    if (!historicalComparisonAvailable) {
+      await expect(readHistoricalCompactV2Frozen()).rejects.toThrow("historical_compact_v2_integrity_unverified");
+    }
     const results = [];
 
     for (const fixture of annotations) {
@@ -94,9 +105,10 @@ describe("source-supported manual fixture strict-boundary coverage", () => {
       }
       expect(afterV3.craft.ok, fixture.id).toBe(true);
 
-      const prior = frozen.results.find((entry: { id: string }) => entry.id === fixture.id);
-      const historicalPlanDiff = hash(before.plan) === prior.planHash ? 0 : 1;
-      const historicalAtlasDiff = hash(before.atlas.rgba) === prior.atlasHash ? 0 : 1;
+      const prior = frozen?.results.find((entry: { id: string }) => entry.id === fixture.id);
+      if (historicalComparisonAvailable) expect(prior, fixture.id).toBeTruthy();
+      const historicalPlanDiff = prior ? (hash(before.plan) === prior.planHash ? 0 : 1) : null;
+      const historicalAtlasDiff = prior ? (hash(before.atlas.rgba) === prior.atlasHash ? 0 : 1) : null;
       // New explicit topology metadata changes the plan hash even when the
       // executable atlas is byte-identical. Only rendered atlas changes need
       // to be justified by an active source-measured/sweep path here.
@@ -157,13 +169,20 @@ describe("source-supported manual fixture strict-boundary coverage", () => {
     expect(gaps.filter((result) => result.corePlanDiff)).toHaveLength(0);
     expect(gaps.filter((result) => result.atlasDiff)).toHaveLength(0);
     expect(gaps.filter((result) => result.calibrated && result.atlasDiff)).toHaveLength(0);
+    expect(await readFile("evaluation-artifacts/compact-primary-v2-20260909/frozen-regression.json")).toEqual(historicalBytes);
 
     await mkdir(ROOT, { recursive: true });
     await writeFile(`${ROOT}/coverage.json`, JSON.stringify({
       annotationHash: createHash("sha256").update(annotationText).digest("hex"),
+      scope: "current_source_supported_strict_boundary",
+      historicalComparisonAvailable,
+      historicalComparisonStatus: historicalComparisonAvailable ? "verified" : "integrity_unverified_not_used",
+      historicalExpectedSha256: HISTORICAL_COMPACT_V2_FROZEN_SHA256,
+      historicalActualSha256: historicalSha256,
+      replacesHistoricalEvidence: false,
       historicalAnnotationsModified: false,
       productionChanged: false,
-      compactV3Active: false,
+      productionActivation: "not_changed_by_this_test",
       providerCalls: 0,
       beforeStrictAccepted: results.filter((result) => result.baselineAccepted).length,
       afterStrictAccepted: results.filter((result) => result.v2Strict && result.v3Strict).length,

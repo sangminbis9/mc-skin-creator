@@ -36,6 +36,9 @@ describe.skipIf(!RUN)("frozen real-source downstream generalization (no AI analy
   it("replays the same twelve annotated people on the production deterministic path", async () => {
     const phase = process.env.GENERALIZATION_PHASE;
     expect(["before", "after"]).toContain(phase);
+    if (phase === "after" && ROOT === INPUT_ROOT) {
+      throw new Error("A fresh GENERALIZATION_OUTPUT_ROOT is required for current-code replay");
+    }
     if (phase === "before") {
       // Refuse before ANY baseline artifact write, not only at final manifest save.
       const alreadyFrozen = await readFile(join(ROOT, "frozen-manifest.json")).then(() => true, (error: NodeJS.ErrnoException) => {
@@ -45,6 +48,8 @@ describe.skipIf(!RUN)("frozen real-source downstream generalization (no AI analy
       if (alreadyFrozen) throw new Error("Baseline is frozen; only after/comparison may be rerun");
     }
     const annotationBytes = await readFile(join(INPUT_ROOT, "annotations.json"));
+    // A fresh output root is mandatory: never overwrite frozen or partial runs.
+    if (ROOT !== INPUT_ROOT) await mkdir(ROOT);
     const allCases: AnnotatedCase[] = JSON.parse(annotationBytes.toString());
     validateManifest(allCases);
     const selectedCaseIds = new Set((process.env.GENERALIZATION_CASES ?? "").split(",").filter(Boolean));
@@ -121,8 +126,8 @@ describe.skipIf(!RUN)("frozen real-source downstream generalization (no AI analy
         expect(candidates).toBeLessThanOrEqual(3);
         const bodyTimes = [];
         for (let n = 0; n < 4; n++) { const scratch = { ...atlas, rgba: atlas.rgba.slice() }; const start = performance.now(); applyOutfitPlan(scratch, plan.outfitPlan, String(features.skinTone)); if (n) bodyTimes.push(performance.now() - start); }
-        const beforePath = join(ROOT, "before", c.id, "atlas.png");
-        const beforeHadNoAtlas = phase === "after" && JSON.parse(await readFile(join(ROOT, "before", c.id, "metrics.json"), "utf8")).noAtlas === true;
+        const beforePath = join(INPUT_ROOT, "before", c.id, "atlas.png");
+        const beforeHadNoAtlas = phase === "after" && JSON.parse(await readFile(join(INPUT_ROOT, "before", c.id, "metrics.json"), "utf8")).noAtlas === true;
         // Only a recorded planner failure permits a blank diagnostic. I/O errors
         // or missing expected atlases must fail instead of silently fabricating a diff.
         const before = phase === "after" ? beforeHadNoAtlas ? canvas(64, 64) : await decodePng(new Uint8Array(await readFile(beforePath))) : atlas;
@@ -159,9 +164,21 @@ describe.skipIf(!RUN)("frozen real-source downstream generalization (no AI analy
         await writeFile(join(path, "analysis-and-plan.json"), JSON.stringify({ analysisOrigin: entry.analysisOrigin, sourceAnnotation: c, analysis, normalized, features, style, plan }, null, 2));
       }
       const frozen = { annotationFileHash: hash(annotationBytes), sources: manifest };
+      let adapterAnalysisChanges: Array<{ caseId: string; frozenHash: string; currentHash: string }> = [];
       if (phase === "before") await writeFile(join(ROOT, "frozen-manifest.json"), JSON.stringify(frozen, null, 2), { flag: "wx" });
-      else expect(JSON.parse(await readFile(join(ROOT, "frozen-manifest.json"), "utf8"))).toEqual(frozen);
-      const summary = { phase, cases: results, convergence: Object.fromEntries((["head", "body", "whole"] as const).map(key => [key, convergence(results.filter(r => r.signatures[key] !== "unavailable").map(r => r.signatures[key]))])), failures: results.flatMap(r => r.failures.map(f => ({ caseId: r.caseId, ...f }))), manualVisualAudit: "required separately; automatic counts are a limited checked-cue subset; missing atlases excluded from convergence", fetchedDuringReplay: fetchSpy.mock.calls.length };
+      else {
+        const stored = JSON.parse(await readFile(join(INPUT_ROOT, "frozen-manifest.json"), "utf8")) as typeof frozen;
+        // Source/annotation identity stays frozen; the adapter analysis is the
+        // subject of this current-code replay, so record its change explicitly.
+        const withoutAdapterHash = (value: typeof frozen) => ({ annotationFileHash: value.annotationFileHash,
+          sources: value.sources.map(source => Object.fromEntries(Object.entries(source)
+            .filter(([key]) => key !== "adapterAnalysisHash"))) });
+        expect(withoutAdapterHash(JSON.parse(JSON.stringify(frozen)) as typeof frozen)).toEqual(withoutAdapterHash(stored));
+        adapterAnalysisChanges = manifest.flatMap((source, index) => stored.sources[index].adapterAnalysisHash === source.adapterAnalysisHash
+          ? [] : [{ caseId: source.caseId, frozenHash: stored.sources[index].adapterAnalysisHash,
+            currentHash: source.adapterAnalysisHash }]);
+      }
+      const summary = { phase, cases: results, adapterAnalysisChanges, convergence: Object.fromEntries((["head", "body", "whole"] as const).map(key => [key, convergence(results.filter(r => r.signatures[key] !== "unavailable").map(r => r.signatures[key]))])), failures: results.flatMap(r => r.failures.map(f => ({ caseId: r.caseId, ...f }))), manualVisualAudit: "required separately; automatic counts are a limited checked-cue subset; missing atlases excluded from convergence", fetchedDuringReplay: fetchSpy.mock.calls.length };
       await writeFile(join(ROOT, phase!, "summary.json"), JSON.stringify(summary, null, 2));
       await png(join(ROOT, phase!, "full-body-contact-sheet.png"), fullSheet);
       await png(join(ROOT, phase!, "head-contact-sheet.png"), headSheet);

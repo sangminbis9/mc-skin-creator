@@ -15,6 +15,8 @@ import {
 import { DEFAULT_FACE_STYLE, packFrontViewToAtlas, type FaceStyle } from "../src/skinPack";
 import { CLASSIC_LAYOUT } from "../src/uvLayout";
 import { makeAnalysis, makeFrontView } from "./helpers";
+import { applyOutfitPlan } from "../src/outfitRenderer";
+import type { RawImage } from "../src/png";
 
 interface Variant {
   id: string;
@@ -96,6 +98,67 @@ function pixel(atlas: ReturnType<typeof render>["atlas"], rect: { x: number; y: 
 }
 
 describe("OutfitPlan render contract", () => {
+  it.each(["socks", "stockings", "thigh_highs", "leg_warmers"] as const)("keeps %s depth inside the actual legwear material, not over the skirt or shoes", kind => {
+    const plan = buildOutfitPlan(analysisFor(VARIANTS[5]));
+    plan.lower.garmentRows = 3; plan.lower.shoeRows = 3;
+    plan.lower.legwear = { ...plan.lower.legwear, kind, asymmetry: "both", color: "#eeeae1", pattern: undefined };
+    plan.accessories = []; plan.outerLayer.regions = ["legwear"];
+    const atlas: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
+    applyOutfitPlan(atlas, plan, "#d39e80");
+    const end = 12 - plan.lower.shoeRows;
+    const start = kind === "socks" ? Math.max(3, end - 3) : kind === "leg_warmers" ? Math.max(3, end - 5) : 3;
+    for (const part of ["rightLeg", "leftLeg"] as const) for (const face of ["front", "right", "left", "back"] as const) {
+      const rect = CLASSIC_LAYOUT[part].overlay[face];
+      for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) {
+        if (y < start || y >= end) expect(pixel(atlas, rect, x, y)[3], `${part}:${face}:${x}:${y}`).toBe(0);
+      }
+    }
+  });
+
+  it("uses a connected plain sock rib instead of alternating checker-like edge blocks", () => {
+    const plan = buildOutfitPlan(analysisFor(VARIANTS[5]));
+    plan.lower.garmentRows = 3; plan.lower.shoeRows = 3;
+    plan.lower.legwear = { ...plan.lower.legwear, kind: "thigh_highs", asymmetry: "left", color: "#eeeae1", pattern: undefined };
+    plan.accessories = []; plan.outerLayer.regions = ["legwear"];
+    const atlas: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
+    applyOutfitPlan(atlas, plan, "#d39e80");
+    const front = CLASSIC_LAYOUT.rightLeg.overlay.front;
+    const occupied = (y: number) => Array.from({ length: front.w }, (_, x) => x).filter(x => pixel(atlas, front, x, y)[3]);
+    for (let y = 4; y < 9; y++) expect(occupied(y)).toEqual([1]);
+    for (const face of ["front", "right", "left", "back"] as const) {
+      const rect = CLASSIC_LAYOUT.leftLeg.overlay[face];
+      for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) expect(pixel(atlas, rect, x, y)[3]).toBe(0);
+    }
+  });
+  it.each([
+    ["none", 3], ["stockings", 12], ["thigh_highs", 9],
+  ] as const)("does not fabricate %s accents when garment rows %s leave no eligible legwear surface", (kind, rows) => {
+    const plan = buildOutfitPlan(analysisFor(VARIANTS[5]));
+    plan.lower.garmentRows = rows; plan.lower.shoeRows = 3;
+    plan.lower.legwear = { ...plan.lower.legwear, kind, asymmetry: "both", pattern: undefined };
+    plan.accessories = []; plan.outerLayer.regions = ["legwear"];
+    const atlas: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
+    applyOutfitPlan(atlas, plan, "#d39e80");
+    for (const part of ["rightLeg", "leftLeg"] as const) for (const rect of Object.values(CLASSIC_LAYOUT[part].overlay))
+      for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) expect(pixel(atlas, rect, x, y)[3]).toBe(0);
+  });
+
+  it("retains an explicitly observed diagonal legwear pattern on base, inside the same material bounds", () => {
+    const plan = buildOutfitPlan(analysisFor(VARIANTS[5]));
+    plan.lower.garmentRows = 3; plan.lower.shoeRows = 3;
+    plan.lower.legwear = { ...plan.lower.legwear, kind: "stockings", asymmetry: "both", color: "#242326", pattern: "diagonal_stripe" };
+    plan.accessories = []; plan.outerLayer.regions = ["legwear"];
+    const atlas: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
+    applyOutfitPlan(atlas, plan, "#d39e80");
+    const before = atlas.rgba.slice();
+    for (const part of ["rightLeg", "leftLeg"] as const) for (const face of ["front", "right", "left", "back"] as const) {
+      const rect = CLASSIC_LAYOUT[part].base[face];
+      expect(new Set(Array.from({ length: rect.w }, (_, x) => pixel(atlas, rect, x, 5).join(":"))).size).toBeGreaterThan(1);
+      const outer = CLASSIC_LAYOUT[part].overlay[face];
+      for (let y = 0; y < outer.h; y++) for (let x = 0; x < outer.w; x++) if (y < 3 || y >= 9) expect(pixel(atlas, outer, x, y)[3]).toBe(0);
+    }
+    applyOutfitPlan(atlas, plan, "#d39e80"); expect(atlas.rgba).toEqual(before);
+  });
   it("builds eight source-specific plans and atlas signatures without generic convergence", () => {
     const rendered = VARIANTS.map((variant) => render(variant));
     expect(new Set(rendered.map(({ plan }) => outfitPlanSignature(plan))).size).toBe(VARIANTS.length);

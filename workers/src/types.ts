@@ -2,7 +2,9 @@
  * Generated bindings are the production source of truth. Optional overrides
  * keep unit tests able to exercise disabled flags and legacy provider seams.
  */
-interface EnvOverrides {
+import type { GenerationObservationContext } from "./generationObservation";
+
+interface EnvOverrides extends GenerationObservationContext {
   /** Configure as a Wrangler secret, never as a public Vite variable. */
   GEMINI_API_KEY?: string;
   /** Production AI Gateway binding; tests may also use it as a legacy provider seam. */

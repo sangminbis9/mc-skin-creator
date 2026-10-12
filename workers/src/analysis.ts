@@ -14,6 +14,7 @@ import {
   visionNeuronsFromUsage,
 } from "./quota";
 import {
+  GEMMA_PRIMARY_TIMEOUT_MS,
   geminiProviderErrorDiagnostic,
   generateGeminiStructuredJson,
   isGeminiQuotaError,
@@ -24,6 +25,7 @@ import type { Env } from "./types";
 import type { IdentityGeometryAnalysis, NormalizedBox } from "./identityGeometry";
 import { FACE_MEASUREMENT_EVIDENCE_SCHEMA, parseFaceMeasurementEvidence, type FaceMeasurementEvidence } from "./faceMeasurementEvidence";
 import { observedFacialHairCategory } from "./facialHairEvidence";
+import { observedGenericHatCategory } from "./observedHeadwear";
 
 const DEFAULT_VISION_MODEL = "gemini-3.8-flash";
 const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
@@ -275,6 +277,7 @@ STEP 2 — reference ownership and framing:
 STEP 3 — observed: describe ONLY what is actually visible in at least one compatible reference. Fuse the clearest evidence per region instead of privileging upload order. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logo identities. Never return the bare word "logo": describe a visible small mark neutrally as a graphic, badge or marking and include its visible colors, approximate shape and viewer-relative chest location when readable.
 - observed.face MUST explicitly state the visible skin-tone impression (pale/fair, light, medium, tan, brown or dark, plus warm/cool/neutral undertone when readable). Include that skin colour in observed.colorPalette. Do not omit it merely because the lighting is soft or the face occupies a small part of the frame.
 - For observed.hair, explicitly describe root/scalp part visibility, fringe density and gaps, left and right temple contours, whether either ear is exposed or framed, side-hair taper/flare, the visible transition toward the nape, and the lowest substantial hair endpoint relative to the shoulders, chest/bust, natural waist or belt, and hips. Correct for head tilt and slanted shoulders: compare the locks with local physical landmarks on the same side of the person instead of raw screen height. Do not summarize all short hair as a bowl cut or all side hair as merely "short".
+- For observed.hair, inspect loose versus tied sections independently from straight/wavy/curly texture. Describe visible braiding or interwoven strands, the number and viewer-relative placement of visible braids or ponytails, and where those sections end or drape relative to the shoulders and chest. Preserve clearly observed structural cues in canonicalIdentity.features with category hair and confidence supported by the image. Do not infer a braid from waves, a ribbon, or two loose face-framing locks; do not invent a hidden matching section or raise confidence to fit a hairstyle.
 - For every visible white or contrasting fabric at the throat, describe its construction separately from the shirt: ordinary collar flaps, a central knot, paired loops, and any broad hanging tails. Do not call the whole shape a "collar" merely because a collared shirt is underneath. A central knot with two long pointed fabric tails is a neck bow or scarf even when its loops are folded flat or partly hidden.
 - If lower body or feet are visible, observed.clothing MUST explicitly name the lower garment type (skirt/shorts/pants/jeans; describe skorts, pleated shorts or skirt-like culottes as skirt-like for low-resolution rendering), pattern or construction (plaid/checkered/pleated/lace/striped/plain), visible legwear (socks/stockings/leg warmers/thigh-highs/knee-high or over-knee socks), legwear asymmetry from the viewer's perspective, and shoe type/color.
 - Preserve side-specific details using viewer-left/viewer-right wording for one-sided flowers, bows, leg warmers, thigh bows, side stripes, straps or shoe details.
@@ -318,6 +321,7 @@ STEP 6 — renderHints for a very low-resolution 8x8 face and layered Minecraft 
 - bangsDensity describes how continuous the visible fringe is: sparse for separated wisps with substantial forehead gaps, balanced for clustered locks with several gaps, or dense for a bowl/blunt fringe with only a small staggered break. Do not infer a center part merely from a tiny separation between bang tips; hairPart requires a visible scalp/root direction.
 - fringeEdge describes only the lower outline of the fringe: blunt for a mostly level baseline, staggered for distinct locks ending at alternating heights, or wispy for thin separated tips. Even dense blunt bangs must retain the visible natural break instead of becoming a solid rectangular bar.
 - fringeOpening records the largest visible forehead gap between front-hair clusters from the viewer's perspective: left, center, right, or none. This is independent from hairPart: a bang-tip opening can exist without visible scalp/root parting. Prefer the actual dominant gap instead of forcing symmetry.
+- Before assigning hairPart and fringeOpening, inspect root/scalp direction and exposed forehead skin separately; do not copy the bangs type, length or density into either decision. Straight, dense or brow-length front locks can still separate around a visible forehead opening. Record the visible root direction in hairPart and the dominant skin gap in fringeOpening independently, describing the supporting observations in observed.hair; a bang-tip gap, highlight or shadow alone does not prove a root part, and hidden evidence must not be invented.
 - hairSilhouette means the visible outer outline of the hair: rounded/dome-like, flat/sleek, swept/asymmetric, tousled/soft irregular, or spiky/sharp tufts.
 - Classify hairSilhouette from the crown and temple OUTER CONTOUR, not from separated bang tips or individual highlight strands. Do not choose spiky merely because a straight fringe has jagged ends; spiky requires multiple clearly outward-pointing crown or temple tufts. A smooth dome over staggered bangs is rounded.
 - hairVolume is independent from silhouette and length: flat means sleek/low-volume hair lying close to the head, normal means ordinary lift, and full means visibly thick, voluminous or expanded away from the scalp. Long hair is not automatically full, and a rounded anatomical crown can still have flat volume.
@@ -2173,9 +2177,9 @@ export function validatePhotoAnalysis(
         ? "cap"
         : /\bbeanie\b/.test(fallbackEvidence)
           ? "beanie"
-          : /\bhood\b/.test(fallbackEvidence)
+          : observedGenericHatCategory(observed.accessories) ?? (/\bhood\b/.test(fallbackEvidence)
             ? "hood"
-            : "none",
+            : "none"),
     ),
     hatColor: fallbackColor(
       fallbackSource.hatColor,
@@ -3093,6 +3097,7 @@ export async function runPhotoAnalysis(
       workersAiPrompt: `${v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT : gemma.GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT}${referenceSuffix}`,
       maxOutputTokens: 8192,
       timeoutCapMs: 45_000,
+      workersAiTimeoutCapMs: structuredContract ? undefined : GEMMA_PRIMARY_TIMEOUT_MS,
       onProviderAttempt: (event) => {
         providerAttempts.push(event);
         if (event.outcome === "started") attempts++;
@@ -3120,9 +3125,9 @@ export async function runPhotoAnalysis(
       let core: unknown = captured.core;
       let coreErrors: string[] = [];
       if (gemmaCompleted) {
-        coreErrors = gemma.validateGemmaNamedPhotoAnalysis(core);
+        coreErrors = gemma.validateGemmaNamedPhotoAnalysis(core, "v4");
         if (!coreErrors.length) {
-          const adapted = gemma.adaptGemmaNamedPhotoAnalysis(core);
+          const adapted = gemma.adaptGemmaNamedPhotoAnalysis(core, "v4");
           if (adapted.ok) core = adapted.compact;
           else coreErrors = adapted.errors;
         }

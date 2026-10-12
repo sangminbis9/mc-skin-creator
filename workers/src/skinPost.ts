@@ -369,6 +369,11 @@ function measureCraftTexture(atlas: RawImage): Pick<
   let clusteredMass = 0;
   const localPalettes: number[] = [];
   const global = new Map<string, number>();
+  // Preserve left/right/up/down traversal without allocating coordinate pairs,
+  // filter/map results and callbacks for every opaque pixel in every candidate.
+  // These are per measurement, not cross-request state.
+  const neighborDx = [-1, 1, 0, 0] as const;
+  const neighborDy = [0, 0, -1, 1] as const;
   const colorDistance = (first: number, second: number) =>
     Math.abs(atlas.rgba[first] - atlas.rgba[second]) +
     Math.abs(atlas.rgba[first + 1] - atlas.rgba[second + 1]) +
@@ -387,19 +392,22 @@ function measureCraftTexture(atlas: RawImage): Pick<
         const key = perceptualKey(atlas.rgba[offset], atlas.rgba[offset + 1], atlas.rgba[offset + 2]);
         palette.add(key);
         global.set(key, (global.get(key) ?? 0) + 1);
-        const neighbors = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const;
-        const comparable = neighbors
-          .filter(([nx, ny]) => nx >= 0 && nx < rect.w && ny >= 0 && ny < rect.h)
-          .map(([nx, ny]) => ((rect.y + ny) * ATLAS_SIZE + rect.x + nx) * 4)
-          .filter((neighbor) => atlas.rgba[neighbor + 3] !== 0);
-        if (comparable.length >= 2 && comparable.every((neighbor) => colorDistance(offset, neighbor) > 72)) isolatedNoisePixels++;
-        for (const [nx, ny] of [[x + 1, y], [x, y + 1]] as const) {
-          if (nx >= rect.w || ny >= rect.h) continue;
+        let comparableCount = 0, allDistant = true;
+        for (let direction = 0; direction < 4; direction++) {
+          const nx = x + neighborDx[direction], ny = y + neighborDy[direction];
+          if (nx < 0 || nx >= rect.w || ny < 0 || ny >= rect.h) continue;
           const neighbor = ((rect.y + ny) * ATLAS_SIZE + rect.x + nx) * 4;
           if (atlas.rgba[neighbor + 3] === 0) continue;
-          neighborPairs++;
-          if (colorDistance(offset, neighbor) > 54) edgePairs++;
+          comparableCount++;
+          const distance = colorDistance(offset, neighbor);
+          if (!(distance > 72)) allDistant = false;
+          // Right/down count each undirected edge exactly once, as before.
+          if (direction === 1 || direction === 3) {
+            neighborPairs++;
+            if (distance > 54) edgePairs++;
+          }
         }
+        if (comparableCount >= 2 && allDistant) isolatedNoisePixels++;
       }
     }
     if (present.size > 0) localPalettes.push(palette.size);
@@ -416,7 +424,8 @@ function measureCraftTexture(atlas: RawImage): Pick<
         const x = current % rect.w;
         const y = Math.floor(current / rect.w);
         const currentOffset = ((rect.y + y) * ATLAS_SIZE + rect.x + x) * 4;
-        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+        for (let direction = 0; direction < 4; direction++) {
+          const nx = x + neighborDx[direction], ny = y + neighborDy[direction];
           const next = ny * rect.w + nx;
           if (nx < 0 || nx >= rect.w || ny < 0 || ny >= rect.h || !present.has(next) || visited.has(next)) continue;
           const nextOffset = ((rect.y + ny) * ATLAS_SIZE + rect.x + nx) * 4;
@@ -640,51 +649,16 @@ export function measureAtlasCraft(atlas: RawImage): AtlasCraftMetrics {
   };
 }
 
-/**
- * Craft quality gate. A normalized plan supplies the production richness
- * contract, so simple sources are not forced to populate unrelated UV faces
- * and rich sources must preserve their own planned groups. The legacy global
- * floors remain only for callers that validate an atlas without plan context.
- * Structural seam, shell, noise, layout and identity invariants apply to both.
+/** Shared metric predicates. Keep order and thresholds identical for legacy
+ * callers and authored selective constructions; identity checks remain separate.
  */
-export function validateAtlasCraft(
-  atlas: RawImage,
+function craftFoundationProblems(
+  metrics: AtlasCraftMetrics,
   style: AtlasCraftStyle,
-  facePixelPlan?: FacePixelPlan,
-  hairPlan?: HairPlan,
-  planContext?: AtlasCraftPlanContext,
-): AtlasValidation {
+  planAware: boolean,
+): string[] {
   const problems: string[] = [];
-  const metrics = measureAtlasCraft(atlas);
-  const planAware = Boolean(planContext?.headIdentityPlan || planContext?.outfitPlan);
-  const value = (candidate: string | undefined) => candidate ?? "none";
-  const has = (candidate: string | undefined) => value(candidate) !== "none";
   const headScarf = style.hat === "headscarf";
-  const longSideHair =
-    !headScarf &&
-    ["cheek", "jaw", "shoulder"].includes(value(style.sideHairLength));
-  const styledHair =
-    !headScarf && !["none", "bald", "buzz"].includes(value(style.hairstyle));
-  // FaceStyle always supplies these fields in the live pipeline. Keeping
-  // identity and cross-part hairstyle checks opt-in lets external reference
-  // atlases use the general craft metrics without assuming our landmarks.
-  const validateIdentity =
-    style.eyeSpacing !== undefined ||
-    style.eyeTilt !== undefined ||
-    style.mouthShape !== undefined;
-  const richStyle =
-    style.outerLayer === "heavy" ||
-    headScarf ||
-    styledHair ||
-    longSideHair ||
-    has(style.hairAccessory) ||
-    has(style.outerGarment) ||
-    has(style.neckAccessory) ||
-    has(style.legwear) ||
-    has(style.thighAccessory) ||
-    !["none", "plain"].includes(value(style.bottomPattern)) ||
-    has(style.bottomAccent) ||
-    !["none", "plain"].includes(value(style.garmentTexture));
 
   if (metrics.baseColorCount < 16)
     problems.push(`base palette too small (${metrics.baseColorCount})`);
@@ -753,6 +727,48 @@ export function validateAtlasCraft(
       problems.push(`${part} outer layer is over-covered (${metrics.overlayCoverageByPart[part].toFixed(3)})`);
     }
   }
+
+  return problems;
+}
+
+/** Shared planned-construction foundation, NOT a full craft verdict. Keeps
+ * every existing palette, shading, shell, seam and noise threshold unchanged.
+ * A caller must also validate its own executable identity/surface contract.
+ */
+export function validateAtlasCraftFoundation(
+  atlas: RawImage,
+  style: AtlasCraftStyle,
+): AtlasValidation & { metrics: AtlasCraftMetrics } {
+  const metrics = measureAtlasCraft(atlas);
+  const problems = craftFoundationProblems(metrics, style, true);
+  return { ok: problems.length === 0, problems, metrics };
+}
+
+/** Craft quality gate. A normalized plan supplies production richness, while
+ * legacy global outer floors apply only without plan context. Source-group,
+ * hairstyle and identity checks below remain unchanged for existing callers.
+ */
+export function validateAtlasCraft(
+  atlas: RawImage,
+  style: AtlasCraftStyle,
+  facePixelPlan?: FacePixelPlan,
+  hairPlan?: HairPlan,
+  planContext?: AtlasCraftPlanContext,
+): AtlasValidation {
+  const metrics = measureAtlasCraft(atlas);
+  const planAware = Boolean(planContext?.headIdentityPlan || planContext?.outfitPlan);
+  const problems = craftFoundationProblems(metrics, style, planAware);
+  const value = (candidate: string | undefined) => candidate ?? "none";
+  const has = (candidate: string | undefined) => value(candidate) !== "none";
+  const headScarf = style.hat === "headscarf";
+  const longSideHair = !headScarf && ["cheek", "jaw", "shoulder"].includes(value(style.sideHairLength));
+  const styledHair = !headScarf && !["none", "bald", "buzz"].includes(value(style.hairstyle));
+  // Same opt-in identity contract as the legacy renderer; no default change.
+  const validateIdentity = style.eyeSpacing !== undefined || style.eyeTilt !== undefined || style.mouthShape !== undefined;
+  const richStyle = style.outerLayer === "heavy" || headScarf || styledHair || longSideHair ||
+    has(style.hairAccessory) || has(style.outerGarment) || has(style.neckAccessory) || has(style.legwear) ||
+    has(style.thighAccessory) || !["none", "plain"].includes(value(style.bottomPattern)) ||
+    has(style.bottomAccent) || !["none", "plain"].includes(value(style.garmentTexture));
 
   if (!planAware && richStyle) {
     if (metrics.opaqueOverlayPixels < 120)

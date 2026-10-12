@@ -33,8 +33,10 @@ import {
 } from "../src/generate";
 import { makeAnalysis } from "./helpers";
 import { analysisFromAnnotation, type AnnotatedCase } from "./generalizationSupport";
+import { freshAuditOutput } from "./freshAuditOutput";
 
-const ROOT = process.env.COMPACT_V2_OUTPUT_ROOT ?? "evaluation-artifacts/compact-primary-v2-20260909";
+// Never overwrite the historical contract baseline during an ordinary test run.
+const ROOT = freshAuditOutput("evaluation-artifacts/compact-v2-offline-", process.env.COMPACT_V2_OUTPUT_ROOT);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const ajv = new Ajv({ allErrors: true });
 const schemaValidate = ajv.compile(COMPACT_PHOTO_ANALYSIS_V2_SCHEMA);

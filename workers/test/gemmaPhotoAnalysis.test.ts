@@ -34,6 +34,7 @@ type MetricSchema = {
   required?: readonly string[];
   enum?: readonly unknown[];
   items?: MetricSchema;
+  anyOf?: readonly MetricSchema[];
 };
 
 function metrics(schema: MetricSchema) {
@@ -52,6 +53,7 @@ function metrics(schema: MetricSchema) {
     }
     Object.values(node.properties ?? {}).forEach((child) => visit(child, depth + 1));
     if (node.items) visit(node.items, depth + 1);
+    node.anyOf?.forEach(branch => visit(branch, depth));
   }
   visit(schema, 1);
   return {
@@ -70,12 +72,11 @@ describe("Gemma named PhotoAnalysis provider DTO", () => {
 
   it("maps hair accessory semantics by field name", () => {
     const named = namedFixture(compact);
-    named.renderHints.hairAccessory = {
+    named.renderHints = { ...named.renderHints, hairAccessory: {
       hairAccessory: "flower",
       hairAccessoryScale: "medium",
       hairAccessorySide: "right",
-    };
-    named.renderHints.hairAccessoryColor = { hairAccessoryColor: "red" };
+    }, hairAccessoryColor: { hairAccessoryColor: "red" } };
     const adapted = adaptGemmaNamedPhotoAnalysis(named);
     expect(adapted.ok).toBe(true);
     if (!adapted.ok) return;
@@ -90,7 +91,8 @@ describe("Gemma named PhotoAnalysis provider DTO", () => {
         const fieldSchema = PHOTO_ANALYSIS_SCHEMA.properties.renderHints.properties[field];
         for (const token of fieldSchema.enum) {
           const candidate = namedFixture(compact);
-          candidate.renderHints[group as keyof GemmaNamedPhotoAnalysis["renderHints"]][field] = token;
+          const values: Record<string, string> = candidate.renderHints[group as keyof GemmaNamedPhotoAnalysis["renderHints"]];
+          values[field] = token;
           const adapted = adaptGemmaNamedPhotoAnalysis(candidate);
           expect(adapted.ok, `${group}.${field}:${token}`).toBe(true);
           if (!adapted.ok) continue;
@@ -121,10 +123,10 @@ describe("Gemma named PhotoAnalysis provider DTO", () => {
       "gemma.renderHints.hairAccessory.hairAccessorySide:enum",
     );
 
-    const missing = namedFixture(compact) as GemmaNamedPhotoAnalysis & {
-      renderHints: { hairAccessory: Partial<GemmaNamedPhotoAnalysis["renderHints"]["hairAccessory"]> };
-    };
-    delete missing.renderHints.hairAccessory.hairAccessorySide;
+    const complete = namedFixture(compact);
+    const { hairAccessorySide: _side, ...incompleteAccessory } = complete.renderHints.hairAccessory;
+    void _side;
+    const missing = { ...complete, renderHints: { ...complete.renderHints, hairAccessory: incompleteAccessory } };
     expect(validateGemmaNamedPhotoAnalysis(missing)).toContain(
       "gemma.renderHints.hairAccessory.hairAccessorySide:required",
     );
@@ -152,11 +154,11 @@ describe("Gemma named PhotoAnalysis provider DTO", () => {
     expect(GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT).toContain("GEMMA NAMED RENDERHINTS WIRE OVERRIDE");
     expect(GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT).toContain("hairAccessoryScale: small | medium | large");
     expect(metrics(GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA)).toEqual({
-      serializedBytes: 11430,
-      properties: 143,
-      required: 122,
-      enumDeclarations: 60,
-      enumValues: 273,
+      serializedBytes: 12116,
+      properties: 149,
+      required: 128,
+      enumDeclarations: 65,
+      enumValues: 293,
       maxDepth: 5,
     });
   });
