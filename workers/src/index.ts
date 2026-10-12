@@ -8,13 +8,13 @@
  */
 
 import { bumpMetric, getMetric, METRICS, type Metric } from "./analytics";
-import { generateSkin, MAX_IMAGE_CHARS } from "./generate";
+import { MAX_IMAGE_CHARS } from "./generate";
+import { generateFreeSkin, freeQuotaStatus } from "./engineService";
+import { SKIN_ENGINE_VERSION } from "./skinEngine";
+export { NeuronBudget } from "./NeuronBudget";
 import { withinDeadline } from "./deadline";
 import {
-  commitNeurons,
   dayKey,
-  getQuotaStatus,
-  markProviderQuotaExhausted,
 } from "./quota";
 import type { Env } from "./types";
 
@@ -27,7 +27,8 @@ const CORS_HEADERS: Record<string, string> = {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Pragma": "no-cache",
+      "X-Skin-Engine-Version": SKIN_ENGINE_VERSION, ...CORS_HEADERS },
   });
 }
 
@@ -42,7 +43,7 @@ export default {
 
     try {
       if (url.pathname === "/api/quota" && request.method === "GET") {
-        return json(await getQuotaStatus(env));
+        return json(await freeQuotaStatus(env));
       }
 
       if (url.pathname === "/api/stats" && request.method === "GET") {
@@ -60,7 +61,7 @@ export default {
         return json({ ok: true });
       }
 
-      if (url.pathname === "/api/generate" && request.method === "POST") {
+      if (["/api/generate", "/v1/skins"].includes(url.pathname) && request.method === "POST") {
         return await handleGenerate(request, env, requestId);
       }
     } catch (error) {
@@ -95,7 +96,7 @@ async function handleGenerate(
   // 1) quota 확인 — 소진이면 AI 호출 전에 차단
   // Fail closed if the required quota check is unavailable, but bound it.
   // Accounting AFTER a completed render is advisory and cannot discard it.
-  const quota = await withinDeadline(() => getQuotaStatus(env), 2000,
+  const quota = await withinDeadline(() => freeQuotaStatus(env), 2000,
     () => new Error("Quota check deadline"));
   if (quota.level === "closed") {
     await advisory(() => bumpMetric(env, "failures"));
@@ -130,13 +131,8 @@ async function handleGenerate(
   // 3) 분석 + 스킨 생성 (사진은 이 요청 스코프 안에서만 사용, 저장하지 않음)
   let result;
   try {
-    result = await generateSkin(
-      { ...env, SYNCHRONOUS_ENHANCEMENTS_ENABLED: "false" },
-      body.image,
-      undefined,
-      body.analysisImage,
-      body.referenceImages,
-    );
+    result = await generateFreeSkin(env, { image: body.image,
+      analysisImage: body.analysisImage, referenceImages: body.referenceImages });
   } catch (error) {
     await advisory(() => bumpMetric(env, "failures"));
     await persistFailureDiagnostic(env, {
@@ -153,28 +149,21 @@ async function handleGenerate(
       },
       500,
     );
+  } finally {
+    // Drop references when the request settles; JS string reclamation is
+    // controlled by the runtime. Uploaded images are never stored in bindings.
+    body.image = undefined; body.analysisImage = undefined; body.referenceImages = undefined;
   }
-
-  // 4) 실제 소비한 Neurons를 커밋 (실패한 호출의 비용도 실제로 발생하므로 기록)
+  // Budget was reserved BEFORE dispatch, including failed/unknown calls.
   await advisory(async () => {
-  await commitNeurons(env, result.neuronsSpent);
-  // Only close the whole app when the required analysis model is exhausted.
-  // Image generation and critique are optional enhancement stages; if either
-  // has no quota, the validated procedural fallback must remain available.
-  if (result.body.errorCode === "quota_exceeded") {
-    await markProviderQuotaExhausted(env);
-  }
-  await bumpMetric(env, result.success ? "successes" : "failures");
-  if (result.success && result.body.generationMode) {
-    await bumpMetric(
-      env,
-      result.body.generationMode === "image" ? "gen_image" : "gen_fallback",
-    );
-  }
+    await bumpMetric(env, result.success ? "successes" : "failures");
+    if (result.success && result.body.generationMode) {
+      await bumpMetric(env, result.body.generationMode === "image" ? "gen_image" : "gen_fallback");
+    }
   });
 
   return json(
-    { ...result.body, quota: await advisory(() => getQuotaStatus(env)) ?? quota, requestId },
+    { ...result.body, quota: await advisory(() => freeQuotaStatus(env)) ?? quota, requestId },
     result.status,
   );
 }
@@ -209,8 +198,12 @@ async function readGenerationBody(request: Request): Promise<unknown> {
       const bytes = new Uint8Array(size);
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-      return JSON.parse(new TextDecoder().decode(bytes));
-    } finally { void reader.cancel().catch(() => undefined); }
+      try { return JSON.parse(new TextDecoder().decode(bytes)); }
+      finally { bytes.fill(0); }
+    } finally {
+      for (const chunk of chunks) chunk.fill(0);
+      void reader.cancel().catch(() => undefined);
+    }
   }, 10_000, () => new Error("Upload deadline"), () => { void reader.cancel().catch(() => undefined); });
 }
 
@@ -221,7 +214,7 @@ async function persistFailureDiagnostic(
   await advisory(() => env.MCSKIN_KV.put(
     "diagnostic:last-generation-failure",
     JSON.stringify({ at: new Date().toISOString(), ...diagnostic }),
-    { expirationTtl: 60 * 60 * 48 },
+    { expirationTtl: 60 * 60 },
   ));
 }
 
@@ -248,6 +241,6 @@ async function getStats(env: Env) {
     shareClicks: byMetric.share_click,
     shareLinks: byMetric.share_link,
     downloads: byMetric.download,
-    quota: await getQuotaStatus(env),
+    quota: await freeQuotaStatus(env),
   };
 }

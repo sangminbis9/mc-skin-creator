@@ -327,6 +327,9 @@ export function workersAiStructuredInput(
         },
       ],
       max_completion_tokens: request.maxOutputTokens,
+      temperature: 0,
+      seed: 0,
+      store: false,
       chat_template_kwargs: { enable_thinking: false },
       response_format: {
         type: "json_schema",
@@ -471,6 +474,10 @@ async function runWorkersAiStructuredFallback(
     // the binding may finish independently and must not change the settled result.
     const result = await withinDeadline(
       () => { const input = workersAiStructuredInput(request, model); bindingDispatched = true;
+        if (env.AI_POLICY === "workers_free_only") {
+          if (!env.FREE_ANALYSIS_RUN) throw new Error("Reserved AI dispatch unavailable");
+          return env.FREE_ANALYSIS_RUN(input);
+        }
         return env.AI!.run(model as never, input as never); },
       configuredDeadlineMs,
       () => { deadlineTimerFired = true;
@@ -651,6 +658,12 @@ export async function generateGeminiStructuredJson(
   env: Env,
   request: GeminiStructuredRequest,
 ): Promise<unknown> {
+  if (env.AI_POLICY === "workers_free_only") {
+    // A configured Gemini credential or legacy fixture can never bypass the
+    // free-only transport. Model and reservation are enforced by the service.
+    if (env.WORKERS_VISION_MODEL !== "@cf/google/gemma-4-26b-a4b-it") throw new Error("Free model not allowed");
+    return runWorkersAiStructuredFallback(env, request, 1);
+  }
   // Preserve the original no-key test/local seam. Production has both the
   // encrypted Gemini key and an account-internal Workers AI fallback.
   if (!env.GEMINI_API_KEY && env.AI && request.legacyWorkersAiInput) {
@@ -787,6 +800,7 @@ export async function generateGeminiImage(
   env: Env,
   request: GeminiImageRequest,
 ): Promise<Uint8Array> {
+  if (env.AI_POLICY === "workers_free_only") throw new GeminiApiError("Image inference disabled by free policy", 403);
   const input: Array<Record<string, string>> = request.images.map((image) => ({
     type: "image",
     mime_type: image.mimeType,

@@ -96,6 +96,7 @@ export async function requestSkinGeneration(
     // Only validated successes are reusable. A failure must never pin an input.
     const saved = structuredClone(result);
     delete saved.quota; // Live quota is fetched separately, not frozen with a skin.
+    delete saved.analysis;
     if (completedGenerations.size >= 8) completedGenerations.delete(completedGenerations.keys().next().value!);
     completedGenerations.set(requestKey, { expires: Date.now() + 24 * 60 * 60 * 1000, result: saved });
     persistCompletedGenerations();
@@ -135,6 +136,7 @@ async function performSkinGeneration(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
+      cache: "no-store",
       body: JSON.stringify({
         image: imageDataUrl,
         ...(analysisImageDataUrl ? { analysisImage: analysisImageDataUrl } : {}),

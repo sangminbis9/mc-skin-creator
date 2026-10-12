@@ -3087,7 +3087,8 @@ export async function runPhotoAnalysis(
   const primaryElapsedMs = () => Math.max(0, Math.round(performance.now() - primaryStartedAt));
   try {
     if (references.length < 1 || references.length > 5) throw new Error("Invalid image count");
-    const referenceSuffix = `\n\nREFERENCE SET: ${references.length} image(s) of the same person are attached in order. Image 0 is primary; use the others to resolve stable identity cues and side/back evidence.`;
+    const referenceSuffix = `\n\nREFERENCE SET: ${references.length} image(s) of the same person are attached in order. Image 0 is primary; use the others to resolve stable identity cues and side/back evidence.`
+      + (env.AI_POLICY === "workers_free_only" ? "\nPrioritize independently visible root part, forehead opening, hair endpoints, facial hair, eyewear and accessory placement. Distinguish neck scarves from head coverings. Observe jacket closure, shirt/lapel/tie construction and each garment's colors separately. Preserve left/right asymmetry. Do not merge different outfits across reference images; select one outfit source. Mark uncertain or hidden cues as uncertain rather than inventing details. Never identify the person or transcribe names, addresses or private document text." : "");
     const result = await generateGeminiStructuredJson(env, {
       model: env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL,
       imageDataUrls: references,

@@ -159,12 +159,13 @@ export async function preparePhotoForUpload(
     const context = canvas.getContext("2d");
     if (!context) throw new Error("사진을 압축하지 못했어요. 다른 브라우저에서 다시 시도해 주세요.");
     context.drawImage(image, 0, 0, width, height);
-    return boundedJpeg(canvas);
+    try { return boundedJpeg(canvas); }
+    finally { canvas.width = 0; canvas.height = 0; }
   };
-  return {
-    analysisDataUrl: render(896),
-    generationDataUrl: render(448),
-  };
+  try {
+    const analysisDataUrl = render(896);
+    return { analysisDataUrl, generationDataUrl: Math.max(image.width, image.height) <= 448 ? analysisDataUrl : render(448) };
+  } finally { image.src = ""; }
 }
 
 function boundedJpeg(canvas: HTMLCanvasElement): string {

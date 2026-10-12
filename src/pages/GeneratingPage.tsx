@@ -97,16 +97,6 @@ export function GeneratingPage({
         if (cancelled) {
           return;
         }
-        if (import.meta.env.DEV) {
-          // Keep only derived, non-image QA data in memory so local visual
-          // checks can compare the model's classifications with the rendered
-          // skin. Never retain either uploaded image or the generated PNG.
-          Reflect.set(window, "__MC_SKIN_LAST_RESULT__", {
-            analysis: response.analysis ?? null,
-            features: response.features ?? null,
-            generationMode: response.generationMode ?? "procedural_fallback",
-          });
-        }
         setProgress(100);
         setStageIndex(STAGES.length - 1);
         const result: GenerationSuccess = {

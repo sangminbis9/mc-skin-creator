@@ -150,6 +150,7 @@ function App() {
             .slice(1)
             .map((reference) => reference.analysisDataUrl)}
           onDone={async (result) => {
+            setPhotos([]);
             // AI가 직접 생성한 스킨 우선, 실패하면 특징 기반 절차 생성으로 fallback
             const decoded = result.skinPngBase64
               ? await decodeSkinPng(result.skinPngBase64)

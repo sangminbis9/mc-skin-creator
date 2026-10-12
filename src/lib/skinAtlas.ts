@@ -3,127 +3,18 @@
  * 모던 포맷(1.8+) 기준이며, 좌표는 모두 픽셀 단위 (x, y, w, h).
  */
 
-export const ATLAS_SIZE = 64;
+import { ALL_PARTS, CLASSIC_LAYOUT as ENGINE_CLASSIC, SLIM_LAYOUT as ENGINE_SLIM, type BodyPart, type BoxUV, type Rect } from "../../shared/skinLayout";
+export { ATLAS_SIZE, ALL_PARTS, MINECRAFT_BOX_FACE_ORDER } from "../../shared/skinLayout";
+export type { BodyPart, BoxUV, Rect, SkinGeometry } from "../../shared/skinLayout";
+import { ATLAS_SIZE } from "../../shared/skinLayout";
 
-export interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-export interface BoxUV {
-  top: Rect;
-  bottom: Rect;
-  right: Rect;
-  front: Rect;
-  left: Rect;
-  back: Rect;
-}
-
-/**
- * Three.js BoxGeometry emits geometric +x, -x, +y, -y, +z, -z faces.
- * From a Minecraft character's front, geometric -x is anatomical right, so
- * right/left UV faces intentionally use the opposite raw-axis order.
- */
-export const MINECRAFT_BOX_FACE_ORDER: (keyof BoxUV)[] = [
-  "left",
-  "right",
-  "top",
-  "bottom",
-  "front",
-  "back",
-];
-
-/** 박스 전개도 좌표 계산: (u, v)는 전개도의 좌상단, (w, h, d)는 박스 크기 */
-function boxUV(u: number, v: number, w: number, h: number, d: number): BoxUV {
-  return {
-    top: { x: u + d, y: v, w, h: d },
-    bottom: { x: u + d + w, y: v, w, h: d },
-    right: { x: u, y: v + d, w: d, h },
-    front: { x: u + d, y: v + d, w, h },
-    left: { x: u + d + w, y: v + d, w: d, h },
-    back: { x: u + d + w + d, y: v + d, w, h },
-  };
-}
-
-export type BodyPart =
-  "head" | "body" | "rightArm" | "leftArm" | "rightLeg" | "leftLeg";
-
-export type SkinGeometry = "classic" | "slim";
-
-export interface PartLayout {
-  /** 박스 크기 (게임 내 픽셀 단위) */
-  size: { w: number; h: number; d: number };
-  base: BoxUV;
-  overlay: BoxUV;
-}
-
-/** 클래식(4px 팔) 레이아웃 */
-export const CLASSIC_LAYOUT: Record<BodyPart, PartLayout> = {
-  head: {
-    size: { w: 8, h: 8, d: 8 },
-    base: boxUV(0, 0, 8, 8, 8),
-    overlay: boxUV(32, 0, 8, 8, 8),
-  },
-  body: {
-    size: { w: 8, h: 12, d: 4 },
-    base: boxUV(16, 16, 8, 12, 4),
-    overlay: boxUV(16, 32, 8, 12, 4),
-  },
-  rightArm: {
-    size: { w: 4, h: 12, d: 4 },
-    base: boxUV(40, 16, 4, 12, 4),
-    overlay: boxUV(40, 32, 4, 12, 4),
-  },
-  leftArm: {
-    size: { w: 4, h: 12, d: 4 },
-    base: boxUV(32, 48, 4, 12, 4),
-    overlay: boxUV(48, 48, 4, 12, 4),
-  },
-  rightLeg: {
-    size: { w: 4, h: 12, d: 4 },
-    base: boxUV(0, 16, 4, 12, 4),
-    overlay: boxUV(0, 32, 4, 12, 4),
-  },
-  leftLeg: {
-    size: { w: 4, h: 12, d: 4 },
-    base: boxUV(16, 48, 4, 12, 4),
-    overlay: boxUV(0, 48, 4, 12, 4),
-  },
-};
-
-/** 슬림(3px 팔) 레이아웃 — 팔만 다르다 */
-export const SLIM_ARM_LAYOUT: Pick<
-  Record<BodyPart, PartLayout>,
-  "rightArm" | "leftArm"
-> = {
-  rightArm: {
-    size: { w: 3, h: 12, d: 4 },
-    base: boxUV(40, 16, 3, 12, 4),
-    overlay: boxUV(40, 32, 3, 12, 4),
-  },
-  leftArm: {
-    size: { w: 3, h: 12, d: 4 },
-    base: boxUV(32, 48, 3, 12, 4),
-    overlay: boxUV(48, 48, 3, 12, 4),
-  },
-};
-
-/** 전체 slim 레이아웃. 머리·몸·다리는 classic과 같고 팔만 3px다. */
-export const SLIM_LAYOUT: Record<BodyPart, PartLayout> = {
-  ...CLASSIC_LAYOUT,
-  ...SLIM_ARM_LAYOUT,
-};
-
-export const ALL_PARTS: BodyPart[] = [
-  "head",
-  "body",
-  "rightArm",
-  "leftArm",
-  "rightLeg",
-  "leftLeg",
-];
+export interface PartLayout { size: { w: number; h: number; d: number }; base: BoxUV; overlay: BoxUV }
+const withSize = (layout: typeof ENGINE_CLASSIC) => Object.fromEntries(ALL_PARTS.map(part => {
+  const box = layout[part]; return [part, { ...box, size: { w: box.base.front.w, h: box.base.front.h, d: box.base.top.h } }];
+})) as Record<BodyPart, PartLayout>;
+export const CLASSIC_LAYOUT = withSize(ENGINE_CLASSIC);
+export const SLIM_LAYOUT = withSize(ENGINE_SLIM);
+export const SLIM_ARM_LAYOUT = { rightArm: SLIM_LAYOUT.rightArm, leftArm: SLIM_LAYOUT.leftArm };
 
 /** 편집기 부위 필터 그룹 */
 export type PartGroup = "all" | "head" | "body" | "arms" | "legs";

@@ -71,7 +71,8 @@ import {
 import { mergeTargetedAtlas } from "./skinCorrection";
 import { applyProceduralCritiqueCorrections } from "./proceduralCorrection";
 import { buildSkinPlan, type SkinPlan } from "./skinPlan";
-import { renderReferencePrimaryAtlas, type ReferencePrimarySummary } from "./referencePrimaryRenderer";
+import type { ReferencePrimarySummary } from "./referencePrimaryRenderer";
+import { renderSkinEngine } from "./skinEngine";
 import {
   buildSkinViewMontage,
   buildPairwiseHeadEvidence,
@@ -104,6 +105,7 @@ export const MAX_IMAGE_CHARS = 1_500_000;
 
 /** Diagnostic storage is advisory; a slow KV must not block a valid PNG. */
 async function primaryDiagnostic(env: Env, value: unknown): Promise<void> {
+  if (env.AI_POLICY === "workers_free_only") return;
   await withinDeadline(() => env.MCSKIN_KV.put("diagnostic:last-primary-analysis",
     JSON.stringify(value), { expirationTtl: 172800 }), 1000,
   () => new Error("Diagnostic deadline")).catch(() => undefined);
@@ -135,7 +137,7 @@ async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: numb
   mark("source_atlas_finished");
   if (!sourceAtlas) return fail(500, "유효한 스킨을 만들지 못했어요", "SKIN_RENDER_FAILED", neuronsSpent);
   mark("reference_atlas_started");
-  const styled = renderReferencePrimaryAtlas(sourceAtlas, skinPlan, renderAnalysis, faceStyle);
+  const styled = renderSkinEngine(sourceAtlas, skinPlan, renderAnalysis, faceStyle);
   mark("reference_atlas_finished");
   if (!styled.ok) {
     console.log(JSON.stringify({ event: "reference_primary_render_rejected", reason: styled.reason, renderAttempts: styled.renderAttempts }));
@@ -395,6 +397,11 @@ export async function generateSkin(
   analysisImageDataUrl: string = imageDataUrl,
   referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResult> {
+  if (env.AI_POLICY === "workers_free_only") {
+    env = { ...env, GEMINI_API_KEY: undefined, FACE_GEOMETRY_ENRICHMENT_ENABLED: "false",
+      IDENTITY_GEOMETRY_ENRICHMENT_ENABLED: "false", SYNCHRONOUS_ENHANCEMENTS_ENABLED: "false",
+      IMAGE_GENERATION_ENABLED: "false", IMAGE_CRITIQUE_ENABLED: "false", HEAD_CANDIDATE_SELECTION_ENABLED: "false" };
+  }
   if (!Array.isArray(referenceImageDataUrls) || referenceImageDataUrls.length > 4) {
     return fail(400, "최대 5장까지 사용할 수 있어요", "bad_request", 0);
   }
@@ -436,6 +443,7 @@ export async function generateSkin(
   });
   mark("primary_diagnostic_finished");
   if (!analysisResult.ok) {
+    if (env.AI_POLICY !== "workers_free_only") {
     console.log(
       "analysis failed:",
       analysisResult.reason,
@@ -454,6 +462,7 @@ export async function generateSkin(
       }),
       { expirationTtl: 60 * 60 * 48 },
     ), 1000, () => new Error("Diagnostic deadline")).catch(() => undefined);
+    }
     if (analysisResult.reason === "quota_exceeded") {
       return fail(
         429,

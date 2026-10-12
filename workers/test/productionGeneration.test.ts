@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { generateSkin } from "../src/generate";
+import { generateFreeSkin } from "../src/engineService";
 import { decodePng, base64ToBytes, bytesToBase64, encodePng } from "../src/png";
 import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
 import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
 import { wireFixture } from "./compactV3Support";
 import { COMPACT_HINT_GROUPS } from "../src/compactPhotoAnalysis";
+import { budgetStatus, newBudgetState, reserveBudget } from "../src/freeBudget";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 const compact = () => wireFixture(makeAnalysis());
@@ -28,9 +30,12 @@ const namedCompact = () => {
 const gemini = (value: unknown) => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] });
 const kv = () => ({ get: vi.fn(async () => null), put: vi.fn(async () => undefined) });
 function environment(): Env {
+  const state = newBudgetState(new Date().toISOString().slice(0, 10));
   return { GEMINI_API_KEY: "test-key", AI: { run: vi.fn(async () => ({
     choices: [{ message: { content: JSON.stringify(namedCompact()) } }],
   })) },
+    NEURON_BUDGET: { getByName: () => ({ status: async () => budgetStatus(state),
+      reserve: async (id: string) => ({ day: state.day, accepted: reserveBudget(state,id) }), settle: async () => undefined }) },
     MCSKIN_KV: kv(), IMAGE_GENERATION_ENABLED: "true", IMAGE_CRITIQUE_ENABLED: "true",
     HEAD_CANDIDATE_SELECTION_ENABLED: "true" } as unknown as Env;
 }
@@ -43,26 +48,27 @@ async function assertSkin(body: { ok: boolean; skinPngBase64?: string; generatio
   expect(validateFinalAtlas(png).ok).toBe(true);
 }
 describe("production upload-to-PNG reliability", () => {
-  it("does not close the provider day when Gemini is temporarily down but only Workers is out of quota", async () => {
+  it("reports native free-model quota exhaustion without writing private diagnostics", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 503 })));
     const env = environment();
     env.AI!.run = vi.fn(async () => { throw new Error("3036: daily free allocation exhausted"); }) as never;
     const response = await worker.fetch(new Request("https://local/api/generate", { method: "POST", body: JSON.stringify({ image: await photo() }) }), env);
-    expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ errorCode: "provider_unavailable" });
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ errorCode: "quota_exceeded" });
     expect(env.MCSKIN_KV.put).not.toHaveBeenCalledWith(expect.stringContaining("providers-closed"), expect.anything(), expect.anything());
   });
-  it("POST /api/generate survives Gemini 503 with one strict Workers fallback", async () => {
+  it("POST /api/generate uses the free native model without a Gemini HTTP request", async () => {
     const fetchMock = vi.fn(async () => Response.json({ error: { status: "UNAVAILABLE" } }, { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
     const env = environment();
     const response = await worker.fetch(new Request("https://local/api/generate", { method: "POST", body: JSON.stringify({ image: await photo() }) }), env);
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     await assertSkin(await response.json());
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(env.AI!.run).toHaveBeenCalledTimes(1);
   });
-  it("POST /api/generate survives Gemini FAILED_PRECONDITION with one strict Workers fallback", async () => {
+  it("POST /api/generate ignores configured Gemini keys and prerequisite failures", async () => {
     const fetchMock = vi.fn(async () => Response.json({ error: {
       message: "A provider project prerequisite is not met",
       status: "FAILED_PRECONDITION",
@@ -74,7 +80,7 @@ describe("production upload-to-PNG reliability", () => {
     }), env);
     expect(response.status).toBe(200);
     await assertSkin(await response.json());
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(env.AI!.run).toHaveBeenCalledTimes(1);
   });
   it("skips every unavailable optional provider even with old production flags enabled", async () => {
@@ -113,16 +119,28 @@ describe("production upload-to-PNG reliability", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(env.AI!.run).not.toHaveBeenCalled();
   });
-  it("bounds both providers to 90 seconds total instead of retrying", async () => {
+  it("exposes the same PNG contract on the versioned platform endpoint without analysis prose", async () => {
+    const env = environment();
+    const response = await worker.fetch(new Request("https://local/v1/skins", { method: "POST",
+      body: JSON.stringify({ image: await photo() }) }), env);
+    expect(response.status).toBe(200);
+    const body = await response.json(); await assertSkin(body);
+    expect(body.analysis).toBeUndefined(); expect(body.quota.capacityBasis).toBe("project_reserved");
+  });
+  it("bounds the reserved native provider deadline without retrying or calling paid HTTP", async () => {
     const image = await photo();
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     const env = environment();
-    env.AI!.run = vi.fn(() => new Promise(() => {})) as never;
-    const pending = generateSkin(env, image);
-    await vi.advanceTimersByTimeAsync(90_001);
+    let signalStarted!: () => void;
+    const started = new Promise<void>(resolve => { signalStarted=resolve; });
+    env.AI!.run = vi.fn(() => { signalStarted(); return new Promise(() => {}); }) as never;
+    const pending = generateFreeSkin(env, { image });
+    // Wait for lazy schema imports and actual dispatch before moving time.
+    await started;
+    await vi.advanceTimersByTimeAsync(60_001);
     expect(await pending).toMatchObject({ status: 503, success: false, body: { errorCode: "provider_unavailable" } });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
     expect(env.AI!.run).toHaveBeenCalledTimes(1);
   });
 });

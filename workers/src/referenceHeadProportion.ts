@@ -42,7 +42,14 @@ export function buildReferenceHeadProportion(source: SkinPlan, design: Reference
   const head = source.headIdentityPlan.ownership, hair = source.hairPlan, face = source.facePixelPlan;
   const skin = hex(style.skinTone), pigment = hex(style.eyeColor), hairColor = hex(style.hairColor);
   if (!head || head.execution !== "resolved" || !skin) return result;
-  const owned = (f: keyof BoxUV, x: number, y: number) => head.cells.filter(c => c.face === f && c.x === x && c.y === y);
+  // A request-local index avoids scanning the entire head for every pixel of
+  // every template candidate. Ownership and output colors are unchanged.
+  const ownedIndex = new Map<string, typeof head.cells>();
+  for (const c of head.cells) {
+    const key = `${c.face}:${c.x}:${c.y}`, cells = ownedIndex.get(key) ?? [];
+    cells.push(c); ownedIndex.set(key, cells);
+  }
+  const owned = (f: keyof BoxUV, x: number, y: number) => ownedIndex.get(`${f}:${x}:${y}`) ?? [];
   const beard = facialHairBaseFootprint(style);
   const blocked = (f: keyof BoxUV, x: number, y: number) => owned(f, x, y).some(c =>
     ["covering", "tied_hair", "other_p5", "glasses"].includes(c.owner) || c.provenance === "validated_derived")
@@ -86,8 +93,13 @@ export function buildReferenceHeadProportion(source: SkinPlan, design: Reference
     && !head.cells.some(c => c.provenance === "validated_derived") && style.hat === "none") {
     result.outline = "semantic_continuation";
     const roots = head.cells.filter(c => c.layer === "base" && c.owner === "hair_base");
+    const columns = new Map<string, typeof roots>();
+    for (const c of roots) {
+      const key = `${c.face}:${c.x}`, cells = columns.get(key) ?? [];
+      cells.push(c); columns.set(key, cells);
+    }
     for (const f of ["front", "right", "back", "left"] as const) for (let x = 0; x < 8; x++) {
-      const column = roots.filter(c => c.face === f && c.x === x);
+      const column = columns.get(`${f}:${x}`) ?? [];
       // Some legacy side masks omit entire crown columns although the top
       // foundation is hair. Let that connected crown support the side cap.
       if (!column.length && (f === "front" || f === "back")) continue;

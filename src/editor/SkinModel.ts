@@ -54,26 +54,7 @@ function buildPartGeometry(uvMap: BoxUV, w: number, h: number, d: number) {
   return geometry;
 }
 
-/** 부위별 박스 중심 좌표 (MC 픽셀 단위, 발바닥 y=0) */
-const PART_POSITIONS: Record<BodyPart, [number, number, number]> = {
-  head: [0, 28, 0],
-  body: [0, 18, 0],
-  rightArm: [6, 18, 0],
-  leftArm: [-6, 18, 0],
-  rightLeg: [2, 6, 0],
-  leftLeg: [-2, 6, 0],
-};
-
-function partPosition(
-  part: BodyPart,
-  geometry: SkinGeometry,
-): [number, number, number] {
-  const [x, y, z] = PART_POSITIONS[part];
-  if (geometry !== "slim") return [x, y, z];
-  if (part === "rightArm") return [5.5, y, z];
-  if (part === "leftArm") return [-5.5, y, z];
-  return [x, y, z];
-}
+import { partPosition } from "../../shared/skinLayout";
 
 /** 오버레이 인플레이트: 머리 +0.5/side, 나머지 +0.25/side */
 function overlayInflate(part: BodyPart): number {

@@ -5,6 +5,10 @@
 import type { GenerationObservationContext } from "./generationObservation";
 
 interface EnvOverrides extends GenerationObservationContext {
+  AI_POLICY?: "workers_free_only" | "legacy";
+  NEURON_BUDGET?: DurableObjectNamespace<import("./NeuronBudget").NeuronBudget>;
+  /** Request-local reserved dispatch; never exposed in HTTP input. */
+  FREE_ANALYSIS_RUN?: (input: Record<string, unknown>) => Promise<unknown>;
   /** Configure as a Wrangler secret, never as a public Vite variable. */
   GEMINI_API_KEY?: string;
   /** Production AI Gateway binding; tests may also use it as a legacy provider seam. */
@@ -60,5 +64,5 @@ export interface QuotaStatus {
   resetAtIso: string;
   usedRatio: number;
   /** Local accounting is only an estimate until Workers AI reports exhaustion. */
-  capacityBasis: "local_estimate" | "provider_reported_closed";
+  capacityBasis: "local_estimate" | "provider_reported_closed" | "project_reserved";
 }
