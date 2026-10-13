@@ -31,7 +31,7 @@ it("uses one physical material coordinate across all head seams, including three
     const a = local(p), b = local(seam.adjacent[n]);
     expect(headMaterialPoint(a.face, a.x, a.y)).toEqual(headMaterialPoint(b.face, b.x, b.y));
     for (const hairPart of ["none", "center", "left", "right"] as const) for (const hairTexture of ["straight", "wavy"] as const)
-      for (const policy of ["clustered_material_v1", "tapered_material_v2"] as const)
+      for (const policy of ["clustered_material_v1", "tapered_material_v2", "flow_locks_v3", "continuous_locks_v4"] as const)
         expect(referenceHairMaterial([30, 23, 19], a.face, a.x, a.y, { hairPart, hairTexture }, false, policy))
           .toEqual(referenceHairMaterial([30, 23, 19], b.face, b.x, b.y, { hairPart, hairTexture }, false, policy));
   });

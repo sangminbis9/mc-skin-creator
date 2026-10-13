@@ -159,7 +159,7 @@ function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, des
   const placedGroups: Array<{ record: ReferenceCompositionDiagnostic["bodyGroups"][number]; cells: Cell[] }> = [];
   const basePlan = { ...plan, outerLayer: { ...plan.outerLayer, regions: [] }, accessories: [] };
   applyOutfitPlan(atlas, basePlan, skin);
-  const garmentFoldCells = applyReferenceGarmentFinish(atlas, basePlan, !!design.materialDetailPolicy).length;
+  const garmentFoldCells = applyReferenceGarmentFinish(atlas, basePlan, design.garmentDetailPolicy ?? !!design.materialDetailPolicy).length;
   for (const part of parts.filter(p => p !== "head")) for (const c of surfaceCells(atlas, part, "base", "garment")) ownership.set(key(c), c);
   // Reserve the source-supported tail before structural groups. The original
   // seven-cell neck cue still takes its usual selective outer/base route.
@@ -326,7 +326,7 @@ export function referenceBaseHairColor(color: Rgb, c: Pick<Cell, "x" | "y" | "fa
     const material = rgb(style.hairColor, color);
     if (design.materialDetailPolicy) {
       const color = referenceHairMaterial(material, c.face, c.x, c.y, style, false, design.materialDetailPolicy);
-      return hasReferenceHairVolume(plan, design, style) ? referenceHairVolumeColor(color, material, c, style) : color;
+      return hasReferenceHairVolume(plan, design, style) ? referenceHairVolumeColor(color, material, c, style, false, design.hairVolumePolicy) : color;
     }
     const band = c.face === "top" ? 1 : 1 - Math.min(c.y, 6) * 0.015;
     const strand = (c.x + Math.floor(c.y / 3)) % 4 === 1 ? 1.08 : 1;
@@ -487,7 +487,7 @@ function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, des
           && !/window/.test(c.sourceGroupId);
       })) continue;
       const cells: Cell[] = group.map(p => ({ ...p, part: "head", layer: "overlay", owner: "hair",
-        color: referenceHairVolumeColor(referenceHairMaterial(hair, p.face, p.x, p.y, style, true, design.materialDetailPolicy), hair, p, style, true) }));
+        color: referenceHairVolumeColor(referenceHairMaterial(hair, p.face, p.x, p.y, style, true, design.materialDetailPolicy), hair, p, style, true, design.hairVolumePolicy) }));
       const added = cells.filter(c => !ownership.has(key(c))).length;
       if (hairAccentCells + added > maxAccents) continue;
       for (const c of cells) { atlas.rgba.set([...c.color, 255], at(c)); ownership.set(key(c), c); }

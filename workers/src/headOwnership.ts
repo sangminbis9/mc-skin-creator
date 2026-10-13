@@ -6,6 +6,7 @@ import { CLASSIC_LAYOUT, getBoxUvSeams, type BoxUV } from "./uvLayout";
 import { hairRibbonFootprint } from "./hairRibbonFootprint";
 import { hairFlowerFootprint } from "./hairFlowerFootprint";
 import { headwearFootprint } from "./headwearFootprint";
+import { buildObservedHeadOrnaments, type HeadOrnament } from "./headOrnaments";
 
 export type HeadOwner = "face" | "hair_base" | "hair_outer" | "glasses" | "covering" | "tied_hair" | "other_p5" | "clear";
 export interface HeadOwnedCell {
@@ -28,6 +29,7 @@ export interface TiedMassGeometry {
   attachmentGroupId: "tied-attachment";
 }
 export interface HeadOwnershipPlan {
+  ornaments?: HeadOrnament[];
   execution: "resolved" | "preserve_existing_grammar";
   hairFamily: HairPlan["template"];
   covering: boolean;
@@ -249,6 +251,26 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
       if (region && p.owner !== "glasses" && p.sourceGroupId !== "face-window") put({ ...p, owner: "other_p5", sourceGroupId: "head-accessory-region", provenance: "observed", retain: true });
     }
   }
+  // Resolve additional observed wearables before hair seam closure. Reserve
+  // exactly what will be painted; eyes, measured landmarks and eyewear win.
+  const ornaments: HeadOrnament[] = [];
+  for (const ornament of buildObservedHeadOrnaments(analysis)) {
+    const allowed = ornament.cells.filter(p => {
+      const prior = cells.get(`outer:${p.face}:${p.x},${p.y}`)!;
+      const landmarks = p.face === "front" ? facePlan.pixels.filter(q => q.x === p.x && q.y === p.y && q.cluster !== "complexion") : [];
+      const browOnly = landmarks.length > 0 && landmarks.every(q => q.role === "brow");
+      return prior.owner !== "glasses" && prior.owner !== "covering" && prior.provenance !== "validated_derived"
+        && (prior.sourceGroupId !== "face-window" || browOnly) && !prior.sourceGroupId.startsWith("observed-ornament-");
+    });
+    // Keep each wearable atomic. Clipping a band/cup/paired ornament produces
+    // a different object. A conflict is conservatively left to existing paint.
+    if (allowed.length !== ornament.cells.length || ornaments.reduce((n, p) => n + p.cells.length, 0) + allowed.length > 80) continue;
+    ornaments.push(ornament);
+    for (const p of allowed) {
+      const prior = cells.get(`outer:${p.face}:${p.x},${p.y}`)!;
+      put({ ...prior, owner: "other_p5", sourceGroupId: `observed-ornament-${ornament.kind}`, provenance: "observed", retain: true });
+    }
+  }
   // Compute connected seam equivalence classes ONCE in plan space. Corners
   // belong to three surfaces; union-find avoids repeated atlas repair loops.
   const parent = new Map<string, string>();
@@ -294,6 +316,6 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
   const observedOrnament = /\b(?:flower|ribbon|bow|clip|headband)\b[^.;]{0,35}\bhair\b|\bhair\b[^.;]{0,35}\b(?:flower|ribbon|bow|clip|headband)\b/i.test(headEvidence);
   const sourceDerivedSemanticMask = hair.headMask.source === "semantic_template" && Boolean(hair.headMask.semanticSilhouette);
   const sourceDerivedCurlyProfile = sourceDerivedSemanticMask && hair.headMask.semanticSilhouette?.profileOpening === "curly_ringlets";
-  const preserve = !tied && !covering && ((observedOrnament || analysis.renderHints.hairAccessory !== "none") && !resolvedOrnament || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (!hair.surfaceOnly && hair.structure.source === "semantic_analysis" && (hair.structure.grammar === "curl_lobes" && !sourceDerivedCurlyProfile || hair.structure.grammar === "coily_clusters" && !sourceDerivedSemanticMask)));
-  return { execution: preserve ? "preserve_existing_grammar" : "resolved", hairFamily: hair.template, covering, tiedMass: tiedGeometry, cells: [...cells.values()], continuities };
+  const preserve = !tied && !covering && ((observedOrnament || analysis.renderHints.hairAccessory !== "none") && !resolvedOrnament && !ornaments.length || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (!hair.surfaceOnly && hair.structure.source === "semantic_analysis" && (hair.structure.grammar === "curl_lobes" && !sourceDerivedCurlyProfile || hair.structure.grammar === "coily_clusters" && !sourceDerivedSemanticMask)));
+  return { execution: preserve ? "preserve_existing_grammar" : "resolved", hairFamily: hair.template, covering, tiedMass: tiedGeometry, cells: [...cells.values()], continuities, ...(ornaments.length ? { ornaments } : {}) };
 }

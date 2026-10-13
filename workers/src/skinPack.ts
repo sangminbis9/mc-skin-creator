@@ -14,6 +14,7 @@ import type { OutfitPlan } from "./outfitIdentity";
 import { applyOutfitPlan } from "./outfitRenderer";
 import { hairRibbonFootprint } from "./hairRibbonFootprint";
 import { headwearFootprint } from "./headwearFootprint";
+import { paintHeadOrnaments } from "./headOrnaments";
 import {
   ALL_PARTS,
   ATLAS_SIZE,
@@ -9652,6 +9653,7 @@ export function packFrontViewToAtlas(
     restoreRect(atlas, head.base.front, preservedFacePixels);
   }
 
+  paintHeadOrnaments(atlas, options.headIdentityPlan?.ownership?.ornaments);
   options.headTrace?.("final_head", atlas);
 
   return {

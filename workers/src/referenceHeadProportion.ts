@@ -10,11 +10,13 @@ import { facialHairBaseFootprint } from "./facialHairFootprint";
 import { headMaterialPoint, referenceHairMaterial } from "./referenceMaterialDetail";
 import { hasReferenceHairVolume, referenceHairVolumeColor } from "./referenceHairVolume";
 import { CLASSIC_LAYOUT, type BoxUV } from "./uvLayout";
+import { buildReferenceHairRelief } from "./referenceHairRelief";
 
 export interface HeadProportionPaint {
   face: keyof BoxUV;
   x: number; y: number;
   role: "skin" | "hair" | "iris" | "sclera";
+  layer?: "overlay";
   color: [number, number, number];
 }
 export interface ReferenceHeadProportion {
@@ -25,8 +27,8 @@ export interface ReferenceHeadProportion {
   paints: HeadProportionPaint[];
   eyePixels: FacePixelInstruction[];
 }
-export function headProportionOffset(p: Pick<HeadProportionPaint, "face" | "x" | "y">): number {
-  const r = CLASSIC_LAYOUT.head.base[p.face];
+export function headProportionOffset(p: Pick<HeadProportionPaint, "face" | "x" | "y"> & { layer?: "base" | "overlay" }): number {
+  const r = CLASSIC_LAYOUT.head[p.layer ?? "base"][p.face];
   return ((r.y + p.y) * 64 + r.x + p.x) * 4;
 }
 const hex = (s: string | undefined): [number, number, number] | undefined => s && /^#[0-9a-f]{6}$/i.test(s)
@@ -110,7 +112,7 @@ export function buildReferenceHeadProportion(source: SkinPlan, design: Reference
         const opening = face.layout.fringeOpening;
         const gap = opening === "center" && (x === 3 || x === 4) || opening === "left" && x === 2 || opening === "right" && x === 5;
         if (gap) continue;
-        target = Math.min(4, end + 2);
+        target = design.hairDetailPolicy === "eye_line_relief_v1" ? 4 : Math.min(4, end + 2);
       } else {
         // Right's front edge is x7; left's is x0. Keep the lower two-column
         // ear/cheek window instead of wrapping a solid cap across the face.
@@ -159,20 +161,30 @@ export function buildReferenceHeadProportion(source: SkinPlan, design: Reference
           if (owned(p.face, p.x, p.y).some(c => /window/.test(c.sourceGroupId))) continue;
           const material = referenceHairMaterial(hairColor, p.face, p.x, p.y, style, false, design.materialDetailPolicy);
           const color = hasReferenceHairVolume(source, design, style)
-            ? referenceHairVolumeColor(material, hairColor, p, style) : material;
+            ? referenceHairVolumeColor(material, hairColor, p, style, false, design.hairVolumePolicy) : material;
           put(p.face, p.x, p.y, "hair", color);
         }
       }
     }
   }
-  // Eye paint takes priority over a fringe tip. No material is painted over
-  // glasses, facial hair or real accessories, and no alpha/outer-shell edits.
   result.paints = [...paints.values()];
+  // Relief follows the completed base outline and final displayed eyes, never
+  // the old higher eye coordinates. The immutable source still owns openings.
+  const detail = buildReferenceHairRelief(source, design, style, foundation, result, displayed, foundationHair);
+  if (detail.length) {
+    const final = new Map(result.paints.map(p => [`${p.layer ?? "base"}:${p.face}:${p.x}:${p.y}`, p]));
+    for (const p of detail) final.set(`${p.layer ?? "base"}:${p.face}:${p.x}:${p.y}`, p);
+    result.paints = [...final.values()];
+  }
   return result;
 }
 
 export function applyReferenceHeadProportion(atlas: RawImage, plan: ReferenceHeadProportion): void {
-  for (const p of plan.paints) atlas.rgba.set(p.color, headProportionOffset(p));
+  for (const p of plan.paints) {
+    const i = headProportionOffset(p);
+    atlas.rgba.set(p.color, i);
+    if (p.layer === "overlay") atlas.rgba[i + 3] = 255;
+  }
 }
 
 export function headProportionFaceContract(displayed: FacePixelPlan, p: ReferenceHeadProportion): FacePixelPlan {

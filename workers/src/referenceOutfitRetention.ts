@@ -195,7 +195,7 @@ export function measureReferenceGarmentFoundation(
   const expected: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
   applyOutfitPlan(expected, basePlan, skin);
   const finished = { ...expected, rgba: expected.rgba.slice() };
-  const folds = new Map(applyReferenceGarmentFinish(finished, basePlan, !!design.materialDetailPolicy).map(p => [`${p.part}:${p.face}:${p.x}:${p.y}`, colorKey(p.color)]));
+  const folds = new Map(applyReferenceGarmentFinish(finished, basePlan, design.garmentDetailPolicy ?? !!design.materialDetailPolicy).map(p => [`${p.part}:${p.face}:${p.x}:${p.y}`, colorKey(p.color)]));
   const allowedConstruction = new Map<string, Set<string>>();
   for (const group of groups.filter(g => g.placement === "base_anchor")) {
     const image: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };

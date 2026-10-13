@@ -73,10 +73,15 @@ export interface ReferenceStylePlan {
   hairPalettePolicy?: "continuous_material";
   headProportionPolicy?: "reference_low_eyes_v1";
   /** Material-only authored finish; historical plans without it remain exact. */
-  materialDetailPolicy?: "clustered_material_v1" | "tapered_material_v2";
+  materialDetailPolicy?: "clustered_material_v1" | "tapered_material_v2" | "flow_locks_v3" | "continuous_locks_v4";
+  /** Cloth-only finish; independent of hair policy and absent on saved plans. */
+  garmentDetailPolicy?: "articulated_cloth_v1";
   /** Source-supported crown/back relief; absent on immutable historical plans. */
-  hairVolumePolicy?: "crown_relief_v1";
+  hairVolumePolicy?: "crown_relief_v1" | "flowing_crown_v2";
   headSeamPolicy?: "connected_outline_v1";
+  /** Source-supported raised fringe and exposed short-hair ear finish. */
+  hairDetailPolicy?: "eye_line_relief_v1";
+  hairProfilePolicy?: "supported_profile_locks_v1";
   face: TemplateCandidate<FaceStyleFamily>;
   hair: TemplateCandidate<HairStyleFamily>;
   outfit: TemplateCandidate<OutfitStyleFamily>;
@@ -180,9 +185,12 @@ export function buildReferenceStylePlan(a: PhotoAnalysis): ReferenceStylePlan {
     eyeBoundaryPolicy: "paired_lower_pigment",
     faceLayoutPolicy: "mouthless_lower_eyes",
     headProportionPolicy: "reference_low_eyes_v1",
-    materialDetailPolicy: "tapered_material_v2",
-    hairVolumePolicy: "crown_relief_v1",
+    materialDetailPolicy: "continuous_locks_v4",
+    garmentDetailPolicy: "articulated_cloth_v1",
+    hairVolumePolicy: "flowing_crown_v2",
     headSeamPolicy: "connected_outline_v1",
+    hairDetailPolicy: "eye_line_relief_v1",
+    hairProfilePolicy: "supported_profile_locks_v1",
     hairPalettePolicy: "continuous_material",
     face: candidates.face[0], hair: candidates.hair[0], outfit: candidates.outfit[0], candidates,
     drape: { eligible: drapeEvidence !== null, evidence: drapeEvidence ? [drapeEvidence === "observed_shoulder_drape"

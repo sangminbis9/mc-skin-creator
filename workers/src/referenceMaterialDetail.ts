@@ -5,7 +5,7 @@ import type { BoxUV } from "./uvLayout";
 import type { FaceStyle } from "./skinPack";
 
 type Rgb = [number, number, number];
-export type HairMaterialPolicy = "clustered_material_v1" | "tapered_material_v2";
+export type HairMaterialPolicy = "clustered_material_v1" | "tapered_material_v2" | "flow_locks_v3" | "continuous_locks_v4";
 export function headMaterialPoint(face: keyof BoxUV, x: number, y: number): [number, number, number] {
   switch (face) {
     case "front": return [x, y, 0];
@@ -32,6 +32,25 @@ export function referenceHairMaterial(color: Rgb, face: keyof BoxUV, x: number, 
   // Broad bands, not isolated salt-and-pepper highlights. The same function
   // shades top/front/profile/nape and both layers without changing occupancy.
   const rootShadow = v === 0 && Math.abs(u - root) < 1;
+  if (policy === "flow_locks_v3" || policy === "continuous_locks_v4") {
+    // A broad two-pixel lock turns gently with observed waves. Bounded mid-
+    // length reflection leaves a shadowed root and tip instead of equal-width
+    // bright stripes. Physical coordinates keep every seam pair identical.
+    const continuous = policy === "continuous_locks_v4";
+    const drift = style.hairTexture === "wavy" ? [0, 0, 1, 1, 0, 0, -1, -1][continuous ? v % 8 : Math.min(7, v)] : 0;
+    const flow = Math.floor(Math.abs(u - root) + z + drift + 8);
+    const local = flow % 5, bundle = Math.floor(flow / 5);
+    // Existing torso locks continue in restrained, staggered reflection
+    // segments. No new occupancy or length is inferred from this material.
+    const height = continuous && v >= 8 ? (v - 8) % 7 : v;
+    const start = 1 + bundle % 2, end = start + 2;
+    const ridge = local === 1 || local === 2;
+    const reflected = ridge && height >= start && height <= end;
+    const factor = rootShadow ? .78 : local === 0 ? .84 : reflected ? 1.10 : local === 4 ? .92 : 1;
+    const tip = v >= 6 ? .92 : 1;
+    const light = reflected ? Math.max(0, 9 - Math.max(...color) * .03) : 0;
+    return color.map(c => Math.max(0, Math.min(255, Math.round(c * factor * tip + light + (outer ? 2 : 0))))) as Rgb;
+  }
   if (policy === "tapered_material_v2") {
     // A lock has a broad midtone and a short reflected ridge, not a bright
     // stripe from crown to nape. Stagger the ridge's endpoints by physical

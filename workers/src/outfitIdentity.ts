@@ -1,4 +1,5 @@
 import type { PhotoAnalysis } from "./analysis";
+import { observedWearables } from "./observedWearables";
 
 export type OutfitEvidence = "observed" | "strongly_implied" | "conservative";
 export type UpperGarmentType =
@@ -46,6 +47,7 @@ export type OutfitAccessoryKind =
   | "large_pocket"
   | "hood_string"
   | "wrist_cuff"
+  | "choker" | "brooch" | "watch" | "bracelet" | "waist_chain"
   | "thigh_accessory";
 
 export interface OutfitProvenance {
@@ -683,7 +685,7 @@ function accessoryPlans(analysis: PhotoAnalysis, text: string, accent: string): 
     const side = analysis.renderHints.thighAccessorySide !== "none" ? analysis.renderHints.thighAccessorySide : designSide !== "none" && designSide ? designSide : /viewer[- ]left/.test(text) ? "left" : /viewer[- ]right/.test(text) ? "right" : "center";
     result.push({ kind: "thigh_accessory", color: /\bwhite\b/.test(text) ? COLORS.white : accent, side: side === "both" ? "center" : side, source: analysis.visibleRegions.lowerBody ? "observed" : "strongly_implied", evidence: text });
   }
-  return result;
+  return [...result, ...observedWearables(analysis)];
 }
 
 function lowerTypeFromText(analysis: PhotoAnalysis, text: string, upper: UpperGarmentType): OutfitPlan["lower"]["garmentType"] {
@@ -858,7 +860,7 @@ function baseOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
   if (uniqueOuterRegions.includes("pocket")) expectedOuterPixels += 4;
   if (uniqueOuterRegions.includes("strap")) expectedOuterPixels += 36;
   if (uniqueOuterRegions.includes("thigh_accessory")) expectedOuterPixels += 3;
-  expectedOuterPixels += accessories.reduce((sum, item) => sum + ({ bow: /\bbroad\b/.test(item.evidence) ? 12 : 9, scarf: 7, tie: 6, necklace: 7, suspenders: 18, belt: 24, hood_string: 4, bag_strap: 0, large_pocket: 0, thigh_accessory: 0, wrist_cuff: 32 }[item.kind] ?? 0), 0);
+  expectedOuterPixels += accessories.reduce((sum, item) => sum + ({ bow: /\bbroad\b/.test(item.evidence) ? 12 : 9, scarf: 7, tie: 6, necklace: 7, suspenders: 18, belt: 24, hood_string: 4, bag_strap: 0, large_pocket: 0, thigh_accessory: 0, wrist_cuff: 32, choker:4, brooch:4, watch:36, bracelet:32, waist_chain:6 }[item.kind] ?? 0), 0);
   const cues: OutfitIdentityCue[] = [
     { id: `garment_${garmentType}`, salience: analysis.visibleRegions.upperBody ? 0.82 : 0.38, evidence: analysis.observed.clothing, targets: ["torso.front", "arm.left", "arm.right"] },
     { id: `color_${topColor}`, salience: analysis.visibleRegions.upperBody ? 0.92 : 0.42, evidence: analysis.observed.clothing, targets: ["torso.front", "arm.left", "arm.right"] },

@@ -504,6 +504,23 @@ function drawOuter(atlas: RawImage, plan: OutfitPlan): void {
       for (const face of ["front", "right", "left", "back"] as const) for (let x = 0; x < body[face].w; x++) put(atlas, body[face], x, y, shade(c, FACE_SHADE[face] * 0.72));
     } else if (accessory.kind === "hood_string") {
       for (const [x, y] of [[3, 1], [4, 1], [3, 2], [4, 3]] as const) put(atlas, body.front, x, y, c);
+    } else if (accessory.kind === "choker") {
+      for (const x of [2, 3, 4, 5]) put(atlas, body.front, x, 0, x === 3 ? shade(c, 1.12) : c);
+    } else if (accessory.kind === "brooch") {
+      const x = accessory.side === "right" ? 6 : 1;
+      for (const y of [2, 3]) for (const dx of [0, accessory.side === "right" ? -1 : 1]) put(atlas, body.front, x + dx, y, y === 2 ? shade(c, 1.12) : shade(c, .82));
+    } else if (accessory.kind === "watch" || accessory.kind === "bracelet") {
+      const arms = accessory.side === "left" ? ["rightArm"] as const : accessory.side === "right" ? ["leftArm"] as const : ["rightArm", "leftArm"] as const;
+      for (const part of arms) {
+        const arm = CLASSIC_LAYOUT[part].overlay;
+        for (const face of ["front", "back", "left", "right"] as const) for (let x = 0; x < arm[face].w; x++) put(atlas, arm[face], x, 9, c);
+        if (accessory.kind === "watch") for (const x of [1, 2]) for (const y of [8, 9]) put(atlas, arm.front, x, y, y === 8 ? shade(c, 1.18) : shade(c, .65));
+      }
+    } else if (accessory.kind === "waist_chain") {
+      const mirror = (x: number) => accessory.side === "right" ? 7 - x : x;
+      for (const [x, y] of [[0,8], [1,9], [2,10], [3,10]] as const) put(atlas, body.front, mirror(x), y, c);
+      const profile = accessory.side === "right" ? body.left : body.right;
+      put(atlas, profile, accessory.side === "right" ? 0 : profile.w - 1, 8, c);
     } else if (accessory.kind === "wrist_cuff") {
       // One finite wrap at the wrist, leaving the last two hand rows bare.
       // This is accessory topology, independent of the observed sleeve cut.

@@ -73,7 +73,7 @@ export function measureReferenceRenderedQuality(
   if (JSON.stringify(projected) !== JSON.stringify(result.diagnostic.headProportion)) errors.add("head_proportion_contract_changed");
   for (const p of projected.paints) {
     const i = headProportionOffset(p);
-    if (result.atlas.rgba[i + 3] !== foundation.atlas.rgba[i + 3] || p.color.some((v, ch) => result.atlas.rgba[i + ch] !== v)) errors.add("head_proportion_pixel_changed");
+    if (result.atlas.rgba[i + 3] !== (p.layer === "overlay" ? 255 : foundation.atlas.rgba[i + 3]) || p.color.some((v, ch) => result.atlas.rgba[i + ch] !== v)) errors.add("head_proportion_pixel_changed");
     restored.rgba.set(foundation.atlas.rgba.slice(i, i + 4), i);
   }
   const quality = measureReferenceFoundationQuality({ ...result, atlas: restored }, baseline, source, design, style);
@@ -106,7 +106,12 @@ export function measureReferenceRenderedQuality(
       + (Math.min(1, metrics.irisToneSeparation / 384) - Math.min(1, quality.metrics.irisToneSeparation / 384)) * 6;
   }
   const oldHair = new Set(foundation.diagnostic.surfaces.filter(p => p.part === "head" && p.layer === "base" && p.owner === "hair").map(p => headProportionOffset(p)));
-  metrics.actualBaseHairCells += projected.paints.filter(p => p.role === "hair" && !oldHair.has(headProportionOffset(p))).length;
+  metrics.actualBaseHairCells += projected.paints.filter(p => !p.layer && p.role === "hair" && !oldHair.has(headProportionOffset(p))).length;
+  const raised = projected.paints.filter(p => p.layer === "overlay");
+  const added = raised.filter(p => !foundation.atlas.rgba[headProportionOffset(p) + 3]).length;
+  metrics.actualOuterHairCells += added;
+  metrics.outerCoverage = { ...metrics.outerCoverage, head: metrics.outerCoverage.head + added / 384 };
+  if (metrics.outerCoverage.head > REFERENCE_OUTER_COVERAGE.head || metrics.actualOuterHairCells > metrics.actualBaseHairCells) errors.add("hair_relief_budget_exceeded");
   return { ...quality, faceContract, metrics, score: Math.round(score * 1000) / 1000, constructionValid: !errors.size, violations: [...errors].sort() };
 }
 
