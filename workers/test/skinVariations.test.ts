@@ -19,11 +19,12 @@ const regions: VariationRegion[] = ["head", "upper", "lower"];
 const offset = (p: { x: number; y: number }) => (p.y * 64 + p.x) * 4;
 
 describe("mix and match atlas", () => {
-  it("has original/current and four independent local alternatives for every part", () => {
+  it("has original/current plus six hair finishes and ten outfits per clothing region", () => {
     const options = createSkinVariations(original, current);
     for (const region of regions) {
-      expect(options[region]).toHaveLength(6);
-      expect(new Set(options[region].map((o) => o.id)).size).toBe(6);
+      const count = region === "head" ? 8 : 12;
+      expect(options[region]).toHaveLength(count);
+      expect(new Set(options[region].map((o) => o.id)).size).toBe(count);
       expect(options[region][0].pixels).toEqual(current);
       expect(options[region][1].pixels).toEqual(original);
       expect(options[region][0].pixels).not.toBe(current);
@@ -59,7 +60,11 @@ describe("mix and match atlas", () => {
         expect(result.subarray(0, 4)).toEqual(current.subarray(0, 4));
       }
     const upper = replaceSkinRegion(current, options.upper[2].pixels, "upper");
-    expect(upper[offset(L.body.overlay.front) + 3]).toBe(0);
+    expect(
+      upper[
+        offset({ x: L.body.overlay.front.x, y: L.body.overlay.front.y + 4 }) + 3
+      ],
+    ).toBe(0);
   });
   it("preserves front facial pixels and accessories below the hair editing zone", () => {
     for (const option of createSkinVariations(original, current).head.slice(2))
@@ -74,14 +79,17 @@ describe("mix and match atlas", () => {
           }
       }
   });
-  it("connects edited hair front corners to the side overlay", () => {
+  it("does not introduce changes at original hair front/side seams", () => {
     for (const option of createSkinVariations(original, current).head.slice(2))
       for (const seam of getBoxUvSeams(L.head.overlay).vertical.slice(0, 2)) {
         for (let y = 0; y < 2; y++) {
           const a = offset(seam.primary[y]),
             b = offset(seam.adjacent[y]);
           expect(option.pixels.subarray(a, a + 4)).toEqual(
-            option.pixels.subarray(b, b + 4),
+            original.subarray(a, a + 4),
+          );
+          expect(option.pixels.subarray(b, b + 4)).toEqual(
+            original.subarray(b, b + 4),
           );
         }
       }

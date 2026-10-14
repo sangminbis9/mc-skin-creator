@@ -11,6 +11,7 @@ import {
   partAt,
   type PartGroup,
 } from "../lib/skinAtlas";
+import type { VariationHints } from "../lib/hairVariations";
 
 const BASE_RECTS = Object.values(CLASSIC_LAYOUT).flatMap((layout) =>
   Object.values(layout.base),
@@ -22,6 +23,7 @@ const MAX_HISTORY = 60;
 
 export class SkinDocument {
   readonly canvas: HTMLCanvasElement;
+  readonly variationHints: Readonly<VariationHints>;
   private ctx: CanvasRenderingContext2D;
   /** AI 생성 원본 — 지우개는 base 레이어를 원본으로 되돌린다 */
   private original: ImageData;
@@ -31,7 +33,8 @@ export class SkinDocument {
   private strokeSnapshot: ImageData | null = null;
   private strokeChanged = false;
 
-  constructor(source: HTMLCanvasElement) {
+  constructor(source: HTMLCanvasElement, hints: VariationHints = {}) {
+    this.variationHints = Object.freeze({ ...hints });
     this.canvas = createSkinCanvas();
     const ctx = this.canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) {

@@ -849,6 +849,38 @@ canvas.px-pixelated {
 .variation-card:hover {
   border-color: var(--px-grass);
 }
+.variation-view-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+.variation-view-row > span {
+  font-size: 11px;
+  color: var(--px-ink-soft);
+}
+.variation-view-row .studio-segment button {
+  padding: 8px 12px;
+  min-height: 40px;
+  font-size: 11px;
+}
+.variation-detail,
+.variation-protection {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--px-ink-soft);
+  padding: 10px 0;
+}
+.variation-protection {
+  padding: 12px;
+  background: var(--px-dirt);
+  border-left: 3px solid var(--px-gold-dark);
+}
+.variation-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 @media (max-width: 700px) {
   .inventory-viewport {
     height: 240px;

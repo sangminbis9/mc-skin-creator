@@ -160,7 +160,7 @@ function App() {
               setStep("failed");
               return;
             }
-            setDoc(new SkinDocument(decoded));
+            setDoc(new SkinDocument(decoded, result.features));
             setSkinVersion(0);
             setStep("preview");
           }}

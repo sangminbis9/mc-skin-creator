@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { SkinDocument } from "../editor/editorState";
-import { pixelsToSkinCanvas } from "../lib/skinAtlas";
+import { CLASSIC_LAYOUT, pixelsToSkinCanvas } from "../lib/skinAtlas";
 import { renderSkinPortrait } from "../lib/skinPortrait";
 import {
   createSkinVariations,
@@ -15,7 +15,7 @@ const REGIONS: { id: VariationRegion; label: string; note: string }[] = [
   {
     id: "head",
     label: "머리",
-    note: "눈·코·입은 유지하고 헤어 윗부분과 옆·뒷면을 바꿔요. 원본의 긴 머리나 액세서리는 일부 남을 수 있어요.",
+    note: "생성 원본의 길이·가르마·앞머리를 유지하며 결·명암·볼륨만 조절해요. 사진 자체를 다시 분석하지는 않아요.",
   },
   {
     id: "upper",
@@ -28,8 +28,31 @@ const REGIONS: { id: VariationRegion; label: string; note: string }[] = [
     note: "양다리와 신발을 함께 바꿔요. 사진에 하의가 없어도 직접 선택할 수 있어요.",
   },
 ];
-function thumbnail(option: SkinVariation, region: VariationRegion): string {
-  const portrait = renderSkinPortrait(pixelsToSkinCanvas(option.pixels));
+type ThumbnailView = "front" | "right" | "back";
+function thumbnail(
+  option: SkinVariation,
+  region: VariationRegion,
+  view: ThumbnailView,
+): string {
+  const skin = pixelsToSkinCanvas(option.pixels);
+  const portrait = renderSkinPortrait(skin);
+  if (view !== "front") {
+    const ctx = portrait.getContext("2d")!;
+    ctx.clearRect(0, 0, 16, 32);
+    const placements = [
+      ["head", 4, 0],
+      ["body", 4, 8],
+      ["rightArm", 0, 8],
+      ["leftArm", 12, 8],
+      ["rightLeg", 4, 20],
+      ["leftLeg", 8, 20],
+    ] as const;
+    for (const layer of ["base", "overlay"] as const)
+      for (const [part, x, y] of placements) {
+        const r = CLASSIC_LAYOUT[part][layer][view];
+        ctx.drawImage(skin, r.x, r.y, r.w, r.h, x, y, r.w, r.h);
+      }
+  }
   const canvas = document.createElement("canvas");
   canvas.width = 80;
   canvas.height = 80;
@@ -71,16 +94,20 @@ export function SkinVariationPicker({
 }) {
   const [session] = useState(() => {
     const current = doc.getPixels();
-    const options = createSkinVariations(doc.getOriginalPixels(), current);
-    const images = Object.fromEntries(
-      REGIONS.map(({ id }) => [
-        id,
-        options[id].map((option) => thumbnail(option, id)),
-      ]),
-    ) as Record<VariationRegion, string[]>;
-    return { current, options, images };
+    const options = createSkinVariations(
+      doc.getOriginalPixels(),
+      current,
+      doc.variationHints,
+    );
+    return { current, options };
   });
   const [region, setRegion] = useState<VariationRegion>("head");
+  const [view, setView] = useState<ThumbnailView>("front");
+  const images = useMemo(
+    () =>
+      session.options[region].map((option) => thumbnail(option, region, view)),
+    [session, region, view],
+  );
   const [selected, setSelected] = useState<Record<VariationRegion, string>>({
     head: "current",
     upper: "current",
@@ -110,6 +137,14 @@ export function SkinVariationPicker({
     setSelected(next);
     onPreview(pixelsToSkinCanvas(compose(next)));
   };
+  const activeOption = session.options[region].find(
+    (option) => option.id === selected[region],
+  )!;
+  const protectionReason =
+    region === "head"
+      ? session.options.head.find((option) => option.disabledReason)
+          ?.disabledReason
+      : undefined;
 
   return (
     <section className="variation-panel" aria-label="스킨 조합 작업실">
@@ -134,6 +169,32 @@ export function SkinVariationPicker({
       <p className="variation-note">
         {REGIONS.find(({ id }) => id === region)!.note}
       </p>
+      {protectionReason && (
+        <p className="variation-protection" role="status">
+          {protectionReason}
+        </p>
+      )}
+      <div className="variation-view-row">
+        <span>후보 단면 보기</span>
+        <div className="studio-segment" aria-label="후보 이미지 방향">
+          {(
+            [
+              ["front", "정면"],
+              ["right", "옆면"],
+              ["back", "뒷면"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              type="button"
+              key={id}
+              aria-pressed={view === id}
+              onClick={() => setView(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div
         className="variation-grid"
         aria-label={`${REGIONS.find(({ id }) => id === region)!.label} 후보`}
@@ -143,22 +204,26 @@ export function SkinVariationPicker({
             type="button"
             className="variation-card"
             key={option.id}
+            disabled={Boolean(option.disabledReason)}
+            title={option.disabledReason ?? option.description}
             aria-pressed={selected[region] === option.id}
             onClick={() => choose({ ...selected, [region]: option.id })}
           >
-            <img
-              src={session.images[region][index]}
-              alt=""
-              width={80}
-              height={80}
-            />
+            <img src={images[index]} alt="" width={80} height={80} />
             <span>{option.label}</span>
             <small>
-              {selected[region] === option.id ? "✓ 선택됨" : "미리보기"}
+              {option.disabledReason
+                ? "원본 보호"
+                : selected[region] === option.id
+                  ? "✓ 선택됨"
+                  : "미리보기"}
             </small>
           </button>
         ))}
       </div>
+      <p className="variation-detail" role="status">
+        {activeOption.label} — {activeOption.description}
+      </p>
       <p className="variation-selection" role="status">
         {selectedLabels}
       </p>
