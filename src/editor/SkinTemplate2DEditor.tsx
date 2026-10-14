@@ -48,7 +48,7 @@ export function SkinTemplate2DEditor({
     // 투명 체커보드
     for (let y = 0; y < ATLAS_SIZE; y++) {
       for (let x = 0; x < ATLAS_SIZE; x++) {
-        ctx.fillStyle = (x + y) % 2 === 0 ? "#eae4d4" : "#f6f1e3";
+        ctx.fillStyle = (x + y) % 2 === 0 ? "#25352b" : "#1b281f";
         ctx.fillRect(x * zoom, y * zoom, zoom, zoom);
       }
     }
@@ -89,7 +89,12 @@ export function SkinTemplate2DEditor({
     ctx.strokeStyle = "rgba(77, 157, 224, 0.8)";
     ctx.lineWidth = 2;
     for (const rect of rectsOfGroup(group)) {
-      ctx.strokeRect(rect.x * zoom, rect.y * zoom, rect.w * zoom, rect.h * zoom);
+      ctx.strokeRect(
+        rect.x * zoom,
+        rect.y * zoom,
+        rect.w * zoom,
+        rect.h * zoom,
+      );
     }
   }, [doc, zoom, group]);
 
@@ -107,8 +112,12 @@ export function SkinTemplate2DEditor({
 
     const atlasPixel = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const x = Math.floor(((event.clientX - rect.left) / rect.width) * ATLAS_SIZE);
-      const y = Math.floor(((event.clientY - rect.top) / rect.height) * ATLAS_SIZE);
+      const x = Math.floor(
+        ((event.clientX - rect.left) / rect.width) * ATLAS_SIZE,
+      );
+      const y = Math.floor(
+        ((event.clientY - rect.top) / rect.height) * ATLAS_SIZE,
+      );
       if (x < 0 || y < 0 || x >= ATLAS_SIZE || y >= ATLAS_SIZE) {
         return null;
       }
@@ -116,8 +125,12 @@ export function SkinTemplate2DEditor({
     };
 
     const applyTool = (px: { x: number; y: number }) => {
-      const { tool: t, color: c, group: g, onPickColor: pick } =
-        stateRef.current;
+      const {
+        tool: t,
+        color: c,
+        group: g,
+        onPickColor: pick,
+      } = stateRef.current;
       if (t === "pen") {
         doc.paint(px.x, px.y, c, g);
       } else if (t === "eraser") {
@@ -182,9 +195,9 @@ export function SkinTemplate2DEditor({
         style={{
           overflow: "auto",
           maxHeight: 340,
-          border: "3px solid var(--px-ink)",
-          borderRadius: 2,
-          background: "#f6f1e3",
+          border: "1px solid var(--studio-border)",
+          borderRadius: 8,
+          background: "#1b281f",
           WebkitOverflowScrolling: "touch",
         }}
       >
@@ -193,7 +206,12 @@ export function SkinTemplate2DEditor({
           width={size}
           height={size}
           className="px-pixelated"
-          style={{ width: size, height: size, touchAction: "none", display: "block" }}
+          style={{
+            width: size,
+            height: size,
+            touchAction: "none",
+            display: "block",
+          }}
           aria-label="2D 스킨 템플릿 편집기"
         />
       </div>

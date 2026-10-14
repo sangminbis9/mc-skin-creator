@@ -5,23 +5,20 @@
 
 import { lazy, Suspense, useEffect, useState } from "react";
 import { JumpBlocks } from "./components/pixel/JumpBlocks";
+import { StudioIcon } from "./components/StudioIcon";
 import { SkinDocument } from "./editor/editorState";
 import { decodeSkinPng } from "./lib/skinDecode";
 import type { PreparedPhotoUpload } from "./lib/imageQuality";
 import type { SkinGeometry } from "./lib/skinAtlas";
-import type { QuotaStatus } from "./lib/skinFeatures";
+import { normalizeFeatures, type QuotaStatus } from "./lib/skinFeatures";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { ApplyGuidePage } from "./pages/ApplyGuidePage";
 import { DownloadPage } from "./pages/DownloadPage";
 import { FailurePage } from "./pages/FailurePage";
-import {
-  GeneratingPage,
-  type GenerationFailure,
-} from "./pages/GeneratingPage";
+import { GeneratingPage, type GenerationFailure } from "./pages/GeneratingPage";
 import { PrivacyPage } from "./pages/PrivacyPage";
 import { QualityCheckPage } from "./pages/QualityCheckPage";
 import { QuotaClosedPage } from "./pages/QuotaClosedPage";
-import { SamplePopup } from "./pages/SamplePopup";
 import { SharePage } from "./pages/SharePage";
 import { UploadPage } from "./pages/UploadPage";
 
@@ -44,8 +41,6 @@ type Step =
   | "guide"
   | "failed"
   | "closed";
-
-const SAMPLE_SEEN_KEY = "mcsc_sample_seen";
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash);
@@ -70,9 +65,11 @@ function App() {
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [skinGeometry, setSkinGeometry] = useState<SkinGeometry>("classic");
-  const [showSample, setShowSample] = useState(
-    () => sessionStorage.getItem(SAMPLE_SEEN_KEY) === null,
-  );
+  const [isSample, setIsSample] = useState(false);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [step, hash]);
 
   // 편집 내용 → 미리보기 텍스처 갱신
   useEffect(() => {
@@ -97,9 +94,27 @@ function App() {
     );
   }
 
-  const dismissSample = () => {
-    sessionStorage.setItem(SAMPLE_SEEN_KEY, "1");
-    setShowSample(false);
+  const showSample = async () => {
+    const { generateSkinFromFeatures } = await import("./lib/skinFromFeatures");
+    setDoc(
+      new SkinDocument(
+        generateSkinFromFeatures(
+          normalizeFeatures({
+            skinTone: "#efc7a6",
+            hairColor: "#292821",
+            hairstyle: "short",
+            topType: "jacket",
+            topColor: "#586d47",
+            topAccentColor: "#202820",
+            bottomType: "pants",
+            bottomColor: "#292d29",
+            shoesColor: "#e2e5d9",
+          }),
+        ),
+      ),
+    );
+    setIsSample(true);
+    setStep("preview");
   };
 
   const resetToUpload = () => {
@@ -109,14 +124,16 @@ function App() {
     setRetryCount(0);
     setCapturedImage(null);
     setSkinGeometry("classic");
+    setIsSample(false);
     setStep("upload");
   };
 
   return (
-    <Shell>
+    <Shell step={step}>
       {step === "upload" && (
         <>
           <UploadPage
+            onShowSample={showSample}
             onPhotoSelected={(preparedPhotos) => {
               setPhotos(preparedPhotos);
               setStep("quality");
@@ -125,11 +142,6 @@ function App() {
               setQuota(q);
               setStep("closed");
             }}
-          />
-          <SamplePopup
-            open={showSample}
-            onStart={dismissSample}
-            onClose={dismissSample}
           />
         </>
       )}
@@ -156,7 +168,11 @@ function App() {
               ? await decodeSkinPng(result.skinPngBase64)
               : null;
             if (!decoded) {
-              setFailure({ kind: "ai", message: "스킨 PNG를 읽지 못했어요.", retryable: false });
+              setFailure({
+                kind: "ai",
+                message: "스킨 PNG를 읽지 못했어요.",
+                retryable: false,
+              });
               setStep("failed");
               return;
             }
@@ -178,8 +194,17 @@ function App() {
       {step === "failed" && failure && (
         <FailurePage
           failure={failure}
-          canRetry={retryCount < 2 && failure.retryable !== false && failure.kind !== "photo"}
-          onRetry={() => { if (retryCount < 2 && failure.retryable !== false) { setRetryCount(retryCount + 1); setStep("generating"); } }}
+          canRetry={
+            retryCount < 2 &&
+            failure.retryable !== false &&
+            failure.kind !== "photo"
+          }
+          onRetry={() => {
+            if (retryCount < 2 && failure.retryable !== false) {
+              setRetryCount(retryCount + 1);
+              setStep("generating");
+            }
+          }}
           onReselect={resetToUpload}
         />
       )}
@@ -191,6 +216,7 @@ function App() {
       {step === "preview" && doc && (
         <Suspense fallback={<LoadingScreen />}>
           <PreviewPage
+            isSample={isSample}
             doc={doc}
             skinVersion={skinVersion}
             onEdit={() => setStep("editor")}
@@ -209,7 +235,11 @@ function App() {
 
       {step === "editor" && doc && (
         <Suspense fallback={<LoadingScreen />}>
-          <EditorPage doc={doc} onDone={() => setStep("preview")} />
+          <EditorPage
+            doc={doc}
+            geometry={skinGeometry}
+            onDone={() => setStep("preview")}
+          />
         </Suspense>
       )}
 
@@ -242,18 +272,47 @@ function App() {
 
 function LoadingScreen() {
   return (
-    <div className="px-screen px-screen--center" style={{ alignItems: "center" }}>
+    <div
+      className="px-screen px-screen--center"
+      style={{ alignItems: "center" }}
+    >
       <JumpBlocks />
     </div>
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children, step }: { children: React.ReactNode; step?: Step }) {
+  const active =
+    step === "upload" || step === "quality"
+      ? 0
+      : step === "generating" || step === "failed" || step === "closed"
+        ? 1
+        : 2;
   return (
-    <>
-      <div className="px-grass-strip" aria-hidden="true" />
-      {children}
-    </>
+    <div className="studio-shell">
+      <header className="studio-header">
+        <div className="studio-brand">
+          <StudioIcon name="cube" />
+          마크 스킨 스튜디오
+        </div>
+        <span className="studio-header-note">YOUR NEXT CHARACTER.</span>
+      </header>
+      {step && (
+        <ol className="studio-steps" aria-label="스킨 만들기 진행 단계">
+          {["사진 선택", "스킨 생성", "완성"].map((label, i) => (
+            <li key={label} aria-current={active === i ? "step" : undefined}>
+              <span>{i + 1}</span>
+              {label}
+            </li>
+          ))}
+        </ol>
+      )}
+      <main>{children}</main>
+      <footer className="studio-footer">
+        <span>나만의 모습으로, 새로운 세계로.</span>
+        <a href="#/privacy">개인정보 처리 안내</a>
+      </footer>
+    </div>
   );
 }
 

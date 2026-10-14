@@ -38,7 +38,7 @@ export function createSkinScene(
   scene.background = null;
 
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
-  camera.position.set(0, CAMERA_HEIGHT, CAMERA_RADIUS);
+  camera.position.set(CAMERA_RADIUS * 0.42, 8, CAMERA_RADIUS * 0.91);
 
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
@@ -111,5 +111,14 @@ export function createSkinScene(
     renderer.domElement.remove();
   };
 
-  return { renderer, camera, controls, model, render, setView, resize, dispose };
+  return {
+    renderer,
+    camera,
+    controls,
+    model,
+    render,
+    setView,
+    resize,
+    dispose,
+  };
 }

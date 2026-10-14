@@ -3,7 +3,7 @@ import { defineConfig } from "@apps-in-toss/web-framework/config";
 export default defineConfig({
   appName: "mc-skin-creator",
   brand: {
-    primaryColor: "#5BB544",
+    primaryColor: "#b6ed78",
   },
   permissions: [
     {

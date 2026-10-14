@@ -4,13 +4,14 @@
 
 import { useRef } from "react";
 import { PixelButton } from "../components/pixel/PixelButton";
-import { PixelPanel } from "../components/pixel/PixelPanel";
+import { StudioIcon } from "../components/StudioIcon";
 import type { SkinDocument } from "../editor/editorState";
 import { SkinViewer3D } from "../editor/SkinViewer3D";
 import type { SkinScene } from "../editor/skinScene";
 import type { SkinGeometry } from "../lib/skinAtlas";
 
 interface PreviewPageProps {
+  isSample?: boolean;
   doc: SkinDocument;
   skinVersion: number;
   onEdit: () => void;
@@ -23,6 +24,7 @@ interface PreviewPageProps {
 }
 
 export function PreviewPage({
+  isSample = false,
   doc,
   skinVersion,
   onEdit,
@@ -51,60 +53,71 @@ export function PreviewPage({
 
   return (
     <div className="px-screen">
-      <h1 className="px-title" style={{ textAlign: "center" }}>
-        내 스킨 완성! 🎉
+      <h1 className="px-title">
+        {isSample ? "스킨을 먼저 경험해보세요." : "나만의 스킨, 완성."}
       </h1>
-      <p className="px-subtitle" style={{ textAlign: "center" }}>
-        돌려보고, 마음에 안 드는 부분은 직접 고칠 수 있어요
+      <p className="px-subtitle">
+        {isSample
+          ? "체험용 샘플이에요. 돌려보고 직접 편집해보세요."
+          : "돌려보고, 마지막 디테일까지 다듬어보세요."}
       </p>
-
-      <PixelPanel tone="sky" style={{ padding: 8 }}>
+      <div className="studio-stage">
         <div
-          className="px-row"
-          style={{ justifyContent: "center", marginBottom: 8 }}
+          className="studio-segment studio-geometry"
           aria-label="팔 모델 선택"
         >
-          <button
-            type="button"
-            className={`px-btn px-btn--small ${geometry === "classic" ? "" : "px-btn--ghost"}`}
-            aria-pressed={geometry === "classic"}
-            onClick={() => onGeometryChange("classic")}
-          >
-            Classic 팔 (4px)
-          </button>
-          <button
-            type="button"
-            className={`px-btn px-btn--small ${geometry === "slim" ? "" : "px-btn--ghost"}`}
-            aria-pressed={geometry === "slim"}
-            onClick={() => onGeometryChange("slim")}
-          >
-            Slim 팔 (3px)
-          </button>
+          {(["classic", "slim"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={geometry === value}
+              onClick={() => onGeometryChange(value)}
+            >
+              {value === "classic" ? "Classic · 4px" : "Slim · 3px"}
+            </button>
+          ))}
         </div>
         <SkinViewer3D
           skinCanvas={doc.canvas}
           version={skinVersion}
-          height={300}
+          height={320}
           geometry={geometry}
           onReady={(scene) => {
             sceneRef.current = scene;
           }}
         />
-      </PixelPanel>
-
-      <PixelButton onClick={onEdit}>✏️ 편집하기</PixelButton>
-      <PixelButton variant="gold" onClick={onDownload}>
-        ⬇️ PNG 다운로드
-      </PixelButton>
-      <PixelButton variant="ghost" onClick={handleShare}>
-        📤 공유하기
-      </PixelButton>
-      <PixelButton variant="stone" onClick={onApplyGuide}>
-        🎮 마크에 적용하기
-      </PixelButton>
-      <PixelButton variant="ghost" onClick={onCreateAnother}>
-        🔄 다른 사진으로 다시 만들기
-      </PixelButton>
+      </div>
+      <div className="studio-actions">
+        <PixelButton className="studio-primary" onClick={onDownload}>
+          <StudioIcon name="download" />
+          PNG 다운로드
+        </PixelButton>
+        <PixelButton variant="ghost" onClick={onEdit}>
+          <StudioIcon name="edit" />
+          스킨 편집
+        </PixelButton>
+        <PixelButton variant="ghost" onClick={handleShare}>
+          <StudioIcon name="share" />
+          공유하기
+        </PixelButton>
+        <PixelButton
+          variant="ghost"
+          className="studio-wide"
+          onClick={onApplyGuide}
+        >
+          <StudioIcon name="game" />
+          마인크래프트에 적용하기
+          <StudioIcon name="arrow" size={16} />
+        </PixelButton>
+      </div>
+      <button
+        className="studio-text-btn"
+        type="button"
+        onClick={onCreateAnother}
+      >
+        <StudioIcon name="refresh" size={16} />
+        {isSample ? "내 사진으로 만들기" : "다른 사진으로 만들기"}
+      </button>
     </div>
   );
 }

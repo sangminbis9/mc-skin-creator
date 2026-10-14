@@ -3,6 +3,7 @@
  */
 
 import { useState } from "react";
+import { StudioIcon } from "../components/StudioIcon";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelPanel } from "../components/pixel/PixelPanel";
 import type { SkinDocument } from "../editor/editorState";
@@ -46,7 +47,7 @@ export function DownloadPage({
   const downloadAll = async () => {
     for (const format of ["java-classic", "java-slim", "bedrock"] as const) {
       // 저장 다이얼로그가 겹치지 않도록 순차 실행
-       
+
       await download(format);
     }
     setSavedMessage("3개 파일 모두 저장 완료!");
@@ -55,8 +56,13 @@ export function DownloadPage({
   return (
     <div className="px-screen">
       <div className="px-row">
-        <button type="button" className="px-tool" aria-label="뒤로" onClick={onBack}>
-          ←
+        <button
+          type="button"
+          className="px-tool"
+          aria-label="뒤로"
+          onClick={onBack}
+        >
+          <StudioIcon name="back" />
         </button>
         <h1 className="px-title" style={{ fontSize: 19 }}>
           PNG 다운로드
@@ -65,11 +71,10 @@ export function DownloadPage({
 
       <PixelPanel>
         <p style={{ margin: 0, fontSize: 13, lineHeight: 1.8 }}>
-          🎮 <b>Java Edition</b>은 팔 두께에 따라 Classic(4px) /
-          Slim(3px) 중 골라주세요.
+          <b>Java Edition</b>은 팔 두께에 따라 Classic(4px) / Slim(3px) 중
+          골라주세요.
           <br />
-          📱 <b>Bedrock Edition</b>(모바일/콘솔)은 Bedrock용 파일을 받으면
-          돼요.
+          <b>Bedrock Edition</b>(모바일/콘솔)은 Bedrock용 파일을 받으면 돼요.
         </p>
       </PixelPanel>
 
@@ -95,7 +100,11 @@ export function DownloadPage({
       {savedMessage && (
         <p
           className="px-caption"
-          style={{ textAlign: "center", margin: 0, color: "var(--px-grass-dark)" }}
+          style={{
+            textAlign: "center",
+            margin: 0,
+            color: "var(--px-grass-dark)",
+          }}
         >
           ✅ {savedMessage}
         </p>

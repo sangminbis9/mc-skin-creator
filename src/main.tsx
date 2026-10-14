@@ -1,16 +1,12 @@
-import { TDSMobileAITProvider } from "@toss/tds-mobile-ait";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import config from "../apps-in-toss.config.ts";
 import App from "./App.tsx";
 import "./index.css";
-import "./styles/pixel.css";
+import "./styles/studio.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <TDSMobileAITProvider brandPrimaryColor={config.brand.primaryColor}>
-      <App />
-    </TDSMobileAITProvider>
+    <App />
   </StrictMode>,
 );

@@ -5,12 +5,17 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { ATLAS_SIZE, type PartGroup } from "../lib/skinAtlas";
+import {
+  ATLAS_SIZE,
+  type PartGroup,
+  type SkinGeometry,
+} from "../lib/skinAtlas";
 import type { SkinDocument, Tool } from "./editorState";
 import { createSkinScene, type SkinScene } from "./skinScene";
 
 interface SkinPainter3DProps {
   doc: SkinDocument;
+  geometry?: SkinGeometry;
   tool: Tool;
   color: string;
   group: PartGroup;
@@ -22,6 +27,7 @@ interface SkinPainter3DProps {
 
 export function SkinPainter3D({
   doc,
+  geometry = "classic",
   tool,
   color,
   group,
@@ -41,7 +47,7 @@ export function SkinPainter3D({
     if (!container) {
       return;
     }
-    const scene = createSkinScene(container, doc.canvas);
+    const scene = createSkinScene(container, doc.canvas, geometry);
     sceneRef.current = scene;
 
     const unsubscribe = doc.subscribe(() => {
@@ -84,8 +90,12 @@ export function SkinPainter3D({
     };
 
     const applyTool = (px: { x: number; y: number }) => {
-      const { tool: t, color: c, group: g, onPickColor: pick } =
-        stateRef.current;
+      const {
+        tool: t,
+        color: c,
+        group: g,
+        onPickColor: pick,
+      } = stateRef.current;
       if (t === "pen") {
         doc.paint(px.x, px.y, c, g);
       } else if (t === "eraser") {
@@ -144,8 +154,7 @@ export function SkinPainter3D({
       sceneRef.current = null;
       scene.dispose();
     };
-     
-  }, [doc]);
+  }, [doc, geometry]);
 
   // 회전 모드 전환
   useEffect(() => {

@@ -3,6 +3,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { StudioIcon } from "../components/StudioIcon";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelPanel } from "../components/pixel/PixelPanel";
 import type { SkinDocument } from "../editor/editorState";
@@ -42,8 +43,13 @@ export function SharePage({ doc, capturedImage, onBack }: SharePageProps) {
   return (
     <div className="px-screen">
       <div className="px-row">
-        <button type="button" className="px-tool" aria-label="뒤로" onClick={onBack}>
-          ←
+        <button
+          type="button"
+          className="px-tool"
+          aria-label="뒤로"
+          onClick={onBack}
+        >
+          <StudioIcon name="back" />
         </button>
         <h1 className="px-title" style={{ fontSize: 19 }}>
           친구에게 자랑하기

@@ -2,7 +2,7 @@
  * 3D 스킨 미리보기: 회전/확대축소 + 앞/뒤/왼쪽/오른쪽 보기 버튼.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SkinGeometry } from "../lib/skinAtlas";
 import type { SkinScene, ViewDirection } from "./skinScene";
 import { createSkinScene } from "./skinScene";
@@ -33,6 +33,7 @@ export function SkinViewer3D({
 }: SkinViewer3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SkinScene | null>(null);
+  const [view, setView] = useState<ViewDirection | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -40,10 +41,14 @@ export function SkinViewer3D({
       return;
     }
     const scene = createSkinScene(container, skinCanvas, geometry);
+    setView(null);
     sceneRef.current = scene;
+    const onRotate = () => setView(null);
+    scene.controls.addEventListener("start", onRotate);
     onReady?.(scene);
     return () => {
       sceneRef.current = null;
+      scene.controls.removeEventListener("start", onRotate);
       scene.dispose();
     };
     // skinCanvas 인스턴스가 바뀌면 장면을 다시 만든다
@@ -65,13 +70,17 @@ export function SkinViewer3D({
         style={{ height, position: "relative" }}
         aria-label="3D 스킨 미리보기"
       />
-      <div className="px-row" style={{ justifyContent: "center" }}>
+      <p className="studio-view-hint">드래그하여 회전 · 두 손가락으로 확대</p>
+      <div className="studio-segment" aria-label="미리보기 방향">
         {VIEWS.map(({ key, label }) => (
           <button
             key={key}
             type="button"
-            className="px-btn px-btn--ghost px-btn--small"
-            onClick={() => sceneRef.current?.setView(key)}
+            aria-pressed={view === key}
+            onClick={() => {
+              sceneRef.current?.setView(key);
+              setView(key);
+            }}
           >
             {label}
           </button>

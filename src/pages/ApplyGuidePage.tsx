@@ -4,6 +4,7 @@
  */
 
 import { useState } from "react";
+import { StudioIcon } from "../components/StudioIcon";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelPanel } from "../components/pixel/PixelPanel";
 
@@ -37,8 +38,13 @@ export function ApplyGuidePage({ onBack, onDownload }: ApplyGuidePageProps) {
   return (
     <div className="px-screen">
       <div className="px-row">
-        <button type="button" className="px-tool" aria-label="뒤로" onClick={onBack}>
-          ←
+        <button
+          type="button"
+          className="px-tool"
+          aria-label="뒤로"
+          onClick={onBack}
+        >
+          <StudioIcon name="back" />
         </button>
         <h1 className="px-title" style={{ fontSize: 19 }}>
           마크에 적용하기
@@ -52,7 +58,7 @@ export function ApplyGuidePage({ onBack, onDownload }: ApplyGuidePageProps) {
           style={{ flex: 1 }}
           onClick={() => setEdition("java")}
         >
-          🎮 Java Edition
+          Java Edition
         </button>
         <button
           type="button"
@@ -60,7 +66,7 @@ export function ApplyGuidePage({ onBack, onDownload }: ApplyGuidePageProps) {
           style={{ flex: 1 }}
           onClick={() => setEdition("bedrock")}
         >
-          📱 Bedrock Edition
+          Bedrock Edition
         </button>
       </div>
 

@@ -124,7 +124,8 @@ export function GeneratingPage({
             const reason = error.response?.failReason ?? "unknown";
             onFail({
               kind: "photo",
-              message: PHOTO_FAIL_MESSAGES[reason] ?? PHOTO_FAIL_MESSAGES.unknown,
+              message:
+                PHOTO_FAIL_MESSAGES[reason] ?? PHOTO_FAIL_MESSAGES.unknown,
             });
             return;
           }
@@ -135,7 +136,10 @@ export function GeneratingPage({
             });
             return;
           }
-          if (error.code === "rate_limited" || error.code === "provider_unavailable") {
+          if (
+            error.code === "rate_limited" ||
+            error.code === "provider_unavailable"
+          ) {
             onFail({
               kind: "ai",
               message: "AI 요청이 잠시 몰렸어요. 잠시 후 다시 시도해 주세요.",
@@ -165,11 +169,19 @@ export function GeneratingPage({
 
   return (
     <div className="px-screen">
+      <h1 className="px-title">블록 속의 나를 만드는 중.</h1>
+      <p className="px-subtitle">
+        사진의 특징을 살펴보고 스킨을 완성하고 있어요.
+      </p>
       <AdLoadingPanel />
 
       <div className="px-spacer" />
 
-      <div className="px-col" style={{ alignItems: "center", gap: 18 }}>
+      <div
+        className="px-col studio-status"
+        role="status"
+        style={{ alignItems: "center", gap: 18 }}
+      >
         <div className="px-jump-blocks" aria-hidden="true">
           <span />
           <span />
