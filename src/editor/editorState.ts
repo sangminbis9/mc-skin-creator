@@ -55,6 +55,31 @@ export class SkinDocument {
     return this.ctx.getImageData(0, 0, ATLAS_SIZE, ATLAS_SIZE);
   }
 
+  /** Defensive copies keep the generation baseline independent of mix-and-match drafts. */
+  getOriginalPixels(): Uint8ClampedArray {
+    return new Uint8ClampedArray(this.original.data);
+  }
+
+  getPixels(): Uint8ClampedArray {
+    return this.snapshot().data;
+  }
+
+  /** Commit an entire draft as a single undoable edit. */
+  applyComposition(pixels: Uint8ClampedArray): void {
+    if (pixels.length !== ATLAS_SIZE * ATLAS_SIZE * 4)
+      throw new Error("Invalid skin dimensions");
+    this.endStroke();
+    const before = this.snapshot();
+    if (before.data.every((value, i) => value === pixels[i])) return;
+    this.undoStack.push(before);
+    if (this.undoStack.length > MAX_HISTORY) this.undoStack.shift();
+    this.redoStack = [];
+    const next = this.ctx.createImageData(ATLAS_SIZE, ATLAS_SIZE);
+    next.data.set(pixels);
+    this.ctx.putImageData(next, 0, 0);
+    this.notify();
+  }
+
   // ---------- 스트로크 단위 히스토리 ----------
 
   beginStroke(): void {

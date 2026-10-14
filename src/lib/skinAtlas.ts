@@ -3,18 +3,51 @@
  * 모던 포맷(1.8+) 기준이며, 좌표는 모두 픽셀 단위 (x, y, w, h).
  */
 
-import { ALL_PARTS, CLASSIC_LAYOUT as ENGINE_CLASSIC, SLIM_LAYOUT as ENGINE_SLIM, type BodyPart, type BoxUV, type Rect } from "../../shared/skinLayout";
-export { ATLAS_SIZE, ALL_PARTS, MINECRAFT_BOX_FACE_ORDER } from "../../shared/skinLayout";
-export type { BodyPart, BoxUV, Rect, SkinGeometry } from "../../shared/skinLayout";
+import {
+  ALL_PARTS,
+  CLASSIC_LAYOUT as ENGINE_CLASSIC,
+  SLIM_LAYOUT as ENGINE_SLIM,
+  type BodyPart,
+  type BoxUV,
+  type Rect,
+} from "../../shared/skinLayout";
+export {
+  ATLAS_SIZE,
+  ALL_PARTS,
+  MINECRAFT_BOX_FACE_ORDER,
+} from "../../shared/skinLayout";
+export type {
+  BodyPart,
+  BoxUV,
+  Rect,
+  SkinGeometry,
+} from "../../shared/skinLayout";
 import { ATLAS_SIZE } from "../../shared/skinLayout";
 
-export interface PartLayout { size: { w: number; h: number; d: number }; base: BoxUV; overlay: BoxUV }
-const withSize = (layout: typeof ENGINE_CLASSIC) => Object.fromEntries(ALL_PARTS.map(part => {
-  const box = layout[part]; return [part, { ...box, size: { w: box.base.front.w, h: box.base.front.h, d: box.base.top.h } }];
-})) as Record<BodyPart, PartLayout>;
+export interface PartLayout {
+  size: { w: number; h: number; d: number };
+  base: BoxUV;
+  overlay: BoxUV;
+}
+const withSize = (layout: typeof ENGINE_CLASSIC) =>
+  Object.fromEntries(
+    ALL_PARTS.map((part) => {
+      const box = layout[part];
+      return [
+        part,
+        {
+          ...box,
+          size: { w: box.base.front.w, h: box.base.front.h, d: box.base.top.h },
+        },
+      ];
+    }),
+  ) as Record<BodyPart, PartLayout>;
 export const CLASSIC_LAYOUT = withSize(ENGINE_CLASSIC);
 export const SLIM_LAYOUT = withSize(ENGINE_SLIM);
-export const SLIM_ARM_LAYOUT = { rightArm: SLIM_LAYOUT.rightArm, leftArm: SLIM_LAYOUT.leftArm };
+export const SLIM_ARM_LAYOUT = {
+  rightArm: SLIM_LAYOUT.rightArm,
+  leftArm: SLIM_LAYOUT.leftArm,
+};
 
 /** 편집기 부위 필터 그룹 */
 export type PartGroup = "all" | "head" | "body" | "arms" | "legs";
@@ -69,5 +102,18 @@ export function createSkinCanvas(): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = ATLAS_SIZE;
   canvas.height = ATLAS_SIZE;
+  return canvas;
+}
+
+export function pixelsToSkinCanvas(
+  pixels: Uint8ClampedArray,
+): HTMLCanvasElement {
+  if (pixels.length !== ATLAS_SIZE * ATLAS_SIZE * 4)
+    throw new Error("Invalid skin dimensions");
+  const canvas = createSkinCanvas();
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(ATLAS_SIZE, ATLAS_SIZE);
+  image.data.set(pixels);
+  ctx.putImageData(image, 0, 0);
   return canvas;
 }

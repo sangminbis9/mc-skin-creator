@@ -2,7 +2,9 @@
  * 3D 미리보기 화면: 회전/줌/방향 버튼 + 결과 액션 버튼.
  */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { SkinVariationPicker } from "../components/SkinVariationPicker";
+import { pixelsToSkinCanvas } from "../lib/skinAtlas";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { StudioIcon } from "../components/StudioIcon";
 import type { SkinDocument } from "../editor/editorState";
@@ -36,6 +38,13 @@ export function PreviewPage({
   onGeometryChange,
 }: PreviewPageProps) {
   const sceneRef = useRef<SkinScene | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [mixing, setMixing] = useState(false);
+  const [draft, setDraft] = useState<HTMLCanvasElement | null>(null);
+  const draftRef = useRef<HTMLCanvasElement | null>(null);
+  const [draftVersion, setDraftVersion] = useState(0);
+  const [compositionNotice, setCompositionNotice] = useState("");
+  const mixButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handleShare = () => {
     let capture: string | null = null;
@@ -54,14 +63,17 @@ export function PreviewPage({
   return (
     <div className="px-screen">
       <h1 className="px-title">
-        {isSample ? "스킨을 먼저 경험해보세요." : "나만의 스킨, 완성."}
+        {mixing ? "스킨 조합하기" : isSample ? "예시 스킨" : "내 스킨"}
       </h1>
       <p className="px-subtitle">
         {isSample
-          ? "체험용 샘플이에요. 돌려보고 직접 편집해보세요."
-          : "돌려보고, 마지막 디테일까지 다듬어보세요."}
+          ? "예시 스킨으로 조합과 편집을 해보세요."
+          : "모습을 확인하고, 원하는 부분을 바꿔보세요."}
       </p>
-      <div className="studio-stage">
+      <div
+        ref={stageRef}
+        className={`studio-stage${mixing ? " studio-stage--mixing" : ""}`}
+      >
         <div
           className="studio-segment studio-geometry"
           aria-label="팔 모델 선택"
@@ -78,46 +90,101 @@ export function PreviewPage({
           ))}
         </div>
         <SkinViewer3D
-          skinCanvas={doc.canvas}
-          version={skinVersion}
-          height={320}
+          skinCanvas={draft ?? doc.canvas}
+          version={skinVersion + draftVersion}
+          height={mixing ? 220 : 320}
           geometry={geometry}
           onReady={(scene) => {
             sceneRef.current = scene;
           }}
         />
       </div>
-      <div className="studio-actions">
-        <PixelButton className="studio-primary" onClick={onDownload}>
-          <StudioIcon name="download" />
-          PNG 다운로드
-        </PixelButton>
-        <PixelButton variant="ghost" onClick={onEdit}>
-          <StudioIcon name="edit" />
-          스킨 편집
-        </PixelButton>
-        <PixelButton variant="ghost" onClick={handleShare}>
-          <StudioIcon name="share" />
-          공유하기
-        </PixelButton>
-        <PixelButton
-          variant="ghost"
-          className="studio-wide"
-          onClick={onApplyGuide}
-        >
-          <StudioIcon name="game" />
-          마인크래프트에 적용하기
-          <StudioIcon name="arrow" size={16} />
-        </PixelButton>
-      </div>
-      <button
-        className="studio-text-btn"
-        type="button"
-        onClick={onCreateAnother}
-      >
-        <StudioIcon name="refresh" size={16} />
-        {isSample ? "내 사진으로 만들기" : "다른 사진으로 만들기"}
-      </button>
+      {mixing ? (
+        <SkinVariationPicker
+          doc={doc}
+          onInspect={() =>
+            stageRef.current?.scrollIntoView({
+              behavior: "instant",
+              block: "start",
+            })
+          }
+          onPreview={(canvas) => {
+            const target = draftRef.current!;
+            const ctx = target.getContext("2d")!;
+            ctx.clearRect(0, 0, 64, 64);
+            ctx.drawImage(canvas, 0, 0);
+            setDraftVersion((v) => v + 1);
+          }}
+          onClose={(applied) => {
+            setMixing(false);
+            setDraft(null);
+            setDraftVersion((v) => v + 1);
+            draftRef.current = null;
+            setCompositionNotice(
+              applied
+                ? "조합을 적용했어요. 이 모습으로 편집·다운로드할 수 있어요."
+                : "변경을 취소했어요. 이전 스킨을 유지해요.",
+            );
+            requestAnimationFrame(() => mixButtonRef.current?.focus());
+          }}
+        />
+      ) : (
+        <div className="variation-entry">
+          <h2>옷장</h2>
+          <p>머리·상의·하의를 따로 바꿀 수 있어요.</p>
+          <button
+            ref={mixButtonRef}
+            type="button"
+            className="px-btn px-btn--ghost"
+            onClick={() => {
+              draftRef.current = pixelsToSkinCanvas(doc.getPixels());
+              setDraft(draftRef.current);
+              setMixing(true);
+              setCompositionNotice("");
+            }}
+          >
+            옷장 열기 <StudioIcon name="arrow" size={16} />
+          </button>
+        </div>
+      )}
+      <p className="variation-selection" role="status">
+        {compositionNotice}
+      </p>
+      {!mixing && (
+        <>
+          <div className="studio-actions">
+            <PixelButton className="studio-primary" onClick={onDownload}>
+              <StudioIcon name="download" />
+              PNG 다운로드
+            </PixelButton>
+            <PixelButton variant="ghost" onClick={onEdit}>
+              <StudioIcon name="edit" />
+              스킨 편집
+            </PixelButton>
+            <PixelButton variant="ghost" onClick={handleShare}>
+              <StudioIcon name="share" />
+              공유하기
+            </PixelButton>
+            <PixelButton
+              variant="ghost"
+              className="studio-wide"
+              onClick={onApplyGuide}
+            >
+              <StudioIcon name="game" />
+              마인크래프트에 적용하기
+              <StudioIcon name="arrow" size={16} />
+            </PixelButton>
+          </div>
+          <button
+            className="studio-text-btn"
+            type="button"
+            onClick={onCreateAnother}
+          >
+            <StudioIcon name="refresh" size={16} />
+            {isSample ? "내 사진으로 만들기" : "다른 사진으로 만들기"}
+          </button>
+        </>
+      )}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { SkinDocument } from "./editor/editorState";
 import { decodeSkinPng } from "./lib/skinDecode";
 import type { PreparedPhotoUpload } from "./lib/imageQuality";
 import type { SkinGeometry } from "./lib/skinAtlas";
-import { normalizeFeatures, type QuotaStatus } from "./lib/skinFeatures";
+import type { QuotaStatus } from "./lib/skinFeatures";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { ApplyGuidePage } from "./pages/ApplyGuidePage";
 import { DownloadPage } from "./pages/DownloadPage";
@@ -95,24 +95,8 @@ function App() {
   }
 
   const showSample = async () => {
-    const { generateSkinFromFeatures } = await import("./lib/skinFromFeatures");
-    setDoc(
-      new SkinDocument(
-        generateSkinFromFeatures(
-          normalizeFeatures({
-            skinTone: "#efc7a6",
-            hairColor: "#292821",
-            hairstyle: "short",
-            topType: "jacket",
-            topColor: "#586d47",
-            topAccentColor: "#202820",
-            bottomType: "pants",
-            bottomColor: "#292d29",
-            shoesColor: "#e2e5d9",
-          }),
-        ),
-      ),
-    );
+    const { createSampleSkin } = await import("./lib/sampleSkin");
+    setDoc(new SkinDocument(createSampleSkin()));
     setIsSample(true);
     setStep("preview");
   };
@@ -295,7 +279,6 @@ function Shell({ children, step }: { children: React.ReactNode; step?: Step }) {
           <StudioIcon name="cube" />
           마크 스킨 스튜디오
         </div>
-        <span className="studio-header-note">YOUR NEXT CHARACTER.</span>
       </header>
       {step && (
         <ol className="studio-steps" aria-label="스킨 만들기 진행 단계">
@@ -309,7 +292,7 @@ function Shell({ children, step }: { children: React.ReactNode; step?: Step }) {
       )}
       <main>{children}</main>
       <footer className="studio-footer">
-        <span>나만의 모습으로, 새로운 세계로.</span>
+        <span>Minecraft 비공식 스킨 제작 도구</span>
         <a href="#/privacy">개인정보 처리 안내</a>
       </footer>
     </div>

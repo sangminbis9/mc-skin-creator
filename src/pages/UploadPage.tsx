@@ -3,7 +3,7 @@
  */
 
 import { fetchAlbumPhotos } from "@apps-in-toss/web-framework";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { StudioIcon } from "../components/StudioIcon";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelCheckbox } from "../components/pixel/PixelCheckbox";
@@ -15,6 +15,12 @@ import {
 } from "../lib/imageQuality";
 import type { QuotaStatus } from "../lib/skinFeatures";
 import { formatResetTime } from "../lib/quotaText";
+
+const SampleSkinPreview = lazy(() =>
+  import("../components/SampleSkinPreview").then((m) => ({
+    default: m.SampleSkinPreview,
+  })),
+);
 
 interface UploadPageProps {
   onShowSample: () => Promise<void>;
@@ -110,49 +116,33 @@ export function UploadPage({
   return (
     <div className="px-screen upload-layout">
       <div className="upload-intro">
-        <h1 className="px-title">
-          현실의 나를,
-          <br />
-          블록 속으로.
-        </h1>
-        <p className="px-subtitle">
-          사진 한 장에서 시작하는
-          <br />
-          나만의 마인크래프트 스킨
-        </p>
+        <h1 className="px-title">사진으로 내 스킨 만들기</h1>
+        <p className="px-subtitle">사진을 넣고, 머리와 옷을 골라 완성하세요.</p>
       </div>
       <div className="upload-showcase">
-        <figure className="studio-art">
-          <img
-            src="/studio-characters.webp"
-            width="960"
-            height="640"
-            alt="초록 재킷과 크림색 옷을 입은 블록 캐릭터 일러스트"
-            fetchPriority="high"
-          />
-          <figcaption>
-            스타일 일러스트 · 실제 생성 결과는 사진에 따라 달라져요
-          </figcaption>
-        </figure>
+        <Suspense
+          fallback={
+            <div className="inventory-viewport sample-loading" role="status">
+              예시 스킨 불러오는 중…
+            </div>
+          }
+        >
+          <SampleSkinPreview />
+        </Suspense>
         <PixelButton
           variant="ghost"
           disabled={sampleBusy}
           onClick={() => void handleSample()}
         >
-          <StudioIcon name="image" />{" "}
-          {sampleBusy ? "스킨 불러오는 중…" : "예시 스킨 둘러보기"}{" "}
+          {sampleBusy ? "스킨 불러오는 중…" : "예시 스킨 편집해보기"}{" "}
           <StudioIcon name="arrow" size={16} style={{ marginLeft: "auto" }} />
         </PixelButton>
       </div>
       <div className="upload-controls">
         <div className="upload-instructions">
-          <h2>당신의 다음 캐릭터는, 당신.</h2>
+          <h2>얼굴이 잘 보이는 사진을 골라주세요.</h2>
           <p className="px-subtitle">
-            얼굴이 잘 보이는 사진을 골라주세요.
-            <br />
-            서로 다른 각도의 사진을 함께 올리면
-            <br />
-            머리와 옷의 특징을 더 잘 전달할 수 있어요.
+            다른 각도의 사진이나 전신 사진도 함께 넣을 수 있어요.
           </p>
         </div>
         <PixelPanel className="upload-privacy">
