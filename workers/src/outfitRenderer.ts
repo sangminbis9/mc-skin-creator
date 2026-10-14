@@ -1,4 +1,5 @@
 import type { RawImage } from "./png";
+import { paintFootwearBase, paintFootwearRelief } from "../../shared/footwearFinish";
 import type { OutfitPlan, OutfitPatternPlan, OutfitSleevePlan } from "./outfitIdentity";
 import { ATLAS_SIZE, CLASSIC_LAYOUT, type BoxUV, type Rect } from "./uvLayout";
 
@@ -301,6 +302,7 @@ function drawLower(atlas: RawImage, plan: OutfitPlan, skin: Rgb): void {
     }
     fill(atlas, box.top, shade(garment, FACE_SHADE.top));
     fill(atlas, box.bottom, shade(shoes, FACE_SHADE.bottom));
+    paintFootwearBase(atlas.rgba, box, shoes, Math.max(plan.lower.garmentRows, 12 - plan.lower.shoeRows), plan.lower.shoeStyle);
     if (plan.lower.kneeDistressing?.parts.includes(part)) {
       // Six interior cells, no UV seam/outer shell or opposite-leg inference.
       // Washed threads use the denim's own desaturated ramp. Skin is only
@@ -452,11 +454,8 @@ function drawOuter(atlas: RawImage, plan: OutfitPlan): void {
   }
   if (has("shoe_depth")) for (const part of ["rightLeg", "leftLeg"] as const) {
     const overlay = CLASSIC_LAYOUT[part].overlay;
-    const rect = overlay.front;
     const shoe = rgb(plan.lower.shoeColor, [52, 48, 50]);
-    put(atlas, rect, part === "rightLeg" ? 0 : rect.w - 1, rect.h - 1, shade(shoe, 0.76));
-    for (const x of [1, 2]) put(atlas, rect, x, rect.h - 3, shade(shoe, x === 1 ? 1.08 : 0.82));
-    put(atlas, overlay.right, overlay.right.w - 1, overlay.right.h - 1, shade(shoe, 0.68));
+    paintFootwearRelief(atlas.rgba, overlay, shoe, Math.max(plan.lower.garmentRows, 12 - plan.lower.shoeRows));
   }
   for (const accessory of plan.accessories) {
     const c = rgb(accessory.color, accent);

@@ -3,8 +3,9 @@
  */
 
 import { fetchAlbumPhotos } from "@apps-in-toss/web-framework";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StudioIcon } from "../components/StudioIcon";
+import { SkinShowcase } from "../components/SkinShowcase";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelCheckbox } from "../components/pixel/PixelCheckbox";
 import { PixelPanel } from "../components/pixel/PixelPanel";
@@ -16,21 +17,13 @@ import {
 import type { QuotaStatus } from "../lib/skinFeatures";
 import { formatResetTime } from "../lib/quotaText";
 
-const SampleSkinPreview = lazy(() =>
-  import("../components/SampleSkinPreview").then((m) => ({
-    default: m.SampleSkinPreview,
-  })),
-);
-
 interface UploadPageProps {
-  onShowSample: () => Promise<void>;
   onPhotoSelected: (photos: PreparedPhotoUpload[]) => void;
   onQuotaClosed: (quota: QuotaStatus | null) => void;
 }
 
 export function UploadPage({
   onPhotoSelected,
-  onShowSample,
   onQuotaClosed,
 }: UploadPageProps) {
   const [agreed, setAgreed] = useState(false);
@@ -38,7 +31,6 @@ export function UploadPage({
   const [albumSupported, setAlbumSupported] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sampleBusy, setSampleBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -52,19 +44,6 @@ export function UploadPage({
   }, []);
 
   const closed = quota?.level === "closed";
-
-  const handleSample = async () => {
-    setSampleBusy(true);
-    try {
-      await onShowSample();
-    } catch {
-      setError(
-        "샘플을 불러오지 못했어요. 화면을 새로 열고 다시 시도해 주세요.",
-      );
-    } finally {
-      setSampleBusy(false);
-    }
-  };
 
   const handlePhotos = async (sources: Array<string | File>) => {
     if (closed) {
@@ -117,27 +96,8 @@ export function UploadPage({
     <div className="px-screen upload-layout">
       <div className="upload-intro">
         <h1 className="px-title">사진으로 내 스킨 만들기</h1>
-        <p className="px-subtitle">사진을 넣고, 머리와 옷을 골라 완성하세요.</p>
       </div>
-      <div className="upload-showcase">
-        <Suspense
-          fallback={
-            <div className="inventory-viewport sample-loading" role="status">
-              예시 스킨 불러오는 중…
-            </div>
-          }
-        >
-          <SampleSkinPreview />
-        </Suspense>
-        <PixelButton
-          variant="ghost"
-          disabled={sampleBusy}
-          onClick={() => void handleSample()}
-        >
-          {sampleBusy ? "스킨 불러오는 중…" : "예시 스킨 편집해보기"}{" "}
-          <StudioIcon name="arrow" size={16} style={{ marginLeft: "auto" }} />
-        </PixelButton>
-      </div>
+      <SkinShowcase />
       <div className="upload-controls">
         <div className="upload-instructions">
           <h2>얼굴이 잘 보이는 사진을 골라주세요.</h2>

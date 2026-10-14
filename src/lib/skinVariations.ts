@@ -73,12 +73,24 @@ export function createSkinVariations(
       ...initial(),
       ...HAIR_FINISHES.map(({ id, label, description }) => {
         const pixels = varyOriginalHair(original, id, analysis);
+        const changesVolume = analysis.nodes.some(
+          (n) => n.layer === "overlay" && pixels[n.i + 3] !== original[n.i + 3],
+        );
         for (const layer of [L.head.base, L.head.overlay]) {
           const r = layer.front;
           for (let y = 2; y < 8; y++)
             for (let x = 0; x < 8; x++) {
               const i = ((r.y + y) * 64 + r.x + x) * 4;
-              pixels.set(current.subarray(i, i + 4), i);
+              // Keep manual face edits, but do not undo the new fringe relief
+              // when the current pixel is merely the baseline/previous option.
+              const isHair =
+                analysis.mask.has(i) ||
+                (layer === L.head.overlay &&
+                  analysis.mask.has(
+                    ((L.head.base.front.y + y) * 64 + L.head.base.front.x + x) *
+                      4,
+                  ));
+              if (!isHair) pixels.set(current.subarray(i, i + 4), i);
             }
         }
         return {
@@ -86,7 +98,11 @@ export function createSkinVariations(
           label,
           description,
           pixels,
-          disabledReason: analysis.reason,
+          disabledReason:
+            analysis.reason ??
+            (!changesVolume
+              ? "이 부위는 이미 최소·최대 볼륨에 가까워 겉 레이어의 차이가 없어요."
+              : undefined),
         };
       }),
     ],

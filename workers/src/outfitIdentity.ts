@@ -197,6 +197,7 @@ export interface OutfitPlan {
     skinExposureRows: number;
     shoeRows: number;
     shoeColor: string;
+    shoeStyle?: "sneakers" | "dress_shoes" | "boots" | "loafers" | "sandals";
     pattern: OutfitPatternPlan;
     accent: "none" | "belt" | "cuffs" | "side_stripe" | "ribbon";
     /** Observed location, with a designed finite frayed-denim glyph. A tear
@@ -902,6 +903,7 @@ function baseOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
       skinExposureRows,
       shoeRows,
       shoeColor,
+      ...(analysis.inferred.lowerBodyDesign?.shoeStyle ? { shoeStyle: analysis.inferred.lowerBodyDesign.shoeStyle } : {}),
       pattern: lowerPatternPlan,
       accent: lowerAccent,
       legwear: lowerLegwear,

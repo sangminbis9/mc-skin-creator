@@ -4,6 +4,10 @@ import {
   type BoxUV,
   type Rect,
 } from "../../shared/skinLayout";
+import {
+  paintFootwearBase,
+  paintFootwearRelief,
+} from "../../shared/footwearFinish";
 type Color = [number, number, number];
 export interface WardrobeStyle {
   id: string;
@@ -235,8 +239,19 @@ export function makeWardrobe(
           pixel(data, base.front, part === "rightLeg" ? 1 : 2, y, color, 1.16);
         if (style === "chinos") pixel(data, base.front, 2, y, color, 1.12);
       }
-      for (const x of [1, 2])
-        pixel(data, over.front, x, boot ? 9 : 10, light, boot ? 0.55 : 0.88);
+      const shoeStart = boot ? 8 : 10;
+      paintFootwearBase(
+        data,
+        base,
+        shoes,
+        shoeStart,
+        boot
+          ? "boots"
+          : ["denim", "shorts", "denim-shorts", "jogger"].includes(style)
+            ? "sneakers"
+            : "loafers",
+      );
+      paintFootwearRelief(data, over, shoes, shoeStart, true);
     }
   }
   return data;

@@ -70,7 +70,7 @@ describe("mix and match atlas", () => {
     for (const option of createSkinVariations(original, current).head.slice(2))
       for (const layer of [L.head.base, L.head.overlay]) {
         const r = layer.front;
-        for (let y = 2; y < 8; y++)
+        for (let y = 3; y < 8; y++)
           for (let x = 0; x < 8; x++) {
             const i = offset({ x: r.x + x, y: r.y + y });
             expect(option.pixels.subarray(i, i + 4)).toEqual(

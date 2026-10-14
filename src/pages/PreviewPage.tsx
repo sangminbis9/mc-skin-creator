@@ -61,38 +61,47 @@ export function PreviewPage({
   };
 
   return (
-    <div className="px-screen">
-      <h1 className="px-title">
-        {mixing ? "스킨 조합하기" : isSample ? "예시 스킨" : "내 스킨"}
-      </h1>
-      <p className="px-subtitle">
-        {isSample
-          ? "예시 스킨으로 조합과 편집을 해보세요."
-          : "모습을 확인하고, 원하는 부분을 바꿔보세요."}
-      </p>
+    <div
+      className={`px-screen preview-layout${mixing ? " preview-layout--mixing" : ""}`}
+    >
+      {!mixing && (
+        <>
+          <h1 className="px-title">
+            {mixing ? "스킨 조합하기" : isSample ? "예시 스킨" : "내 스킨"}
+          </h1>
+          <p className="px-subtitle">
+            {isSample
+              ? "예시 스킨으로 조합과 편집을 해보세요."
+              : "모습을 확인하고, 원하는 부분을 바꿔보세요."}
+          </p>
+        </>
+      )}
       <div
         ref={stageRef}
         className={`studio-stage${mixing ? " studio-stage--mixing" : ""}`}
       >
-        <div
-          className="studio-segment studio-geometry"
-          aria-label="팔 모델 선택"
-        >
-          {(["classic", "slim"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={geometry === value}
-              onClick={() => onGeometryChange(value)}
-            >
-              {value === "classic" ? "Classic · 4px" : "Slim · 3px"}
-            </button>
-          ))}
-        </div>
+        {!mixing && (
+          <div
+            className="studio-segment studio-geometry"
+            aria-label="팔 모델 선택"
+          >
+            {(["classic", "slim"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={geometry === value}
+                onClick={() => onGeometryChange(value)}
+              >
+                {value === "classic" ? "Classic · 4px" : "Slim · 3px"}
+              </button>
+            ))}
+          </div>
+        )}
         <SkinViewer3D
           skinCanvas={draft ?? doc.canvas}
           version={skinVersion + draftVersion}
-          height={mixing ? 220 : 320}
+          height={mixing ? 190 : 320}
+          compact={mixing}
           geometry={geometry}
           onReady={(scene) => {
             sceneRef.current = scene;
@@ -102,12 +111,6 @@ export function PreviewPage({
       {mixing ? (
         <SkinVariationPicker
           doc={doc}
-          onInspect={() =>
-            stageRef.current?.scrollIntoView({
-              behavior: "instant",
-              block: "start",
-            })
-          }
           onPreview={(canvas) => {
             const target = draftRef.current!;
             const ctx = target.getContext("2d")!;
@@ -131,7 +134,6 @@ export function PreviewPage({
       ) : (
         <div className="variation-entry">
           <h2>옷장</h2>
-          <p>머리·상의·하의를 따로 바꿀 수 있어요.</p>
           <button
             ref={mixButtonRef}
             type="button"
@@ -141,6 +143,12 @@ export function PreviewPage({
               setDraft(draftRef.current);
               setMixing(true);
               setCompositionNotice("");
+              requestAnimationFrame(() =>
+                stageRef.current?.scrollIntoView({
+                  block: "start",
+                  behavior: "instant",
+                }),
+              );
             }}
           >
             옷장 열기 <StudioIcon name="arrow" size={16} />

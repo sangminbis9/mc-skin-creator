@@ -12,6 +12,7 @@ interface SkinViewer3DProps {
   /** 스킨 캔버스 내용이 바뀔 때 증가시키면 텍스처가 갱신된다 */
   version?: number;
   height?: number;
+  compact?: boolean;
   geometry?: SkinGeometry;
   /** 공유 이미지 캡처용 — scene 핸들 전달 */
   onReady?: (scene: SkinScene) => void;
@@ -28,6 +29,7 @@ export function SkinViewer3D({
   skinCanvas,
   version = 0,
   height = 320,
+  compact = false,
   geometry = "classic",
   onReady,
 }: SkinViewer3DProps) {
@@ -64,13 +66,18 @@ export function SkinViewer3D({
   }, [version]);
 
   return (
-    <div className="px-col" style={{ gap: 10 }}>
+    <div
+      className={`px-col${compact ? " skin-viewer--compact" : ""}`}
+      style={{ gap: compact ? 4 : 10 }}
+    >
       <div
         ref={containerRef}
         style={{ height, position: "relative" }}
         aria-label="3D 스킨 미리보기"
       />
-      <p className="studio-view-hint">드래그하여 회전 · 두 손가락으로 확대</p>
+      {!compact && (
+        <p className="studio-view-hint">드래그하여 회전 · 두 손가락으로 확대</p>
+      )}
       <div className="studio-segment" aria-label="미리보기 방향">
         {VIEWS.map(({ key, label }) => (
           <button

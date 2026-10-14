@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { SkinDocument } from "../editor/editorState";
 import { CLASSIC_LAYOUT, pixelsToSkinCanvas } from "../lib/skinAtlas";
 import { renderSkinPortrait } from "../lib/skinPortrait";
+import { headThumbnailPixels } from "../lib/headThumbnail";
 import {
   createSkinVariations,
   replaceSkinRegion,
@@ -9,24 +10,11 @@ import {
   type VariationRegion,
 } from "../lib/skinVariations";
 import { PixelButton } from "./pixel/PixelButton";
-import { StudioIcon } from "./StudioIcon";
 
-const REGIONS: { id: VariationRegion; label: string; note: string }[] = [
-  {
-    id: "head",
-    label: "머리",
-    note: "생성 원본의 길이·가르마·앞머리를 유지하며 결·명암·볼륨만 조절해요. 사진 자체를 다시 분석하지는 않아요.",
-  },
-  {
-    id: "upper",
-    label: "상의",
-    note: "몸통과 양팔을 함께 바꿔요. 손 색은 원본 얼굴에서 추정해요.",
-  },
-  {
-    id: "lower",
-    label: "하의",
-    note: "양다리와 신발을 함께 바꿔요. 사진에 하의가 없어도 직접 선택할 수 있어요.",
-  },
+const REGIONS: { id: VariationRegion; label: string }[] = [
+  { id: "head", label: "머리" },
+  { id: "upper", label: "상의" },
+  { id: "lower", label: "하의" },
 ];
 type ThumbnailView = "front" | "right" | "back";
 function thumbnail(
@@ -34,6 +22,17 @@ function thumbnail(
   region: VariationRegion,
   view: ThumbnailView,
 ): string {
+  if (region === "head") {
+    const rendered = headThumbnailPixels(option.pixels, view);
+    const canvas = document.createElement("canvas");
+    canvas.width = rendered.width;
+    canvas.height = rendered.height;
+    const ctx = canvas.getContext("2d")!;
+    const image = ctx.createImageData(rendered.width, rendered.height);
+    image.data.set(rendered.data);
+    ctx.putImageData(image, 0, 0);
+    return canvas.toDataURL();
+  }
   const skin = pixelsToSkinCanvas(option.pixels);
   const portrait = renderSkinPortrait(skin);
   if (view !== "front") {
@@ -58,12 +57,7 @@ function thumbnail(
   canvas.height = 80;
   const ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
-  const crop =
-    region === "head"
-      ? [4, 0, 8, 8]
-      : region === "upper"
-        ? [0, 8, 16, 12]
-        : [4, 20, 8, 12];
+  const crop = region === "upper" ? [0, 8, 16, 12] : [4, 20, 8, 12];
   const scale = 64 / Math.max(crop[2], crop[3]);
   const w = crop[2] * scale,
     h = crop[3] * scale;
@@ -84,12 +78,10 @@ function thumbnail(
 export function SkinVariationPicker({
   doc,
   onPreview,
-  onInspect,
   onClose,
 }: {
   doc: SkinDocument;
   onPreview: (canvas: HTMLCanvasElement) => void;
-  onInspect: () => void;
   onClose: (applied: boolean) => void;
 }) {
   const [session] = useState(() => {
@@ -102,7 +94,7 @@ export function SkinVariationPicker({
     return { current, options };
   });
   const [region, setRegion] = useState<VariationRegion>("head");
-  const [view, setView] = useState<ThumbnailView>("front");
+  const view: ThumbnailView = "front";
   const images = useMemo(
     () =>
       session.options[region].map((option) => thumbnail(option, region, view)),
@@ -137,23 +129,9 @@ export function SkinVariationPicker({
     setSelected(next);
     onPreview(pixelsToSkinCanvas(compose(next)));
   };
-  const activeOption = session.options[region].find(
-    (option) => option.id === selected[region],
-  )!;
-  const protectionReason =
-    region === "head"
-      ? session.options.head.find((option) => option.disabledReason)
-          ?.disabledReason
-      : undefined;
 
   return (
     <section className="variation-panel" aria-label="스킨 조합 작업실">
-      <div className="variation-heading">
-        <h2>옷장</h2>
-      </div>
-      <p className="variation-help">
-        준비된 스타일을 조합해요. 추가 AI 생성은 없어요.
-      </p>
       <div className="studio-segment" aria-label="조합할 부위">
         {REGIONS.map(({ id, label }) => (
           <button
@@ -166,36 +144,8 @@ export function SkinVariationPicker({
           </button>
         ))}
       </div>
-      <p className="variation-note">
-        {REGIONS.find(({ id }) => id === region)!.note}
-      </p>
-      {protectionReason && (
-        <p className="variation-protection" role="status">
-          {protectionReason}
-        </p>
-      )}
-      <div className="variation-view-row">
-        <span>후보 단면 보기</span>
-        <div className="studio-segment" aria-label="후보 이미지 방향">
-          {(
-            [
-              ["front", "정면"],
-              ["right", "옆면"],
-              ["back", "뒷면"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              type="button"
-              key={id}
-              aria-pressed={view === id}
-              onClick={() => setView(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
       <div
+        key={region}
         className="variation-grid"
         aria-label={`${REGIONS.find(({ id }) => id === region)!.label} 후보`}
       >
@@ -211,25 +161,13 @@ export function SkinVariationPicker({
           >
             <img src={images[index]} alt="" width={80} height={80} />
             <span>{option.label}</span>
-            <small>
-              {option.disabledReason
-                ? "원본 보호"
-                : selected[region] === option.id
-                  ? "✓ 선택됨"
-                  : "미리보기"}
-            </small>
+            {option.disabledReason && <small>변형 제한</small>}
           </button>
         ))}
       </div>
-      <p className="variation-detail" role="status">
-        {activeOption.label} — {activeOption.description}
-      </p>
-      <p className="variation-selection" role="status">
+      <p className="sr-only" role="status">
         {selectedLabels}
       </p>
-      <PixelButton variant="ghost" onClick={onInspect}>
-        <StudioIcon name="cube" size={16} /> 조합 미리보기
-      </PixelButton>
       <button
         className="studio-text-btn"
         type="button"
@@ -252,10 +190,6 @@ export function SkinVariationPicker({
           이 조합 적용
         </PixelButton>
       </div>
-      <p className="variation-help">
-        바꾼 부위의 직접 편집 내용은 교체돼요. 적용 후에도 스킨 편집의
-        되돌리기로 복원할 수 있어요.
-      </p>
     </section>
   );
 }

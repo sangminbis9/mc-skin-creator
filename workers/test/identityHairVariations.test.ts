@@ -7,6 +7,7 @@ import {
   varyOriginalHair,
 } from "../../src/lib/hairVariations";
 import { createSkinVariations } from "../../src/lib/skinVariations";
+import { headThumbnailPixels } from "../../src/lib/headThumbnail";
 import {
   TOP_STYLES,
   BOTTOM_STYLES,
@@ -69,43 +70,39 @@ describe("identity-preserving hair", () => {
         for (const { id } of HAIR_FINISHES) {
           const result = varyOriginalHair(original, id, analysis);
           for (const node of analysis.nodes) {
+            const r = L.head.base[node.face],
+              bi = offset(r.x + node.x, r.y + node.y);
             if (
-              !analysis.mask.has(node.i) &&
-              !(id === "volume" && node.layer === "overlay")
-            )
-              expect(result.subarray(node.i, node.i + 4)).toEqual(
-                original.subarray(node.i, node.i + 4),
-              );
-            if (node.layer === "base" || node.face === "front" || node.edge)
-              expect(result[node.i + 3]).toBe(original[node.i + 3]);
-            if (node.face === "front" && node.y >= 2)
-              expect(result.subarray(node.i, node.i + 4)).toEqual(
-                original.subarray(node.i, node.i + 4),
-              );
-            if (
-              id === "volume" &&
-              result[node.i + 3] !== original[node.i + 3]
+              node.layer === "base" ||
+              (node.face === "front" && node.y >= 3) ||
+              !analysis.mask.has(bi) ||
+              (original[node.i + 3] && !analysis.mask.has(node.i))
             ) {
+              expect(result.subarray(node.i, node.i + 4)).toEqual(
+                original.subarray(node.i, node.i + 4),
+              );
+            }
+            if (result[node.i + 3] !== original[node.i + 3]) {
               expect(node.layer).toBe("overlay");
-              const r = L.head.base[node.face];
-              const bi = offset(r.x + node.x, r.y + node.y);
-              expect(
-                [bi, bi - 4, bi + 4, bi - 256, bi + 256].every((i) =>
-                  analysis.mask.has(i),
-                ),
-              ).toBe(true);
+              expect(analysis.mask.has(bi)).toBe(true);
             }
           }
-          for (const layer of [L.head.base, L.head.overlay]) {
-            const seams = getBoxUvSeams(layer);
-            for (const seam of [...seams.vertical, ...seams.horizontal])
-              for (const p of [...seam.primary, ...seam.adjacent]) {
-                const i = offset(p.x, p.y);
-                expect(result.subarray(i, i + 4)).toEqual(
-                  original.subarray(i, i + 4),
+          const seams = getBoxUvSeams(L.head.overlay);
+          for (const seam of [...seams.vertical, ...seams.horizontal])
+            seam.primary.forEach((p, k) => {
+              const q = seam.adjacent[k],
+                a = offset(p.x, p.y),
+                b = offset(q.x, q.y);
+              const changed = [a, b].some((i) =>
+                Array.from(result.subarray(i, i + 4)).some(
+                  (v, c) => v !== original[i + c],
+                ),
+              );
+              if (changed)
+                expect(result.subarray(a, a + 4)).toEqual(
+                  result.subarray(b, b + 4),
                 );
-              }
-          }
+            });
         }
       });
     }
@@ -142,6 +139,122 @@ describe("identity-preserving hair", () => {
       for (const { id } of HAIR_FINISHES)
         expect(varyOriginalHair(original, id, analysis)).toEqual(original);
     }
+  });
+  it("changes actual front and side shell occupancy, not only colour", () => {
+    const original = portrait(),
+      analysis = analyzeHair(original);
+    const alpha = (
+      finish: (typeof HAIR_FINISHES)[number]["id"],
+      face: "front" | "right" | "left",
+    ) => {
+      const result = varyOriginalHair(original, finish, analysis),
+        r = L.head.overlay[face];
+      return Array.from(
+        { length: 64 },
+        (_, p) => result[offset(r.x + (p % 8), r.y + Math.floor(p / 8)) + 3],
+      );
+    };
+    const difference = (a: number[], b: number[]) =>
+      a.filter((v, i) => v !== b[i]).length;
+    expect(
+      difference(alpha("defined", "front"), alpha("soft", "front")),
+    ).toBeGreaterThanOrEqual(5);
+    for (const face of ["right", "left"] as const)
+      expect(
+        difference(alpha("silky", face), alpha("tidy", face)),
+      ).toBeGreaterThanOrEqual(10);
+    const patterns = HAIR_FINISHES.map(({ id }) =>
+      ["front", "right", "left", "top"]
+        .map((face) => {
+          const r = L.head.overlay[face as keyof typeof L.head.overlay],
+            pixels = varyOriginalHair(original, id, analysis);
+          return Array.from(
+            { length: 64 },
+            (_, p) =>
+              pixels[offset(r.x + (p % 8), r.y + Math.floor(p / 8)) + 3],
+          ).join(",");
+        })
+        .join("|"),
+    );
+    expect(new Set(patterns).size).toBe(6);
+  });
+  it("keeps overlay-only locks, parting grooves and eye-row accessories", () => {
+    const original = portrait();
+    // Connected 2px front parting groove with hair in the base underneath.
+    const f = L.head.overlay.front;
+    for (let y = 0; y < 2; y++)
+      for (const x of [4, 6])
+        original.set([29, 25, 23, 255], offset(f.x + x, f.y + y));
+    const lock = offset(f.x + 3, f.y + 2); // skin below an open parting
+    original.set([29, 25, 23, 255], lock);
+    const analysis = analyzeHair(original);
+    for (const { id } of HAIR_FINISHES) {
+      const result = varyOriginalHair(original, id, analysis);
+      for (let y = 0; y < 2; y++)
+        expect(result[offset(f.x + 5, f.y + y) + 3]).toBe(0);
+      expect(result.subarray(lock, lock + 4)).toEqual(
+        original.subarray(lock, lock + 4),
+      );
+    }
+  });
+  it("shows shell depth in thumbnails, including visible silhouette differences", () => {
+    const original = portrait(),
+      analysis = analyzeHair(original);
+    for (const view of ["front", "right", "back"] as const) {
+      const full = headThumbnailPixels(
+        varyOriginalHair(original, "volume", analysis),
+        view,
+      );
+      const light = headThumbnailPixels(
+        varyOriginalHair(original, "matte", analysis),
+        view,
+      );
+      expect(full.data.length).toBe(128 * 128 * 4);
+      const changed = Array.from(full.data).filter(
+        (v, i) => i % 4 === 3 && v !== light.data[i],
+      ).length;
+      expect(changed).toBeGreaterThan(25);
+      expect(
+        headThumbnailPixels(
+          varyOriginalHair(original, "volume", analysis),
+          view,
+        ),
+      ).toEqual(full);
+    }
+  });
+  it("never adds shell in slimming variants and explains unavailable changes", () => {
+    const original = portrait(),
+      analysis = analyzeHair(original);
+    for (const id of ["soft", "matte", "tidy"] as const) {
+      const result = varyOriginalHair(original, id, analysis);
+      for (const n of analysis.nodes.filter((n) => n.layer === "overlay"))
+        expect(result[n.i + 3]).toBeLessThanOrEqual(original[n.i + 3]);
+    }
+    for (const r of Object.values(L.head.overlay))
+      for (let y = 0; y < 8; y++)
+        for (let x = 0; x < 8; x++)
+          original.fill(
+            0,
+            offset(r.x + x, r.y + y),
+            offset(r.x + x, r.y + y) + 4,
+          );
+    const options = createSkinVariations(original, original).head;
+    for (const id of ["soft", "matte", "tidy"])
+      expect(options.find((o) => o.id === id)?.disabledReason).toBeTruthy();
+    expect(
+      options.find((o) => o.id === "volume")?.disabledReason,
+    ).toBeUndefined();
+  });
+  it("does not fill a two-pixel-wide authored parting groove", () => {
+    const original = portrait(),
+      f = L.head.overlay.front;
+    for (let y = 0; y < 2; y++)
+      for (const x of [4, 7])
+        original.set([29, 25, 23, 255], offset(f.x + x, f.y + y));
+    const result = varyOriginalHair(original, "volume", analyzeHair(original));
+    for (let y = 0; y < 2; y++)
+      for (const x of [5, 6])
+        expect(result[offset(f.x + x, f.y + y) + 3]).toBe(0);
   });
   it("retains confident long-hair overlays when changing tops", () => {
     const original = portrait(true),

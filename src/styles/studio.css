@@ -881,6 +881,160 @@ canvas.px-pixelated {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* Keep the live result and the two-row wardrobe in the same mobile viewport. */
+.preview-layout--mixing {
+  gap: 10px;
+  padding-top: 10px;
+}
+.studio-stage--mixing {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 6px;
+  background: var(--px-paper);
+}
+.skin-viewer--compact .studio-segment button {
+  min-height: 34px;
+  padding: 6px;
+}
+.preview-layout--mixing .variation-panel {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.variation-panel .variation-grid {
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, auto);
+  grid-template-columns: none;
+  grid-auto-columns: calc((100% - 16px) / 3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding: 8px 0;
+  margin: 0;
+}
+.variation-panel .variation-card {
+  scroll-snap-align: start;
+  min-height: 94px;
+  padding: 4px 2px 6px;
+}
+.variation-panel .variation-card img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+.variation-panel .variation-card span {
+  font-size: 11px;
+}
+.variation-panel .studio-text-btn {
+  margin: 4px auto 8px;
+  min-height: 32px;
+}
+.variation-actions .px-btn {
+  min-height: 44px;
+  padding: 10px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.upload-transformation {
+  margin: 0;
+}
+.upload-transformation img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--studio-border);
+}
+.upload-transformation figcaption {
+  color: var(--px-ink-soft);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+  margin-top: 6px;
+}
+.skin-showcase {
+  position: relative;
+  aspect-ratio: 1.04;
+  isolation: isolate;
+}
+.upload-transformation .skin-showcase-photo {
+  width: 64%;
+  height: 100%;
+  object-fit: cover;
+  border: 1px solid var(--studio-border);
+}
+.skin-showcase-card {
+  position: absolute;
+  right: 3%;
+  bottom: 6%;
+  width: 45%;
+  padding: 5px;
+  border: 1px solid #aaa998;
+  border-radius: 3px;
+  background: var(--px-paper);
+  color: var(--px-ink);
+  box-shadow:
+    0 12px 28px #39352b26,
+    0 2px 4px #39352b14;
+  transform: rotate(3deg);
+  transform-origin: right bottom;
+  transition:
+    transform 180ms ease,
+    width 180ms ease,
+    box-shadow 180ms ease;
+  cursor: zoom-in;
+}
+.upload-transformation .skin-showcase-card img {
+  aspect-ratio: 2 / 3;
+  object-fit: contain;
+  border: 0;
+}
+.skin-showcase-card > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 3px 0;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.skin-showcase-card[data-expanded="true"] {
+  width: 56%;
+  transform: rotate(0);
+  cursor: zoom-out;
+  box-shadow: 0 16px 32px #39352b30;
+}
+.skin-showcase-card:focus-visible {
+  outline-offset: 3px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .skin-showcase-card:not([data-expanded="true"]):hover {
+    transform: translateY(-6px) rotate(0) scale(1.07);
+    box-shadow: 0 16px 32px #39352b30;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skin-showcase-card {
+    transition: none;
+  }
+}
+@media (max-height: 700px) {
+  .studio-stage--mixing [aria-label="3D 스킨 미리보기"] {
+    height: 150px !important;
+  }
+  .variation-panel .variation-grid {
+    grid-template-rows: auto;
+  }
+}
 @media (max-width: 700px) {
   .inventory-viewport {
     height: 240px;

@@ -65,7 +65,6 @@ function App() {
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [skinGeometry, setSkinGeometry] = useState<SkinGeometry>("classic");
-  const [isSample, setIsSample] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -94,13 +93,6 @@ function App() {
     );
   }
 
-  const showSample = async () => {
-    const { createSampleSkin } = await import("./lib/sampleSkin");
-    setDoc(new SkinDocument(createSampleSkin()));
-    setIsSample(true);
-    setStep("preview");
-  };
-
   const resetToUpload = () => {
     setPhotos([]);
     setDoc(null);
@@ -108,7 +100,6 @@ function App() {
     setRetryCount(0);
     setCapturedImage(null);
     setSkinGeometry("classic");
-    setIsSample(false);
     setStep("upload");
   };
 
@@ -117,7 +108,6 @@ function App() {
       {step === "upload" && (
         <>
           <UploadPage
-            onShowSample={showSample}
             onPhotoSelected={(preparedPhotos) => {
               setPhotos(preparedPhotos);
               setStep("quality");
@@ -200,7 +190,6 @@ function App() {
       {step === "preview" && doc && (
         <Suspense fallback={<LoadingScreen />}>
           <PreviewPage
-            isSample={isSample}
             doc={doc}
             skinVersion={skinVersion}
             onEdit={() => setStep("editor")}

@@ -282,7 +282,14 @@ export function applyReferenceFaceFinish(
     if (y <= pixels.layout.hairlineDepthByColumn[x] || protectedKeys.has(`${x}:${y}`) || landmarks.has(`${x}:${y}`)) continue;
     // Connected, low-contrast cheek/jaw planes; no central nose highlight,
     // arbitrary speckles or changes to the source skin-color category.
-    const amount = y === 7 ? design.complexionContrast : x === 0 || x === 7 ? design.complexionContrast * 0.5 : 0;
+    const depth = pixels.layout.hairlineDepthByColumn[x];
+    const belowFringe = depth >= 0 ? y - depth : Infinity;
+    const besideHair = (x > 0 && y <= pixels.layout.hairlineDepthByColumn[x - 1]) || (x < 7 && y <= pixels.layout.hairlineDepthByColumn[x + 1]);
+    // A short, connected contact shadow follows the actual fringe boundary.
+    // It is palette-relative, not a black outline or new facial geometry.
+    const contact = belowFringe === 1 ? .46 : belowFringe === 2 ? .16 : 0;
+    const amount = Math.max(contact, besideHair ? .30 : 0,
+      y === 7 ? design.complexionContrast : x === 0 || x === 7 ? design.complexionContrast * .5 : 0);
     paint(x, y, mix(palette.skinMid, palette.skinShade, amount));
     skinWindowCells.push({ x, y });
   }

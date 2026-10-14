@@ -39,6 +39,21 @@ function verifyScope(before: RawImage, after: RawImage, protectedCells: { x: num
 }
 
 describe("reference face finish: simplified complexion, not fabricated geometry", () => {
+  it("adds a short hair-contact shadow that fades without darkening an exposed forehead", () => {
+    const { atlas, plan, design } = setup();
+    const face = structuredClone(plan.facePixelPlan);
+    face.layout.hairlineDepthByColumn = [1, 1, 1, 1, 1, 1, 1, 1];
+    face.pixels = face.pixels.filter(p => p.cluster === "mouth");
+    const front = CLASSIC_LAYOUT.head.base.front;
+    const red = (image: RawImage, x: number, y: number) => image.rgba[((front.y + y) * 64 + front.x + x) * 4];
+    applyReferenceFaceFinish(atlas, face, design, palette, []);
+    expect(red(atlas, 1, 2)).toBeLessThan(red(atlas, 1, 3));
+    expect(red(atlas, 1, 3)).toBeLessThan(red(atlas, 1, 4));
+    expect(red(atlas, 1, 4)).toBe(palette.skinMid[0]);
+    face.layout.hairlineDepthByColumn = Array(8).fill(-1);
+    applyReferenceFaceFinish(atlas, face, design, palette, []);
+    for (const y of [1, 2, 3, 4]) expect(red(atlas, 1, y)).toBe(palette.skinMid[0]);
+  });
   it("clears an inherited unplanned nose stripe only inside the source skin window", () => {
     const { atlas, plan, design } = setup();
     const face = structuredClone(plan.facePixelPlan), front = CLASSIC_LAYOUT.head.base.front;
@@ -58,7 +73,8 @@ describe("reference face finish: simplified complexion, not fabricated geometry"
     const result = applyReferenceFaceFinish(atlas, face, design, palette, material);
     for (const x of [3, 4]) for (const y of [3, 4, 5]) {
       const i = ((front.y + y) * 64 + front.x + x) * 4;
-      expect([...atlas.rgba.slice(i, i + 3)]).toEqual(palette.skinMid);
+      const shadow = y === 3 ? .16 : 0;
+      expect([...atlas.rgba.slice(i, i + 3)]).toEqual(palette.skinMid.map((v, c) => Math.round(v * (1 - shadow) + palette.skinShade[c] * shadow)));
       expect(result.skinWindowCells).toContainEqual({ x, y });
     }
     verifyScope(before, atlas, [...material, ...face.pixels.filter(p => p.role === "iris"), ...Array.from({ length: 16 }, (_, i) => ({ x: i % 8, y: Math.floor(i / 8) }))]);
