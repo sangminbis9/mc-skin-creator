@@ -25,7 +25,8 @@ import type { Env } from "./types";
 import type { IdentityGeometryAnalysis, NormalizedBox } from "./identityGeometry";
 import { FACE_MEASUREMENT_EVIDENCE_SCHEMA, parseFaceMeasurementEvidence, type FaceMeasurementEvidence } from "./faceMeasurementEvidence";
 import { observedFacialHairCategory } from "./facialHairEvidence";
-import { observedGenericHatCategory } from "./observedHeadwear";
+import { observedGenericHatCategory, observedHeadwearCategory, observedHelmetVisor } from "./observedHeadwear";
+import { HAT_TYPES, type HatVisor } from "../../shared/headwear";
 
 const DEFAULT_VISION_MODEL = "gemini-3.8-flash";
 const DEFAULT_FALLBACK_VISION_MODEL = "gemini-3.1-flash-lite";
@@ -140,6 +141,7 @@ export interface FallbackFeatures {
   earrings: boolean;
   hat: string;
   hatColor: string;
+  hatVisor?: HatVisor;
   expression: string;
   topType: string;
   topColor: string;
@@ -251,6 +253,8 @@ const CLOTHING_COLOR_VALUES = [
   "beige",
   "denim",
   "khaki",
+  "teal",
+  "burgundy",
 ] as const;
 const CLOTHING_COLOR_ENUM = CLOTHING_COLOR_VALUES.map(
   (color) => `"${color}"`,
@@ -259,7 +263,7 @@ const CLOTHING_COLOR_ENUM = CLOTHING_COLOR_VALUES.map(
 export const ANALYSIS_PROMPT = `You are a character designer analyzing a photo to build a Minecraft-style avatar that closely resembles the person in it.
 
 STEP 1 — photo quality:
-- "fail" + failReason "no_face" if there is no real human face clearly visible (this includes blank images, objects, landscapes, drawings without a real person).
+- "fail" + failReason "no_face" if there is no real person (blank images, isolated objects, landscapes, drawings). A real person wearing a clearly visible helmet IS acceptable even when the visor hides the face: preserve the helmet, set visibleRegions.face=false and hair=false where covered, and do not invent hidden facial or hair traits. A helmet lying on a table is not a person.
 - "fail" + failReason "blurry" if the photo is too blurry to see facial features.
 - "fail" + failReason "too_small" if the person is too small in the frame.
 - "warn" if usable but not ideal, "pass" if good.
@@ -275,7 +279,8 @@ STEP 2 — reference ownership and framing:
 - Localize only the same primary person selected by portraitImageIndex. Append to portraitEvidence exactly " | REGION:[subject L,T,R,B,head L,T,R,B,face L,T,R,B,confidence]" using 13 comma-separated numbers, or " | REGION:null" when bounds cannot be measured. All coordinates are normalized 0..1 within that selected source image, not within a montage or another reference. subjectBox encloses that person's visible body, headBox encloses crown/hair/head covering through jaw and a small amount of neck, and faceBox encloses the visible forehead, brows, eyes, nose, mouth, chin, glasses and face edges. Do not include another person's face.
 
 STEP 3 — observed: describe ONLY what is actually visible in at least one compatible reference. Fuse the clearest evidence per region instead of privileging upload order. Be specific and concrete (colors, shapes, textures). Never invent details you cannot see. For observed.clothing, describe garment type, colors and general patterns (stripes, plain, graphic) — never brand names or logo identities. Never return the bare word "logo": describe a visible small mark neutrally as a graphic, badge or marking and include its visible colors, approximate shape and viewer-relative chest location when readable.
-- observed.face MUST explicitly state the visible skin-tone impression (pale/fair, light, medium, tan, brown or dark, plus warm/cool/neutral undertone when readable). Include that skin colour in observed.colorPalette. Do not omit it merely because the lighting is soft or the face occupies a small part of the frame.
+- observed.face MUST explicitly state the visible skin-tone impression (pale/fair, light, medium, tan, brown or dark, plus warm/cool/neutral undertone when readable). Include that skin colour in observed.colorPalette. When an opaque visor hides the face, say it is not visible; all faceMeasurements must be unknown/unknown/0. Never infer a visible face under a helmet.
+- observed.accessories MUST describe worn headwear separately: baseball cap, knit beanie, hard hat/safety helmet, open-face helmet, or full-face helmet. Include the dominant shell/fabric color (burgundy is not black), cuff/brim/ridges, and visor color/transparency/open-or-closed state. Do not describe a helmet as hair, a hood, or a generic cap. Preserve hat and hatColor in fallbackFeatures even though this cache is optional; use an exact #RRGGBB for a precise shade. For a full-face helmet, write "opaque visor" when the face cannot be seen, "clear visor" only when facial details are visible through it, or "raised visor" when lifted, in observed.accessories. Describe hair only where visible outside the headwear.
 - For observed.hair, explicitly describe root/scalp part visibility, fringe density and gaps, left and right temple contours, whether either ear is exposed or framed, side-hair taper/flare, the visible transition toward the nape, and the lowest substantial hair endpoint relative to the shoulders, chest/bust, natural waist or belt, and hips. Correct for head tilt and slanted shoulders: compare the locks with local physical landmarks on the same side of the person instead of raw screen height. Do not summarize all short hair as a bowl cut or all side hair as merely "short".
 - For observed.hair, inspect loose versus tied sections independently from straight/wavy/curly texture. Describe visible braiding or interwoven strands, the number and viewer-relative placement of visible braids or ponytails, and where those sections end or drape relative to the shoulders and chest. Preserve clearly observed structural cues in canonicalIdentity.features with category hair and confidence supported by the image. Do not infer a braid from waves, a ribbon, or two loose face-framing locks; do not invent a hidden matching section or raise confidence to fit a hairstyle.
 - For every visible white or contrasting fabric at the throat, describe its construction separately from the shirt: ordinary collar flaps, a central knot, paired loops, and any broad hanging tails. Do not call the whole shape a "collar" merely because a collared shirt is underneath. A central knot with two long pointed fabric tails is a neck bow or scarf even when its loops are folded flat or partly hidden.
@@ -356,8 +361,8 @@ STEP 7 — fallbackFeatures: classify into these fixed palettes (pick the CLOSES
   "glasses": "none" | "regular" | "round" | "sunglasses",
   "glassesColor": CLOTHING_COLOR,
   "earrings": true | false,
-  "hat": "none" | "cap" | "beanie" | "hood",
-  "hatColor": CLOTHING_COLOR,
+  "hat": "none" | "cap" | "beanie" | "hood" | "headscarf" | "hard_hat" | "helmet" | "full_helmet",
+  "hatColor": CLOTHING_COLOR or exact #RRGGBB,
   "expression": "smile" | "neutral" | "serious",
   "topType": "tshirt" | "shirt" | "hoodie" | "jacket" | "sweater" | "dress" | "tank",
   "topColor": CLOTHING_COLOR,
@@ -2171,22 +2176,19 @@ export function validatePhotoAnalysis(
       typeof fallbackSource.earrings === "boolean"
         ? fallbackSource.earrings
         : /\b(?:earrings?|ear studs?|hoops?)\b/.test(fallbackEvidence),
-    hat: fallbackEnum(
+    hat: observedHeadwearCategory(observed.accessories) ?? fallbackEnum(
       fallbackSource.hat,
-      ["none", "cap", "beanie", "hood"],
-      /\bcap\b/.test(fallbackEvidence)
-        ? "cap"
-        : /\bbeanie\b/.test(fallbackEvidence)
-          ? "beanie"
-          : observedGenericHatCategory(observed.accessories) ?? (/\bhood\b/.test(fallbackEvidence)
-            ? "hood"
-            : "none"),
+      HAT_TYPES,
+      observedGenericHatCategory(observed.accessories) ?? (/\bhood\b/.test(fallbackEvidence) ? "hood" : "none"),
     ),
     hatColor: fallbackColor(
       fallbackSource.hatColor,
       CLOTHING_COLOR_VALUES,
       "black",
     ),
+    ...(observedHeadwearCategory(observed.accessories) === "full_helmet" || fallbackSource.hat === "full_helmet" ? {
+      hatVisor: observedHelmetVisor(observed.accessories) ?? fallbackEnum<HatVisor>(fallbackSource.hatVisor, ["opaque", "clear", "raised"], "opaque"),
+    } : {}),
     expression: fallbackEnum(
       fallbackSource.expression,
       ["smile", "neutral", "serious"],

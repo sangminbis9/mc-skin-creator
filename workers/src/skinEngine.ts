@@ -6,7 +6,7 @@ import type { FaceStyle } from "./skinPack";
 import type { RawImage } from "./png";
 import { renderReferencePrimaryAtlas } from "./referencePrimaryRenderer";
 import { repairSkinIntegrity } from "../../shared/skinIntegrity";
-export const SKIN_ENGINE_VERSION = "reference-engine-20261014-v2";
+export const SKIN_ENGINE_VERSION = "reference-engine-20261019-headwear-v1";
 export function renderSkinEngine(source: RawImage, plan: SkinPlan, observation: PhotoAnalysis, style: FaceStyle) {
   const rendered = renderReferencePrimaryAtlas(source, plan, observation, style);
   if (!rendered.ok) return rendered;

@@ -28,6 +28,7 @@ import type { FaceIdentitySaliencePlan } from "./faceIdentitySalience";
 import { buildOutfitPlan, type OutfitPlan } from "./outfitIdentity";
 import { observedTiedHair, resolveHeadOwnership, type HeadOwnershipPlan } from "./headOwnership";
 import { categoricalHeadwearBrowOcclusion } from "./headwearFootprint";
+import { headwearFaceOcclusion, isHelmet } from "../../shared/headwear";
 
 export type {
   GlassesPixelRole,
@@ -777,6 +778,27 @@ function facePixelPlan(
     glassesPlan: buildGlassesStructurePlan(analysis, layout),
     salience: structuredClone(layout.salience),
   };
+  // Hidden landmarks are not evidence. Keep source layout coordinates for an
+  // open visor, but never demand or paint eyes through an opaque helmet.
+  if (isHelmet(analysis.fallbackFeatures.hat)) {
+    const occluded = headwearFaceOcclusion(analysis.fallbackFeatures.hat, analysis.fallbackFeatures.hatVisor);
+    plan.pixels = pixels.filter(p => !occluded.has(`${p.x}:${p.y}`));
+    // A chin guard can cover part of a measured mouth. Preserve the visible
+    // cells, without requiring the hidden mouth width to be drawn on shell.
+    if (pixels.some(p => p.cluster === "mouth" && occluded.has(`${p.x}:${p.y}`))) delete plan.renderContract.mouth;
+    for (const cluster of ["left_eye", "right_eye", "mouth", "glasses", "fringe"] as const) {
+      if (!plan.pixels.some(p => p.cluster === cluster)) {
+        plan.protectedClusters = plan.protectedClusters.filter(c => c.name !== cluster);
+        if (cluster === "mouth") delete plan.renderContract.mouth;
+        if (cluster === "left_eye" || cluster === "right_eye") delete plan.renderContract.eyes;
+        if (cluster === "glasses") delete plan.renderContract.glasses;
+      }
+    }
+    if (analysis.fallbackFeatures.hat === "full_helmet" && (analysis.fallbackFeatures.hatVisor ?? "opaque") === "opaque") {
+      plan.glassesPlan = { ...plan.glassesPlan, topology: "none", framePixels: [], sideArms: [], lensOpenings: [] };
+    }
+    plan.layout = { ...layout, renderContract: plan.renderContract };
+  }
   if (layout.directContour) {
     // New complexion shading is never authority to erase existing hair,
     // covering or glasses. Ask the unchanged ownership resolver for the

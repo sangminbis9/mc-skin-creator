@@ -13,7 +13,8 @@ import { facialHairBaseFootprint } from "./facialHairFootprint";
 import type { OutfitPlan } from "./outfitIdentity";
 import { applyOutfitPlan } from "./outfitRenderer";
 import { hairRibbonFootprint } from "./hairRibbonFootprint";
-import { headwearFootprint } from "./headwearFootprint";
+import { headwearFootprint, headwearVisibleLandmarks } from "./headwearFootprint";
+import { paintHeadwear, type HatVisor } from "../../shared/headwear";
 import { paintHeadOrnaments } from "./headOrnaments";
 import {
   ALL_PARTS,
@@ -66,6 +67,7 @@ export interface FaceStyle {
   skinTone?: string;
   hairColor?: string;
   hatColor?: string;
+  hatVisor?: HatVisor;
   headCoveringPattern?:
     "plain" | "patterned" | "floral" | "paisley" | "geometric" | "striped";
   headCoveringPatternColor?: string;
@@ -9654,6 +9656,7 @@ export function packFrontViewToAtlas(
   }
 
   paintHeadOrnaments(atlas, options.headIdentityPlan?.ownership?.ornaments);
+  paintHeadwear(atlas, faceStyle.hat, faceStyle.hatColor ?? "#303030", faceStyle.hatVisor, headwearVisibleLandmarks(options.facePixelPlan));
   options.headTrace?.("final_head", atlas);
 
   return {

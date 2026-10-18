@@ -5,7 +5,8 @@ import type { HairStructureRole } from "./headStructure";
 import { CLASSIC_LAYOUT, getBoxUvSeams, type BoxUV } from "./uvLayout";
 import { hairRibbonFootprint } from "./hairRibbonFootprint";
 import { hairFlowerFootprint } from "./hairFlowerFootprint";
-import { headwearFootprint } from "./headwearFootprint";
+import { headwearFootprint, headwearVisibleLandmarks } from "./headwearFootprint";
+import { buildHeadwearPaint, isStructuredHeadwear } from "../../shared/headwear";
 import { buildObservedHeadOrnaments, type HeadOrnament } from "./headOrnaments";
 
 export type HeadOwner = "face" | "hair_base" | "hair_outer" | "glasses" | "covering" | "tied_hair" | "other_p5" | "clear";
@@ -271,6 +272,17 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
       put({ ...prior, owner: "other_p5", sourceGroupId: `observed-ornament-${ornament.kind}`, provenance: "observed", retain: true });
     }
   }
+  // Worn material has final ownership over its actual footprint. Its clear
+  // depth windows expose cloth/shell on base, never a generic eye/hair pass.
+  if (isStructuredHeadwear(analysis.fallbackFeatures.hat)) {
+    const paint = buildHeadwearPaint(analysis.fallbackFeatures.hat, "#808080", analysis.fallbackFeatures.hatVisor, headwearVisibleLandmarks(facePlan));
+    const raised = new Set(paint.filter(c => c.layer === "overlay").map(c => `${c.face}:${c.x}:${c.y}`));
+    for (const c of paint.filter(c => c.layer === "base")) {
+      const depth = raised.has(`${c.face}:${c.x}:${c.y}`);
+      put({ ...c, layer: "base", owner: "covering", sourceGroupId: "headwear-footprint", provenance: "observed", role: "mid" });
+      put({ ...c, layer: "outer", owner: depth ? "covering" : "clear", sourceGroupId: depth ? "headwear-relief" : "headwear-depth-window", provenance: "observed", role: "mid" });
+    }
+  }
   // Compute connected seam equivalence classes ONCE in plan space. Corners
   // belong to three surfaces; union-find avoids repeated atlas repair loops.
   const parent = new Map<string, string>();
@@ -317,5 +329,5 @@ export function resolveHeadOwnership(analysis: PhotoAnalysis, hair: HairPlan, fa
   const sourceDerivedSemanticMask = hair.headMask.source === "semantic_template" && Boolean(hair.headMask.semanticSilhouette);
   const sourceDerivedCurlyProfile = sourceDerivedSemanticMask && hair.headMask.semanticSilhouette?.profileOpening === "curly_ringlets";
   const preserve = !tied && !covering && ((observedOrnament || analysis.renderHints.hairAccessory !== "none") && !resolvedOrnament && !ornaments.length || hair.structure.grammar === "lock_groups" || (hair.template === "short_cap" && hair.structure.grammar === "straight_bands" && facePlan.glassesPlan.topology === "none" && !sourceDerivedSemanticMask) || (!hair.surfaceOnly && hair.structure.source === "semantic_analysis" && (hair.structure.grammar === "curl_lobes" && !sourceDerivedCurlyProfile || hair.structure.grammar === "coily_clusters" && !sourceDerivedSemanticMask)));
-  return { execution: preserve ? "preserve_existing_grammar" : "resolved", hairFamily: hair.template, covering, tiedMass: tiedGeometry, cells: [...cells.values()], continuities, ...(ornaments.length ? { ornaments } : {}) };
+  return { execution: preserve && !isStructuredHeadwear(analysis.fallbackFeatures.hat) ? "preserve_existing_grammar" : "resolved", hairFamily: hair.template, covering, tiedMass: tiedGeometry, cells: [...cells.values()], continuities, ...(ornaments.length ? { ornaments } : {}) };
 }

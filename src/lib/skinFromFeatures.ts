@@ -7,6 +7,7 @@
 
 import { ATLAS_SIZE, CLASSIC_LAYOUT, type BoxUV, type Rect } from "./skinAtlas";
 import type { SkinFeatures } from "./skinFeatures";
+import { buildHeadwearPaint, isStructuredHeadwear } from "../../shared/headwear";
 
 // ---------- 색상 유틸 ----------
 
@@ -431,6 +432,17 @@ function drawGlasses(p: AtlasPainter, f: SkinFeatures): void {
 
 function drawHat(p: AtlasPainter, f: SkinFeatures): void {
   if (f.hat === "none") {
+    return;
+  }
+  if (isStructuredHeadwear(f.hat)) {
+    const paint = buildHeadwearPaint(f.hat, f.hatColor, f.hatVisor);
+    for (const c of paint.filter(c => c.layer === "base")) {
+      const r = L.head.overlay[c.face];
+      p.erase({ x: r.x + c.x, y: r.y + c.y, w: 1, h: 1 });
+    }
+    for (const c of paint) {
+      const r = L.head[c.layer][c.face]; p.px(r.x + c.x, r.y + c.y, rgbToHex(...c.color));
+    }
     return;
   }
   const over = L.head.overlay;

@@ -3,6 +3,7 @@ import { observedGoateeMustache } from "./facialHairEvidence";
 import { observedStandaloneHoodedSweatshirt, observedStandaloneSweatshirt, observedStripedTie } from "./outfitIdentity";
 import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
 import { unambiguousHairEndpointText } from "./hairEndpointEvidence";
+import { normalizeHeadwearObservation, observedHeadwearCategory } from "./observedHeadwear";
 /**
  * 사진 → 마인크래프트 스킨 생성 파이프라인.
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
@@ -2154,6 +2155,7 @@ export function buildFaceStyle(
     skinTone: String(features.skinTone),
     hairColor: String(features.hairColor),
     hatColor: String(features.hatColor),
+    hatVisor: analysis.fallbackFeatures.hatVisor,
     faceShape: analysis.renderHints.faceShape,
     eyeShape: analysis.renderHints.eyeShape,
     eyeSize: analysis.renderHints.eyeSize,
@@ -2654,6 +2656,8 @@ const EYE_COLORS: Record<string, string> = {
 };
 
 const CLOTHING_COLORS: Record<string, string> = {
+  teal: "#2f7775",
+  burgundy: "#6e2638",
   black: "#22201e",
   white: "#f2f2f2",
   gray: "#8c8c8c",
@@ -2839,26 +2843,29 @@ const NAMED_CLOTHING_COLOR_CUES: ReadonlyArray<{
   { pattern: "(?:khaki)", hex: CLOTHING_COLORS.khaki },
 ];
 
-/** Resolve only explicit observed cap/beanie material, not nearby hair, a
+/** Resolve only explicit observed headwear material, not nearby hair, a
  * printed hat motif, decoration, or an inferred outfit palette. Conflicting
  * independent colors remain unresolved rather than picking by cue order.
  */
 function observedHeadwearColor(analysis: PhotoAnalysis): string | null {
-  if (!["cap", "beanie"].includes(analysis.fallbackFeatures.hat)) return null;
+  if (!["cap", "beanie", "hard_hat", "helmet", "full_helmet"].includes(analysis.fallbackFeatures.hat)) return null;
   const colors = new Set<string>();
-  const material = "(?:knit(?:ted)?|wool(?:len)?|soft[- ]textured|fuzzy(?:\\s*/\\s*textured)?|soft|textured|plush|baseball|large|small)";
+  const material = "(?:knit(?:ted)?|wool(?:len)?|cotton|soft[- ]textured|fuzzy(?:\\s*/\\s*textured)?|soft|textured|plush|baseball|large|small|ribbed|cuffed|folded|fold[- ]over|bright|dark|deep|safety|construction|motorcycle|full[- ]face|open[- ]face|glossy|rigid|protective|forward[- ]facing)";
   // Commas within a bounded material-adjective list do not detach its color.
   // Keep other comma boundaries; never bridge an accessory noun or color list.
   const text = analysis.observed.accessories.toLowerCase()
     .replace(new RegExp(`,\\s*(?=${material}\\b)`, "g"), " ");
   for (const clause of text.split(/[;,.!?]/)) {
-    if (/\b(?:no|not|without|possibly|maybe|might|uncertain|unknown|print|printed|pattern|motif|logo)\b/.test(clause)) continue;
+    if (/\b(?:no|not|without|possibly|maybe|might|uncertain|unknown|holding|holds?|held|carrying|carried|background|removed)\b/.test(clause)) continue;
+    // A logo printed on a worn cap does not invalidate the cap's own color.
+    // A picture of a cap is still excluded by the worn-object classifier.
+    if (/\b(?:print|printed|pattern|motif|logo)\b/.test(clause) && !observedHeadwearCategory(clause)) continue;
     const found: Array<{ start: number; end: number; hex: string }> = [];
     for (const cue of NAMED_CLOTHING_COLOR_CUES) {
-      const headwear = "(?:hat|cap(?![- ]sleeves?\\b)|beanie)";
+      const headwear = "(?:hard[- ]?hat|hat|cap(?![- ]sleeves?\\b)|beanie|helmet)";
       // "teal-colored" binds the same explicit material as "teal"; it must
       // still attach directly to headwear, not a ribbon, hair or cap sleeves.
-      const rx = new RegExp(`\\b${cue.pattern}(?:[- ]colou?red)?\\s+(?:${material}\\s+){0,2}${headwear}\\b|\\b${headwear}\\s+(?:is\\s+)?${cue.pattern}\\b`, "gi");
+      const rx = new RegExp(`\\b${cue.pattern}(?:[- ]colou?red)?\\s+(?:${material}\\s+){0,5}${headwear}\\b|\\b${headwear}\\s+(?:(?:is|in|of)\\s+)?(?:(?:a|an|dark|deep|bright|muted)\\s+){0,3}${cue.pattern}\\b`, "gi");
       for (const m of clause.matchAll(rx)) found.push({ start: m.index!, end: m.index! + m[0].length, hex: cue.hex });
     }
     // "blue hat" nested inside "light-blue hat" is one specific color claim.
@@ -3071,6 +3078,7 @@ function viewerSidesNearRelevantPhrase(
 export function normalizeAnalysisForRendering(
   analysis: PhotoAnalysis,
 ): PhotoAnalysis {
+  analysis = normalizeHeadwearObservation(analysis);
   const renderHints = { ...analysis.renderHints };
   let inferred = analysis.inferred;
   let outfitPrompt = analysis.outfitPrompt;
@@ -3868,7 +3876,7 @@ export function refineFeatureColorsFromAnalysis(
   if (recoveredShoesColor) refined.shoesColor = recoveredShoesColor;
   if (recoveredHeadCoveringColor) refined.hatColor = recoveredHeadCoveringColor;
   const explicitHeadwearColor = observedHeadwearColor(analysis);
-  if (explicitHeadwearColor) refined.hatColor = explicitHeadwearColor;
+  if (explicitHeadwearColor && !/^#[0-9a-f]{6}$/i.test(analysis.fallbackFeatures.hatColor)) refined.hatColor = explicitHeadwearColor;
   const darkNeutralPattern =
     "(?:dark(?:[-\\s]+colou?red)?|charcoal|monochrome|near[-\\s]+black)";
   const explicitlyDarkVisibleTop = relevantClauseList(

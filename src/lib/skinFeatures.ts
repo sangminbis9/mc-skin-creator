@@ -2,6 +2,8 @@
  * AI가 사진에서 추출하는 인물 특징 스키마.
  * Cloudflare Worker의 vision 모델 출력과 클라이언트 스킨 생성기가 공유한다.
  */
+import { HAT_TYPES, type Hat, type HatVisor } from "../../shared/headwear";
+export type { Hat } from "../../shared/headwear";
 
 export type Hairstyle =
   | "bald"
@@ -17,7 +19,6 @@ export type Hairstyle =
 
 export type FacialHair = "none" | "mustache" | "goatee" | "beard" | "stubble";
 export type Glasses = "none" | "regular" | "round" | "sunglasses";
-export type Hat = "none" | "cap" | "beanie" | "hood";
 export type Expression = "smile" | "neutral" | "serious";
 export type TopType =
   | "tshirt"
@@ -42,6 +43,7 @@ export interface SkinFeatures {
   earrings: boolean;
   hat: Hat;
   hatColor: string;
+  hatVisor?: HatVisor;
   expression: Expression;
   topType: TopType;
   topColor: string;
@@ -151,8 +153,9 @@ export function normalizeFeatures(raw: Partial<SkinFeatures>): SkinFeatures {
     ),
     glassesColor: hex(raw.glassesColor, "#22201e"),
     earrings: raw.earrings === true,
-    hat: oneOf(raw.hat, ["none", "cap", "beanie", "hood"], "none"),
+    hat: oneOf(raw.hat, HAT_TYPES, "none"),
     hatColor: hex(raw.hatColor, "#d94f3d"),
+    ...(raw.hat === "full_helmet" ? { hatVisor: oneOf(raw.hatVisor, ["opaque", "clear", "raised"], "opaque") } : {}),
     expression: oneOf(
       raw.expression,
       ["smile", "neutral", "serious"],

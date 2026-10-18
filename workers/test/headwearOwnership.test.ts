@@ -13,7 +13,6 @@ import { CLASSIC_LAYOUT } from "../src/uvLayout";
 import type { PhotoAnalysis } from "../src/analysis";
 import { makeAnalysis } from "./helpers";
 import { freshAuditOutput } from "./freshAuditOutput";
-import { assertHistoricalFallbackBrowPresentation } from "./historicalSingletonEyePresentation";
 
 const sha = (v: string | Uint8Array) => createHash("sha256").update(v).digest("hex");
 function input(hat: "none" | "cap" | "beanie" | "headscarf") {
@@ -96,13 +95,16 @@ it("replays D005 without altering observations, and changes only head pixels for
     const historical = await decodePng(readFileSync(`${root}/skin.png`));
     const oldBaseline = buildProceduralSourceAtlas(features, style, saved)!;
     const before = composeReferenceStyleAtlas(oldBaseline, saved, trace.referenceStyle.design, style).atlas;
-    const intentionalEyePresentation = assertHistoricalFallbackBrowPresentation(before, historical, oldBaseline, saved, style, trace.referenceStyle.design);
+    // This historical PNG also predates the committed garment/face finishing.
+    // Validate the saved artifact, then isolate head ownership with the same
+    // current renderer on both sides of the comparison below.
+    const headRects = [...Object.values(CLASSIC_LAYOUT.head.base), ...Object.values(CLASSIC_LAYOUT.head.overlay)];
+    expect(validateFinalAtlas(historical).ok).toBe(true);
     const baseline = buildProceduralSourceAtlas(features, style, plan)!;
     const foundation = validateAtlasCraftFoundation(baseline, style);
     expect(foundation.ok, JSON.stringify(foundation)).toBe(true);
     const after = composeReferenceStyleAtlas(baseline, plan, trace.referenceStyle.design, style).atlas;
     expect(validateFinalAtlas(after).ok).toBe(true);
-    const headRects = [...Object.values(CLASSIC_LAYOUT.head.base), ...Object.values(CLASSIC_LAYOUT.head.overlay)];
     const changed: number[] = [];
     for (let i = 0; i < 4096; i++) if ([0, 1, 2, 3].some(c => before.rgba[i * 4 + c] !== after.rgba[i * 4 + c])) {
       expect(headRects.some(r => i % 64 >= r.x && i % 64 < r.x + r.w && Math.floor(i / 64) >= r.y && Math.floor(i / 64) < r.y + r.h)).toBe(true);
@@ -121,7 +123,7 @@ it("replays D005 without altering observations, and changes only head pixels for
     }
     writeFileSync(`${output}/summary.json`, JSON.stringify({ sourceRun: run.runId, sourceSummarySha256: sha(bytes),
       providerCalls: 0, sourceObservationUnchanged: true, changedHeadPixels: changed.length,
-      beforeMatchesLive: false, intentionalEyePresentation,
+      beforeMatchesLive: false, intentionalHeadwearPresentation: "authored_crown_and_rim",
       unrelatedPixelChanges: 0, sameDesignRgbaSha256: sha(after.rgba), selectedRgbaSha256: sha(production.atlas.rgba),
       craft: production.summary.craftValidation, finalAtlas: validateFinalAtlas(production.atlas),
       remaining: ["provider_hatColor_black_conflicts_with_observed_light_blue", "pixel_pattern_plan_none"],

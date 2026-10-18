@@ -1,18 +1,14 @@
-import type { BoxUV } from "./uvLayout";
-import type { FacePixelInstruction, FaceLayoutPlan } from "./identityPlans";
+import type { FacePixelInstruction, FaceLayoutPlan, FacePixelPlan } from "./identityPlans";
+import { headwearFootprint } from "../../shared/headwear";
+export { headwearFootprint } from "../../shared/headwear";
 
-/** Existing cap/beanie painter's bounded footprint, shared with ownership.
- * This is not a full headscarf: side locks, nape and face remain independent.
- */
-export function headwearFootprint(hat: string): Array<{ face: keyof BoxUV; x: number; y: number; shade: number }> {
-  if (hat !== "cap" && hat !== "beanie") return [];
-  const cells: Array<{ face: keyof BoxUV; x: number; y: number; shade: number }> = [];
-  for (const face of ["top", "front", "right", "left", "back"] as const) {
-    const rows = face === "top" ? 8 : hat === "beanie" || face === "front" ? 3 : 2;
-    for (let y = 0; y < rows; y++) for (let x = 0; x < 8; x++)
-      cells.push({ face, x, y, shade: face !== "top" && y === 2 ? 0.8 : 1 });
-  }
-  return cells;
+/** An unusually high measured eye/frame establishes a real opening in a
+ * soft hat. Opaque helmet material deliberately has different semantics. */
+export function headwearVisibleLandmarks(plan?: FacePixelPlan) {
+  return [
+    ...(plan?.pixels.filter(p => ["left_eye", "right_eye", "glasses", "mouth"].includes(p.cluster)).map(p => ({ face: "front" as const, x: p.x, y: p.y })) ?? []),
+    ...(plan?.glassesPlan.framePixels ?? []), ...(plan?.glassesPlan.sideArms ?? []),
+  ];
 }
 
 /** Material occlusion of authored categorical brows, not deletion of source

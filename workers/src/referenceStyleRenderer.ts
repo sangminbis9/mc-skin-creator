@@ -12,6 +12,8 @@ import { applyReferenceHeadProportion, buildReferenceHeadProportion, type Refere
 import { applyReferenceGarmentFinish } from "./referenceGarmentFinish";
 import { referenceHairMaterial, referenceLooseHairMaterial } from "./referenceMaterialDetail";
 import { facialHairBaseFootprint } from "./facialHairFootprint";
+import { buildHeadwearPaint } from "../../shared/headwear";
+import { headwearVisibleLandmarks } from "./headwearFootprint";
 import { buildReferencePairedHair, buildReferencePairedDrapePlan, type ReferencePairedHair } from "./referencePairedHair";
 import { buildReferenceLooseHair, type ReferenceLooseHair } from "./referenceLooseHair";
 import { buildReferenceScarfFinish, type ReferenceScarfFinish } from "./referenceScarfFinish";
@@ -397,10 +399,17 @@ function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, des
   // Finish foundations before promoting a covering pattern from its outer
   // layer. Interleaved input cells must not reset its executable base color.
   const headCells = [...head.cells].sort((a, b) => Number(a.layer === "outer") - Number(b.layer === "outer"));
+  const headwear = new Map(buildHeadwearPaint(style.hat, style.hatColor ?? "#303030", style.hatVisor, headwearVisibleLandmarks(plan.facePixelPlan)).map(c => [`${c.layer}:${c.face}:${c.x}:${c.y}`, c]));
   for (const c of headCells) {
     const layer = c.layer === "outer" ? "overlay" as const : "base" as const;
     const pos = { part: "head" as const, face: c.face, layer, x: c.x, y: c.y };
     const offset = at(pos);
+    const worn = headwear.get(`${layer}:${c.face}:${c.x}:${c.y}`);
+    if (worn) {
+      const cell: Cell = { ...pos, owner: "covering", color: [...worn.color] };
+      atlas.rgba.set([...cell.color, 255], offset); ownership.set(key(cell), cell);
+      continue;
+    }
     if (layer === "overlay" && (c.owner === "clear" || c.owner === "hair_outer" || c.owner === "covering")) atlas.rgba.fill(0, offset, offset + 4);
     if (c.owner === "hair_base") {
       if (c.face === "front" && protectedFace.has(`${c.x}:${c.y}`)) continue;

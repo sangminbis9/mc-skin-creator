@@ -7,6 +7,8 @@ import type { RawImage } from "./png";
 import type { SkinPlan } from "./skinPlan";
 import type { FaceStyle } from "./skinPack";
 import { facialHairBaseFootprint } from "./facialHairFootprint";
+import { buildHeadwearPaint } from "../../shared/headwear";
+import { headwearVisibleLandmarks } from "./headwearFootprint";
 import { buildReferencePairedHair, buildReferencePairedDrapePlan } from "./referencePairedHair";
 import { buildReferenceLooseHair } from "./referenceLooseHair";
 import { buildReferenceScarfFinish } from "./referenceScarfFinish";
@@ -210,6 +212,12 @@ function measureReferenceFoundationQuality(
     if ([0, 1, 2].some(ch => atlas.rgba[i + ch] !== p.color[ch])) errors.add("face_finish_paint_mismatch");
   }
   const protectedFace = source.facePixelPlan.pixels.filter(p => ["left_eye", "right_eye", "glasses"].includes(p.cluster) || p.role === "brow");
+  // Independently require the source headwear material, including the visor.
+  // Editing a paint diagnostic cannot turn a red helmet into hair or skin.
+  for (const c of buildHeadwearPaint(style.hat, style.hatColor ?? "#303030", style.hatVisor, headwearVisibleLandmarks(source.facePixelPlan))) {
+    const i = offset({ ...c, part: "head", owner: "covering" });
+    if (atlas.rgba[i + 3] !== 255 || c.color.some((v, ch) => atlas.rgba[i + ch] !== v)) errors.add("headwear_material_changed");
+  }
   const material = source.headIdentityPlan.ownership?.cells.filter(c => c.layer === "base" && c.face === "front" && ["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner)) ?? [];
   const eyePalette = style.eyeColor && /^#[0-9a-f]{6}$/i.test(style.eyeColor) ? [1, 3, 5].map(i => Number.parseInt(style.eyeColor!.slice(i, i + 2), 16)) : undefined;
   // Reconstruct the clean skin window and face finish independently of the
