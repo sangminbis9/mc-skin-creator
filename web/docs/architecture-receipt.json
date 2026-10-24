@@ -1,0 +1,20 @@
+{
+  "diagram_type": "architecture",
+  "specification": "pipeline.architecture.json",
+  "output": "pipeline-architecture.html",
+  "specification_sha256": "181666e2a37ccc874a5c1f5291d554689d68a20746c2681bedbd8c1a35c30fee",
+  "specification_bytes": 3986,
+  "artifact_sha256": "5d767555214a5b32aad38475e7469dc65254519f48459b3313d92ae1bd29b18c",
+  "artifact_bytes": 812466,
+  "validation": { "profile": "showcase", "passed": 9, "total": 9, "errors": 0, "warnings": 0 },
+  "browser_evidence": "passed",
+  "browser_receipt": "pipeline-architecture.visual-check.json",
+  "visual_review": "passed",
+  "correction_rounds": 1,
+  "review": {
+    "method": "Image-capable reviewer inspected all four exact-artifact Chrome captures.",
+    "scope": "Default READ / Still, light and dark at 1440x900 and 2048x1320. Automated containment additionally covers 1600x1000 and 1920x1080.",
+    "observations": "No clipped boxes, overlapping labels, crossing routes or conspicuous empty lower band. Both theme screenshots show the complete main path and three supporting cards.",
+    "limitation": "Interactive focus/search/export controls were not manually exercised; review covers the rendered default view, not every viewer feature."
+  }
+}

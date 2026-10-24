@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": { "title": "Skin Studio Web · 사진에서 스킨까지", "quality_profile": "showcase", "animation": "none" },
+  "components": [
+    { "id": "photo-input", "type": "frontend", "label": "사진 입력 · 품질 확인", "sublabel": "사용 동의 · 최대 5장 · 448/896px", "pos": [60, 90], "size": [240, 86] },
+    { "id": "generation-client", "type": "frontend", "label": "생성 요청 클라이언트", "sublabel": "SHA-256 중복 억제 · 150초 제한", "pos": [460, 90], "size": [240, 86] },
+    { "id": "web-gateway", "type": "backend", "label": "웹 API 게이트웨이", "sublabel": "mc-skin-studio-web · 경로/출처 검사", "pos": [860, 90], "size": [260, 86] },
+    { "id": "shared-engine", "type": "backend", "label": "기존 AI 스킨 생성 엔진", "sublabel": "mc-skin-creator-api · Workers AI 호출", "pos": [860, 340], "size": [260, 86] },
+    { "id": "skin-validation", "type": "frontend", "label": "응답 검증 · 문서 구성", "sublabel": "64×64 PNG 디코딩 → SkinDocument", "pos": [460, 340], "size": [240, 86] },
+    { "id": "skin-workbench", "type": "frontend", "label": "3D 미리보기 · 옷장 · 편집", "sublabel": "Three.js · 머리/상의/하의 조합", "pos": [60, 340], "size": [240, 86] },
+    { "id": "png-export", "type": "external", "label": "PNG 다운로드 · 공유", "sublabel": "64×64 · Classic / Slim · 외곽 레이어", "pos": [60, 590], "size": [240, 86] },
+    { "id": "local-result-cache", "type": "database", "label": "브라우저 결과 캐시", "sublabel": "최대 24시간 · 8건 · 사진 저장 안 함", "pos": [460, 590], "size": [240, 86] },
+    { "id": "shared-budget", "type": "database", "label": "공유 AI 예산 제어", "sublabel": "NEURON_BUDGET · 원자적 예약/정산", "pos": [860, 590], "size": [260, 86] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "사용자 브라우저 · web/src", "wraps": ["photo-input", "generation-client", "skin-validation", "skin-workbench", "png-export", "local-result-cache"], "pad": 26 },
+    { "kind": "region", "label": "Cloudflare · 웹 Worker + 외부 생성 서비스", "wraps": ["web-gateway", "shared-engine", "shared-budget"], "pad": 26 }
+  ],
+  "connections": [
+    { "id": "prepared-input", "from": "photo-input", "to": "generation-client", "label": "축소 이미지", "variant": "emphasis" },
+    { "id": "generate-http", "from": "generation-client", "to": "web-gateway", "label": "POST /api/generate", "variant": "emphasis" },
+    { "id": "service-call", "from": "web-gateway", "to": "shared-engine", "label": "SKIN_API.fetch", "variant": "emphasis", "labelDy": 80 },
+    { "id": "generation-result", "from": "shared-engine", "to": "skin-validation", "label": "PNG + features", "variant": "emphasis" },
+    { "id": "editable-document", "from": "skin-validation", "to": "skin-workbench", "label": "검증된 문서", "variant": "emphasis" },
+    { "id": "export-texture", "from": "skin-workbench", "to": "png-export", "label": "현재 텍스처 내보내기", "variant": "emphasis", "labelDy": 80 },
+    { "id": "persist-result", "from": "skin-validation", "to": "local-result-cache", "label": "유효 응답 재사용", "variant": "dashed", "labelDy": 80 },
+    { "id": "budget-reservation", "from": "shared-engine", "to": "shared-budget", "label": "예약 · 정산", "variant": "security", "labelDy": 80 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "독립 웹 배포", "items": ["Vite 빌드 → dist → ASSETS 정적 제공", "web/만 설치·실행 가능 · 광고 SDK 없음"] },
+    { "dot": "amber", "title": "외부 의존성과 오류", "items": ["생성 엔진은 web/ 밖의 기존 서비스", "무료 예산 공유 · 실패/한도 초과를 UI에 표시"] },
+    { "dot": "emerald", "title": "별도 경로", "items": ["샘플은 AI 없이 편집·내보내기로 진입", "GET /api/quota도 동일 게이트웨이를 통과"] }
+  ]
+}

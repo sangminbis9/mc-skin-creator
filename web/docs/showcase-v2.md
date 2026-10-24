@@ -1,0 +1,14 @@
+# 첫 화면 예시 이미지 v2
+
+> 폐기된 방향: 사용자 요청에 따라 연출 이미지와 모드 선택 UI는 첫 화면에서 제거했다. 현재는 `src/lib/curatedLaceSkin.ts`의 실제 64×64 픽셀 스킨을 사용한다. 아래 내용은 이전 시도 기록이며 현행 동작이 아니다.
+
+- 변경 범위: 웹 첫 화면 예시. 기존 실제 64×64 atlas, 샘플 편집 흐름과 생성 엔진은 변경하지 않음.
+- 자산: `public/images/woman-lace-showcase-v2.png`
+- 도구: 기본 내장 image generation, CLI/API key 방식 사용 안 함.
+- 참조: 기존 AI 생성 사진 `public/images/woman-lace-photo.png`.
+- 용도: 사진의 머리와 의상 특징을 설명하는 voxel 스타일 연출 이미지. 실제 다운로드 가능한 스킨 또는 실시간 생성 결과가 아님.
+- UI: 기본 Concept와 기존 Actual 3D skin을 전환 가능. 이미지와 3D 샘플의 차이를 각 모드에 명시.
+
+## 생성 프롬프트
+
+Create one beautiful premium Minecraft-style character illustration for a website, using the attached image ONLY as the appearance and outfit reference. Show a single full-body voxel skin character isolated on a genuinely transparent background, centered, portrait 2:3 composition, generous 8% padding above hair and below shoes. No text, arrows, logos, panels, photo, or extra people. Maintain unmistakable Minecraft block anatomy: cubic head, rectangular torso, slim rectangular arms, rectangular legs; crisp pixel-art textures, not realistic skin, not smooth doll, not Roblox. Only subtly stepped corners using outer-layer hair pixels, not round head. Make the character recognizably match this adult woman: warm fair complexion, pretty softly smiling face with small expressive dark-brown pixel eyes, subtle peach cheek shading and tiny muted rose smile; long dark chocolate-brown hair, softly parted wispy curtain fringe, layered wavy strands extending down past shoulders to waist, asymmetrical drape as reference, restrained lighter brown highlights and darker strand shadows, carefully layered silhouette, not a blunt bob or helmet. Outfit precisely matches photograph: ivory floral lace camisole with scalloped lace straps and neckline, tiny centered ribbon ties, fitted ivory bodice; long flowing-looking tiered ivory skirt interpreted in rectangular Minecraft geometry through pixel folds, horizontal lace tiers and scalloped pixel hem, ankle-length; soft pale blush-pink cardigan draped low on shoulders with long loose sleeves, not a jacket; ivory Mary Jane shoes, no dark boots. Render cloth details as beautiful controlled pixel clusters, no random noisy pixels. Slight three-quarter view toward viewer, face completely visible, one rectangular arm raised naturally toward the side of hair and other relaxed, gentle appealing pose without concealing bodice, clear and legible even in a narrow website card. Block proportions remain primary, no anatomically sculpted bust, no exposed midriff, no smooth photorealistic curves. Studio soft ambient light, warm clean colors, subtle self shadows to emphasize hair outer layers and garment depth. This is an illustrative Minecraft-style hero concept, not a UV atlas; prioritize likeness, art direction and pleasing Minecraft pixel craft.
