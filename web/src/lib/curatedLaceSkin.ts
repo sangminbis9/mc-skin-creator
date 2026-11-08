@@ -10,7 +10,7 @@ export function createCuratedLacePixels(): Uint8ClampedArray {
   const parts={head:[box(0,0,8,8,8),box(32,0,8,8,8)],body:[box(16,16,8,12,4),box(16,32,8,12,4)],
     rightArm:[box(40,16,4,12,4),box(40,32,4,12,4)],leftArm:[box(32,48,4,12,4),box(48,48,4,12,4)],
     rightLeg:[box(0,16,4,12,4),box(0,32,4,12,4)],leftLeg:[box(16,48,4,12,4),box(0,48,4,12,4)]};
-  const p:Record<string,string>={H:"#30221f",h:"#46312a",a:"#5b4034",b:"#75513f",S:"#f4d1bc",s:"#e5bba5",p:"#e5aaa0",D:"#45302c",w:"#fff1df",m:"#c8837b"};
+  const p:Record<string,string>={H:"#30221f",h:"#46312a",a:"#5b4034",b:"#75513f",S:"#f4d1bc",s:"#e5bba5",u:"#d7ad98",p:"#e5aaa0",D:"#45302c",w:"#fff1df",m:"#d79d91"};
   const set=(r:Rect,x:number,y:number,color:string)=>{const n=parseInt(color.slice(1),16),i=((r.y+y)*64+r.x+x)*4;pixels.set([n>>16,(n>>8)&255,n&255,255],i);};
   const paint=(r:Rect,color:(x:number,y:number)=>string|null)=>{for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const c=color(x,y);if(c)set(r,x,y,c);}};
   const hair=(x:number,y:number,side=false)=>(side?[p.H,p.h,p.a,p.h,p.H]:[p.h,p.a,p.b,p.a,p.h])[(x+Math.floor(y/3)%2)%5];
@@ -34,11 +34,28 @@ export function createCuratedLacePixels(): Uint8ClampedArray {
   });
   // Frame the cheeks with one hair pixel per side (six exposed columns,
   // tapering to four at the chin). Keep the original eye positions unchanged.
-  ["HHhaahHH","HhaasahH","haSSSSah","hbSSSSbh","hwDSSDwh","hpDSSDph","hsSmSSsh","hhsssshh"].forEach((row,y)=>[...row].forEach((c,x)=>set(parts.head[0].front,x,y,p[c])));
-  [".ha..ah.","ha....ah","a......a","h......h","h......h","a......h","h......a"].forEach((row,y)=>[...row].forEach((c,x)=>{if(c!==".")set(parts.head[1].front,x,y,p[c]);}));
+  const chin="hhsSSshh";
+  ["HHhaahHH","HhaasahH","haSSSSah","hbSSSSbh","hwDSSDwh","hpDSSDph","hsSmmSsh",chin].forEach((row,y)=>[...row].forEach((c,x)=>set(parts.head[0].front,x,y,p[c])));
+  // Center the soft lip pair, then carry the chin across the mirrored bottom UV
+  // seam. A warm underside shadow replaces the accidental dark hair/beard strip.
+  paint(parts.head[0].bottom,(x,y)=>{
+    if(y===0)return p[chin[7-x]];
+    if(x>=2&&x<=5&&y<=5)return y<=2?p.s:p.u;
+    return null;
+  });
+  const fringe=[".ha..ah.","ha....ah","a......a","h......h","h......h","a......h","h......a"];
+  fringe.forEach((row,y)=>[...row].forEach((c,x)=>{if(c!==".")set(parts.head[1].front,x,y,p[c]);}));
   for(const face of ["top","back","left","right"] as const)paint(parts.head[1][face],(x,y)=>{
-    if(face==="top")return ((x===0||x===7)&&(y===0||y===7))?null:hair(x,y);
-    if(y===0&&(x===0||x===7))return null;
+    // Inset the whole crown edge, not just its corners: a six-pixel crown
+    // steps into the wider side locks without changing Minecraft's base cube.
+    if(face==="top"){
+      if(x===0||x===7)return null;
+      if(y===7){const c=fringe[0][x];return c==="."?null:p[c];}
+      if(y===0)return hair(7-x,0);
+      return hair(x,y);
+    }
+    // Clear the matching side-face top rows so no square rim is left behind.
+    if(y===0&&(face!=="back"||x===0||x===7))return null;
     if(face!=="back"&&y>3&&x===0)return null;
     if(y===7&&(x+y)%3===0)return null;
     return hair(x,y,face!=="back");
