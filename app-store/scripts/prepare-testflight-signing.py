@@ -53,7 +53,7 @@ def main(signing_dir: Path, keychain: str) -> None:
         "teamID": team_id,
         "provisioningProfiles": {bundle_id: profile_uuid},
         "manageAppVersionAndBuildNumber": False,
-        "testFlightInternalTestingOnly": True,
+        "testFlightInternalTestingOnly": False,
     }
     (signing_dir / "ExportOptions.plist").write_bytes(plistlib.dumps(export_options))
     with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env:
