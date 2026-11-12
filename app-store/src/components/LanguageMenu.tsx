@@ -22,11 +22,16 @@ export function LanguageMenu() {
   useEffect(() => {
     if (!open) return;
     selected.current?.focus();
-    const closeOutside = (event: PointerEvent) => {
+    // WebKit can blur the focused button before a tap on another button delivers its click.
+    const closeOutside = (event: Event) => {
       if (!container.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener("pointerdown", closeOutside);
-    return () => document.removeEventListener("pointerdown", closeOutside);
+    document.addEventListener("focusin", closeOutside);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("focusin", closeOutside);
+    };
   }, [open]);
 
   function close() {
@@ -35,7 +40,6 @@ export function LanguageMenu() {
   }
 
   return <div className="studio-language" ref={container}
-    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
     onKeyDown={event => { if (open && event.key === "Escape") { event.preventDefault(); close(); } }}>
     <button type="button" className="studio-language-trigger" ref={trigger}
       aria-label={t("language.current", { name: t(language === "ko" ? "language.ko" : "language.en") })}
