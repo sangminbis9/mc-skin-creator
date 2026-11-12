@@ -56,6 +56,8 @@ Actions는 테스트 → 웹 빌드 → Capacitor sync → Apple plist 검사 �
 
 ## TestFlight와 App Store 제출
 
+Windows에서는 `main` 푸시로 iPhone용 빌드를 서명하고 내부 TestFlight에 업로드할 수 있습니다. Apple 앱 등록, Windows에서 인증서 만들기, GitHub Secrets 입력은 [Windows TestFlight 설정 안내](docs/TESTFLIGHT-WINDOWS.md)를 따르세요. 공개 출시 전 점검은 아래 절차를 사용합니다.
+
 [출시 체크리스트](docs/RELEASE.md)와 [스토어 설명·심사 메모](docs/STORE-METADATA.md)를 따라 진행합니다. [공개 정책·지원 페이지 초안](docs/PUBLIC-PAGES.md)에 실제 운영자·문의처를 채운 뒤 공개 HTTPS 페이지로 게시해야 합니다.
 
 ```sh
@@ -69,7 +71,7 @@ npm run release:check
 
 ## 현재 한계와 출처
 
-- 네이티브 컴파일·서명·실기기 실행·TestFlight 업로드·Apple 심사는 이 Windows 작업에서 수행하지 않았습니다. 심사 승인을 보장하지 않습니다.
+- [GitHub Actions에서 iOS 시뮬레이터 컴파일을 검증했습니다](https://github.com/sangminbis9/mc-skin-creator/actions/runs/43155311724). TestFlight 서명과 업로드에는 운영자의 Apple 설정이 필요합니다.
 - AI는 기존 Cloudflare 엔진의 공유 무료 예산을 사용합니다. 공개 출시 전 용량, 운영 모니터링 및 남용 대응을 확인하세요. 샘플 편집기는 한도와 무관하게 동작합니다.
 - 소스는 기존 `web/`의 스냅샷입니다. 이후 편집기 업데이트는 명시적으로 반영해야 합니다. 원본 사진/샘플 자산의 배포 권리도 출시 전에 확인해야 합니다.
 - 핵심 진입·보관함·내보내기·개인정보 안내는 한국어이며, 기존 고급 편집기와 가이드 일부는 영어입니다. 전체 한국어 현지화 완료를 주장하지 않습니다.
