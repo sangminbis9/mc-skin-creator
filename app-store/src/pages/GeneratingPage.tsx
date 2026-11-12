@@ -5,10 +5,11 @@ import { ApiError } from "../lib/cloudflareAI";
 import { generateEditableSkin, type GeneratedSkin } from "../lib/skinGeneration";
 
 export interface GenerationFailure {
-  kind: "photo" | "ai" | "network";
+  kind: "photo" | "ai" | "network" | "quota";
   message: MessageKey;
   reference?: string;
   retryable?: boolean;
+  resetAtIso?: string;
 }
 interface Props {
   photoDataUrl: string;
@@ -33,6 +34,11 @@ export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePh
         if (!cancelled) onDone(result);
       } catch (error) {
         if (cancelled) return;
+        if (error instanceof ApiError && error.code === "quota_exceeded") {
+          onFail({ kind: "quota", retryable: false, message: "failure.quotaMessage",
+            resetAtIso: error.response?.quota?.level === "closed" ? error.response.quota.resetAtIso : undefined });
+          return;
+        }
         if (error instanceof ApiError && (error.code === "photo_rejected" || error.code === "bad_request")) {
           onFail({ kind: "photo", retryable: false, message: error.code === "photo_rejected"
             ? "generation.photoRejected"
