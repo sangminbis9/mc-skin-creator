@@ -76,7 +76,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--px-ink-soft);
 }
 .studio-steps li:not(:last-child)::after {
@@ -99,7 +99,7 @@ body {
   box-shadow:
     inset 1px 1px #fff,
     0 2px #cccfc2;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 .studio-steps [aria-current="step"] {
@@ -142,7 +142,7 @@ body {
   word-break: keep-all;
 }
 .px-caption {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--px-ink-soft);
   line-height: 1.7;
 }
@@ -221,7 +221,7 @@ body {
     0 3px #c0c1b6;
 }
 .px-btn--small {
-  font-size: 12px;
+  font-size: 13px;
   padding: 10px 13px;
   min-height: 42px;
   width: auto;
@@ -251,7 +251,7 @@ body {
   background: none;
   border: 0;
   color: var(--px-ink-soft);
-  font-size: 12px;
+  font-size: 13px;
   padding: 12px;
   cursor: pointer;
   display: flex;
@@ -315,7 +315,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   padding: 4px 9px;
   border-radius: 1px;
@@ -464,7 +464,7 @@ canvas.px-pixelated {
   padding: 20px 28px;
   border-top: 1px solid var(--studio-border);
   color: var(--px-ink-soft);
-  font-size: 10px;
+  font-size: 13px;
 }
 .studio-footer a {
   color: inherit;
@@ -523,18 +523,18 @@ canvas.px-pixelated {
 }
 .upload-privacy p {
   margin: 10px 0 0 32px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.8;
   color: var(--px-ink-soft);
 }
 .upload-privacy a {
   display: inline-block;
   margin-top: 7px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .upload-note {
   text-align: center;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--px-ink-soft);
   margin: -6px 0 0;
 }
@@ -574,7 +574,7 @@ canvas.px-pixelated {
   border-radius: 0;
   box-shadow: inset 1px 1px #fff;
   min-height: 42px;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 .studio-segment button[aria-pressed="true"] {
@@ -590,7 +590,7 @@ canvas.px-pixelated {
 .studio-view-hint {
   margin: 0 0 8px;
   text-align: center;
-  font-size: 10px;
+  font-size: 13px;
   color: var(--px-ink-soft);
 }
 .studio-actions {
@@ -770,11 +770,11 @@ canvas.px-pixelated {
   image-rendering: pixelated;
 }
 .variation-card span {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .variation-card small {
-  font-size: 10px;
+  font-size: 13px;
   margin-top: 4px;
   color: var(--px-ink-soft);
 }
@@ -782,7 +782,7 @@ canvas.px-pixelated {
   color: var(--px-grass-dark);
 }
 .variation-selection {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--px-grass-dark);
   line-height: 1.6;
   text-align: center;
@@ -796,7 +796,7 @@ canvas.px-pixelated {
   gap: 8px;
 }
 .variation-panel .studio-text-btn {
-  font-size: 12px;
+  font-size: 13px;
   margin: 8px auto 16px;
 }
 
@@ -831,7 +831,7 @@ canvas.px-pixelated {
 }
 .sample-skin figcaption {
   text-align: center;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--px-ink-soft);
   padding: 10px 0 2px;
 }
@@ -857,17 +857,17 @@ canvas.px-pixelated {
   margin: 12px 0;
 }
 .variation-view-row > span {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--px-ink-soft);
 }
 .variation-view-row .studio-segment button {
   padding: 8px 12px;
   min-height: 40px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .variation-detail,
 .variation-protection {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
   color: var(--px-ink-soft);
   padding: 10px 0;
@@ -925,7 +925,7 @@ canvas.px-pixelated {
   object-fit: contain;
 }
 .variation-panel .variation-card span {
-  font-size: 11px;
+  font-size: 13px;
 }
 .variation-panel .studio-text-btn {
   margin: 4px auto 8px;
@@ -957,7 +957,7 @@ canvas.px-pixelated {
 }
 .upload-transformation figcaption {
   color: var(--px-ink-soft);
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.5;
   text-align: center;
   margin-top: 6px;
@@ -1004,7 +1004,7 @@ canvas.px-pixelated {
   align-items: center;
   justify-content: space-between;
   padding: 4px 3px 0;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.6;
 }
 .skin-showcase-card[data-expanded="true"] {

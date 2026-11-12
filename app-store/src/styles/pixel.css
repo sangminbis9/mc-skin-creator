@@ -118,7 +118,7 @@ body {
 }
 
 .px-caption {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--px-ink-soft);
   line-height: 1.6;
 }
@@ -322,7 +322,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   padding: 4px 10px;
   border: 2px solid var(--px-ink);
