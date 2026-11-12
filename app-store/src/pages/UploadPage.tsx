@@ -1,27 +1,21 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { StudioIcon } from "../components/StudioIcon";
-import { fetchQuotaStatus } from "../lib/cloudflareAI";
 import { preparePhotoForUpload, type PreparedPhotoUpload } from "../lib/imageQuality";
-import type { QuotaStatus } from "../lib/skinFeatures";
 const WebShowcase = lazy(() => import("../components/WebShowcase").then(m => ({ default: m.WebShowcase })));
 
 interface Props {
   onPhotoSelected: (photos: PreparedPhotoUpload[]) => void;
-  onQuotaClosed: (quota: QuotaStatus | null) => void;
   onDemo: () => Promise<void>;
 }
-export function UploadPage({ onPhotoSelected, onQuotaClosed, onDemo }: Props) {
+export function UploadPage({ onPhotoSelected, onDemo }: Props) {
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [demoBusy, setDemoBusy] = useState(false);
   const [error, setError] = useState("");
-  const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
-  useEffect(() => { void fetchQuotaStatus().then(setQuota); }, []);
   async function receive(files: File[]) {
     if (!agreed || busy || demoBusy) return;
-    if (quota?.level === "closed") { onQuotaClosed(quota); return; }
     if (!files.length) return;
     if (files.length > 5 || files.some(f => !["image/jpeg", "image/png", "image/webp"].includes(f.type) || f.size > 20 * 1024 * 1024)) {
       setError("Choose up to 5 JPG, PNG or WebP photos, each under 20 MB."); return;
@@ -38,7 +32,7 @@ export function UploadPage({ onPhotoSelected, onQuotaClosed, onDemo }: Props) {
         <p className="web-lead">내 사진을 마인크래프트 스킨으로 만들고, 3D로 확인하고, 직접 꾸며 보세요.</p>
         <div className="web-start" onDragOver={e => { e.preventDefault(); if (agreed) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); if (!agreed) setError("Please agree to photo processing before dropping a photo."); else void receive(Array.from(e.dataTransfer.files)); }} data-dragging={dragging}>
           <label className="web-consent"><input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} /><span>사진 사용 권한이 있으며, 선택한 사진을 Cloudflare 및 Cloudflare Workers AI에 보내 스킨 생성에 사용하는 것에 동의합니다. <a href="#/privacy">개인정보 안내</a></span></label>
-          <button className="px-btn" disabled={!agreed || busy || demoBusy} onClick={() => quota?.level === "closed" ? onQuotaClosed(quota) : input.current?.click()}><StudioIcon name="upload" />{busy ? "사진 준비 중…" : quota?.level === "closed" ? "생성 가능 여부 확인" : "사진으로 스킨 만들기"}<StudioIcon name="arrow" /></button>
+          <button className="px-btn" disabled={!agreed || busy || demoBusy} onClick={() => input.current?.click()}><StudioIcon name="upload" />{busy ? "사진 준비 중…" : "사진으로 스킨 만들기"}<StudioIcon name="arrow" /></button>
           <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="Upload reference photos" hidden onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void receive(files); }} />
           <p className="web-upload-note">사진 최대 5장 · JPG, PNG, WebP · iPhone 사진은 JPEG로 선택해 주세요.</p>
           {error && <p role="alert" className="web-error">{error}</p>}

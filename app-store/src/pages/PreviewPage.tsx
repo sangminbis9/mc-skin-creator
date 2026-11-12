@@ -15,6 +15,7 @@ import { saveSkin } from "../lib/skinLibrary";
 
 interface PreviewPageProps {
   isSample?: boolean;
+  generatedOnDevice?: boolean;
   doc: SkinDocument;
   skinVersion: number;
   onEdit: () => void;
@@ -28,6 +29,7 @@ interface PreviewPageProps {
 
 export function PreviewPage({
   isSample = false,
+  generatedOnDevice = false,
   doc,
   skinVersion,
   onEdit,
@@ -74,7 +76,9 @@ export function PreviewPage({
           <p className="px-subtitle">
             {isSample
               ? "Curated sample — explore combinations, editing and export."
-              : "Inspect every angle. Change what you like."}
+              : generatedOnDevice
+                ? "기기에서 완성한 기본 스킨이에요. 편집에서 머리와 옷을 다듬을 수 있어요."
+                : "Inspect every angle. Change what you like."}
           </p>
         </>
       )}

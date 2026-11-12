@@ -10,7 +10,6 @@ import { SkinDocument } from "./editor/editorState";
 import { decodeSkinPng } from "./lib/skinDecode";
 import type { PreparedPhotoUpload } from "./lib/imageQuality";
 import type { SkinGeometry } from "./lib/skinAtlas";
-import type { QuotaStatus } from "./lib/skinFeatures";
 import { LibraryPage } from "./pages/LibraryPage";
 import { demoHints, loadDemoSkin } from "./lib/demoSkin";
 import { ApplyGuidePage } from "./pages/ApplyGuidePage";
@@ -19,7 +18,6 @@ import { FailurePage } from "./pages/FailurePage";
 import { GeneratingPage, type GenerationFailure } from "./pages/GeneratingPage";
 import { PrivacyPage } from "./pages/PrivacyPage";
 import { QualityCheckPage } from "./pages/QualityCheckPage";
-import { QuotaClosedPage } from "./pages/QuotaClosedPage";
 import { SharePage } from "./pages/SharePage";
 import { UploadPage } from "./pages/UploadPage";
 
@@ -40,8 +38,7 @@ type Step =
   | "download"
   | "share"
   | "guide"
-  | "failed"
-  | "closed";
+  | "failed";
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash);
@@ -63,10 +60,10 @@ function App() {
   const [skinVersion, setSkinVersion] = useState(0);
   const [failure, setFailure] = useState<GenerationFailure | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [skinGeometry, setSkinGeometry] = useState<SkinGeometry>("classic");
   const [isSample, setIsSample] = useState(false);
+  const [generatedOnDevice, setGeneratedOnDevice] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -90,6 +87,7 @@ function App() {
           setSkinGeometry(skin.geometry);
           setSkinVersion(0);
           setIsSample(false);
+          setGeneratedOnDevice(false);
           setPhotos([]);
           setCapturedImage(null);
           setStep('preview');
@@ -108,6 +106,7 @@ function App() {
 
   const resetToUpload = () => {
     setIsSample(false);
+    setGeneratedOnDevice(false);
     setPhotos([]);
     setDoc(null);
     setFailure(null);
@@ -125,6 +124,7 @@ function App() {
             onDemo={async () => {
               setDoc(new SkinDocument(await loadDemoSkin(), demoHints));
               setIsSample(true);
+              setGeneratedOnDevice(false);
               setSkinGeometry("slim");
               setSkinVersion(0);
               setStep("preview");
@@ -133,10 +133,6 @@ function App() {
               setIsSample(false);
               setPhotos(preparedPhotos);
               setStep("quality");
-            }}
-            onQuotaClosed={(q) => {
-              setQuota(q);
-              setStep("closed");
             }}
           />
         </>
@@ -157,32 +153,16 @@ function App() {
           referencePhotoDataUrls={photos
             .slice(1)
             .map((reference) => reference.analysisDataUrl)}
-          onDone={async (result) => {
+          onDone={(result) => {
+            setDoc(new SkinDocument(result.canvas, result.features));
             setPhotos([]);
-            // AI가 직접 생성한 스킨 우선, 실패하면 특징 기반 절차 생성으로 fallback
-            const decoded = result.skinPngBase64
-              ? await decodeSkinPng(result.skinPngBase64)
-              : null;
-            if (!decoded) {
-              setFailure({
-                kind: "ai",
-                message: "The returned skin PNG could not be decoded.",
-                retryable: false,
-              });
-              setStep("failed");
-              return;
-            }
-            setDoc(new SkinDocument(decoded, result.features));
+            setGeneratedOnDevice(result.onDevice);
             setSkinVersion(0);
             setStep("preview");
           }}
           onFail={(f) => {
             setFailure(f);
             setStep("failed");
-          }}
-          onQuotaClosed={(q) => {
-            setQuota(q);
-            setStep("closed");
           }}
         />
       )}
@@ -205,14 +185,11 @@ function App() {
         />
       )}
 
-      {step === "closed" && (
-        <QuotaClosedPage quota={quota} onBack={resetToUpload} />
-      )}
-
       {step === "preview" && doc && (
         <Suspense fallback={<LoadingScreen />}>
           <PreviewPage
             isSample={isSample}
+            generatedOnDevice={generatedOnDevice}
             doc={doc}
             skinVersion={skinVersion}
             onEdit={() => setStep("editor")}
@@ -281,7 +258,7 @@ function Shell({ children, step, onHome }: { children: React.ReactNode; step?: S
   const active =
     step === "upload" || step === "quality"
       ? 0
-      : step === "generating" || step === "failed" || step === "closed"
+      : step === "generating" || step === "failed"
         ? 1
         : 2;
   return (

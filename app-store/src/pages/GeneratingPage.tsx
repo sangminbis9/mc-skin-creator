@@ -1,27 +1,20 @@
 import { useEffect, useState } from "react";
-import { ApiError, requestSkinGeneration } from "../lib/cloudflareAI";
-import { normalizeFeatures } from "../lib/skinFeatures";
-import type { GenerationMode, QuotaStatus, SkinFeatures } from "../lib/skinFeatures";
+import { ApiError } from "../lib/cloudflareAI";
+import { generateEditableSkin, type GeneratedSkin } from "../lib/skinGeneration";
 
 export interface GenerationFailure {
   kind: "photo" | "ai" | "network";
   message: string;
   retryable?: boolean;
 }
-export interface GenerationSuccess {
-  features: SkinFeatures;
-  skinPngBase64?: string;
-  generationMode: GenerationMode;
-}
 interface Props {
   photoDataUrl: string;
   analysisPhotoDataUrl: string;
   referencePhotoDataUrls?: string[];
-  onDone: (result: GenerationSuccess) => void | Promise<void>;
+  onDone: (result: GeneratedSkin) => void;
   onFail: (failure: GenerationFailure) => void;
-  onQuotaClosed: (quota: QuotaStatus | null) => void;
 }
-export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePhotoDataUrls = [], onDone, onFail, onQuotaClosed }: Props) {
+export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePhotoDataUrls = [], onDone, onFail }: Props) {
   const [seconds, setSeconds] = useState(0);
   const referenceKey = JSON.stringify(referencePhotoDataUrls);
   useEffect(() => {
@@ -32,24 +25,20 @@ export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePh
     let cancelled = false;
     void (async () => {
       try {
-        const result = await requestSkinGeneration(photoDataUrl, analysisPhotoDataUrl, JSON.parse(referenceKey));
-        if (!cancelled) await onDone({
-          features: normalizeFeatures(result.features ?? {}),
-          skinPngBase64: result.skinPngBase64,
-          generationMode: result.generationMode ?? "procedural_fallback",
-        });
+        const result = await generateEditableSkin(photoDataUrl, analysisPhotoDataUrl, JSON.parse(referenceKey));
+        if (!cancelled) onDone(result);
       } catch (error) {
         if (cancelled) return;
-        if (error instanceof ApiError && error.code === "quota_exceeded") {
-          onQuotaClosed(error.response?.quota ?? null); return;
-        }
-        if (error instanceof ApiError && error.code === "photo_rejected") {
-          onFail({ kind: "photo", retryable: false, message: "We couldn't confidently read the person in this photo. Try a clear face photo with even lighting." }); return;
+        if (error instanceof ApiError && (error.code === "photo_rejected" || error.code === "bad_request")) {
+          onFail({ kind: "photo", retryable: false, message: error.code === "photo_rejected"
+            ? "사진에서 인물을 인식하기 어려워요. 얼굴이 잘 보이는 사진을 선택해 주세요."
+            : "사진을 읽을 수 없어요. JPG, PNG 또는 WebP 사진을 선택해 주세요." });
+          return;
         }
         const isNetwork = error instanceof ApiError && error.code === "network";
         const reference = error instanceof ApiError ? error.response?.requestId?.slice(0, 8) : null;
         onFail({ kind: isNetwork ? "network" : "ai", retryable: true,
-          message: (isNetwork ? "The request timed out or the connection was interrupted. Please check your connection." : "The AI service could not complete this request. Please try again shortly.") + (reference ? " Reference: " + reference : "") });
+          message: (isNetwork ? "연결이 끊겼어요. 다시 시도해 주세요." : "이 사진으로 스킨을 만들지 못했어요. 다시 시도하거나 다른 사진을 선택해 주세요.") + (reference ? " 오류 번호 " + reference : "") });
       }
     })();
     return () => { cancelled = true; };
@@ -63,7 +52,7 @@ export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePh
       <div className="px-jump-blocks" aria-hidden="true"><span /><span /><span /></div>
       <p>{seconds >= 30 ? "Still working. Please keep this tab open." : "Generating your 64×64 skin…"}</p>
     </div>
-    <p className="px-caption" style={{ textAlign: "center" }}>{seconds}s elapsed · This may take up to 150 seconds.</p>
+    <p className="px-caption" style={{ textAlign: "center" }}>{seconds}초 경과 · 서버 응답이 늦으면 기기에서 기본 스킨을 만들어요.</p>
     <p className="px-caption">Once your skin is ready, explore every angle and make it your own with hair and outfit combinations.</p>
   </div>;
 }

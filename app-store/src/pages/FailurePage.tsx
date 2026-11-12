@@ -14,9 +14,9 @@ interface FailurePageProps {
 }
 
 const KIND_TITLES: Record<GenerationFailure["kind"], string> = {
-  photo: "Let's try another photo",
-  ai: "Generation could not finish",
-  network: "Connection interrupted",
+  photo: "다른 사진을 선택해 주세요",
+  ai: "스킨을 만들지 못했어요",
+  network: "연결이 끊겼어요",
 };
 
 const KIND_ICONS: Record<GenerationFailure["kind"], string> = {
@@ -43,28 +43,25 @@ export function FailurePage({ failure, onRetry, onReselect, canRetry }: FailureP
         </p>
         {isPhotoProblem && (
           <p className="px-caption" style={{ marginTop: 8 }}>
-            Use a clear photo where the face is easy to see.
+            얼굴이 잘 보이고 밝기가 고른 사진으로 시도해 보세요.
           </p>
         )}
         {failure.kind !== "photo" && (
           <p className="px-caption" style={{ marginTop: 8 }}>
-            {canRetry ? "Try again shortly, or choose another photo." : "Automatic retries have stopped. Please try again later."}
+            {canRetry ? "이 사진으로 다시 시도하거나 다른 사진을 선택할 수 있어요." : "다른 사진을 선택해 다시 시도해 주세요."}
           </p>
         )}
       </PixelPanel>
 
       {isPhotoProblem ? (
         <>
-          <PixelButton onClick={onReselect}>Choose another photo</PixelButton>
-          <PixelButton variant="ghost" onClick={onRetry} disabled={!canRetry}>
-            Retry this photo
-          </PixelButton>
+          <PixelButton onClick={onReselect}>다른 사진 선택</PixelButton>
         </>
       ) : (
         <>
-          <PixelButton onClick={onRetry} disabled={!canRetry}>Try again</PixelButton>
+          <PixelButton onClick={onRetry} disabled={!canRetry}>다시 시도</PixelButton>
           <PixelButton variant="ghost" onClick={onReselect}>
-            Choose another photo
+            다른 사진 선택
           </PixelButton>
         </>
       )}
