@@ -1,0 +1,56 @@
+name: App Store iOS build
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['app-store/**', '.github/workflows/app-store-ios.yml', 'src/**', 'shared/**', 'ios/**', 'public/**', 'test/**', 'scripts/**', 'package*.json', '*.config.ts', 'tsconfig.json', 'index.html', '.github/workflows/ios.yml']
+  push:
+    branches: [main]
+    paths: ['app-store/**', '.github/workflows/app-store-ios.yml', 'src/**', 'shared/**', 'ios/**', 'public/**', 'test/**', 'scripts/**', 'package*.json', '*.config.ts', 'tsconfig.json', 'index.html', '.github/workflows/ios.yml']
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Locate standalone app
+        shell: bash
+        run: |
+          if [ -f app-store/capacitor.config.ts ]; then
+            echo 'APP_DIR=app-store' >> "$GITHUB_ENV"
+          else
+            echo 'APP_DIR=.' >> "$GITHUB_ENV"
+          fi
+      - name: Select installed Xcode 26
+        shell: bash
+        run: |
+          XCODE_APP=$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' | sort | tail -n 1)
+          test -n "$XCODE_APP" || { echo 'Xcode 26+ is required. Update the runner image.'; exit 1; }
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+      - run: npm --prefix "$APP_DIR" ci
+      - run: npm --prefix "$APP_DIR" test
+      - run: npm --prefix "$APP_DIR" run ios:sync
+      - name: Validate Apple metadata
+        run: |
+          plutil -lint "$APP_DIR/ios/App/App/Info.plist" "$APP_DIR/ios/App/App/PrivacyInfo.xcprivacy" "$APP_DIR/ios/App/App.xcodeproj/project.pbxproj"
+      - name: Build unsigned iOS simulator app
+        run: |
+          xcodebuild -project "$APP_DIR/ios/App/App.xcodeproj" -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/skin-studio-build" CODE_SIGNING_ALLOWED=NO build
+      - name: Package simulator app preserving executable permissions
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/skin-studio-build/Build/Products/Debug-iphonesimulator/App.app" \
+            "$RUNNER_TEMP/skin-studio-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skin-studio-ios-simulator
+          path: ${{ runner.temp }}/skin-studio-simulator.zip
+          retention-days: 7
+          if-no-files-found: error

@@ -1,5 +1,7 @@
 # mc-skin-creator
 
+**App Store용 iOS 버전:** [app-store/README.md](app-store/README.md) — 마크 스킨 뚝딱. 독립 프로젝트, Xcode 앱, 기기 내 보관함, iOS PNG 공유 및 출시 준비 문서가 포함돼 있습니다.
+
 **사진으로 나만의 마인크래프트 스킨을 생성해보세요!**
 
 얼굴/전신 사진을 올리면 AI가 인물 특징(피부톤·머리스타일·안경·옷차림 등)을 분석해
