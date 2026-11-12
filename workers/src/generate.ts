@@ -398,10 +398,11 @@ export async function generateSkin(
   analysisImageDataUrl: string = imageDataUrl,
   referenceImageDataUrls: string[] = [],
 ): Promise<GenerateResult> {
+  const freeImage = env.AI_POLICY === "workers_free_only" && env.FREE_IMAGE_GENERATION_ENABLED === "true";
   if (env.AI_POLICY === "workers_free_only") {
     env = { ...env, GEMINI_API_KEY: undefined, FACE_GEOMETRY_ENRICHMENT_ENABLED: "false",
-      IDENTITY_GEOMETRY_ENRICHMENT_ENABLED: "false", SYNCHRONOUS_ENHANCEMENTS_ENABLED: "false",
-      IMAGE_GENERATION_ENABLED: "false", IMAGE_CRITIQUE_ENABLED: "false", HEAD_CANDIDATE_SELECTION_ENABLED: "false" };
+      IDENTITY_GEOMETRY_ENRICHMENT_ENABLED: "false", SYNCHRONOUS_ENHANCEMENTS_ENABLED: freeImage ? "true" : "false",
+      IMAGE_GENERATION_ENABLED: freeImage ? "true" : "false", IMAGE_CRITIQUE_ENABLED: "false", HEAD_CANDIDATE_SELECTION_ENABLED: "false" };
   }
   if (!Array.isArray(referenceImageDataUrls) || referenceImageDataUrls.length > 4) {
     return fail(400, "최대 5장까지 사용할 수 있어요", "bad_request", 0);
@@ -626,7 +627,7 @@ export async function generateSkin(
   }> = [];
   let focusedIdentityQuotaExceeded = false;
   if (
-    upperBodyDetailCrop &&
+    !freeImage && upperBodyDetailCrop &&
     (analysis.visibleRegions.face || analysis.visibleRegions.hair)
   ) {
     const startedAt = Date.now();
@@ -665,7 +666,7 @@ export async function generateSkin(
     }
   }
 
-  if (faceIdentityCrop && upperBodyDetailCrop && identityCropDiagnostics && analysis.visibleRegions.face && !(focusedIdentityQuotaExceeded && !env.GEMINI_API_KEY)) {
+  if (!freeImage && faceIdentityCrop && upperBodyDetailCrop && identityCropDiagnostics && analysis.visibleRegions.face && !(focusedIdentityQuotaExceeded && !env.GEMINI_API_KEY)) {
     const startedAt = Date.now();
     const geometryResult = await runIdentityGeometryAnalysis(
       env,
@@ -715,7 +716,6 @@ export async function generateSkin(
   ).catch(() => undefined);
 
   const renderAnalysis = normalizeAnalysisForRendering(analysis);
-  const skinPlan = buildSkinPlan(renderAnalysis);
   const features = refineFeatureColorsFromAnalysis(
     renderAnalysis,
     fallbackFeaturesToHex(
@@ -723,6 +723,11 @@ export async function generateSkin(
       renderAnalysis.renderHints.skinUndertone,
     ),
   );
+  const skinPlan = buildSkinPlan({ ...renderAnalysis, fallbackFeatures: {
+    ...renderAnalysis.fallbackFeatures,
+    topColor: String(features.topColor), bottomColor: String(features.bottomColor),
+    topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor),
+  } });
   const summary: AnalysisSummary = {
     framing: renderAnalysis.framing,
     visibleRegions: renderAnalysis.visibleRegions,
@@ -798,7 +803,7 @@ export async function generateSkin(
         if (generated.quotaExceeded) {
           providerQuotaExhausted = true;
         }
-        console.log(`image gen attempt ${attempt} failed:`, generated.error);
+        if (!freeImage) console.log(`image gen attempt ${attempt} failed:`, generated.error);
         fallbackReason = generated.quotaExceeded
           ? "image_provider_quota"
           : generated.retryable
@@ -1161,6 +1166,10 @@ export async function generateSkin(
     }
   }
 
+  if (skinPngBase64 === null && freeImage) {
+    return fail(providerQuotaExhausted ? 429 : 503, "이미지 생성을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.",
+      providerQuotaExhausted ? "quota_exceeded" : "provider_unavailable", spent);
+  }
   if (skinPngBase64 === null) {
     let proceduralAtlas = buildProceduralFallbackAtlas(features, faceStyle, skinPlan);
     if (
@@ -1441,6 +1450,7 @@ export async function generateSkin(
     ...(providerQuotaExhausted ? { providerQuotaExhausted: true } : {}),
   };
   } catch {
+    if (freeImage) return fail(503, "이미지 생성을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.", "provider_unavailable", spent);
     return { ...baseline, neuronsSpent: spent };
   }
 }
@@ -2511,7 +2521,8 @@ export async function postprocessGeneratedSheet(
         failure: "four-view sheet is missing a usable left or right profile",
       };
     }
-    const atlas = packed.atlas;
+    let atlas = packed.atlas;
+    let preservedGeneratedFace = packed.preservedGeneratedFace;
     const verdict = validateAtlas(atlas);
     if (!verdict.ok) {
       console.log(
@@ -2535,7 +2546,27 @@ export async function postprocessGeneratedSheet(
         failure: `final atlas validation failed: ${finalVerdict.problems.join(" / ")}`,
       };
     }
-    const craftVerdict = validateAtlasCraft(atlas, faceStyle, skinPlan.facePixelPlan, skinPlan.hairPlan, skinPlan);
+    let craftVerdict = validateAtlasCraft(atlas, faceStyle, skinPlan.facePixelPlan, skinPlan.hairPlan, skinPlan);
+    // A sheet can have a recognizable face before 8×8 downsampling while
+    // losing its eyes or mouth afterwards. Preserve its generated body and
+    // hair, but rebuild the face from the verified photo analysis in that case.
+    if (!craftVerdict.ok && preservedGeneratedFace && craftVerdict.problems.some(problem =>
+      /face has only|mouth landmark|mouth perceptual|identity render contract/.test(problem))) {
+      const repaired = packFrontViewToAtlas(decoded, faceStyle, mode === "four_view" ? 4 : 2, {
+        faceMode: "deterministic_plan", facePixelPlan: skinPlan.facePixelPlan,
+        hairPlan: skinPlan.hairPlan, headIdentityPlan: skinPlan.headIdentityPlan, outfitPlan: skinPlan.outfitPlan,
+      });
+      if (repaired?.hasBackView && (mode !== "four_view" || repaired.hasSideViews)) {
+        applyUvMask(repaired.atlas);
+        const repairedFinal = validateFinalAtlas(repaired.atlas);
+        const repairedCraft = validateAtlasCraft(repaired.atlas, faceStyle, skinPlan.facePixelPlan, skinPlan.hairPlan, skinPlan);
+        if (repairedFinal.ok && repairedCraft.ok) {
+          atlas = repaired.atlas;
+          craftVerdict = repairedCraft;
+          preservedGeneratedFace = false;
+        }
+      }
+    }
     if (!craftVerdict.ok) {
       console.log(
         `attempt ${attempt}: craft quality validation failed`,
@@ -2549,7 +2580,7 @@ export async function postprocessGeneratedSheet(
     return {
       atlasBase64: bytesToBase64(await encodePng(atlas)),
       atlas,
-      generatedFacePreserved: packed.preservedGeneratedFace,
+      generatedFacePreserved: preservedGeneratedFace,
     };
   } catch (error) {
     console.log(
@@ -3852,7 +3883,12 @@ export function refineFeatureColorsFromAnalysis(
   ).test(bottomText)
     ? CLOTHING_COLORS.denim
     : null;
-  const recoveredNamedBottomColor =
+  // A skirt described as part of a dress inherits that dress's observed color
+  // when the skirt itself has no separately stated color.
+  const observedBottomColor = recoverNamedColorBeforeItem(observedTopText, lowerGarmentPattern, 5);
+  const observedDressColor = /\bskirt\b/.test(observedTopText)
+    ? recoverNamedColorBeforeItem(observedTopText, "dress", 5) : null;
+  const recoveredNamedBottomColor = observedBottomColor ?? observedDressColor ??
     recoverNamedColorBeforeItem(bottomText, lowerGarmentPattern, 5) ??
     recoverNamedColorNearItem(bottomText, lowerGarmentPattern);
   const recoveredBottomColor =

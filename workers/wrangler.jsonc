@@ -10,6 +10,7 @@
   },
   "vars": {
     "AI_POLICY": "workers_free_only",
+    "FREE_IMAGE_GENERATION_ENABLED": "true",
     // Gemini multimodal analysis. GEMINI_API_KEY must be a Wrangler secret.
     "VISION_MODEL": "gemini-3.8-flash",
     // Separate model quota keeps analysis/critique available when the small

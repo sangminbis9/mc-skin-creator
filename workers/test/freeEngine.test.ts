@@ -1,13 +1,29 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { generateFreeSkin, freeQuotaStatus } from "../src/engineService";
-import { FREE_VISION_MODEL, MAX_CALL_NEURONS, newBudgetState, reserveBudget, settleBudget, reportedGemmaNeurons } from "../src/freeBudget";
+import { FREE_VISION_MODEL, MAX_CALL_NEURONS, MAX_IMAGE_CALL_NEURONS, newBudgetState, reserveBudget, settleBudget, reportedGemmaNeurons } from "../src/freeBudget";
 import { encodePng, bytesToBase64, base64ToBytes, decodePng } from "../src/png";
-import { makeSyntheticAtlas } from "./helpers";
+import { makeFourViewSheet, makeSyntheticAtlas } from "./helpers";
 import { namedGemmaFixture, semanticFixture, wireFixture } from "./compactV3Support";
 import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
 import { generateGeminiImage } from "../src/gemini";
+import { fallbackFeaturesToHex, refineFeatureColorsFromAnalysis } from "../src/generate";
+import { makeAnalysis } from "./helpers";
 afterEach(() => vi.restoreAllMocks());
+
+it("carries the observed dress color into its skirt when no separate color is given", () => {
+  const base = makeAnalysis();
+  const photo = makeAnalysis({
+    observed: { ...base.observed, clothing: "A white lace midi dress with a square neckline and tiered lace skirt; a light pink cardigan." },
+    outfitPrompt: "White lace dress and a pink cardigan.",
+    fallbackFeatures: { ...base.fallbackFeatures, bottomType: "skirt", bottomColor: "denim" },
+  });
+  const colors = refineFeatureColorsFromAnalysis(photo, fallbackFeaturesToHex(photo.fallbackFeatures));
+  expect(colors.bottomColor).toBe("#f2f2f2");
+  const contrast = makeAnalysis({ ...photo, observed: { ...photo.observed, clothing: "A white dress and a red skirt." } });
+  const other = refineFeatureColorsFromAnalysis(contrast, fallbackFeaturesToHex(contrast.fallbackFeatures));
+  expect(other.bottomColor).not.toBe("#f2f2f2");
+});
 async function setup() {
   const image = `data:image/png;base64,${bytesToBase64(await encodePng(makeSyntheticAtlas(64)))}`;
   const state = newBudgetState(new Date().toISOString().slice(0, 10));
@@ -46,6 +62,7 @@ it("blocks oversize/malformed input, absent budget and exhausted budget before a
   expect((await generateFreeSkin({ ...s.env, NEURON_BUDGET: undefined }, { image: s.image })).status).toBe(503);
   s.state.used = 4900;
   expect((await generateFreeSkin(s.env, { image: s.image })).status).toBe(429);
+  expect((await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true" }, { image: s.image })).status).toBe(429);
   expect(s.run).not.toHaveBeenCalled();
 });
 it("rejects a direct paid-image helper invocation under the free policy", async () => {
@@ -70,4 +87,48 @@ it("retains reservation on missing/invalid provider usage and rejects double set
   settleBudget(state, id, 300); settleBudget(state, id, 1); expect(state.used).toBe(300);
   const newDay = newBudgetState("2026-10-14"); expect(newDay.used).toBe(0);
   settleBudget(state, "unknown-id", 1); expect(newDay.used).toBe(0);
+});
+
+it("reserves and accounts for a bounded image call and returns a validated generated atlas", async () => {
+  const s = await setup();
+  const sheet = bytesToBase64(await encodePng(makeFourViewSheet()));
+  const analysis = { choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(semanticFixture("plain")))) } }],
+    usage: { prompt_tokens: 9000, completion_tokens: 3000 } };
+  s.run.mockImplementation(async (model: string) => model === FREE_VISION_MODEL ? analysis : { image: sheet } as never);
+  const result = await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view" }, { image: s.image });
+  expect(result).toMatchObject({ success: true, body: { ok: true, generationMode: "image" } });
+  expect(validateFinalAtlas(await decodePng(base64ToBytes(result.body.skinPngBase64!))).ok).toBe(true);
+  expect(s.run.mock.calls.map(call => call[0])).toEqual([FREE_VISION_MODEL, "@cf/black-forest-labs/flux-2-klein-4b"]);
+  expect(s.reserve).toHaveBeenCalledTimes(1);
+  expect(s.reserve.mock.invocationCallOrder[0]).toBeLessThan(s.run.mock.invocationCallOrder[0]);
+  expect(s.kv.put).not.toHaveBeenCalled();
+  const analysisCost = reportedGemmaNeurons(analysis)!;
+  expect(s.settle).toHaveBeenCalledWith(s.state.day, expect.any(String), analysisCost + MAX_IMAGE_CALL_NEURONS);
+  expect(result.neuronsSpent).toBe(analysisCost + MAX_IMAGE_CALL_NEURONS);
+});
+
+it("does not return a procedural skin when image generation fails and accounts for attempts", async () => {
+  const s = await setup();
+  const analysis = { choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(semanticFixture("plain")))) } }],
+    usage: { prompt_tokens: 9000, completion_tokens: 3000 } };
+  s.run.mockImplementation(async (model: string) => {
+    if (model === FREE_VISION_MODEL) return analysis;
+    throw new Error("3040: temporary out of capacity");
+  });
+  const result = await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view" }, { image: s.image });
+  expect(result).toMatchObject({ success: false, body: { ok: false, errorCode: "provider_unavailable" } });
+  expect(result.body.skinPngBase64).toBeUndefined();
+  expect(s.run).toHaveBeenCalledTimes(3);
+  expect(s.settle).toHaveBeenCalledWith(s.state.day, expect.any(String), reportedGemmaNeurons(analysis)! + 2 * MAX_IMAGE_CALL_NEURONS);
+});
+
+it("keeps the full reservation if analysis usage cannot be measured", async () => {
+  const s = await setup();
+  const sheet = bytesToBase64(await encodePng(makeFourViewSheet()));
+  const analysis = { choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(semanticFixture("plain")))) } }] };
+  s.run.mockImplementation(async (model: string) => model === FREE_VISION_MODEL ? analysis : { image: sheet } as never);
+  const result = await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view" }, { image: s.image });
+  expect(result.body.generationMode).toBe("image");
+  expect(s.settle).not.toHaveBeenCalled();
+  expect(s.state.used).toBe(MAX_CALL_NEURONS);
 });

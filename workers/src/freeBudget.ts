@@ -7,8 +7,12 @@ export const MAX_FREE_OUTPUT_TOKENS = 8192;
 export const MAX_FREE_INPUT_TOKENS = 256000;
 export const INPUT_NEURONS_PER_MILLION = 9091;
 export const OUTPUT_NEURONS_PER_MILLION = 27273;
-export const MAX_CALL_NEURONS = Math.ceil((MAX_FREE_INPUT_TOKENS * INPUT_NEURONS_PER_MILLION
+export const MAX_ANALYSIS_NEURONS = Math.ceil((MAX_FREE_INPUT_TOKENS * INPUT_NEURONS_PER_MILLION
   + MAX_FREE_OUTPUT_TOKENS * OUTPUT_NEURONS_PER_MILLION) / 1_000_000);
+// Four input tiles and two output tiles, rounded up for each possible attempt.
+export const MAX_IMAGE_ATTEMPTS = 2;
+export const MAX_IMAGE_CALL_NEURONS = 4 * 6 + 2 * 27;
+export const MAX_CALL_NEURONS = MAX_ANALYSIS_NEURONS + MAX_IMAGE_ATTEMPTS * MAX_IMAGE_CALL_NEURONS;
 
 export interface BudgetState {
   day: string; used: number; closed: boolean;

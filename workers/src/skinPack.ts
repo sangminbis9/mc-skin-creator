@@ -9651,6 +9651,14 @@ export function packFrontViewToAtlas(
     options.headTrace?.("after_authoritative_head", atlas);
   }
   if (preservedFacePixels) {
+    // Keep the source face while applying the same final outer-layer ownership
+    // and eye openings as the analysis-derived head.
+    if (options.headIdentityPlan?.ownership) {
+      applyHeadIdentityPlan(atlas, options.headIdentityPlan, options.hairPlan, hairColor, skinColor, faceStyle);
+    }
+    if (faceStyle.glasses === "none") {
+      preserveFaceReadability(atlas, faceStyle, hairColor, options.facePixelPlan);
+    }
     // No later craft/shading/seam pass may repaint source identity evidence.
     restoreRect(atlas, head.base.front, preservedFacePixels);
   }

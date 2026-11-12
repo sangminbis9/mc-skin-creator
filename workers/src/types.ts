@@ -6,6 +6,8 @@ import type { GenerationObservationContext } from "./generationObservation";
 
 interface EnvOverrides extends GenerationObservationContext {
   AI_POLICY?: "workers_free_only" | "legacy";
+  /** Enables the bounded Workers AI image experiment. */
+  FREE_IMAGE_GENERATION_ENABLED?: string;
   NEURON_BUDGET?: DurableObjectNamespace<import("./NeuronBudget").NeuronBudget>;
   /** Request-local reserved dispatch; never exposed in HTTP input. */
   FREE_ANALYSIS_RUN?: (input: Record<string, unknown>) => Promise<unknown>;

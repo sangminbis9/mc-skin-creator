@@ -10,17 +10,18 @@ export const DEFAULT_API_BASE_URL = "";
 const API_BASE = (
   import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
 ).replace(/\/$/, "");
-const GENERATION_TIMEOUT_MS = 75_000;
+const GENERATION_TIMEOUT_MS = 150_000;
 const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
 // Device-local reuse: only input hashes + generated skin/editor metadata.
 // Never persist photographs, requests, or analysis. Bump revision with a new
 // presentation release; expiry also bounds reuse across Worker-only releases.
 const completedGenerations = new Map<string, { expires: number; result: GenerateResponse }>();
-const REUSE_KEY = "skin-studio-ios:completed:v1";
+const REUSE_KEY = "skin-studio-ios:completed:v2";
 let reuseLoaded = false;
 
 export function clearGenerationCache(): void {
   localStorage.removeItem(REUSE_KEY);
+  localStorage.removeItem("skin-studio-ios:completed:v1");
   completedGenerations.clear();
   reuseLoaded = true;
 }
