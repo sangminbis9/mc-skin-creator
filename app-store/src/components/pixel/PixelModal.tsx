@@ -1,3 +1,4 @@
+import { useLanguage } from "../../i18n/LanguageProvider";
 import type { ReactNode } from "react";
 import { PixelPanel } from "./PixelPanel";
 
@@ -8,6 +9,7 @@ interface PixelModalProps {
 }
 
 export function PixelModal({ open, onClose, children }: PixelModalProps) {
+  const { t } = useLanguage();
   if (!open) {
     return null;
   }
@@ -18,7 +20,7 @@ export function PixelModal({ open, onClose, children }: PixelModalProps) {
           <button
             type="button"
             className="px-modal__close"
-            aria-label="닫기"
+            aria-label={t("common.close")}
             onClick={onClose}
           >
             ✕

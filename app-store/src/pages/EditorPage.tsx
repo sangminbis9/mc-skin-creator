@@ -4,7 +4,9 @@
  * 도구: Pen / Eraser / Eyedropper / 팔레트 / 부위 선택 / (3D) Rotate mode
  */
 
+import { useLanguage } from "../i18n/LanguageProvider";
 import { useEffect, useState } from "react";
+import type { MessageKey } from "../i18n/messages";
 import { StudioIcon } from "../components/StudioIcon";
 import { PixelButton } from "../components/pixel/PixelButton";
 import type { SkinDocument, Tool } from "../editor/editorState";
@@ -42,15 +44,16 @@ const PALETTE = [
   "#ffffff",
 ];
 
-const PART_OPTIONS: { key: PartGroup; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "head", label: "Head" },
-  { key: "body", label: "Body" },
-  { key: "arms", label: "Arms" },
-  { key: "legs", label: "Legs" },
+const PART_OPTIONS: { key: PartGroup; label: MessageKey }[] = [
+  { key: "all", label: "part.all" },
+  { key: "head", label: "part.head" },
+  { key: "body", label: "part.body" },
+  { key: "arms", label: "part.arms" },
+  { key: "legs", label: "part.legs" },
 ];
 
 export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
+  const { t } = useLanguage();
   const [mode, setMode] = useState<"3d" | "2d">("3d");
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState("#3a2e22");
@@ -68,17 +71,17 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
         <button
           type="button"
           className="px-tool"
-          aria-label="Back to preview"
+          aria-label={t("editor.back")}
           onClick={onDone}
         >
           <StudioIcon name="back" />
         </button>
-        <span style={{ fontWeight: 700, fontSize: 15 }}>Edit skin</span>
+        <span style={{ fontWeight: 700, fontSize: 15 }}>{t("editor.title")}</span>
         <div className="px-spacer" />
         <button
           type="button"
           className="px-tool"
-          aria-label="Undo"
+          aria-label={t("editor.undo")}
           disabled={!doc.canUndo}
           onClick={() => doc.undo()}
         >
@@ -87,7 +90,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
         <button
           type="button"
           className="px-tool"
-          aria-label="Redo"
+          aria-label={t("editor.redo")}
           disabled={!doc.canRedo}
           onClick={() => doc.redo()}
         >
@@ -104,7 +107,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
           aria-pressed={mode === "3d"}
           onClick={() => setMode("3d")}
         >
-          3D model
+          {t("editor.model")}
         </button>
         <button
           type="button"
@@ -113,7 +116,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
           aria-pressed={mode === "2d"}
           onClick={() => setMode("2d")}
         >
-          2D texture
+          {t("editor.texture")}
         </button>
       </div>
 
@@ -139,8 +142,8 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
               style={{ textAlign: "center", margin: "4px 0 0" }}
             >
               {rotateMode
-                ? "Drag to rotate the model"
-                : "Click or touch the model to paint"}
+                ? t("editor.drag")
+                : t("editor.paint")}
             </p>
           </>
         ) : (
@@ -162,7 +165,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
         <button
           type="button"
           className={`px-tool ${tool === "pen" && !rotateMode ? "px-tool--active" : ""}`}
-          aria-label="Pen"
+          aria-label={t("editor.pen")}
           aria-pressed={tool === "pen" && !rotateMode}
           onClick={() => {
             setTool("pen");
@@ -174,7 +177,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
         <button
           type="button"
           className={`px-tool ${tool === "eraser" && !rotateMode ? "px-tool--active" : ""}`}
-          aria-label="Eraser"
+          aria-label={t("editor.eraser")}
           aria-pressed={tool === "eraser" && !rotateMode}
           onClick={() => {
             setTool("eraser");
@@ -186,7 +189,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
         <button
           type="button"
           className={`px-tool ${tool === "picker" && !rotateMode ? "px-tool--active" : ""}`}
-          aria-label="Eyedropper"
+          aria-label={t("editor.picker")}
           aria-pressed={tool === "picker" && !rotateMode}
           onClick={() => {
             setTool("picker");
@@ -199,7 +202,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
           <button
             type="button"
             className={`px-tool ${rotateMode ? "px-tool--active" : ""}`}
-            aria-label="Rotate mode"
+            aria-label={t("editor.rotate")}
             aria-pressed={rotateMode}
             onClick={() => setRotateMode((r) => !r)}
           >
@@ -208,11 +211,12 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
         )}
         <label
           className="px-tool"
-          aria-label="Pick a custom color"
+          aria-label={t("editor.customColor")}
           style={{ background: color, position: "relative" }}
         >
           <input
             type="color"
+            aria-label={t("editor.customColor")}
             value={color}
             onChange={(e) => setColor(e.target.value)}
             style={{
@@ -238,7 +242,7 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
             type="button"
             className={`px-swatch ${color === c ? "px-swatch--active" : ""}`}
             style={{ background: c }}
-            aria-label={`Color ${c}`}
+            aria-label={t("editor.color", { color: c })}
             onClick={() => {
               setColor(c);
               if (tool === "picker") {
@@ -259,12 +263,12 @@ export function EditorPage({ doc, onDone, geometry }: EditorPageProps) {
             aria-pressed={group === key}
             onClick={() => setGroup(key)}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
 
-      <PixelButton onClick={onDone}>Done editing</PixelButton>
+      <PixelButton onClick={onDone}>{t("editor.done")}</PixelButton>
     </div>
   );
 }

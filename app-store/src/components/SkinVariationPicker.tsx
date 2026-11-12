@@ -1,4 +1,6 @@
+import { useLanguage } from "../i18n/LanguageProvider";
 import { useMemo, useState } from "react";
+import type { MessageKey } from "../i18n/messages";
 import type { SkinDocument } from "../editor/editorState";
 import { CLASSIC_LAYOUT, pixelsToSkinCanvas } from "../lib/skinAtlas";
 import { renderSkinPortrait } from "../lib/skinPortrait";
@@ -11,10 +13,10 @@ import {
 } from "../lib/skinVariations";
 import { PixelButton } from "./pixel/PixelButton";
 
-const REGIONS: { id: VariationRegion; label: string }[] = [
-  { id: "head", label: "Head" },
-  { id: "upper", label: "Tops" },
-  { id: "lower", label: "Bottoms" },
+const REGIONS: { id: VariationRegion; label: MessageKey }[] = [
+  { id: "head", label: "part.head" },
+  { id: "upper", label: "wardrobe.tops" },
+  { id: "lower", label: "wardrobe.bottoms" },
 ];
 type ThumbnailView = "front" | "right" | "back";
 function thumbnail(
@@ -84,6 +86,7 @@ export function SkinVariationPicker({
   onPreview: (canvas: HTMLCanvasElement) => void;
   onClose: (applied: boolean) => void;
 }) {
+  const { t } = useLanguage();
   const [session] = useState(() => {
     const current = doc.getPixels();
     const options = createSkinVariations(
@@ -119,11 +122,9 @@ export function SkinVariationPicker({
   const selectedLabels = useMemo(
     () =>
       REGIONS.map(
-        ({ id }) =>
-          session.options[id].find((option) => option.id === selected[id])!
-            .label,
+        ({ id }) => t(session.options[id].find((option) => option.id === selected[id])!.label),
       ).join(" · "),
-    [selected, session],
+    [selected, session, t],
   );
   const choose = (next: typeof selected) => {
     setSelected(next);
@@ -131,8 +132,8 @@ export function SkinVariationPicker({
   };
 
   return (
-    <section className="variation-panel" aria-label="Skin wardrobe">
-      <div className="studio-segment" aria-label="Region to combine">
+    <section className="variation-panel" aria-label={t("wardrobe.panel")}>
+      <div className="studio-segment" aria-label={t("wardrobe.region")}>
         {REGIONS.map(({ id, label }) => (
           <button
             type="button"
@@ -140,14 +141,14 @@ export function SkinVariationPicker({
             aria-pressed={region === id}
             onClick={() => setRegion(id)}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
       <div
         key={region}
         className="variation-grid"
-        aria-label={`${REGIONS.find(({ id }) => id === region)!.label} options`}
+        aria-label={t("wardrobe.options", { region: t(REGIONS.find(({ id }) => id === region)!.label) })}
       >
         {session.options[region].map((option, index) => (
           <button
@@ -155,13 +156,13 @@ export function SkinVariationPicker({
             className="variation-card"
             key={option.id}
             disabled={Boolean(option.disabledReason)}
-            title={option.disabledReason ?? option.description}
+            title={t(option.disabledReason ?? option.description)}
             aria-pressed={selected[region] === option.id}
             onClick={() => choose({ ...selected, [region]: option.id })}
           >
             <img src={images[index]} alt="" width={80} height={80} />
-            <span>{option.label}</span>
-            {option.disabledReason && <small>Unavailable</small>}
+            <span>{t(option.label)}</span>
+            {option.disabledReason && <small>{t("wardrobe.unavailable")}</small>}
           </button>
         ))}
       </div>
@@ -175,11 +176,11 @@ export function SkinVariationPicker({
           choose({ head: "original", upper: "original", lower: "original" })
         }
       >
-        Reset to original
+        {t("wardrobe.reset")}
       </button>
       <div className="variation-actions">
         <PixelButton variant="ghost" onClick={() => onClose(false)}>
-          Cancel
+          {t("common.cancel")}
         </PixelButton>
         <PixelButton
           onClick={() => {
@@ -187,7 +188,7 @@ export function SkinVariationPicker({
             onClose(true);
           }}
         >
-          Apply combination
+          {t("wardrobe.apply")}
         </PixelButton>
       </div>
     </section>

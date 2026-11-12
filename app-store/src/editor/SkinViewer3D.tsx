@@ -2,7 +2,9 @@
  * 3D skin preview: 회전/Zoom inZoom out + 앞/뒤/왼쪽/오른쪽 보기 버튼.
  */
 
+import { useLanguage } from "../i18n/LanguageProvider";
 import { useEffect, useRef, useState } from "react";
+import type { MessageKey } from "../i18n/messages";
 import type { SkinGeometry } from "../lib/skinAtlas";
 import type { SkinScene, ViewDirection } from "./skinScene";
 import { createSkinScene } from "./skinScene";
@@ -18,11 +20,11 @@ interface SkinViewer3DProps {
   onReady?: (scene: SkinScene) => void;
 }
 
-const VIEWS: { key: ViewDirection; label: string }[] = [
-  { key: "front", label: "Front" },
-  { key: "back", label: "Back" },
-  { key: "left", label: "Left" },
-  { key: "right", label: "Right" },
+const VIEWS: { key: ViewDirection; label: MessageKey }[] = [
+  { key: "front", label: "view.front" },
+  { key: "back", label: "view.back" },
+  { key: "left", label: "view.left" },
+  { key: "right", label: "view.right" },
 ];
 
 export function SkinViewer3D({
@@ -33,6 +35,7 @@ export function SkinViewer3D({
   geometry = "classic",
   onReady,
 }: SkinViewer3DProps) {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SkinScene | null>(null);
   const [view, setView] = useState<ViewDirection | null>(null);
@@ -73,12 +76,12 @@ export function SkinViewer3D({
       <div
         ref={containerRef}
         style={{ height, position: "relative" }}
-        aria-label="3D skin preview"
+        aria-label={t("view.preview")}
       />
       {!compact && (
-        <p className="studio-view-hint">Drag to rotate · Scroll or pinch to zoom</p>
+        <p className="studio-view-hint">{t("view.hint")}</p>
       )}
-      <div className="studio-segment" aria-label="Viewing angle">
+      <div className="studio-segment" aria-label={t("view.angle")}>
         {VIEWS.map(({ key, label }) => (
           <button
             key={key}
@@ -89,7 +92,7 @@ export function SkinViewer3D({
               setView(key);
             }}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>

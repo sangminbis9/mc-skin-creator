@@ -4,6 +4,8 @@
  */
 
 import { lazy, Suspense, useEffect, useState } from "react";
+import { useLanguage } from "./i18n/LanguageProvider";
+import { LanguageMenu } from "./components/LanguageMenu";
 import { JumpBlocks } from "./components/pixel/JumpBlocks";
 import { StudioIcon } from "./components/StudioIcon";
 import { SkinDocument } from "./editor/editorState";
@@ -77,9 +79,21 @@ function App() {
     return doc.subscribe(() => setSkinVersion((v) => v + 1));
   }, [doc]);
 
+  const resetToUpload = () => {
+    setIsSample(false);
+    setGeneratedOnDevice(false);
+    setPhotos([]);
+    setDoc(null);
+    setFailure(null);
+    setRetryCount(0);
+    setCapturedImage(null);
+    setSkinGeometry("classic");
+    setStep("upload");
+  };
+
   if (hash.startsWith("#/library")) {
     return (
-      <Shell>
+      <Shell onHome={resetToUpload}>
         <LibraryPage onOpen={async (skin) => {
           const canvas = await decodeSkinPng(skin.png.split(',')[1]);
           if (!canvas) throw new Error('스킨을 읽을 수 없습니다.');
@@ -98,23 +112,11 @@ function App() {
   }
   if (hash.startsWith("#/privacy")) {
     return (
-      <Shell>
+      <Shell onHome={resetToUpload}>
         <PrivacyPage />
       </Shell>
     );
   }
-
-  const resetToUpload = () => {
-    setIsSample(false);
-    setGeneratedOnDevice(false);
-    setPhotos([]);
-    setDoc(null);
-    setFailure(null);
-    setRetryCount(0);
-    setCapturedImage(null);
-    setSkinGeometry("classic");
-    setStep("upload");
-  };
 
   return (
     <Shell step={step} onHome={resetToUpload}>
@@ -255,6 +257,7 @@ function LoadingScreen() {
 }
 
 function Shell({ children, step, onHome }: { children: React.ReactNode; step?: Step; onHome?: () => void }) {
+  const { t } = useLanguage();
   const active =
     step === "upload" || step === "quality"
       ? 0
@@ -263,18 +266,18 @@ function Shell({ children, step, onHome }: { children: React.ReactNode; step?: S
         : 2;
   return (
     <div className="studio-shell web-shell">
-      <a className="web-skip" href="#main-content">Skip to content</a>
+      <a className="web-skip" href="#main-content">{t("app.skip")}</a>
       <header className="studio-header">
         <a href="#/" className="studio-brand" onClick={onHome}>
           <StudioIcon name="cube" />
-          마크 스킨 뚝딱<span className="web-wordmark-dot">.</span>
+          {t("app.name")}<span className="web-wordmark-dot">.</span>
         </a>
-        <nav aria-label="메인 메뉴"><a href="#/" onClick={onHome}>만들기</a><a href="#/library">보관함</a></nav>
+        <nav aria-label={t("app.nav")}><a href="#/" onClick={onHome}>{t("app.create")}</a><a href="#/library">{t("app.library")}</a><LanguageMenu /></nav>
       </header>
       {step && step !== "upload" && (
-        <ol className="studio-steps" aria-label="Creation progress">
-          {["Your photo", "Generate", "Make it yours"].map((label, i) => (
-            <li key={label} aria-current={active === i ? "step" : undefined}>
+        <ol className="studio-steps" aria-label={t("app.progress")}>
+          {[t("app.stepPhoto"), t("app.stepGenerate"), t("app.stepCustomize")].map((label, i) => (
+            <li key={i} aria-current={active === i ? "step" : undefined}>
               <span>{i + 1}</span>
               {label}
             </li>
@@ -283,8 +286,8 @@ function Shell({ children, step, onHome }: { children: React.ReactNode; step?: S
       )}
       <main id="main-content" tabIndex={-1}>{children}</main>
       <footer className="studio-footer">
-        <div><strong>마크 스킨 뚝딱</strong><p>마인크래프트 공식 제품이 아닙니다.<br />Mojang 또는 Microsoft의 승인이나 제휴를 받지 않은 독립 도구입니다.</p></div>
-        <div className="web-footer-links"><a href="#/library">내 스킨 보관함</a><a href="#/privacy">개인정보 안내</a><span>광고 없는 스킨 편집기</span></div>
+        <div><strong>{t("app.name")}</strong><p>{t("app.independent")}<br />{t("app.affiliation")}</p></div>
+        <div className="web-footer-links"><a href="#/library">{t("library.title")}</a><a href="#/privacy">{t("app.privacy")}</a><span>{t("app.footerTag")}</span></div>
       </footer>
     </div>
   );

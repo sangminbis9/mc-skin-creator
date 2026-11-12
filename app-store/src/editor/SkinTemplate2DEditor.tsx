@@ -3,6 +3,7 @@
  * SkinDocument를 3D 페인터와 공유하므로 편집 내용이 즉시 동기화된다.
  */
 
+import { useLanguage } from "../i18n/LanguageProvider";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ATLAS_SIZE,
@@ -30,6 +31,7 @@ export function SkinTemplate2DEditor({
   group,
   onPickColor,
 }: SkinTemplate2DEditorProps) {
+  const { t } = useLanguage();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(6);
 
@@ -212,14 +214,14 @@ export function SkinTemplate2DEditor({
             touchAction: "none",
             display: "block",
           }}
-          aria-label="2D skin texture editor"
+          aria-label={t("editor.paint2d")}
         />
       </div>
       <div className="px-row" style={{ justifyContent: "center" }}>
         <button
           type="button"
           className="px-tool"
-          aria-label="Zoom out"
+          aria-label={t("editor.zoomOut")}
           disabled={zoom <= MIN_ZOOM}
           onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 2))}
         >
@@ -229,7 +231,7 @@ export function SkinTemplate2DEditor({
         <button
           type="button"
           className="px-tool"
-          aria-label="Zoom in"
+          aria-label={t("editor.zoomIn")}
           disabled={zoom >= MAX_ZOOM}
           onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 2))}
         >

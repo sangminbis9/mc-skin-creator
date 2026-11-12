@@ -1,0 +1,2 @@
+"NSCameraUsageDescription" = "Take a photo to create a skin. The app asks separately before sending it for AI processing.";
+"NSPhotoLibraryUsageDescription" = "Choose a photo to turn into a skin. The app asks separately before sending it for AI processing.";

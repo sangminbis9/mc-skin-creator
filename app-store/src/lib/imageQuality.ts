@@ -4,11 +4,13 @@
  * 얼굴 존재 여부 등 정밀 판단은 서버의 AI가 생성 단계에서 수행한다.
  */
 
+import type { MessageKey } from "../i18n/messages";
+
 export type QualityVerdict = "pass" | "warn" | "fail";
 
 export interface QualityCheckResult {
   verdict: QualityVerdict;
-  messages: string[];
+  messages: MessageKey[];
   width: number;
   height: number;
 }
@@ -20,10 +22,10 @@ export async function checkImageQuality(
 ): Promise<QualityCheckResult> {
   const image = await loadImage(dataUrl);
   const { width, height } = image;
-  const messages: string[] = [];
+  const messages: MessageKey[] = [];
   let verdict: QualityVerdict = "pass";
 
-  const raise = (level: QualityVerdict, message: string) => {
+  const raise = (level: QualityVerdict, message: MessageKey) => {
     messages.push(message);
     if (level === "fail" || (level === "warn" && verdict === "pass")) {
       verdict = level === "fail" ? "fail" : verdict === "fail" ? "fail" : "warn";
@@ -34,9 +36,9 @@ export async function checkImageQuality(
   // (세로 사진은 긴 변 448 기준 짧은 변이 ~336까지 정상)
   const minSide = Math.min(width, height);
   if (minSide < 200) {
-    raise("fail", "This photo is too small. Choose a larger image.");
+    raise("fail", "quality.tooSmall");
   } else if (minSide < 260) {
-    raise("warn", "This photo is small. A larger, clearer face photo may work better.");
+    raise("warn", "quality.small");
   }
 
   // Zoom out해서 밝기/선명도 분석
@@ -66,9 +68,9 @@ export async function checkImageQuality(
   const brightness = sum / (w * h);
 
   if (brightness < 0.12) {
-    raise("warn", "This photo is dark. Try more even lighting.");
+    raise("warn", "quality.dark");
   } else if (brightness > 0.95) {
-    raise("warn", "This photo is very bright. Make sure the face is visible.");
+    raise("warn", "quality.bright");
   }
 
   // 라플라시안 분산 (선명도)
@@ -89,13 +91,13 @@ export async function checkImageQuality(
   const variance = (lapSqSum / count - mean * mean) * 255 * 255;
 
   if (variance < 8) {
-    raise("fail", "This photo is too blurry. Choose a clearer image.");
+    raise("fail", "quality.tooBlurry");
   } else if (variance < 30) {
-    raise("warn", "This photo looks slightly blurry. Results may be less accurate.");
+    raise("warn", "quality.blurry");
   }
 
   if (verdict === "pass") {
-    messages.push("Basic image checks passed. AI will check the subject during generation.");
+    messages.push("quality.passed");
   }
 
   return { verdict, messages, width, height };

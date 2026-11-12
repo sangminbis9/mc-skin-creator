@@ -2,8 +2,10 @@
  * 생성 실패 화면: 실패 이유를 먼저 안내하고 Try again 버튼 제공.
  */
 
+import { useLanguage } from "../i18n/LanguageProvider";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelPanel } from "../components/pixel/PixelPanel";
+import type { MessageKey } from "../i18n/messages";
 import type { GenerationFailure } from "./GeneratingPage";
 
 interface FailurePageProps {
@@ -13,10 +15,10 @@ interface FailurePageProps {
   canRetry: boolean;
 }
 
-const KIND_TITLES: Record<GenerationFailure["kind"], string> = {
-  photo: "다른 사진을 선택해 주세요",
-  ai: "스킨을 만들지 못했어요",
-  network: "연결이 끊겼어요",
+const KIND_TITLES: Record<GenerationFailure["kind"], MessageKey> = {
+  photo: "failure.photo",
+  ai: "failure.ai",
+  network: "failure.network",
 };
 
 const KIND_ICONS: Record<GenerationFailure["kind"], string> = {
@@ -26,6 +28,7 @@ const KIND_ICONS: Record<GenerationFailure["kind"], string> = {
 };
 
 export function FailurePage({ failure, onRetry, onReselect, canRetry }: FailurePageProps) {
+  const { t } = useLanguage();
   const isPhotoProblem = failure.kind === "photo";
 
   return (
@@ -34,34 +37,34 @@ export function FailurePage({ failure, onRetry, onReselect, canRetry }: FailureP
         {KIND_ICONS[failure.kind]}
       </div>
       <h1 className="px-title" style={{ textAlign: "center" }}>
-        {KIND_TITLES[failure.kind]}
+        {t(KIND_TITLES[failure.kind])}
       </h1>
 
       <PixelPanel>
         <p style={{ margin: 0, fontSize: 14, lineHeight: 1.8 }}>
-          {failure.message}
+          {t(failure.message)}{failure.reference && " " + t("failure.reference", { id: failure.reference })}
         </p>
         {isPhotoProblem && (
           <p className="px-caption" style={{ marginTop: 8 }}>
-            얼굴이 잘 보이고 밝기가 고른 사진으로 시도해 보세요.
+            {t("failure.photoHint")}
           </p>
         )}
         {failure.kind !== "photo" && (
           <p className="px-caption" style={{ marginTop: 8 }}>
-            {canRetry ? "이 사진으로 다시 시도하거나 다른 사진을 선택할 수 있어요." : "다른 사진을 선택해 다시 시도해 주세요."}
+            {canRetry ? t("failure.tryPhoto") : t("failure.different")}
           </p>
         )}
       </PixelPanel>
 
       {isPhotoProblem ? (
         <>
-          <PixelButton onClick={onReselect}>다른 사진 선택</PixelButton>
+          <PixelButton onClick={onReselect}>{t("common.anotherPhoto")}</PixelButton>
         </>
       ) : (
         <>
-          <PixelButton onClick={onRetry} disabled={!canRetry}>다시 시도</PixelButton>
+          <PixelButton onClick={onRetry} disabled={!canRetry}>{t("common.retry")}</PixelButton>
           <PixelButton variant="ghost" onClick={onReselect}>
-            다른 사진 선택
+            {t("common.anotherPhoto")}
           </PixelButton>
         </>
       )}

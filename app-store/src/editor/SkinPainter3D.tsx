@@ -3,6 +3,7 @@
  * raycast로 얻은 uv를 atlas 픽셀 좌표로 변환해 SkinDocument에 반영한다.
  */
 
+import { useLanguage } from "../i18n/LanguageProvider";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import {
@@ -35,6 +36,7 @@ export function SkinPainter3D({
   onPickColor,
   height = 300,
 }: SkinPainter3DProps) {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SkinScene | null>(null);
 
@@ -177,7 +179,7 @@ export function SkinPainter3D({
     <div
       ref={containerRef}
       style={{ height, position: "relative" }}
-      aria-label="3D skin editor"
+      aria-label={t("editor.paint3d")}
     />
   );
 }

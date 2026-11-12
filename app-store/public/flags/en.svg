@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <path fill="#fff" d="M0 0h48v48H0z"/>
+  <path fill="none" stroke="#b31942" stroke-width="3.6923" d="M0 1.846h48M0 9.231h48M0 16.615h48M0 24h48M0 31.385h48M0 38.769h48M0 46.154h48"/>
+  <path fill="#0a3161" d="M0 0h25v25.846H0z"/>
+  <defs><pattern id="stars" width="8" height="8" patternUnits="userSpaceOnUse"><path fill="#fff" d="m2 1 .37 1.13h1.18l-.95.7.36 1.13L2 3.26l-.96.7.37-1.13-.96-.7h1.18zm4 4 .37 1.13h1.18l-.95.7.36 1.13L6 7.26l-.96.7.37-1.13-.96-.7h1.18z"/></pattern></defs>
+  <path fill="url(#stars)" d="M0 0h25v25.846H0z"/>
+</svg>

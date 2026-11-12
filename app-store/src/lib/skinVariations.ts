@@ -1,3 +1,4 @@
+import type { MessageKey } from "../i18n/messages";
 import { CLASSIC_LAYOUT as L, type BodyPart } from "../../shared/skinLayout";
 import {
   analyzeHair,
@@ -11,10 +12,10 @@ import { makeWardrobe, TOP_STYLES, BOTTOM_STYLES } from "./wardrobeVariations";
 export type VariationRegion = "head" | "upper" | "lower";
 export interface SkinVariation {
   id: string;
-  label: string;
+  label: MessageKey;
   pixels: Uint8ClampedArray;
-  description?: string;
-  disabledReason?: string;
+  description: MessageKey;
+  disabledReason?: MessageKey;
 }
 export const VARIATION_PARTS: Record<VariationRegion, BodyPart[]> = {
   head: ["head"],
@@ -57,21 +58,21 @@ export function createSkinVariations(
   const initial = (): SkinVariation[] => [
     {
       id: "current",
-      label: "Current",
-      description: "Keep your edits.",
+      label: "wardrobe.current.label",
+      description: "wardrobe.current.description",
       pixels: new Uint8ClampedArray(current),
     },
     {
       id: "original",
-      label: "Original",
-      description: "The initial skin before edits.",
+      label: "wardrobe.original.label",
+      description: "wardrobe.original.description",
       pixels: new Uint8ClampedArray(original),
     },
   ];
   return {
     head: [
       ...initial(),
-      ...HAIR_FINISHES.map(({ id, label, description }) => {
+      ...HAIR_FINISHES.map<SkinVariation>(({ id, label, description }) => {
         const pixels = varyOriginalHair(original, id, analysis);
         const changesVolume = analysis.nodes.some(
           (n) => n.layer === "overlay" && pixels[n.i + 3] !== original[n.i + 3],
@@ -101,7 +102,7 @@ export function createSkinVariations(
           disabledReason:
             analysis.reason ??
             (!changesVolume
-              ? "This region is already near its volume limit."
+              ? "wardrobe.volumeLimit"
               : undefined),
         };
       }),

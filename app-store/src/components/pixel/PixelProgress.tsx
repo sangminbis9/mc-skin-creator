@@ -1,3 +1,5 @@
+import { useLanguage } from "../../i18n/LanguageProvider";
+
 interface PixelProgressProps {
   /** 0 ~ 100 */
   value: number;
@@ -5,13 +7,14 @@ interface PixelProgressProps {
 }
 
 export function PixelProgress({ value, tone = "grass" }: PixelProgressProps) {
+  const { t } = useLanguage();
   const clamped = Math.max(0, Math.min(100, value));
   const toneClass = tone === "grass" ? "" : `px-progress__fill--${tone}`;
   return (
     <div
       className="px-progress"
       role="progressbar"
-      aria-label="스킨 생성 진행"
+      aria-label={t("generation.progress")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(clamped)}

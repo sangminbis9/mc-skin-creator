@@ -2,7 +2,9 @@
  * 공유 화면: 3D 미리보기 이미지 공유 + 토스 공유 링크.
  */
 
+import { useLanguage } from "../i18n/LanguageProvider";
 import { useMemo, useState } from "react";
+import type { MessageKey } from "../i18n/messages";
 import { StudioIcon } from "../components/StudioIcon";
 import { PixelButton } from "../components/pixel/PixelButton";
 import { PixelPanel } from "../components/pixel/PixelPanel";
@@ -19,27 +21,28 @@ interface SharePageProps {
 }
 
 export function SharePage({ doc, capturedImage, onBack }: SharePageProps) {
-  const [message, setMessage] = useState<string | null>(null);
+  const { t, language } = useLanguage();
+  const [message, setMessage] = useState<MessageKey | null>(null);
   const previewImage = useMemo(
     () => capturedImage ?? portraitDataUrl(doc.canvas, 10),
     [capturedImage, doc],
   );
 
   const handleShareImage = async () => {
-    const shared = await sharePreviewImage(previewImage);
-    setMessage(shared ? null : "Native image sharing is unavailable or cancelled. Save the image instead.");
+    const shared = await sharePreviewImage(previewImage, language);
+    setMessage(shared ? null : "share.imageUnavailable");
   };
 
   const handleShareLink = async () => {
-    const shared = await shareStudioLink();
-    setMessage(shared ? "Studio link shared or copied to your clipboard." : "공유를 취소했거나 사용할 수 없습니다. 다시 시도해 주세요.");
+    const shared = await shareStudioLink(language);
+    setMessage(shared ? "share.linkShared" : "share.unavailable");
   };
 
   const handleSaveImage = async () => {
     try {
-      await savePng(previewImage, "mc-skin-preview.png");
-      setMessage("내보내기 메뉴를 닫았습니다. 선택한 위치에서 파일을 확인해 주세요.");
-    } catch { setMessage("내보내기를 취소했거나 완료하지 못했습니다."); }
+      await savePng(previewImage, "mc-skin-preview.png", language);
+      setMessage("export.closed");
+    } catch { setMessage("export.failed"); }
   };
 
   return (
@@ -48,41 +51,41 @@ export function SharePage({ doc, capturedImage, onBack }: SharePageProps) {
         <button
           type="button"
           className="px-tool"
-          aria-label="Back"
+          aria-label={t("common.back")}
           onClick={onBack}
         >
           <StudioIcon name="back" />
         </button>
         <h1 className="px-title" style={{ fontSize: 19 }}>
-          Share your creation
+          {t("share.title")}
         </h1>
       </div>
 
       <PixelPanel tone="sky" style={{ textAlign: "center", padding: 12 }}>
         <img
           src={previewImage}
-          alt="Your Minecraft skin preview"
+          alt={t("share.alt")}
           className="px-pixelated"
           style={{ maxWidth: "70%", maxHeight: 280 }}
         />
       </PixelPanel>
 
-      <PixelButton onClick={handleShareImage}>Share image</PixelButton>
+      <PixelButton onClick={handleShareImage}>{t("share.image")}</PixelButton>
       <PixelButton variant="gold" onClick={handleShareLink}>
-        Share / copy studio link
+        {t("share.link")}
       </PixelButton>
       <PixelButton variant="ghost" onClick={handleSaveImage}>
-        Save preview image
+        {t("share.saveImage")}
       </PixelButton>
 
       {message && (
         <p className="px-caption" style={{ textAlign: "center", margin: 0 }}>
-          {message}
+          {t(message)}
         </p>
       )}
 
       <p className="px-caption" style={{ textAlign: "center", margin: 0 }}>
-        Shared links open the studio, not your private skin.
+        {t("share.scope")}
       </p>
     </div>
   );

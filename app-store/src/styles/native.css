@@ -6,10 +6,41 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 .skin-library h2 { font-size: 15px; overflow-wrap: anywhere; }
 .skin-library article { display: flex; flex-direction: column; gap: 12px; }
 .web-consent { font-size: 13px; }
+.web-shell .studio-header nav { align-items: center; }
+.studio-language { position: relative; }
+.studio-language-trigger {
+  width: 44px; height: 44px; display: grid; place-items: center; padding: 0;
+  border: 1px solid transparent; border-radius: 50%; background: transparent; cursor: pointer;
+}
+.studio-language-trigger:hover, .studio-language-trigger[aria-expanded="true"] {
+  border-color: var(--studio-border); background: var(--px-cream);
+}
+.studio-language-flag {
+  width: 29px; height: 29px; flex: none; display: block;
+  border: 1px solid #292c2533; border-radius: 50%;
+}
+.studio-language-menu {
+  position: absolute; z-index: 20; top: calc(100% + 7px); right: 0; width: max-content;
+  min-width: 154px; padding: 5px; border: 1px solid var(--studio-border); border-radius: 14px;
+  background: var(--px-cream); box-shadow: 0 10px 26px #292c2526;
+}
+.studio-language-menu button {
+  display: flex; gap: 10px; align-items: center; width: 100%; min-height: 44px;
+  padding: 6px 9px; border: 0; border-radius: 9px; text-align: left;
+  font: inherit; color: var(--px-ink); background: transparent; cursor: pointer;
+}
+.studio-language-menu button:hover, .studio-language-menu button[aria-pressed="true"] { background: var(--px-grass-light); }
+.studio-language-menu .studio-language-flag { width: 25px; height: 25px; }
+.studio-language-check { margin-left: auto; color: var(--px-grass-dark); }
+.studio-language button:focus-visible { outline: 2px solid var(--px-grass); outline-offset: 2px; }
 @media (max-width: 600px) {
   .web-shell .studio-header { padding-inline: 16px; height: auto; min-height: 72px; flex-wrap: wrap; gap: 4px 12px; }
   .web-shell .studio-brand { font-size: 20px; }
   .web-shell nav { gap: 16px; }
   .web-hero { padding-top: 28px; }
   .web-hero h1 { font-size: 40px; letter-spacing: -1.5px; }
+}
+@media (max-width: 380px) {
+  .web-shell .studio-brand { font-size: 17px; }
+  .web-shell .studio-header nav { gap: 8px; }
 }

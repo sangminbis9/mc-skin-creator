@@ -1,3 +1,4 @@
+import type { MessageKey } from "../i18n/messages";
 import {
   CLASSIC_LAYOUT as L,
   type BodyPart,
@@ -11,11 +12,11 @@ import {
 type Color = [number, number, number];
 export interface WardrobeStyle {
   id: string;
-  label: string;
+  label: MessageKey;
   color: string;
-  description: string;
+  description: MessageKey;
 }
-const styles = (rows: string[][]): WardrobeStyle[] =>
+const styles = (rows: [string, MessageKey, string, MessageKey][]): WardrobeStyle[] =>
   rows.map(([id, label, color, description]) => ({
     id,
     label,
@@ -23,28 +24,28 @@ const styles = (rows: string[][]): WardrobeStyle[] =>
     description,
   }));
 export const TOP_STYLES = styles([
-  ["knit", "Cream knit", "#ccbea1", "Ribbed texture and a raised neckline"],
-  ["hoodie", "Sage hoodie", "#667e60", "Hood, drawstrings and a raised pocket"],
-  ["jacket", "Charcoal jacket", "#3c4544", "Layered collar and front pockets"],
-  ["tee", "White tee", "#dcded3", "Short sleeves and a chest stripe"],
-  ["denim-jacket", "Denim jacket", "#476680", "Chest pockets, buttons and stitching"],
-  ["flannel", "Flannel shirt", "#995346", "Plaid across the front, back and sleeves"],
-  ["varsity", "Varsity jacket", "#763e45", "Cream sleeves and a chest patch"],
-  ["fisherman", "Cable knit", "#45566a", "Cable texture and ribbed hem"],
-  ["cardigan", "Sand cardigan", "#a28a65", "V-neck and wooden buttons"],
-  ["field", "Field jacket", "#666b45", "Layered flaps and utility pockets"],
+  ["knit", "wardrobe.knit.label", "#ccbea1", "wardrobe.knit.description"],
+  ["hoodie", "wardrobe.hoodie.label", "#667e60", "wardrobe.hoodie.description"],
+  ["jacket", "wardrobe.jacket.label", "#3c4544", "wardrobe.jacket.description"],
+  ["tee", "wardrobe.tee.label", "#dcded3", "wardrobe.tee.description"],
+  ["denim-jacket", "wardrobe.denim-jacket.label", "#476680", "wardrobe.denim-jacket.description"],
+  ["flannel", "wardrobe.flannel.label", "#995346", "wardrobe.flannel.description"],
+  ["varsity", "wardrobe.varsity.label", "#763e45", "wardrobe.varsity.description"],
+  ["fisherman", "wardrobe.fisherman.label", "#45566a", "wardrobe.fisherman.description"],
+  ["cardigan", "wardrobe.cardigan.label", "#a28a65", "wardrobe.cardigan.description"],
+  ["field", "wardrobe.field.label", "#666b45", "wardrobe.field.description"],
 ]);
 export const BOTTOM_STYLES = styles([
-  ["denim", "Indigo denim", "#3f5872", "Washed denim and light sneakers"],
-  ["dark", "Charcoal pants", "#414745", "Subtle shading and dark loafers"],
-  ["sand", "Sand pants", "#a79878", "Rolled hems and rear pockets"],
-  ["shorts", "Explorer shorts", "#667553", "Above-knee shorts and socks"],
-  ["cargo", "Olive cargo", "#69704b", "Raised cargo pockets"],
-  ["jogger", "Grey joggers", "#707577", "Cuffed ankles and sneakers"],
-  ["chinos", "Caramel chinos", "#a37b4d", "Front pleats and brown shoes"],
-  ["denim-shorts", "Denim shorts", "#65859a", "Washed denim and rolled hems"],
-  ["pleated", "Pleated skirt", "#515263", "Outer-layer pleats and tall socks"],
-  ["boots", "Workwear + boots", "#81715a", "Utility pockets and tall boots"],
+  ["denim", "wardrobe.denim.label", "#3f5872", "wardrobe.denim.description"],
+  ["dark", "wardrobe.dark.label", "#414745", "wardrobe.dark.description"],
+  ["sand", "wardrobe.sand.label", "#a79878", "wardrobe.sand.description"],
+  ["shorts", "wardrobe.shorts.label", "#667553", "wardrobe.shorts.description"],
+  ["cargo", "wardrobe.cargo.label", "#69704b", "wardrobe.cargo.description"],
+  ["jogger", "wardrobe.jogger.label", "#707577", "wardrobe.jogger.description"],
+  ["chinos", "wardrobe.chinos.label", "#a37b4d", "wardrobe.chinos.description"],
+  ["denim-shorts", "wardrobe.denim-shorts.label", "#65859a", "wardrobe.denim-shorts.description"],
+  ["pleated", "wardrobe.pleated.label", "#515263", "wardrobe.pleated.description"],
+  ["boots", "wardrobe.boots.label", "#81715a", "wardrobe.boots.description"],
 ]);
 const SIDES = ["front", "back", "left", "right"] as const;
 const hex = (v: string): Color =>

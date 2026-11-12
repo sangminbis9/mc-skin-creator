@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useLanguage } from "../i18n/LanguageProvider";
 import { JumpBlocks } from "../components/pixel/JumpBlocks";
 import { PixelBadge } from "../components/pixel/PixelBadge";
 import { PixelButton } from "../components/pixel/PixelButton";
@@ -23,6 +24,7 @@ export function QualityCheckPage({
   onContinue,
   onReselect,
 }: QualityCheckPageProps) {
+  const { t } = useLanguage();
   const [result, setResult] = useState<QualityCheckResult | null>(null);
 
   useEffect(() => {
@@ -44,29 +46,29 @@ export function QualityCheckPage({
         style={{ alignItems: "center" }}
       >
         <JumpBlocks />
-        <p className="px-subtitle">Checking your photo…</p>
+        <p className="px-subtitle">{t("quality.checking")}</p>
       </div>
     );
   }
 
   const badge =
     result.verdict === "pass" ? (
-      <PixelBadge tone="green">Ready</PixelBadge>
+      <PixelBadge tone="green">{t("quality.ready")}</PixelBadge>
     ) : result.verdict === "warn" ? (
-      <PixelBadge tone="gold">Check photo</PixelBadge>
+      <PixelBadge tone="gold">{t("quality.check")}</PixelBadge>
     ) : (
-      <PixelBadge tone="red">Not suitable</PixelBadge>
+      <PixelBadge tone="red">{t("quality.unsuitable")}</PixelBadge>
     );
 
   return (
     <div className="px-screen">
-      <h1 className="px-title">Ready to make it yours?</h1>
+      <h1 className="px-title">{t("quality.title")}</h1>
       <p className="px-subtitle">
-        Your face, hair and outfit guide the skin. Unseen details are inferred.
+        {t("quality.subtitle")}
       </p>
 
       <div style={{ textAlign: "center" }}>
-        <img src={photoDataUrl} alt="Your selected photo" className="quality-photo" />
+        <img src={photoDataUrl} alt={t("quality.selected")} className="quality-photo" />
       </div>
 
       <div style={{ textAlign: "center" }}>{badge}</div>
@@ -74,7 +76,7 @@ export function QualityCheckPage({
       <PixelPanel>
         {result.messages.map((message) => (
           <p
-            key={message}
+            key={t(message)}
             style={{ margin: "4px 0", fontSize: 13, lineHeight: 1.7 }}
           >
             {result.verdict === "pass"
@@ -82,7 +84,7 @@ export function QualityCheckPage({
               : result.verdict === "warn"
                 ? "⚠️"
                 : "❌"}{" "}
-            {message}
+            {t(message)}
           </p>
         ))}
       </PixelPanel>
@@ -91,11 +93,11 @@ export function QualityCheckPage({
 
       {result.verdict !== "fail" && (
         <PixelButton onClick={onContinue}>
-          {result.verdict === "warn" ? "Generate anyway" : "Generate my skin"}
+          {result.verdict === "warn" ? t("quality.anyway") : t("quality.generate")}
         </PixelButton>
       )}
       <PixelButton variant="ghost" onClick={onReselect}>
-        Choose another photo
+        {t("common.anotherPhoto")}
       </PixelButton>
     </div>
   );

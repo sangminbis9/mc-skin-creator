@@ -1,12 +1,15 @@
+import { useLanguage } from '../i18n/LanguageProvider';
+
 export function ApplyGuidePage({ onBack, onDownload }: { onBack: () => void; onDownload: () => void }) {
+  const { t } = useLanguage();
   return <article className="web-document">
-    <button className="studio-text-btn" onClick={onBack}>← Back to your skin</button>
-    <h1>Take your skin<br />into the game.</h1>
-    <h2>Java Edition</h2>
-    <ol><li>Download your Classic or Slim PNG.</li><li>Open the official Minecraft Launcher and choose Java Edition → Skins → New skin.</li><li>Select the matching arm model, upload the PNG, then save and use it.</li></ol>
-    <h2>Bedrock · Windows and mobile</h2>
-    <ol><li>Download the Bedrock PNG.</li><li>In Minecraft, open Dressing Room → Edit Character → Classic Skins.</li><li>Under Owned, choose Import and select the PNG. Choose the matching model.</li></ol>
-    <p>Menus can vary by game version. Console editions, including Xbox, do not offer the same custom PNG import flow. This demo does not connect to a Microsoft account, install skins automatically, or publish to the Marketplace.</p>
-    <button className="px-btn" onClick={onDownload}>Download a skin PNG</button>
+    <button className="studio-text-btn" onClick={onBack}>{t("common.backSkin")}</button>
+    <h1>{t("guide.title")}<br />{t("guide.titleAccent")}</h1>
+    <h2>{t("guide.java")}</h2>
+    <ol><li>{t("guide.javaDownload")}</li><li>{t("guide.javaOpen")}</li><li>{t("guide.javaApply")}</li></ol>
+    <h2>{t("guide.bedrock")}</h2>
+    <ol><li>{t("guide.bedrockDownload")}</li><li>{t("guide.bedrockOpen")}</li><li>{t("guide.bedrockApply")}</li></ol>
+    <p>{t("guide.note")}</p>
+    <button className="px-btn" onClick={onDownload}>{t("guide.download")}</button>
   </article>;
 }

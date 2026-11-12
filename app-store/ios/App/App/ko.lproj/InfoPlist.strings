@@ -1,0 +1,2 @@
+"NSCameraUsageDescription" = "선택한 사진으로 스킨을 만들기 위해 사진을 촬영합니다. AI 전송은 별도 동의 후 진행됩니다.";
+"NSPhotoLibraryUsageDescription" = "스킨으로 만들 사진을 직접 선택합니다. AI 전송은 별도 동의 후 진행됩니다.";

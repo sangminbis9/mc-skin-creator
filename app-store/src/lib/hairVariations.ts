@@ -1,3 +1,4 @@
+import type { MessageKey } from "../i18n/messages";
 import {
   CLASSIC_LAYOUT as L,
   getBoxUvSeams,
@@ -13,38 +14,38 @@ export interface VariationHints {
 export const HAIR_FINISHES = [
   {
     id: "soft",
-    label: "Lighter fringe",
+    label: "wardrobe.soft.label",
     description:
-      "Lighten the fringe outer layer while keeping its original length.",
+      "wardrobe.soft.description",
   },
   {
     id: "defined",
-    label: "Fuller fringe",
+    label: "wardrobe.defined.label",
     description:
-      "Add fringe volume while preserving the part and forehead.",
+      "wardrobe.defined.description",
   },
   {
     id: "silky",
-    label: "Fuller sides",
+    label: "wardrobe.silky.label",
     description:
-      "Add upper-side volume while tapering the lower hairline.",
+      "wardrobe.silky.description",
   },
   {
     id: "matte",
-    label: "Lighter shape",
+    label: "wardrobe.matte.label",
     description:
-      "Reduce fringe and side outer layers for a lighter silhouette.",
+      "wardrobe.matte.description",
   },
   {
     id: "volume",
-    label: "Fuller shape",
-    description: "Connect fringe, sides and crown for a fuller silhouette.",
+    label: "wardrobe.volume.label",
+    description: "wardrobe.volume.description",
   },
   {
     id: "tidy",
-    label: "Tapered sides",
+    label: "wardrobe.tidy.label",
     description:
-      "Keep the fringe and taper the lower sides closer to the head.",
+      "wardrobe.tidy.description",
   },
 ] as const;
 export type HairFinish = (typeof HAIR_FINISHES)[number]["id"];
@@ -139,9 +140,9 @@ export function analyzeHair(
   const contrast = distance(color, skin);
   const blocked =
     hints.hat && hints.hat !== "none"
-      ? "Original head preserved to protect headwear."
+      ? "wardrobe.headwear"
       : hints.hairstyle === "bald" || contrast < 42
-        ? "Hair and skin are ambiguous; the original is preserved."
+        ? "wardrobe.ambiguous"
         : undefined;
   const eligible = new Set(
     nodes
@@ -184,12 +185,12 @@ export function analyzeHair(
       }
     }
   }
-  const reason =
+  const reason: MessageKey | undefined =
     blocked ??
     (hints.hairstyle === "buzz"
-      ? "Very short hair keeps its original shape and length."
+      ? "wardrobe.shortHair"
       : undefined) ??
-    (mask.size < 28 ? "Uncertain hair region; the original is preserved." : undefined);
+    (mask.size < 28 ? "wardrobe.uncertain" : undefined);
   return {
     nodes,
     mask: reason ? new Set<number>() : mask,
