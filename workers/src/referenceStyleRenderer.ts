@@ -6,7 +6,7 @@ import type { RawImage } from "./png";
 import type { SkinPlan } from "./skinPlan";
 import type { FaceStyle } from "./skinPack";
 import type { OutfitPlan } from "./outfitIdentity";
-import { applyOutfitPlan } from "./outfitRenderer";
+import { applyOutfitPlan, renderOutfitOverlayStencil } from "./outfitRenderer";
 import { applyReferenceFaceFinish, referencePresentedFaceContract } from "./referenceFaceFinish";
 import { applyReferenceHeadProportion, buildReferenceHeadProportion, type ReferenceHeadProportion } from "./referenceHeadProportion";
 import { applyReferenceGarmentFinish } from "./referenceGarmentFinish";
@@ -35,7 +35,8 @@ function shade(c: Rgb, factor: number): Rgb { return c.map(v => Math.max(0, Math
 function at(c: Pick<StyledSurfaceCell, "part" | "layer" | "face" | "x" | "y">): number {
   const r = CLASSIC_LAYOUT[c.part][c.layer][c.face]; return ((r.y + c.y) * 64 + r.x + c.x) * 4;
 }
-function key(c: StyledSurfaceCell): string { return `${c.part}:${c.layer}:${c.face}:${c.x}:${c.y}`; }
+// Classic UV rectangles are disjoint: their pixel offsets uniquely identify cells.
+const key = at;
 function clone(image: RawImage): RawImage { return { ...image, rgba: image.rgba.slice() }; }
 function area(part: BodyPart): number { return faces.reduce((n, f) => { const r = CLASSIC_LAYOUT[part].overlay[f]; return n + r.w * r.h; }, 0); }
 function surfaceCells(image: RawImage, part: BodyPart, layer: "base" | "overlay", owner: StyledSurfaceCell["owner"]): Cell[] {
@@ -54,8 +55,8 @@ function surfaceCells(image: RawImage, part: BodyPart, layer: "base" | "overlay"
  * selection; repairing pairs after budgeting would create new occupied cells.
  */
 function buildSeamUnits(part: BodyPart): Cell[][] {
-  const parent = new Map<string, string>(), positions = new Map<string, Cell>();
-  const root = (k: string): string => {
+  const parent = new Map<number, number>(), positions = new Map<number, Cell>();
+  const root = (k: number): number => {
     let r = k; while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
     return r;
   };
@@ -71,7 +72,7 @@ function buildSeamUnits(part: BodyPart): Cell[][] {
     const a = local(p.x, p.y), b = local(seam.adjacent[i].x, seam.adjacent[i].y);
     positions.set(key(a), a); positions.set(key(b), b); parent.set(root(key(a)), root(key(b)));
   });
-  const units = new Map<string, Cell[]>();
+  const units = new Map<number, Cell[]>();
   for (const c of positions.values()) { const r = root(key(c)); const unit = units.get(r) ?? []; unit.push(c); units.set(r, unit); }
   return [...units.values()];
 }
@@ -95,7 +96,7 @@ const cellPriority = (a: Cell, b: Cell) => facePriority(a) - facePriority(b) || 
  * eye/window/accessory boundary cannot be filled just to close a seam. Garment
  * construction, by contrast, may wrap its own structural cue onto the cuboid.
  */
-function closeSeams(cells: Cell[], part: BodyPart, support?: Map<string, Cell>): Cell[] {
+function closeSeams(cells: Cell[], part: BodyPart, support?: Map<number, Cell>): Cell[] {
   const selected = new Map(cells.map(c => [key(c), c]));
   for (const unit of seamUnits(part)) {
     const authored = unit.map(c => selected.get(key(c))).filter((c): c is Cell => !!c).sort(cellPriority);
@@ -112,8 +113,8 @@ function closeSeams(cells: Cell[], part: BodyPart, support?: Map<string, Cell>):
 /** Select whole short edge runs together with their seam partners. */
 function accentRuns(cells: Cell[], part: BodyPart): Cell[][] {
   const parent = new Map(cells.map(c => [key(c), key(c)]));
-  const root = (k: string): string => { let r = k; while (parent.get(r) !== r) r = parent.get(r)!; return r; };
-  const join = (a: string, b: string) => parent.set(root(a), root(b));
+  const root = (k: number): number => { let r = k; while (parent.get(r) !== r) r = parent.get(r)!; return r; };
+  const join = (a: number, b: number) => parent.set(root(a), root(b));
   const runs = new Map<string, Cell[]>();
   for (const c of cells) {
     const id = `${c.face}:${c.face === "front" ? c.y : c.x}`;
@@ -124,7 +125,7 @@ function accentRuns(cells: Cell[], part: BodyPart): Cell[][] {
     const members = unit.filter(c => parent.has(key(c)));
     for (const c of members.slice(1)) join(key(members[0]), key(c));
   }
-  const groups = new Map<string, Cell[]>();
+  const groups = new Map<number, Cell[]>();
   for (const c of cells) { const r = root(key(c)); const group = groups.get(r) ?? []; group.push(c); groups.set(r, group); }
   return [...groups.values()].sort((a, b) => cellPriority(a[0], b[0]));
 }
@@ -156,7 +157,7 @@ export interface ReferenceCompositionResult { atlas: RawImage; diagnostic: Refer
 /** Atomic structural groups are routed before painting. If a group cannot fit
  * the outer budget its full connected cue goes on the base, not random pruning.
  */
-function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, design: ReferenceStylePlan, ownership: Map<string, Cell>, scarf: ReferenceScarfFinish) {
+function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, design: ReferenceStylePlan, ownership: Map<number, Cell>, scarf: ReferenceScarfFinish) {
   const groups: ReferenceCompositionDiagnostic["bodyGroups"] = [];
   const placedGroups: Array<{ record: ReferenceCompositionDiagnostic["bodyGroups"][number]; cells: Cell[] }> = [];
   const basePlan = { ...plan, outerLayer: { ...plan.outerLayer, regions: [] }, accessories: [] };
@@ -183,7 +184,7 @@ function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, des
   };
   groupsToRender.sort((a, b) => priority(a) - priority(b));
   for (const group of groupsToRender) {
-    const scratch = clone(atlas); applyOutfitPlan(scratch, group.plan, skin);
+    const scratch = renderOutfitOverlayStencil(group.plan);
     const cells = parts.filter(p => p !== "head").flatMap(p => surfaceCells(scratch, p, "overlay", group.owner));
     // A cuff fold is not a shoulder cap. Keep sleeve termination and connected
     // vertical cuff surfaces; its top-plane sketch remains part of the base.
@@ -194,7 +195,7 @@ function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, des
     // physical seam unit when any partner is reserved, rather than making a
     // seam hole or disguising partial structure as complete source retention.
     const reserved = new Set([...ownership.values()].filter(c => c.owner === "accessory").map(c => `${c.part}:${c.face}:${c.x}:${c.y}`));
-    const covered = new Set<string>();
+    const covered = new Set<number>();
     if (group.owner === "garment") {
       for (const c of sourceCells) if (reserved.has(`${c.part}:${c.face}:${c.x}:${c.y}`)) covered.add(key(c));
       for (const part of parts.filter(p => p !== "head")) for (const unit of seamUnits(part)) {
@@ -359,9 +360,33 @@ export function composeReferenceStyleAtlas(baseline: RawImage, plan: SkinPlan, d
   return composeReferenceStyleStages(baseline, plan, design, style).composition;
 }
 
+function prepareGarment(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle) {
+  const atlas = clone(baseline), ownership = new Map<number, Cell>();
+  const skin = style.skinTone ?? "#d39e80";
+  const scarf = buildReferenceScarfFinish(plan, skin);
+  const garment = garmentComposition(atlas, plan.outfitPlan, skin, design, ownership, scarf);
+  return { atlas, ownership, scarf, garment };
+}
+
+/** One selection, one immutable garment foundation per distinct outfit finish.
+ * Face/hair variants can replace paint on their own copies of this foundation.
+ */
+export function createReferenceCandidateComposer(baseline: RawImage, plan: SkinPlan, style: FaceStyle) {
+  const garments = new Map<string, ReturnType<typeof prepareGarment>>();
+  return (design: ReferenceStylePlan) => {
+    const key = `${design.outfit.family}:${design.garmentDetailPolicy ?? !!design.materialDetailPolicy}`;
+    let garment = garments.get(key);
+    if (!garment) {
+      garment = prepareGarment(baseline, plan, design, style);
+      garments.set(key, garment);
+    }
+    return composeReferenceStyleStages(baseline, plan, design, style, garment);
+  };
+}
+
 /** Preserve the freshly painted foundation for the in-process verifier. */
-export function composeReferenceStyleStages(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle) {
-  const foundation = composeReferenceStyleFoundation(baseline, plan, design, style);
+function composeReferenceStyleStages(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, garment?: ReturnType<typeof prepareGarment>) {
+  const foundation = composeReferenceStyleFoundation(baseline, plan, design, style, garment);
   if (!design.headProportionPolicy) return { composition: foundation, foundation, projection: undefined };
   const projection = deriveCompositionHeadProportion(foundation, plan, design, style);
   const atlas = clone(foundation.atlas);
@@ -381,19 +406,19 @@ export function deriveCompositionHeadProportion(foundation: ReferenceComposition
     foundation.diagnostic.surfaces.filter(c => c.part === "head" && c.layer === "base" && c.owner === "hair"));
 }
 
-function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle): ReferenceCompositionResult {
+function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, prepared?: ReturnType<typeof prepareGarment>): ReferenceCompositionResult {
   if (baseline.width !== 64 || baseline.height !== 64 || baseline.rgba.length !== 16384) throw new Error("reference_composition_atlas_invalid");
   const head = plan.headIdentityPlan.ownership;
   if (!head || head.execution !== "resolved") throw new Error("reference_composition_head_ownership_unresolved");
-  const atlas = clone(baseline), ownership = new Map<string, Cell>();
+  const { atlas: garmentAtlas, ownership: garmentOwnership, garment, scarf: scarfFinish } = prepared ?? prepareGarment(baseline, plan, design, style);
+  const atlas = prepared ? clone(garmentAtlas) : garmentAtlas;
+  const ownership = prepared ? new Map(garmentOwnership) : garmentOwnership;
   const skin = rgb(style.skinTone, [211, 158, 128]), hair = rgb(style.hairColor, [57, 42, 33]);
-  const scarfFinish = buildReferenceScarfFinish(plan, style.skinTone ?? "#d39e80");
-  const garment = garmentComposition(atlas, plan.outfitPlan, style.skinTone ?? "#d39e80", design, ownership, scarfFinish);
   const bodyGroups = garment.groups;
   const protectedFace = new Set(plan.facePixelPlan.pixels.filter(p => ["left_eye", "right_eye", "glasses", "mouth"].includes(p.cluster) || p.role === "brow").map(p => `${p.x}:${p.y}`));
-  const baseHair: Cell[] = [], accents: Cell[] = [], sourceOuterHair = new Map<string, Cell>();
+  const baseHair: Cell[] = [], accents: Cell[] = [], sourceOuterHair = new Map<number, Cell>();
   const coveringBase = new Set(head.cells.filter(c => c.layer === "base" && c.owner === "covering").map(c => `${c.face}:${c.x}:${c.y}`));
-  const coveringAccents: Cell[] = [], sourceOuterCovering = new Map<string, Cell>();
+  const coveringAccents: Cell[] = [], sourceOuterCovering = new Map<number, Cell>();
   const pairedHair = buildReferencePairedHair(plan, design);
   const shortFringe = buildReferenceShortFringe(plan, design, style);
   const coilyAccentKeys = new Set(plan.hairPlan.structure.grammar === "coily_clusters"

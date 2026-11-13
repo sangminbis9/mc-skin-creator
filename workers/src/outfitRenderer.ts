@@ -549,3 +549,11 @@ export function applyOutfitPlan(atlas: RawImage, plan: OutfitPlan, skinColor: st
   drawLower(atlas, plan, skin);
   drawOuter(atlas, plan);
 }
+
+/** Draw only the outer construction on a blank atlas. The stencil does not
+ * read the base pixels, so its callers need not repaint the whole body. */
+export function renderOutfitOverlayStencil(plan: OutfitPlan): RawImage {
+  const atlas = { width: ATLAS_SIZE, height: ATLAS_SIZE, rgba: new Uint8Array(ATLAS_SIZE * ATLAS_SIZE * 4) };
+  drawOuter(atlas, plan);
+  return atlas;
+}

@@ -4,7 +4,7 @@
  */
 import type { RawImage } from "./png";
 import type { OutfitPlan } from "./outfitIdentity";
-import { applyOutfitPlan } from "./outfitRenderer";
+import { applyOutfitPlan, renderOutfitOverlayStencil } from "./outfitRenderer";
 import { applyReferenceGarmentFinish } from "./referenceGarmentFinish";
 import { CLASSIC_LAYOUT, type BodyPart, type BoxUV } from "./uvLayout";
 import { getBoxUvSeams } from "./uvLayout";
@@ -66,12 +66,11 @@ function closedSourcePositions(paints: readonly SourceAccessoryPaint[]): Set<str
   }
   return positions;
 }
-export function sourceAccessoryStencils(plan: OutfitPlan, skin: string): SourceAccessoryStencil[] {
+export function sourceAccessoryStencils(plan: OutfitPlan, _skin: string): SourceAccessoryStencil[] {
   return plan.accessories.map((accessory, index) => {
-    const image: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
     // large_pocket is represented by the production pocket construction,
     // rather than its otherwise empty accessory placeholder.
-    applyOutfitPlan(image, { ...plan, accessories: [accessory], outerLayer: { ...plan.outerLayer, regions: accessory.kind === "large_pocket" ? ["pocket"] : [] } }, skin);
+    const image = renderOutfitOverlayStencil({ ...plan, accessories: [accessory], outerLayer: { ...plan.outerLayer, regions: accessory.kind === "large_pocket" ? ["pocket"] : [] } });
     return { id: `accessory:${accessory.kind}:${index}`, paints: overlayPaints(image) };
   });
 }
@@ -131,8 +130,7 @@ export function measureReferenceGarmentStructure(
     .map((region, index) => ({ region, index, priority: preferred.indexOf(regionAccent[region]) }))
     .sort((a, b) => (a.priority < 0 ? 100 : a.priority) - (b.priority < 0 ? 100 : b.priority) || a.index - b.index);
   const stencils = regions.map(({ region }) => {
-    const image: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
-    applyOutfitPlan(image, { ...plan, accessories: [], outerLayer: { ...plan.outerLayer, regions: [region] } }, skin);
+    const image = renderOutfitOverlayStencil({ ...plan, accessories: [], outerLayer: { ...plan.outerLayer, regions: [region] } });
     const paints = overlayPaints(image).filter(c => !(region === "cuffs" && (c.face === "top" || c.y === 0)));
     return { id: `structure:${region}`, paints };
   });
@@ -198,7 +196,6 @@ export function measureReferenceGarmentFoundation(
   const folds = new Map(applyReferenceGarmentFinish(finished, basePlan, design.garmentDetailPolicy ?? !!design.materialDetailPolicy).map(p => [`${p.part}:${p.face}:${p.x}:${p.y}`, colorKey(p.color)]));
   const allowedConstruction = new Map<string, Set<string>>();
   for (const group of groups.filter(g => g.placement === "base_anchor")) {
-    const image: RawImage = { width: 64, height: 64, rgba: new Uint8Array(16384) };
     let paints: SourceAccessoryPaint[] = [];
     if (group.id.startsWith("accessory:")) {
       const kind = group.id.slice("accessory:".length);
@@ -206,7 +203,7 @@ export function measureReferenceGarmentFoundation(
     } else if (group.id.startsWith("structure:")) {
       const region = plan.outerLayer.regions.find(r => group.id === `structure:${r}`);
       if (region) {
-        applyOutfitPlan(image, { ...basePlan, outerLayer: { ...basePlan.outerLayer, regions: [region] } }, skin);
+        const image = renderOutfitOverlayStencil({ ...basePlan, outerLayer: { ...basePlan.outerLayer, regions: [region] } });
         paints = overlayPaints(image).filter(c => !(region === "cuffs" && (c.face === "top" || c.y === 0)));
       }
     }

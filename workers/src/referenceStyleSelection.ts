@@ -17,7 +17,7 @@ import { applyReferenceFaceFinish, referencePresentedFaceContract, referenceIris
 import { measureFaceRenderContract } from "./identityRenderContract";
 import { measureReferenceAccessoryRetention, measureReferenceGarmentFoundation, measureReferenceGarmentStructure } from "./referenceOutfitRetention";
 import { validateAtlasCraftFoundation, validateFinalAtlas } from "./skinPost";
-import { composeReferenceStyleAtlas, composeReferenceStyleStages, deriveCompositionHeadProportion, referenceBaseHairColor, type ReferenceCompositionResult } from "./referenceStyleRenderer";
+import { composeReferenceStyleAtlas, createReferenceCandidateComposer, deriveCompositionHeadProportion, referenceBaseHairColor, type ReferenceCompositionResult } from "./referenceStyleRenderer";
 import { referenceLooseHairMaterial } from "./referenceMaterialDetail";
 import { hasReferenceHairVolume, referenceHairVolumeGroups } from "./referenceHairVolume";
 import { headProportionFaceContract, headProportionOffset } from "./referenceHeadProportion";
@@ -85,14 +85,15 @@ function measureProjectedQuality(
   result: ReferenceCompositionResult, baseline: RawImage, source: SkinPlan,
   design: ReferenceStylePlan, style: FaceStyle, foundation: ReferenceCompositionResult,
   projected: ReturnType<typeof deriveCompositionHeadProportion>,
+  freshlyComposed = false,
 ): ReferenceRenderedQuality {
-  const restored = { ...result.atlas, rgba: result.atlas.rgba.slice() };
+  const restored = freshlyComposed ? foundation.atlas : { ...result.atlas, rgba: result.atlas.rgba.slice() };
   const errors = new Set<string>();
-  if (JSON.stringify(projected) !== JSON.stringify(result.diagnostic.headProportion)) errors.add("head_proportion_contract_changed");
+  if (projected !== result.diagnostic.headProportion && JSON.stringify(projected) !== JSON.stringify(result.diagnostic.headProportion)) errors.add("head_proportion_contract_changed");
   for (const p of projected.paints) {
     const i = headProportionOffset(p);
     if (result.atlas.rgba[i + 3] !== (p.layer === "overlay" ? 255 : foundation.atlas.rgba[i + 3]) || p.color.some((v, ch) => result.atlas.rgba[i + ch] !== v)) errors.add("head_proportion_pixel_changed");
-    restored.rgba.set(foundation.atlas.rgba.slice(i, i + 4), i);
+    if (!freshlyComposed) restored.rgba.set(foundation.atlas.rgba.slice(i, i + 4), i);
   }
   const quality = measureReferenceFoundationQuality({ ...result, atlas: restored }, baseline, source, design, style);
   quality.violations.forEach(e => errors.add(e));
@@ -440,19 +441,20 @@ export function selectReferenceStyleAtlas(baseline: RawImage, source: SkinPlan, 
   // At most 27 concrete atlases, independent of provider feature count.
   if (Object.values(design.candidates).some(axis => axis.length === 0 || axis.length > 3 || new Set(axis.map(c => c.family)).size !== axis.length)) throw new Error("reference_candidate_set_invalid");
   const candidates: ReferenceSelection["candidates"] = [];
+  const composeCandidate = createReferenceCandidateComposer(baseline, source, style);
   let selected: ReferenceSelection["selected"] = null, selectedId = "", renderAttempts = 0;
   for (const face of design.candidates.face) for (const hair of design.candidates.hair) for (const outfit of design.candidates.outfit) {
     const choice = { ...design, face, hair, outfit }, id = `${face.family}/${hair.family}/${outfit.family}`;
     renderAttempts++;
-    let stages: ReturnType<typeof composeReferenceStyleStages>;
-    try { stages = composeReferenceStyleStages(baseline, source, choice, style); }
+    let stages: ReturnType<typeof composeCandidate>;
+    try { stages = composeCandidate(choice); }
     catch (error) {
       if (!(error instanceof Error) || !error.message.startsWith("reference_composition_")) throw error;
       candidates.push({ id, quality: null, foundation: null, rejection: error.message }); continue;
     }
     const { composition, foundation: paintedFoundation, projection } = stages;
     const quality = projection
-      ? measureProjectedQuality(composition, baseline, source, choice, style, paintedFoundation, projection)
+      ? measureProjectedQuality(composition, baseline, source, choice, style, paintedFoundation, projection, true)
       : measureReferenceFoundationQuality(composition, baseline, source, choice, style);
     const foundation = validateAtlasCraftFoundation(composition.atlas, style);
     const accepted = quality.constructionValid && foundation.ok;
