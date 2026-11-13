@@ -3886,8 +3886,9 @@ export function refineFeatureColorsFromAnalysis(
   // A skirt described as part of a dress inherits that dress's observed color
   // when the skirt itself has no separately stated color.
   const observedBottomColor = recoverNamedColorBeforeItem(observedTopText, lowerGarmentPattern, 5);
-  const observedDressColor = /\bskirt\b/.test(observedTopText)
-    ? recoverNamedColorBeforeItem(observedTopText, "dress", 5) : null;
+  const observedDressColor = analysis.fallbackFeatures.bottomType === "skirt"
+    ? recoverNamedColorBeforeItem(observedTopText, "dress", 5) ??
+      recoverNamedColorBeforeItem(analysis.outfitPrompt.toLowerCase(), "dress", 5) : null;
   const recoveredNamedBottomColor = observedBottomColor ?? observedDressColor ??
     recoverNamedColorBeforeItem(bottomText, lowerGarmentPattern, 5) ??
     recoverNamedColorNearItem(bottomText, lowerGarmentPattern);

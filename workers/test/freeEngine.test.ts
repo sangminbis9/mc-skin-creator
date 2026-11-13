@@ -9,6 +9,7 @@ import type { Env } from "../src/types";
 import { generateGeminiImage } from "../src/gemini";
 import { fallbackFeaturesToHex, refineFeatureColorsFromAnalysis } from "../src/generate";
 import { makeAnalysis } from "./helpers";
+import { validatePhotoAnalysis } from "../src/analysis";
 afterEach(() => vi.restoreAllMocks());
 
 it("carries the observed dress color into its skirt when no separate color is given", () => {
@@ -23,6 +24,20 @@ it("carries the observed dress color into its skirt when no separate color is gi
   const contrast = makeAnalysis({ ...photo, observed: { ...photo.observed, clothing: "A white dress and a red skirt." } });
   const other = refineFeatureColorsFromAnalysis(contrast, fallbackFeaturesToHex(contrast.fallbackFeatures));
   expect(other.bottomColor).not.toBe("#f2f2f2");
+});
+
+it("recognizes a long dress as a skirt even if the word skirt is absent", () => {
+  const base = makeAnalysis();
+  const result = validatePhotoAnalysis({ ...base, fallbackFeatures: undefined,
+    observed: { ...base.observed, clothing: "A white, sleeveless lace midi dress with a pink cardigan." },
+    canonicalIdentity: { ...base.canonicalIdentity, mustPreserve: ["white lace dress", "long dark hair", "light skin"] },
+    identityPrompt: "A person with long dark hair.", outfitPrompt: "A white sleeveless lace dress with a pink cardigan.",
+  });
+  expect(result.ok, result.ok ? undefined : result.errors.join(", ")).toBe(true);
+  if (!result.ok) return;
+  expect(result.analysis.fallbackFeatures.bottomType).toBe("skirt");
+  const colors = refineFeatureColorsFromAnalysis(result.analysis, fallbackFeaturesToHex(result.analysis.fallbackFeatures));
+  expect(colors.bottomColor).toBe("#f2f2f2");
 });
 async function setup() {
   const image = `data:image/png;base64,${bytesToBase64(await encodePng(makeSyntheticAtlas(64)))}`;

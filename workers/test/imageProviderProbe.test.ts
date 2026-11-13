@@ -140,4 +140,5 @@ it.skipIf(process.env.RUN_E2E_REPLAY !== "1")("replays actual analysis and image
   if (result.body.skinPngBase64) await writeFile(`${dir}/e2e-replay.png`, base64ToBytes(result.body.skinPngBase64));
   expect(result.success).toBe(true);
   expect(result.body.generationMode).toBe("image");
+  expect(result.body.features).toMatchObject({ bottomType: "skirt", bottomColor: "#f2f2f2" });
 });

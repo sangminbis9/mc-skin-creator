@@ -2102,7 +2102,9 @@ export function validatePhotoAnalysis(
         ? "shorts"
         : /\bjeans\b/.test(fallbackEvidence)
           ? "jeans"
-          : "pants");
+          : /\b(?:pants|trousers|slacks|chinos)\b/.test(fallbackEvidence)
+            ? "pants"
+            : /\b(?:dress|gown)\b/.test(fallbackEvidence) ? "skirt" : "pants");
   const fallbackFeatures: FallbackFeatures = {
     skinTone: fallbackColor(
       fallbackSource.skinTone,
