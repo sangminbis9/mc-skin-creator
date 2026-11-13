@@ -35,7 +35,14 @@ export async function generateFreeSkin(env: Env, input: SkinEngineRequest): Prom
     FREE_ANALYSIS_RUN: async wire => {
       if (dispatched || wire.max_completion_tokens !== MAX_FREE_OUTPUT_TOKENS) throw new Error("Free call policy rejected");
       dispatched = true;
-      const response = await env.AI!.run(FREE_VISION_MODEL as never, wire as never);
+      // The application prompt stays unchanged; move it ahead of photo-specific
+      // inputs so distinct photos can share a stable provider cache prefix.
+      const messages = wire.messages as Array<{ role: string; content: Array<{ type: string }> }>;
+      const cacheableWire = { ...wire, messages: messages.map(message => ({ ...message,
+        content: [...message.content.filter(part => part.type === "text"),
+          ...message.content.filter(part => part.type !== "text")] })) };
+      const response = await env.AI!.run(FREE_VISION_MODEL as never, cacheableWire as never,
+        { extraHeaders: { "x-session-affinity": "mc-skin-analysis-v1" } });
       charged = reportedGemmaNeurons(response) ?? 0;
       return response;
     },

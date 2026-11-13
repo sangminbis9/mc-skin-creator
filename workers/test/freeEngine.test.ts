@@ -65,6 +65,9 @@ it("uses exactly one free model despite Gemini keys and enhancement flags, witho
   expect(s.reserve).not.toHaveBeenCalled(); expect(s.settle).not.toHaveBeenCalled();
   const wire = s.run.mock.calls[0][1]; expect(wire).toMatchObject({ temperature: 0, seed: 0, store: false, max_completion_tokens: 8192 });
   expect(JSON.stringify(wire)).toContain("Do not merge different outfits");
+  expect(wire.messages[0].content[0].type).toBe("text");
+  expect(wire.messages[0].content[1]).toMatchObject({ type: "image_url", image_url: { url: s.image } });
+  expect(s.run.mock.calls[0][2]).toEqual({ extraHeaders: { "x-session-affinity": "mc-skin-analysis-v1" } });
   expect(result.body.analysis).toBeUndefined(); expect(s.kv.put).not.toHaveBeenCalled(); expect(network).not.toHaveBeenCalled();
   expect(result.neuronsSpent).toBe(reportedGemmaNeurons({ usage: { prompt_tokens: 9000, completion_tokens: 3000 } }));
   expect(await freeQuotaStatus(s.env)).toMatchObject({ capacityBasis: "provider_unknown", level: "unknown", remainingGenerations: null });
