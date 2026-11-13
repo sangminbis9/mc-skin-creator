@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { cpuUsage, memoryUsage } from "node:process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
-import { normalizeAnalysisForRendering, refineFeatureColorsFromAnalysis, fallbackFeaturesToHex,
+import { FREE_EDGE_RENDER_ATTEMPTS, normalizeAnalysisForRendering, refineFeatureColorsFromAnalysis, fallbackFeaturesToHex,
   buildFaceStyle, buildProceduralSourceAtlas } from "../src/generate";
 import { buildSkinPlan } from "../src/skinPlan";
 import { renderReferencePrimaryAtlas } from "../src/referencePrimaryRenderer";
@@ -45,6 +45,11 @@ it("separates frozen production phase costs while preserving exact plans and PNG
       if (!render.value.ok) throw new Error(`frozen_render_failed:${fixture.id}`);
       const result = render.value;
       expect(result.summary.craftValidation).toBe("pass");
+      const edge = await sample(() => renderReferencePrimaryAtlas(baseline.value!, plan, analysis, style, FREE_EDGE_RENDER_ATTEMPTS));
+      expect(edge.value.ok, fixture.id).toBe(true);
+      if (!edge.value.ok) throw new Error(`frozen_edge_render_failed:${fixture.id}`);
+      expect(edge.value.summary.renderAttempts).toBeLessThanOrEqual(FREE_EDGE_RENDER_ATTEMPTS);
+      expect(validateFinalAtlas(edge.value.atlas).ok).toBe(true);
       const png = await sample(() => encodePng(result.atlas));
       const decoded = await decodePng(png.value);
       expect(validateFinalAtlas(decoded).ok).toBe(true);
@@ -54,7 +59,8 @@ it("separates frozen production phase costs while preserving exact plans and PNG
       cases.push({ caseId: fixture.id, calibrated: !!fixture.existing, inputHash, planHash,
         atlasHash: sha(decoded.rgba), pngHash: sha(png.value), craft: "pass", finalAtlas: "pass",
         candidateCount: result.summary.renderAttempts, context: context.metric, baseline: baseline.metric,
-        referenceRender: render.metric, pngEncode: png.metric });
+        referenceRender: render.metric, edgeRender: edge.metric, edgeCandidateCount: edge.value.summary.renderAttempts,
+        edgeMatchesFullSearch: sha(edge.value.atlas.rgba) === sha(decoded.rgba), pngEncode: png.metric });
     }
     expect(cases).toHaveLength(12); expect(cases.filter(c => c.calibrated)).toHaveLength(5);
     expect(network).not.toHaveBeenCalled(); expect(readFileSync(file)).toEqual(original);

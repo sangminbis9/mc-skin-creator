@@ -7,8 +7,8 @@ import type { RawImage } from "./png";
 import { renderReferencePrimaryAtlas } from "./referencePrimaryRenderer";
 import { repairSkinIntegrity } from "../../shared/skinIntegrity";
 export const SKIN_ENGINE_VERSION = "reference-engine-20261019-headwear-v1";
-export function renderSkinEngine(source: RawImage, plan: SkinPlan, observation: PhotoAnalysis, style: FaceStyle) {
-  const rendered = renderReferencePrimaryAtlas(source, plan, observation, style);
+export function renderSkinEngine(source: RawImage, plan: SkinPlan, observation: PhotoAnalysis, style: FaceStyle, maxRenderAttempts?: number) {
+  const rendered = renderReferencePrimaryAtlas(source, plan, observation, style, maxRenderAttempts);
   if (!rendered.ok) return rendered;
   const checked = repairSkinIntegrity(rendered.atlas, source);
   if (!checked.report.valid) return { ok: false as const, reason: "source_atlas_invalid" as const, renderAttempts: rendered.summary.renderAttempts };

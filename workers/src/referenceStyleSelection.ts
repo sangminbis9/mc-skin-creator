@@ -437,14 +437,37 @@ export interface ReferenceSelection {
   candidates: Array<{ id: string; quality: ReferenceRenderedQuality | null; foundation: ReturnType<typeof validateAtlasCraftFoundation> | null; rejection: string | null }>;
   renderAttempts: number;
 }
-export function selectReferenceStyleAtlas(baseline: RawImage, source: SkinPlan, design: ReferenceStylePlan, style: FaceStyle): ReferenceSelection {
+export function selectReferenceStyleAtlas(baseline: RawImage, source: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, maxRenderAttempts = 27): ReferenceSelection {
   // At most 27 concrete atlases, independent of provider feature count.
   if (Object.values(design.candidates).some(axis => axis.length === 0 || axis.length > 3 || new Set(axis.map(c => c.family)).size !== axis.length)) throw new Error("reference_candidate_set_invalid");
   const candidates: ReferenceSelection["candidates"] = [];
   const composeCandidate = createReferenceCandidateComposer(baseline, source, style);
   let selected: ReferenceSelection["selected"] = null, selectedId = "", renderAttempts = 0;
+  const choices: Array<{ choice: ReferenceStylePlan; id: string }> = [];
   for (const face of design.candidates.face) for (const hair of design.candidates.hair) for (const outfit of design.candidates.outfit) {
     const choice = { ...design, face, hair, outfit }, id = `${face.family}/${hair.family}/${outfit.family}`;
+    choices.push({ choice, id });
+  }
+  if (choices.length > maxRenderAttempts) {
+    // Prioritize the strongest source evidence, then spend the bounded budget
+    // trying untested families. The best actually validated atlas still wins.
+    const cost = ({ choice }: typeof choices[number]) => choice.face.cost + choice.hair.cost + choice.outfit.cost;
+    choices.sort((a, b) => cost(a) - cost(b) || (a.id < b.id ? -1 : 1));
+    const used = new Set<string>();
+    const families = ({ choice }: typeof choices[number]) => [
+      `face:${choice.face.family}`, `hair:${choice.hair.family}`, `outfit:${choice.outfit.family}`,
+    ];
+    for (let index = 0; index < maxRenderAttempts; index++) {
+      let best = index, diversity = -1;
+      for (let i = index; i < choices.length; i++) {
+        const fresh = families(choices[i]).filter(family => !used.has(family)).length;
+        if (fresh > diversity || (fresh === diversity && cost(choices[i]) < cost(choices[best]))) { best = i; diversity = fresh; }
+      }
+      [choices[index], choices[best]] = [choices[best], choices[index]];
+      for (const family of families(choices[index])) used.add(family);
+    }
+  }
+  for (const { choice, id } of choices.slice(0, maxRenderAttempts)) {
     renderAttempts++;
     let stages: ReturnType<typeof composeCandidate>;
     try { stages = composeCandidate(choice); }

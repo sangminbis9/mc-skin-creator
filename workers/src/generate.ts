@@ -103,6 +103,9 @@ import { generationObserver, type GenerationObserver } from "./generationObserva
 
 /** 업로드 허용 최대 크기 (base64 data URL 문자 수, 약 1.1MB 이미지) */
 export const MAX_IMAGE_CHARS = 1_500_000;
+// Bound the local render work on the free edge runtime independently of AI
+// wait time. Offline use of the engine can still inspect the full search.
+export const FREE_EDGE_RENDER_ATTEMPTS = 5;
 
 /** Diagnostic storage is advisory; a slow KV must not block a valid PNG. */
 async function primaryDiagnostic(env: Env, value: unknown): Promise<void> {
@@ -140,7 +143,7 @@ function primaryRenderContext(analysis: PhotoAnalysis) {
   return { renderAnalysis, skinPlan, features, summary, faceStyle: buildFaceStyle(renderAnalysis, features, skinPlan.hairPlan) };
 }
 
-async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number, mark: GenerationObserver): Promise<GenerateResult> {
+async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number, mark: GenerationObserver, maxRenderAttempts?: number): Promise<GenerateResult> {
   mark("render_context_started");
   const { renderAnalysis, skinPlan, features, summary, faceStyle } = primaryRenderContext(analysis);
   mark("render_context_finished");
@@ -149,7 +152,7 @@ async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: numb
   mark("source_atlas_finished");
   if (!sourceAtlas) return fail(500, "유효한 스킨을 만들지 못했어요", "SKIN_RENDER_FAILED", neuronsSpent);
   mark("reference_atlas_started");
-  const styled = renderSkinEngine(sourceAtlas, skinPlan, renderAnalysis, faceStyle);
+  const styled = renderSkinEngine(sourceAtlas, skinPlan, renderAnalysis, faceStyle, maxRenderAttempts);
   mark("reference_atlas_finished");
   if (!styled.ok) {
     console.log(JSON.stringify({ event: "reference_primary_render_rejected", reason: styled.reason, renderAttempts: styled.renderAttempts }));
@@ -573,16 +576,17 @@ export async function generateSkin(
   let baseline: GenerateResult = fail(503, "이미지 생성을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.", "provider_unavailable", spent);
   mark("enrichment_finished");
   if (!freeImage) {
+    const maxRenderAttempts = env.AI_POLICY === "workers_free_only" ? FREE_EDGE_RENDER_ATTEMPTS : undefined;
     try {
-      baseline = await renderPrimaryBaseline(analysis, spent, mark);
+      baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts);
       if (!baseline.success && analysis !== primaryOnlyAnalysis) {
         analysis = primaryOnlyAnalysis;
-        baseline = await renderPrimaryBaseline(analysis, spent, mark);
+        baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts);
       }
     } catch (error) {
       if (analysis === primaryOnlyAnalysis) throw error;
       analysis = primaryOnlyAnalysis;
-      baseline = await renderPrimaryBaseline(analysis, spent, mark);
+      baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts);
     }
     mark("baseline_returned");
   }

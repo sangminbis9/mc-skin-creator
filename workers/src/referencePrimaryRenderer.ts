@@ -34,6 +34,7 @@ export type ReferencePrimaryRenderResult =
 
 export function renderReferencePrimaryAtlas(
   baseline: RawImage, source: SkinPlan, analysis: PhotoAnalysis, style: FaceStyle,
+  maxRenderAttempts?: number,
 ): ReferencePrimaryRenderResult {
   if (!validateFinalAtlas(baseline).ok) return { ok: false, reason: "source_atlas_invalid", renderAttempts: 0 };
   if (!validateAtlasCraftFoundation(baseline, style).ok) return { ok: false, reason: "source_craft_invalid", renderAttempts: 0 };
@@ -49,7 +50,7 @@ export function renderReferencePrimaryAtlas(
       preservedReason: "unresolved_complex_head_grammar",
     } };
   }
-  const selection = selectReferenceStyleAtlas(baseline, source, buildReferenceStylePlan(analysis), style);
+  const selection = selectReferenceStyleAtlas(baseline, source, buildReferenceStylePlan(analysis), style, maxRenderAttempts);
   const selected = selection.selected;
   if (!selected) return { ok: false, reason: "reference_candidates_rejected", renderAttempts: selection.renderAttempts };
   const craftPlan = buildReferenceCraftPlan(source, selected.design, selected.composition);
