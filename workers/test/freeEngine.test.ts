@@ -6,7 +6,7 @@ import { makeFourViewSheet, makeSyntheticAtlas } from "./helpers";
 import { namedGemmaFixture, semanticFixture, wireFixture } from "./compactV3Support";
 import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
-import { generateGeminiImage } from "../src/gemini";
+import { FREE_GEMMA_PRIMARY_TIMEOUT_MS, generateGeminiImage, GeminiApiError } from "../src/gemini";
 import { fallbackFeaturesToHex, refineFeatureColorsFromAnalysis } from "../src/generate";
 import { makeAnalysis } from "./helpers";
 import { validatePhotoAnalysis } from "../src/analysis";
@@ -118,6 +118,38 @@ it("does not retry failed analysis or store provider error content", async () =>
   expect(result.success).toBe(false); expect(s.run).toHaveBeenCalledTimes(1);
   expect(s.reserve).not.toHaveBeenCalled(); expect(s.settle).not.toHaveBeenCalled(); expect(s.kv.put).not.toHaveBeenCalled();
   expect(JSON.stringify(result)).not.toMatch(/private-photo|secret API/); expect(log).not.toHaveBeenCalled();
+});
+it("accepts a slow free analysis after the old 60-second cutoff with one model call", async () => {
+  const s = await setup(), response = await s.run();
+  s.run.mockClear();
+  vi.useFakeTimers();
+  try {
+    s.run.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(response), 65_000)));
+    const pending = generateFreeSkin(s.env, { image: s.image });
+    await vi.dynamicImportSettled();
+    await vi.advanceTimersByTimeAsync(65_000);
+    const result = await pending;
+    expect(result.success).toBe(true);
+    expect(validateFinalAtlas(await decodePng(base64ToBytes(result.body.skinPngBase64!))).ok).toBe(true);
+    expect(s.run).toHaveBeenCalledOnce();
+  } finally { vi.useRealTimers(); }
+});
+it("distinguishes the free local deadline from provider failures without logging input", async () => {
+  const s = await setup(), warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  vi.useFakeTimers();
+  try {
+    s.run.mockImplementationOnce(() => new Promise(() => {}));
+    const pending = generateFreeSkin(s.env, { image: s.image });
+    await vi.dynamicImportSettled();
+    await vi.advanceTimersByTimeAsync(FREE_GEMMA_PRIMARY_TIMEOUT_MS);
+    await expect(pending).resolves.toMatchObject({ status: 503, body: { errorCode: "provider_unavailable" } });
+    expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({ origin: "LOCAL_DEADLINE", deadlineTimerFired: true });
+    expect(s.run).toHaveBeenCalledOnce();
+    s.run.mockRejectedValueOnce(new GeminiApiError("private-photo", 503, "UNAVAILABLE"));
+    await expect(generateFreeSkin(s.env, { image: s.image })).resolves.toMatchObject({ status: 503 });
+    expect(JSON.parse(String(warn.mock.calls[1]?.[0]))).toMatchObject({ origin: "BINDING_REJECTION", deadlineTimerFired: false });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("private-photo");
+  } finally { vi.useRealTimers(); }
 });
 it("retains reservation on missing/invalid provider usage and rejects double settlement", () => {
   const state = newBudgetState("2026-10-13"), id = "a".repeat(32);

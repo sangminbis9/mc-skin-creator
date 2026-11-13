@@ -14,6 +14,7 @@ import {
   visionNeuronsFromUsage,
 } from "./quota";
 import {
+  FREE_GEMMA_PRIMARY_TIMEOUT_MS,
   GEMMA_PRIMARY_TIMEOUT_MS,
   geminiProviderErrorDiagnostic,
   generateGeminiStructuredJson,
@@ -3103,7 +3104,8 @@ export async function runPhotoAnalysis(
       workersAiPrompt: `${v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT : gemma.GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT}${referenceSuffix}`,
       maxOutputTokens: 8192,
       timeoutCapMs: 45_000,
-      workersAiTimeoutCapMs: structuredContract ? undefined : GEMMA_PRIMARY_TIMEOUT_MS,
+      workersAiTimeoutCapMs: structuredContract ? undefined
+        : env.AI_POLICY === "workers_free_only" ? FREE_GEMMA_PRIMARY_TIMEOUT_MS : GEMMA_PRIMARY_TIMEOUT_MS,
       onProviderAttempt: (event) => {
         providerAttempts.push(event);
         if (event.outcome === "started") attempts++;

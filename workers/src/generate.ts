@@ -456,6 +456,14 @@ export async function generateSkin(
   });
   mark("primary_diagnostic_finished");
   if (!analysisResult.ok) {
+    if (env.AI_POLICY === "workers_free_only" && analysisResult.reason === "provider_unavailable") {
+      const failed = analysisResult.providerAttempts?.find(attempt => attempt.outcome === "failed");
+      // Distinguish our timer from a binding rejection without logging its
+      // potentially sensitive error text, the prompt, or any image data.
+      console.warn(JSON.stringify({ event: "free_analysis_unavailable", origin: failed?.origin ?? "UNKNOWN",
+        httpStatus: failed?.status ?? null, elapsedMs: failed?.elapsedMs ?? null,
+        deadlineMs: failed?.configuredDeadlineMs ?? null, deadlineTimerFired: failed?.deadlineTimerFired ?? false }));
+    }
     if (env.AI_POLICY !== "workers_free_only") {
     console.log(
       "analysis failed:",

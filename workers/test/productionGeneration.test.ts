@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { generateSkin } from "../src/generate";
 import { generateFreeSkin } from "../src/engineService";
+import { FREE_GEMMA_PRIMARY_TIMEOUT_MS } from "../src/gemini";
 import { decodePng, base64ToBytes, bytesToBase64, encodePng } from "../src/png";
 import { validateFinalAtlas } from "../src/skinPost";
 import type { Env } from "../src/types";
@@ -142,7 +143,7 @@ describe("production upload-to-PNG reliability", () => {
     const body = await response.json(); await assertSkin(body);
     expect(body.analysis).toBeUndefined(); expect(body.quota).toMatchObject({capacityBasis: "provider_unknown", level: "unknown", remainingGenerations: null});
   });
-  it("bounds the reserved native provider deadline without retrying or calling paid HTTP", async () => {
+  it("bounds the free native provider deadline without retrying or calling paid HTTP", async () => {
     const image = await photo();
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
@@ -153,7 +154,7 @@ describe("production upload-to-PNG reliability", () => {
     const pending = generateFreeSkin(env, { image });
     // Wait for lazy schema imports and actual dispatch before moving time.
     await started;
-    await vi.advanceTimersByTimeAsync(60_001);
+    await vi.advanceTimersByTimeAsync(FREE_GEMMA_PRIMARY_TIMEOUT_MS);
     expect(await pending).toMatchObject({ status: 503, success: false, body: { errorCode: "provider_unavailable" } });
     expect(fetch).not.toHaveBeenCalled();
     expect(env.AI!.run).toHaveBeenCalledTimes(1);

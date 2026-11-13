@@ -21,6 +21,9 @@ const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 // +2 s margin, rounded up to a 5 s boundary. Fixed, not auto-adaptive.
 // Explicit primary opt-in only; Gemini, V4 and geometry caps stay intact.
 export const GEMMA_PRIMARY_TIMEOUT_MS = 60_000;
+// The free path makes one inference, with no preceding Gemini call or geometry
+// enrichment. Budget 110s of the client's 150s for that same call to complete.
+export const FREE_GEMMA_PRIMARY_TIMEOUT_MS = 110_000;
 const DEFAULT_IMAGE_TIMEOUT_MS = 120_000;
 
 interface GeminiErrorPayload {
@@ -459,7 +462,8 @@ async function runWorkersAiStructuredFallback(
       ? "workers_guided_json_strict" as const
       : "workers_response_format" as const;
   const configuredDeadlineMs = model === GEMMA_VISION_MODEL && request.workersAiTimeoutCapMs !== undefined
-    ? Math.min(request.workersAiTimeoutCapMs, GEMMA_PRIMARY_TIMEOUT_MS)
+    ? Math.min(request.workersAiTimeoutCapMs, env.AI_POLICY === "workers_free_only"
+      ? FREE_GEMMA_PRIMARY_TIMEOUT_MS : GEMMA_PRIMARY_TIMEOUT_MS)
     : Math.min(request.timeoutCapMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS, DEFAULT_STRUCTURED_TIMEOUT_MS);
   const startedAt = performance.now();
   let deadlineTimerFired = false;
