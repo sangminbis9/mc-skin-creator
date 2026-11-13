@@ -3,6 +3,7 @@ import { useLanguage } from "../i18n/LanguageProvider";
 import type { MessageKey } from "../i18n/messages";
 import { ApiError } from "../lib/cloudflareAI";
 import { generateEditableSkin, type GeneratedSkin } from "../lib/skinGeneration";
+import { generationScreenWake } from "../lib/keepAwake";
 
 export interface GenerationFailure {
   kind: "photo" | "ai" | "network" | "quota";
@@ -22,6 +23,7 @@ export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePh
   const { t } = useLanguage();
   const [seconds, setSeconds] = useState(0);
   const referenceKey = JSON.stringify(referencePhotoDataUrls);
+  useEffect(() => generationScreenWake.acquire(), []);
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds(s => s + 1), 1000);
     return () => window.clearInterval(timer);

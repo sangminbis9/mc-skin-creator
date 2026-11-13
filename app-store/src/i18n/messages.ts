@@ -56,7 +56,7 @@ export const messages = {
   "generation.title": ["새로운 세상에서.","A new world."],
   "generation.titleAccent": ["여전히 나답게.","Still you."],
   "generation.subtitle": ["사진을 분석해 마인크래프트 스킨을 만들고 있어요.","Analyzing your photos and building your Minecraft skin."],
-  "generation.waiting": ["계속 작업 중이에요. 이 화면을 열어 두세요.","Still working. Please keep this screen open."],
+  "generation.waiting": ["계속 작업 중이에요. 앱을 열어 두세요.","Still working. Please keep the app open."],
   "generation.working": ["64×64 스킨을 만드는 중…","Generating your 64×64 skin…"],
   "generation.next": ["완성되면 스킨을 돌려 보고 머리와 옷을 꾸밀 수 있어요.","When it’s ready, view your skin from every angle and customize the hair and outfit."],
   "generation.elapsed": ["{seconds}초 경과", "{seconds}s elapsed"],
