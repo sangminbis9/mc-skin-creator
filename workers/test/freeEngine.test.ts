@@ -10,6 +10,7 @@ import { generateGeminiImage } from "../src/gemini";
 import { fallbackFeaturesToHex, refineFeatureColorsFromAnalysis } from "../src/generate";
 import { makeAnalysis } from "./helpers";
 import { validatePhotoAnalysis } from "../src/analysis";
+import { GENERATION_OBSERVER } from "../src/generationObservation";
 afterEach(() => vi.restoreAllMocks());
 
 it("carries the observed dress color into its skirt when no separate color is given", () => {
@@ -110,8 +111,11 @@ it("reserves and accounts for a bounded image call and returns a validated gener
   const analysis = { choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(semanticFixture("plain")))) } }],
     usage: { prompt_tokens: 9000, completion_tokens: 3000 } };
   s.run.mockImplementation(async (model: string) => model === FREE_VISION_MODEL ? analysis : { image: sheet } as never);
-  const result = await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view" }, { image: s.image });
+  const stages: string[] = [];
+  const result = await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view",
+    [GENERATION_OBSERVER]: (stage: string) => stages.push(stage) }, { image: s.image });
   expect(result).toMatchObject({ success: true, body: { ok: true, generationMode: "image" } });
+  expect(stages).not.toContain("render_context_started");
   expect(validateFinalAtlas(await decodePng(base64ToBytes(result.body.skinPngBase64!))).ok).toBe(true);
   expect(s.run.mock.calls.map(call => call[0])).toEqual([FREE_VISION_MODEL, "@cf/black-forest-labs/flux-2-klein-4b"]);
   expect(s.reserve).toHaveBeenCalledTimes(1);

@@ -9,6 +9,7 @@ import { generateFreeSkin } from "../src/engineService";
 import { budgetStatus, newBudgetState, reserveBudget, settleBudget } from "../src/freeBudget";
 import { base64ToBytes } from "../src/png";
 import { buildFaceStyle, fallbackFeaturesToHex, normalizeAnalysisForRendering, postprocessGeneratedSheet, refineFeatureColorsFromAnalysis } from "../src/generate";
+import { GENERATION_OBSERVER } from "../src/generationObservation";
 
 function sampleAnalysis() {
     const base = makeAnalysis();
@@ -128,7 +129,13 @@ it.skipIf(process.env.RUN_E2E_REPLAY !== "1")("replays actual analysis and image
   const analysis = JSON.parse(await readFile(`${dir}/e2e-analysis.json`, "utf8"));
   const sheet = await readFile(`${dir}/e2e-sheet-1.png`);
   const state = newBudgetState(new Date().toISOString().slice(0, 10));
+  const startedCpu = process.cpuUsage();
+  const stages: Array<{ stage: string; cpuMs: number }> = [];
   const env = { FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view",
+    [GENERATION_OBSERVER]: (stage: string) => {
+      const cpu = process.cpuUsage(startedCpu);
+      stages.push({ stage, cpuMs: Math.round((cpu.user + cpu.system) / 1000) });
+    },
     MCSKIN_KV: { put: async () => undefined },
     AI: { run: async (model: string) => model.includes("gemma") ? analysis : { image: sheet.toString("base64") } },
     NEURON_BUDGET: { getByName: () => ({ status: async () => budgetStatus(state),
@@ -136,7 +143,9 @@ it.skipIf(process.env.RUN_E2E_REPLAY !== "1")("replays actual analysis and image
       settle: async (_day: string, id: string, amount: number) => settleBudget(state, id, amount) }) },
   } as unknown as Env;
   const result = await generateFreeSkin(env, { image: `data:image/jpeg;base64,${photo.toString("base64")}` });
-  console.log(JSON.stringify({ status: result.status, mode: result.body.generationMode, features: result.body.features }));
+  const cpu = process.cpuUsage(startedCpu);
+  console.log(JSON.stringify({ status: result.status, mode: result.body.generationMode, features: result.body.features,
+    cpuMs: Math.round((cpu.user + cpu.system) / 1000), stages }));
   if (result.body.skinPngBase64) await writeFile(`${dir}/e2e-replay.png`, base64ToBytes(result.body.skinPngBase64));
   expect(result.success).toBe(true);
   expect(result.body.generationMode).toBe("image");

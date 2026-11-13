@@ -551,20 +551,22 @@ export async function generateSkin(
   // Secure a validated primary-only atlas before any optional provider can
   // modify the analysis or reject a candidate. Public synchronous requests
   // use this path; enhancement implementation is retained for quality work.
-  let baseline: GenerateResult;
+  let baseline: GenerateResult = fail(503, "이미지 생성을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.", "provider_unavailable", spent);
   mark("enrichment_finished");
-  try {
-    baseline = await renderPrimaryBaseline(analysis, spent, mark);
-    if (!baseline.success && analysis !== primaryOnlyAnalysis) {
+  if (!freeImage) {
+    try {
+      baseline = await renderPrimaryBaseline(analysis, spent, mark);
+      if (!baseline.success && analysis !== primaryOnlyAnalysis) {
+        analysis = primaryOnlyAnalysis;
+        baseline = await renderPrimaryBaseline(analysis, spent, mark);
+      }
+    } catch (error) {
+      if (analysis === primaryOnlyAnalysis) throw error;
       analysis = primaryOnlyAnalysis;
       baseline = await renderPrimaryBaseline(analysis, spent, mark);
     }
-  } catch (error) {
-    if (analysis === primaryOnlyAnalysis) throw error;
-    analysis = primaryOnlyAnalysis;
-    baseline = await renderPrimaryBaseline(analysis, spent, mark);
+    mark("baseline_returned");
   }
-  mark("baseline_returned");
   // Never combine the single-call enrichment budget with the legacy chain.
   if (env.FACE_GEOMETRY_ENRICHMENT_ENABLED === "true" || env.IDENTITY_GEOMETRY_ENRICHMENT_ENABLED === "true") return baseline;
   if (env.SYNCHRONOUS_ENHANCEMENTS_ENABLED !== "true") return baseline;
