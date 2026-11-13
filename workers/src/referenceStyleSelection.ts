@@ -80,7 +80,9 @@ export function measureReferenceRenderedQuality(
   }
   const quality = measureReferenceFoundationQuality({ ...result, atlas: restored }, baseline, source, design, style);
   quality.violations.forEach(e => errors.add(e));
-  const material = source.headIdentityPlan.ownership?.cells.filter(c => c.layer === "base" && c.face === "front" && ["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner)) ?? [];
+  const material = source.headIdentityPlan.ownership?.cells.filter(c => c.layer === "base" && c.face === "front" &&
+    (["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner) ||
+      c.sourceGroupId === "semantic-fringe-window")) ?? [];
   const displayed = referencePresentedFaceContract(source.facePixelPlan, design, style,
     [...facialHairBaseFootprint(style), ...material, ...buildReferencePairedDrapePlan(source, design, style).junctions]);
   const faceContract = measureFaceRenderContract(result.atlas, headProportionFaceContract(displayed, projected));
@@ -127,7 +129,9 @@ function measureReferenceFoundationQuality(
   if (!validateFinalAtlas(baseline).ok) errors.add("source_atlas_invalid");
   const declared = validateReferenceStyleSurfaces(diagnostic.surfaces, design);
   declared.violations.forEach(v => errors.add(v));
-  const sourceMaterials = source.headIdentityPlan.ownership?.cells.filter(c => c.layer === "base" && c.face === "front" && ["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner)) ?? [];
+  const sourceMaterials = source.headIdentityPlan.ownership?.cells.filter(c => c.layer === "base" && c.face === "front" &&
+    (["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner) ||
+      c.sourceGroupId === "semantic-fringe-window")) ?? [];
   const pairedDrapePlan = buildReferencePairedDrapePlan(source, design, style);
   const presentedFace = referencePresentedFaceContract(source.facePixelPlan, design, style, [...facialHairBaseFootprint(style), ...sourceMaterials, ...pairedDrapePlan.junctions]);
   const faceContract = measureFaceRenderContract(atlas, presentedFace);
@@ -218,12 +222,21 @@ function measureReferenceFoundationQuality(
     const i = offset({ ...c, part: "head", owner: "covering" });
     if (atlas.rgba[i + 3] !== 255 || c.color.some((v, ch) => atlas.rgba[i + ch] !== v)) errors.add("headwear_material_changed");
   }
-  const material = source.headIdentityPlan.ownership?.cells.filter(c => c.layer === "base" && c.face === "front" && ["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner)) ?? [];
+  const material = source.headIdentityPlan.ownership?.cells.filter(c => c.layer === "base" && c.face === "front" &&
+    (["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner) ||
+      c.sourceGroupId === "semantic-fringe-window")) ?? [];
   const eyePalette = style.eyeColor && /^#[0-9a-f]{6}$/i.test(style.eyeColor) ? [1, 3, 5].map(i => Number.parseInt(style.eyeColor!.slice(i, i + 2), 16)) : undefined;
   // Reconstruct the clean skin window and face finish independently of the
   // candidate's paint diagnostic. Rewriting that diagnostic cannot restore a
   // literal nose stripe, erase a lip or authorize a new complexion palette.
   const faceReference = { ...baseline, rgba: baseline.rgba.slice() };
+  // The composer restores these source-owned openings to the skin midpoint
+  // before applying face finish; mirror that source contract independently.
+  for (const c of material) {
+    if (c.sourceGroupId !== "semantic-fringe-window") continue;
+    const i = ((front.y + c.y) * 64 + front.x + c.x) * 4;
+    faceReference.rgba.set([skin[0], skin[1], skin[2], 255], i);
+  }
   const protectedMaterials = [...facialHairBaseFootprint(style), ...material, ...pairedDrapePlan.junctions];
   const expectedFinish = applyReferenceFaceFinish(faceReference, source.facePixelPlan, design, {
     skinMid: [skin[0], skin[1], skin[2]],

@@ -542,7 +542,9 @@ function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, des
   // Use the same authored footprint as the production painter, not an entire
   // lower-face rectangle that also suppresses mouth and complexion finishing.
   const protectedBeard = facialHairBaseFootprint(style);
-  const protectedMaterial = head.cells.filter(c => c.layer === "base" && c.face === "front" && ["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner));
+  const protectedMaterial = head.cells.filter(c => c.layer === "base" && c.face === "front" &&
+    (["hair_base", "covering", "tied_hair", "other_p5"].includes(c.owner) ||
+      c.sourceGroupId === "semantic-fringe-window"));
   const face = applyReferenceFaceFinish(atlas, plan.facePixelPlan, design, {
     skinMid: skin, skinShade: shade(skin, 0.78), lip: [Math.max(0, skin[0] - 18), Math.max(0, skin[1] - 45), Math.max(0, skin[2] - 45)],
     eye: style.eyeColor && /^#[0-9a-f]{6}$/i.test(style.eyeColor) ? rgb(style.eyeColor, [0, 0, 0]) : undefined,

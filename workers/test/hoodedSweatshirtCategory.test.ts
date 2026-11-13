@@ -49,3 +49,10 @@ it.each([["left", "left"], ["right", "right"], ["upper left", "left"], ["upper-r
     leftSleeve: { length: "long" }, rightSleeve: { length: "long" },
     pattern: { kind: "center_graphic", color: "#242326", anchor: side } });
 });
+
+it("does not apply a later footwear negation to the observed sweatshirt", () => {
+  const a = input("A gray hooded sweatshirt with a small dark graphic on the upper left chest. Dark jeans. White socks near the top. No shoes are worn.");
+  const p = buildOutfitPlan(a);
+  expect(p.upper).toMatchObject({ garmentType: "hoodie", leftSleeve: { length: "long" }, rightSleeve: { length: "long" },
+    pattern: { kind: "center_graphic", anchor: "left" } });
+});

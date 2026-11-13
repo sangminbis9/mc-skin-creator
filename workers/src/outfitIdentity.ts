@@ -288,18 +288,24 @@ export function observedStandaloneHoodedSweatshirt(analysis: PhotoAnalysis): boo
 
 function observedStandalonePullover(analysis: PhotoAnalysis, garment: "sweatshirt" | "hoodie"): boolean {
   const text = analysis.observed.clothing.toLowerCase();
+  const clause = text.split(/[.;\n]/).find(part => new RegExp(`\\b${garment}\\b`).test(part)) ?? "";
   const attachedGraphic = observedAttachedChestGraphic(analysis);
-  const construction = attachedGraphic ? text.replace(attachedGraphic.evidence, "") : text;
+  const garmentConstruction = attachedGraphic ? clause.replace(attachedGraphic.evidence, "") : clause;
+  // A separate graphic on another garment cannot establish a pullover's
+  // construction; unrelated negations such as "no shoes" must not block it.
+  const otherGraphics = text.split(/[.;\n]/).filter(part => part !== clause && /\b(?:print|graphic|motif)\b/.test(part)).join(" ");
+  const construction = `${garmentConstruction} ${otherGraphics}`;
   return analysis.visibleRegions.upperBody && analysis.renderHints.outerGarment === "none" &&
     new RegExp(`\\b${garment}\\b`).test(text) &&
     !/\b(?:over|under|underneath|layered|no|not|without|possibly|maybe|uncertain|hidden|obscured|unknown|print|graphic|motif)\b/.test(construction) &&
-    [...garmentNounScanText(text).matchAll(new RegExp(`\\b(?:${UPPER_WORDS})\\b`, "g"))].length === 1;
+    [...garmentNounScanText(clause).matchAll(new RegExp(`\\b(?:${UPPER_WORDS})\\b`, "g"))].length === 1;
 }
 
 /** A bounded positive attachment, not a garment depicted in a graphic.
  * Do not borrow color/placement from another garment, accessory or prompt. */
 function observedAttachedChestGraphic(analysis: PhotoAnalysis): OutfitPatternPlan | null {
-  const text = analysis.observed.clothing.toLowerCase();
+  const text = analysis.observed.clothing.toLowerCase().split(/[.;\n]/)
+    .find(part => new RegExp(`\\b(?:${UPPER_WORDS})\\b`).test(part)) ?? "";
   if (!analysis.visibleRegions.upperBody || analysis.renderHints.outerGarment !== "none" ||
     /\b(?:over|under|underneath|layered|no|not|without|possibly|maybe|uncertain|unknown|hidden|obscured|occluded|picture|depicting|depiction)\b/.test(text)) return null;
   const garments = [...garmentNounScanText(text).matchAll(new RegExp(`\\b(?:${UPPER_WORDS})\\b`, "g"))];
@@ -334,7 +340,8 @@ function garmentEvidence(text: string, garmentWords: string): string {
       if (!wanted.test(item[0])) continue;
       // Keep the newly recognized noun as a color-ownership boundary, but do
       // not promote an ambiguous or layered sweatshirt to the dominant top.
-      const scanText = text.replace(/\b(?:with|featuring) (?:a |an )?(?:(?:large|small|stylized|centered)[, ]+){0,2}(?:(?:matte|tonal) )?(?:black|white|gray|grey|red|orange|yellow|green|blue|navy|purple|pink|brown|beige|cream|gold|silver|dark) (?:graphic|logo|print|motif|emblem) on (?:the )?(?:upper[- ]+)?(?:(?:center|central|left|right) )?chest(?=[,.;]|$)/, "");
+      const itemClause = text.split(/[.;\n]/).find(part => new RegExp(`\\b${item[0]}\\b`).test(part)) ?? text;
+      const scanText = itemClause.replace(/\b(?:with|featuring) (?:a |an )?(?:(?:large|small|stylized|centered)[, ]+){0,2}(?:(?:matte|tonal) )?(?:black|white|gray|grey|red|orange|yellow|green|blue|navy|purple|pink|brown|beige|cream|gold|silver|dark) (?:graphic|logo|print|motif|emblem) on (?:the )?(?:upper[- ]+)?(?:(?:center|central|left|right) )?chest(?=[,.;]|$)/, "");
       if (item[0] === "sweatshirt" && /\b(?:over|under|underneath|layered|no|not|without|possibly|maybe|uncertain|hidden|obscured|unknown|print|graphic|motif)\b/.test(scanText)) continue;
       const previousEnd = i ? items[i - 1].index! + items[i - 1][0].length : 0;
       let prefix = clause.slice(previousEnd, item.index);

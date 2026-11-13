@@ -60,6 +60,21 @@ function authored(delta: Partial<PixelRenderHints>, modifyRaw?: (raw: ReturnType
 }
 
 describe("center part source-parameter topology audit (no provider)", () => {
+  it("preserves the forehead opening through face shading and independent validation", () => {
+    const b = authored({ hairPart: "left", fringeOpening: "center", bangsLength: "brow", bangsDensity: "balanced", fringeEdge: "staggered", faceShape: "oval", sideHairShape: "tapered" });
+    const windows = b.plan.headIdentityPlan.ownership!.cells.filter(c => c.sourceGroupId === "semantic-fringe-window" && c.layer === "base");
+    expect(windows.length).toBeGreaterThan(0);
+    const design = { ...b.design, headProportionPolicy: undefined };
+    const rendered = composeReferenceStyleAtlas(b.baseline, b.plan, design, b.style);
+    const uv = CLASSIC_LAYOUT.head.base.front, skin = [1, 3, 5].map(i => parseInt(b.style.skinTone!.slice(i, i + 2), 16));
+    for (const p of windows) {
+      const offset = ((uv.y + p.y) * 64 + uv.x + p.x) * 4;
+      expect([...rendered.atlas.rgba.slice(offset, offset + 4)]).toEqual([...skin, 255]);
+    }
+    expect(measureReferenceRenderedQuality(rendered, b.baseline, b.plan, design, b.style).violations).toEqual([]);
+    const final = composeReferenceStyleAtlas(b.baseline, b.plan, b.design, b.style);
+    expect(measureReferenceRenderedQuality(final, b.baseline, b.plan, b.design, b.style).violations).toEqual([]);
+  });
   it("routes an observed short part into distinct front/top outer masks, not only shading", () => {
     const topologies = [], alphaMasks = [];
     for (const part of ["left", "center", "right"] as const) {
