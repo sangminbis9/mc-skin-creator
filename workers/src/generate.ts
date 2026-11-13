@@ -114,9 +114,13 @@ async function primaryDiagnostic(env: Env, value: unknown): Promise<void> {
 
 function primaryRenderContext(analysis: PhotoAnalysis) {
   const renderAnalysis = normalizeAnalysisForRendering(analysis);
-  const skinPlan = buildSkinPlan(renderAnalysis);
   const features = refineFeatureColorsFromAnalysis(renderAnalysis,
     fallbackFeaturesToHex(renderAnalysis.fallbackFeatures, renderAnalysis.renderHints.skinUndertone));
+  const skinPlan = buildSkinPlan({ ...renderAnalysis, fallbackFeatures: {
+    ...renderAnalysis.fallbackFeatures,
+    topColor: String(features.topColor), bottomColor: String(features.bottomColor),
+    topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor),
+  } });
   const summary: AnalysisSummary = {
     framing: renderAnalysis.framing, visibleRegions: renderAnalysis.visibleRegions,
     sourceSelection: renderAnalysis.sourceSelection, observed: renderAnalysis.observed,

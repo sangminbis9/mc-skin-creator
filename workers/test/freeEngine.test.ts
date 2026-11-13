@@ -40,6 +40,29 @@ it("recognizes a long dress as a skirt even if the word skirt is absent", () => 
   const colors = refineFeatureColorsFromAnalysis(result.analysis, fallbackFeaturesToHex(result.analysis.fallbackFeatures));
   expect(colors.bottomColor).toBe("#f2f2f2");
 });
+
+it("renders the observed hoodie color instead of a conflicting fallback color", async () => {
+  const s = await setup();
+  const photo = semanticFixture("plain");
+  photo.observed.clothing = "A light-gray hooded sweatshirt with a small dark graphic on the left chest. Black jeans. White socks with red and navy stripes.";
+  photo.outfitPrompt = "A light-gray hoodie and black jeans.";
+  photo.visibleRegions.upperBody = true;
+  photo.visibleRegions.lowerBody = true;
+  photo.renderHints.outerGarment = "none";
+  photo.fallbackFeatures.topColor = "blue";
+  photo.fallbackFeatures.topType = "hoodie";
+  photo.fallbackFeatures.sleeveLength = "short";
+  const payload = namedGemmaFixture(wireFixture(photo));
+  s.run.mockResolvedValue({ choices: [{ message: { content: JSON.stringify(payload) } }],
+    usage: { prompt_tokens: 9000, completion_tokens: 3000 } });
+  const result = await generateFreeSkin(s.env, { image: s.image });
+  expect(result.success).toBe(true);
+  const atlas = await decodePng(base64ToBytes(result.body.skinPngBase64!));
+  const pixel = (x: number, y: number) => [...atlas.rgba.slice((y * 64 + x) * 4, (y * 64 + x) * 4 + 3)];
+  const [red, , blue] = pixel(23, 25);
+  expect(red).toBeGreaterThan(120);
+  expect(Math.abs(red - blue)).toBeLessThan(25);
+});
 async function setup() {
   const image = `data:image/png;base64,${bytesToBase64(await encodePng(makeSyntheticAtlas(64)))}`;
   const state = newBudgetState(new Date().toISOString().slice(0, 10));

@@ -16,12 +16,13 @@ const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
 // Never persist photographs, requests, or analysis. Bump revision with a new
 // presentation release; expiry also bounds reuse across Worker-only releases.
 const completedGenerations = new Map<string, { expires: number; result: GenerateResponse }>();
-const REUSE_KEY = "skin-studio-ios:completed:v2";
+const REUSE_KEY = "skin-studio-ios:completed:v3";
 let reuseLoaded = false;
 
 export function clearGenerationCache(): void {
   localStorage.removeItem(REUSE_KEY);
   localStorage.removeItem("skin-studio-ios:completed:v1");
+  localStorage.removeItem("skin-studio-ios:completed:v2");
   completedGenerations.clear();
   reuseLoaded = true;
 }

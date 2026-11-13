@@ -40,3 +40,12 @@ it.each([["short-sleeved", "short"], ["sleeveless", "sleeveless"]])("preserves e
   const p = buildOutfitPlan(input(`${prefix} black hooded sweatshirt`));
   expect(p.upper.garmentType).toBe("hoodie"); expect(p.upper.leftSleeve.length).toBe(length);
 });
+
+it.each(["left", "right"]) ("keeps the sweatshirt color and long sleeves when a %s chest graphic is observed", side => {
+  const a = input(`A light-gray hooded sweatshirt with a small dark graphic on the ${side} chest. Black jeans. White socks with red and navy stripes.`);
+  a.fallbackFeatures.topColor = "blue";
+  const p = buildOutfitPlan(a);
+  expect(p.upper).toMatchObject({ garmentType: "hoodie", baseColor: "#b7b7b7",
+    leftSleeve: { length: "long" }, rightSleeve: { length: "long" },
+    pattern: { kind: "center_graphic", color: "#242326", anchor: side } });
+});
