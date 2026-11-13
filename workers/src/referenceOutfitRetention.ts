@@ -238,10 +238,15 @@ export function measureReferenceGarmentFoundation(
     const r = CLASSIC_LAYOUT[part].base[face];
     for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
       result.sourceBasePixels++;
-      const i = ((r.y + y) * 64 + r.x + x) * 4, key = `${part}:${face}:${x}:${y}`;
+      const i = ((r.y + y) * 64 + r.x + x) * 4;
+      if (atlas.rgba[i] === expected.rgba[i] && atlas.rgba[i + 1] === expected.rgba[i + 1]
+        && atlas.rgba[i + 2] === expected.rgba[i + 2] && atlas.rgba[i + 3] === expected.rgba[i + 3]) {
+        result.unchangedBasePixels++;
+        continue;
+      }
+      const key = `${part}:${face}:${x}:${y}`;
       const actualColor = colorKey([...atlas.rgba.slice(i, i + 3)]);
-      if ([0, 1, 2, 3].every(ch => atlas.rgba[i + ch] === expected.rgba[i + ch])) result.unchangedBasePixels++;
-      else if (atlas.rgba[i + 3] === 255 && folds.get(key) === actualColor) result.materialFoldPixels++;
+      if (atlas.rgba[i + 3] === 255 && folds.get(key) === actualColor) result.materialFoldPixels++;
       else if (atlas.rgba[i + 3] === 255 && allowedConstruction.get(key)?.has(actualColor)) result.authorizedConstructionPixels++;
       else if (atlas.rgba[i + 3] === 255 && drape.has(key)) result.connectedHairDrapePixels++;
       else if (atlas.rgba[i + 3] === 255 && floral.get(key) === actualColor) result.designedFloralPixels++;

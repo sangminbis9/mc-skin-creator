@@ -17,7 +17,7 @@ import { applyReferenceFaceFinish, referencePresentedFaceContract, referenceIris
 import { measureFaceRenderContract } from "./identityRenderContract";
 import { measureReferenceAccessoryRetention, measureReferenceGarmentFoundation, measureReferenceGarmentStructure } from "./referenceOutfitRetention";
 import { validateAtlasCraftFoundation, validateFinalAtlas } from "./skinPost";
-import { composeReferenceStyleAtlas, deriveCompositionHeadProportion, referenceBaseHairColor, type ReferenceCompositionResult } from "./referenceStyleRenderer";
+import { composeReferenceStyleAtlas, composeReferenceStyleStages, deriveCompositionHeadProportion, referenceBaseHairColor, type ReferenceCompositionResult } from "./referenceStyleRenderer";
 import { referenceLooseHairMaterial } from "./referenceMaterialDetail";
 import { hasReferenceHairVolume, referenceHairVolumeGroups } from "./referenceHairVolume";
 import { headProportionFaceContract, headProportionOffset } from "./referenceHeadProportion";
@@ -26,6 +26,14 @@ import { REFERENCE_OUTER_COVERAGE, type ReferenceStylePlan } from "./referenceSt
 import { CLASSIC_LAYOUT, getBoxUvSeams, type BodyPart } from "./uvLayout";
 
 const parts = Object.keys(CLASSIC_LAYOUT) as BodyPart[];
+// UV neighbors are fixed for every classic atlas. Only the painted pixels vary.
+const overlaySeamPairs = parts.map(part => {
+  const seams = getBoxUvSeams(CLASSIC_LAYOUT[part].overlay);
+  return [...seams.vertical, ...seams.horizontal].flatMap(seam => seam.primary.map((p, index) => {
+    const q = seam.adjacent[index];
+    return [(p.y * 64 + p.x) * 4, (q.y * 64 + q.x) * 4] as const;
+  }));
+});
 function offset(c: StyledSurfaceCell): number {
   const r = CLASSIC_LAYOUT[c.part][c.layer][c.face]; return ((r.y + c.y) * 64 + r.x + c.x) * 4;
 }
@@ -70,6 +78,14 @@ export function measureReferenceRenderedQuality(
   // its original validator, then check every final authored pixel exactly.
   const foundation = composeReferenceStyleAtlas(baseline, source, { ...design, headProportionPolicy: undefined }, style);
   const projected = deriveCompositionHeadProportion(foundation, source, design, style);
+  return measureProjectedQuality(result, baseline, source, design, style, foundation, projected);
+}
+
+function measureProjectedQuality(
+  result: ReferenceCompositionResult, baseline: RawImage, source: SkinPlan,
+  design: ReferenceStylePlan, style: FaceStyle, foundation: ReferenceCompositionResult,
+  projected: ReturnType<typeof deriveCompositionHeadProportion>,
+): ReferenceRenderedQuality {
   const restored = { ...result.atlas, rgba: result.atlas.rgba.slice() };
   const errors = new Set<string>();
   if (JSON.stringify(projected) !== JSON.stringify(result.diagnostic.headProportion)) errors.add("head_proportion_contract_changed");
@@ -338,24 +354,23 @@ function measureReferenceFoundationQuality(
     if (outerCoverage[part] > REFERENCE_OUTER_COVERAGE[part]) errors.add(`actual_outer_coverage:${part}`);
   }
   let protectedAccessorySeamPairs = 0;
-  const connected = new Map([...opaqueOuter].map(i => [i, new Set<number>()]));
-  const connect = (a: number, b: number) => { if (connected.has(a) && connected.has(b)) { connected.get(a)!.add(b); connected.get(b)!.add(a); } };
-  for (const part of parts) {
+  const connect = (a: number, b: number) => {
+    if (atlas.rgba[a + 3] && atlas.rgba[b + 3]) { opaqueOuter.delete(a); opaqueOuter.delete(b); }
+  };
+  for (const [partIndex, part] of parts.entries()) {
     for (const r of Object.values(CLASSIC_LAYOUT[part].overlay)) for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
       const i = ((r.y + y) * 64 + r.x + x) * 4;
       if (x + 1 < r.w) connect(i, i + 4);
       if (y + 1 < r.h) connect(i, i + 256);
     }
-    const seams = getBoxUvSeams(CLASSIC_LAYOUT[part].overlay);
-    for (const seam of [...seams.vertical, ...seams.horizontal]) seam.primary.forEach((p, index) => {
-      const q = seam.adjacent[index], a = (p.y * 64 + p.x) * 4, b = (q.y * 64 + q.x) * 4;
+    for (const [a, b] of overlaySeamPairs[partIndex]) {
       connect(a, b);
-      if (part === "head" && (expected.get(a)?.owner === "accessory" || expected.get(b)?.owner === "accessory")) { protectedAccessorySeamPairs++; return; }
+      if (part === "head" && (expected.get(a)?.owner === "accessory" || expected.get(b)?.owner === "accessory")) { protectedAccessorySeamPairs++; continue; }
       if (!!atlas.rgba[a + 3] !== !!atlas.rgba[b + 3]) errors.add(`overlay_seam_alpha:${part}`);
       if (atlas.rgba[a + 3] && atlas.rgba[b + 3] && [0, 1, 2].some(ch => atlas.rgba[a + ch] !== atlas.rgba[b + ch])) errors.add(`overlay_seam_color:${part}`);
-    });
+    }
   }
-  const isolatedOuterPixels = [...connected.values()].filter(neighbors => neighbors.size === 0).length;
+  const isolatedOuterPixels = opaqueOuter.size;
   const top = CLASSIC_LAYOUT.head.overlay.top;
   let headTop = 0;
   for (let y = 0; y < top.h; y++) for (let x = 0; x < top.w; x++) if (atlas.rgba[((top.y + y) * 64 + top.x + x) * 4 + 3]) headTop++;
@@ -429,13 +444,16 @@ export function selectReferenceStyleAtlas(baseline: RawImage, source: SkinPlan, 
   for (const face of design.candidates.face) for (const hair of design.candidates.hair) for (const outfit of design.candidates.outfit) {
     const choice = { ...design, face, hair, outfit }, id = `${face.family}/${hair.family}/${outfit.family}`;
     renderAttempts++;
-    let composition: ReferenceCompositionResult;
-    try { composition = composeReferenceStyleAtlas(baseline, source, choice, style); }
+    let stages: ReturnType<typeof composeReferenceStyleStages>;
+    try { stages = composeReferenceStyleStages(baseline, source, choice, style); }
     catch (error) {
       if (!(error instanceof Error) || !error.message.startsWith("reference_composition_")) throw error;
       candidates.push({ id, quality: null, foundation: null, rejection: error.message }); continue;
     }
-    const quality = measureReferenceRenderedQuality(composition, baseline, source, choice, style);
+    const { composition, foundation: paintedFoundation, projection } = stages;
+    const quality = projection
+      ? measureProjectedQuality(composition, baseline, source, choice, style, paintedFoundation, projection)
+      : measureReferenceFoundationQuality(composition, baseline, source, choice, style);
     const foundation = validateAtlasCraftFoundation(composition.atlas, style);
     const accepted = quality.constructionValid && foundation.ok;
     candidates.push({ id, quality, foundation, rejection: !quality.constructionValid ? "rendered_contract_rejected" : !foundation.ok ? "craft_foundation_rejected" : null });

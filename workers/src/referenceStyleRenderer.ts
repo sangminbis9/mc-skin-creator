@@ -356,13 +356,18 @@ export function referenceBaseHairColor(color: Rgb, c: Pick<Cell, "x" | "y" | "fa
 /** Separately executable presentation stage. Legacy source construction and
  * its diagnostics are retained; the final eye/outline contract is explicit. */
 export function composeReferenceStyleAtlas(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle): ReferenceCompositionResult {
-  const result = composeReferenceStyleFoundation(baseline, plan, design, style);
-  if (design.headProportionPolicy) {
-    const projection = deriveCompositionHeadProportion(result, plan, design, style);
-    applyReferenceHeadProportion(result.atlas, projection);
-    result.diagnostic.headProportion = projection;
-  }
-  return result;
+  return composeReferenceStyleStages(baseline, plan, design, style).composition;
+}
+
+/** Preserve the freshly painted foundation for the in-process verifier. */
+export function composeReferenceStyleStages(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle) {
+  const foundation = composeReferenceStyleFoundation(baseline, plan, design, style);
+  if (!design.headProportionPolicy) return { composition: foundation, foundation, projection: undefined };
+  const projection = deriveCompositionHeadProportion(foundation, plan, design, style);
+  const atlas = clone(foundation.atlas);
+  applyReferenceHeadProportion(atlas, projection);
+  const composition: ReferenceCompositionResult = { atlas, diagnostic: { ...foundation.diagnostic, headProportion: projection } };
+  return { composition, foundation, projection };
 }
 
 export function deriveCompositionHeadProportion(foundation: ReferenceCompositionResult, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle) {
