@@ -56,29 +56,25 @@ async function setup() {
   } as unknown as Env;
   return { image, state, reserve, settle, run, kv, env };
 }
-it("uses exactly one reserved free model despite Gemini keys and enhancement flags, with no sensitive persistence", async () => {
+it("uses exactly one free model despite Gemini keys and enhancement flags, without project reservation", async () => {
   const s = await setup(), network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
   const result = await generateFreeSkin(s.env, { image: s.image });
   expect(result.success).toBe(true); expect(result.body.skinPngBase64).toBeTruthy();
   expect(validateFinalAtlas(await decodePng(base64ToBytes(result.body.skinPngBase64!))).ok).toBe(true);
   expect(s.run).toHaveBeenCalledTimes(1); expect(s.run.mock.calls[0][0]).toBe(FREE_VISION_MODEL);
-  expect(s.reserve).toHaveBeenCalledTimes(1); expect(s.settle).toHaveBeenCalledTimes(1);
-  expect(s.reserve.mock.invocationCallOrder[0]).toBeLessThan(s.run.mock.invocationCallOrder[0]);
+  expect(s.reserve).not.toHaveBeenCalled(); expect(s.settle).not.toHaveBeenCalled();
   const wire = s.run.mock.calls[0][1]; expect(wire).toMatchObject({ temperature: 0, seed: 0, store: false, max_completion_tokens: 8192 });
   expect(JSON.stringify(wire)).toContain("Do not merge different outfits");
   expect(result.body.analysis).toBeUndefined(); expect(s.kv.put).not.toHaveBeenCalled(); expect(network).not.toHaveBeenCalled();
   expect(result.neuronsSpent).toBe(reportedGemmaNeurons({ usage: { prompt_tokens: 9000, completion_tokens: 3000 } }));
-  expect(await freeQuotaStatus(s.env)).toMatchObject({ capacityBasis: "project_reserved", level: "available" });
+  expect(await freeQuotaStatus(s.env)).toMatchObject({ capacityBasis: "provider_unknown", level: "unknown", remainingGenerations: null });
 });
-it("blocks oversize/malformed input, absent budget and exhausted budget before any provider call", async () => {
+it("blocks oversize/malformed input and requires an AI binding", async () => {
   const s = await setup();
   expect((await generateFreeSkin(s.env, { image: "data:image/jpeg;base64,YQ==" })).status).toBe(400);
   const bomb = base64ToBytes(s.image.split(",")[1]); new DataView(bomb.buffer).setUint32(16, 100000);
   expect((await generateFreeSkin(s.env, { image: `data:image/png;base64,${bytesToBase64(bomb)}` })).status).toBe(400);
-  expect((await generateFreeSkin({ ...s.env, NEURON_BUDGET: undefined }, { image: s.image })).status).toBe(503);
-  s.state.used = 4900;
-  expect((await generateFreeSkin(s.env, { image: s.image })).status).toBe(429);
-  expect((await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true" }, { image: s.image })).status).toBe(429);
+  expect((await generateFreeSkin({ ...s.env, AI: undefined }, { image: s.image })).status).toBe(503);
   expect(s.run).not.toHaveBeenCalled();
 });
 it("rejects a direct paid-image helper invocation under the free policy", async () => {
@@ -88,12 +84,12 @@ it("rejects a direct paid-image helper invocation under the free policy", async 
   })).rejects.toThrow("disabled by free policy");
   expect(net).not.toHaveBeenCalled(); expect(s.run).not.toHaveBeenCalled();
 });
-it("retains full failed-call cost without retrying or storing provider error content", async () => {
+it("does not retry failed analysis or store provider error content", async () => {
   const s = await setup(), log = vi.spyOn(console, "log").mockImplementation(() => undefined);
   s.run.mockRejectedValue(new Error("private-photo data:image/jpeg;base64,secret API credential"));
   const result = await generateFreeSkin(s.env, { image: s.image });
   expect(result.success).toBe(false); expect(s.run).toHaveBeenCalledTimes(1);
-  expect(s.state.used).toBe(MAX_CALL_NEURONS); expect(s.settle).not.toHaveBeenCalled(); expect(s.kv.put).not.toHaveBeenCalled();
+  expect(s.reserve).not.toHaveBeenCalled(); expect(s.settle).not.toHaveBeenCalled(); expect(s.kv.put).not.toHaveBeenCalled();
   expect(JSON.stringify(result)).not.toMatch(/private-photo|secret API/); expect(log).not.toHaveBeenCalled();
 });
 it("retains reservation on missing/invalid provider usage and rejects double settlement", () => {
@@ -105,7 +101,7 @@ it("retains reservation on missing/invalid provider usage and rejects double set
   settleBudget(state, "unknown-id", 1); expect(newDay.used).toBe(0);
 });
 
-it("reserves and accounts for a bounded image call and returns a validated generated atlas", async () => {
+it("uses a bounded image call and returns a validated generated atlas without a reservation", async () => {
   const s = await setup();
   const sheet = bytesToBase64(await encodePng(makeFourViewSheet()));
   const analysis = { choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(semanticFixture("plain")))) } }],
@@ -118,11 +114,10 @@ it("reserves and accounts for a bounded image call and returns a validated gener
   expect(stages).not.toContain("render_context_started");
   expect(validateFinalAtlas(await decodePng(base64ToBytes(result.body.skinPngBase64!))).ok).toBe(true);
   expect(s.run.mock.calls.map(call => call[0])).toEqual([FREE_VISION_MODEL, "@cf/black-forest-labs/flux-2-klein-4b"]);
-  expect(s.reserve).toHaveBeenCalledTimes(1);
-  expect(s.reserve.mock.invocationCallOrder[0]).toBeLessThan(s.run.mock.invocationCallOrder[0]);
+  expect(s.reserve).not.toHaveBeenCalled();
   expect(s.kv.put).not.toHaveBeenCalled();
   const analysisCost = reportedGemmaNeurons(analysis)!;
-  expect(s.settle).toHaveBeenCalledWith(s.state.day, expect.any(String), analysisCost + MAX_IMAGE_CALL_NEURONS);
+  expect(s.settle).not.toHaveBeenCalled();
   expect(result.neuronsSpent).toBe(analysisCost + MAX_IMAGE_CALL_NEURONS);
 });
 
@@ -138,10 +133,22 @@ it("does not return a procedural skin when image generation fails and accounts f
   expect(result).toMatchObject({ success: false, body: { ok: false, errorCode: "provider_unavailable" } });
   expect(result.body.skinPngBase64).toBeUndefined();
   expect(s.run).toHaveBeenCalledTimes(3);
-  expect(s.settle).toHaveBeenCalledWith(s.state.day, expect.any(String), reportedGemmaNeurons(analysis)! + 2 * MAX_IMAGE_CALL_NEURONS);
+  expect(s.settle).not.toHaveBeenCalled();
 });
 
-it("keeps the full reservation if analysis usage cannot be measured", async () => {
+it("reports Cloudflare's daily quota error from image generation", async () => {
+  const s = await setup();
+  const analysis = { choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(semanticFixture("plain")))) } }],
+    usage: { prompt_tokens: 9000, completion_tokens: 3000 } };
+  s.run.mockImplementation(async (model: string) => {
+    if (model === FREE_VISION_MODEL) return analysis;
+    throw new Error("3036: daily free allocation exhausted");
+  });
+  const result = await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view" }, { image: s.image });
+  expect(result).toMatchObject({ status: 429, success: false, body: { errorCode: "quota_exceeded" } });
+});
+
+it("generates even when provider usage is unavailable", async () => {
   const s = await setup();
   const sheet = bytesToBase64(await encodePng(makeFourViewSheet()));
   const analysis = { choices: [{ message: { content: JSON.stringify(namedGemmaFixture(wireFixture(semanticFixture("plain")))) } }] };
@@ -149,5 +156,5 @@ it("keeps the full reservation if analysis usage cannot be measured", async () =
   const result = await generateFreeSkin({ ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true", IMAGE_GEN_STRATEGY: "four_view" }, { image: s.image });
   expect(result.body.generationMode).toBe("image");
   expect(s.settle).not.toHaveBeenCalled();
-  expect(s.state.used).toBe(MAX_CALL_NEURONS);
+  expect(s.reserve).not.toHaveBeenCalled();
 });

@@ -58,13 +58,13 @@ interface EnvOverrides extends GenerationObservationContext {
 export type Env = Omit<Partial<Cloudflare.Env>, keyof EnvOverrides> &
   EnvOverrides;
 
-export type QuotaLevel = "available" | "almost" | "closed";
+export type QuotaLevel = "available" | "almost" | "closed" | "unknown";
 
 export interface QuotaStatus {
   level: QuotaLevel;
-  remainingGenerations: number;
+  remainingGenerations: number | null;
   resetAtIso: string;
-  usedRatio: number;
+  usedRatio: number | null;
   /** Local accounting is only an estimate until Workers AI reports exhaustion. */
-  capacityBasis: "local_estimate" | "provider_reported_closed" | "project_reserved";
+  capacityBasis: "local_estimate" | "provider_reported_closed" | "project_reserved" | "provider_unknown";
 }

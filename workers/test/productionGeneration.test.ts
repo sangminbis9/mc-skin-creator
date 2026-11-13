@@ -48,14 +48,29 @@ async function assertSkin(body: { ok: boolean; skinPngBase64?: string; generatio
   expect(validateFinalAtlas(png).ok).toBe(true);
 }
 describe("production upload-to-PNG reliability", () => {
+  it("ignores the old project ledger even when it says exhausted", async () => {
+    const env = environment();
+    env.NEURON_BUDGET = { getByName: () => { throw new Error("legacy ledger must not be consulted"); } } as never;
+    const response = await worker.fetch(new Request("https://local/api/generate", { method: "POST", body: JSON.stringify({ image: await photo() }) }), env);
+    expect(response.status).toBe(200);
+    await assertSkin(await response.json());
+  });
   it("reports native free-model quota exhaustion without writing private diagnostics", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 503 })));
     const env = environment();
     env.AI!.run = vi.fn(async () => { throw new Error("3036: daily free allocation exhausted"); }) as never;
     const response = await worker.fetch(new Request("https://local/api/generate", { method: "POST", body: JSON.stringify({ image: await photo() }) }), env);
     expect(response.status).toBe(429);
-    expect(await response.json()).toMatchObject({ errorCode: "quota_exceeded" });
+    expect(await response.json()).toMatchObject({ errorCode: "quota_exceeded", quota: { level: "closed", capacityBasis: "provider_reported_closed", remainingGenerations: 0, resetAtIso: expect.any(String) } });
     expect(env.MCSKIN_KV.put).not.toHaveBeenCalledWith(expect.stringContaining("providers-closed"), expect.anything(), expect.anything());
+  });
+  it("does not describe temporary Cloudflare capacity errors as the daily quota", async () => {
+    const env = environment();
+    env.AI!.run = vi.fn(async () => { throw new Error("3040: Capacity temporarily exceeded, please try again."); }) as never;
+    const response = await worker.fetch(new Request("https://local/api/generate", { method: "POST", body: JSON.stringify({ image: await photo() }) }), env);
+    const body = await response.json();
+    expect(body.errorCode).not.toBe("quota_exceeded");
+    expect(body.quota.level).toBe("unknown");
   });
   it("POST /api/generate uses the free native model without a Gemini HTTP request", async () => {
     const fetchMock = vi.fn(async () => Response.json({ error: { status: "UNAVAILABLE" } }, { status: 503 }));
@@ -125,7 +140,7 @@ describe("production upload-to-PNG reliability", () => {
       body: JSON.stringify({ image: await photo() }) }), env);
     expect(response.status).toBe(200);
     const body = await response.json(); await assertSkin(body);
-    expect(body.analysis).toBeUndefined(); expect(body.quota.capacityBasis).toBe("project_reserved");
+    expect(body.analysis).toBeUndefined(); expect(body.quota).toMatchObject({capacityBasis: "provider_unknown", level: "unknown", remainingGenerations: null});
   });
   it("bounds the reserved native provider deadline without retrying or calling paid HTTP", async () => {
     const image = await photo();

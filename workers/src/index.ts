@@ -93,25 +93,7 @@ async function handleGenerate(
 ): Promise<Response> {
   await advisory(() => bumpMetric(env, "attempts"));
 
-  // 1) quota 확인 — 소진이면 AI 호출 전에 차단
-  // Fail closed if the required quota check is unavailable, but bound it.
-  // Accounting AFTER a completed render is advisory and cannot discard it.
-  const quota = await withinDeadline(() => freeQuotaStatus(env), 2000,
-    () => new Error("Quota check deadline"));
-  if (quota.level === "closed") {
-    await advisory(() => bumpMetric(env, "failures"));
-    return json(
-      {
-        ok: false,
-        error: "오늘의 생성 수량이 마감됐어요",
-        errorCode: "quota_exceeded",
-        quota,
-      },
-      429,
-    );
-  }
-
-  // 2) 요청 파싱
+  // 1) 요청 파싱. Cloudflare itself enforces the account allocation.
   const body = (await readGenerationBody(request).catch(() => null)) as {
     image?: string;
     analysisImage?: string;
@@ -154,7 +136,6 @@ async function handleGenerate(
     // controlled by the runtime. Uploaded images are never stored in bindings.
     body.image = undefined; body.analysisImage = undefined; body.referenceImages = undefined;
   }
-  // Budget was reserved BEFORE dispatch, including failed/unknown calls.
   await advisory(async () => {
     await bumpMetric(env, result.success ? "successes" : "failures");
     if (result.success && result.body.generationMode) {
@@ -163,7 +144,7 @@ async function handleGenerate(
   });
 
   return json(
-    { ...result.body, quota: await advisory(() => freeQuotaStatus(env)) ?? quota, requestId },
+    { ...result.body, quota: await freeQuotaStatus(env, result.body.errorCode === "quota_exceeded"), requestId },
     result.status,
   );
 }

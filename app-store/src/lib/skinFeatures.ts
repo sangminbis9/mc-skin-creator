@@ -86,18 +86,18 @@ export interface GenerateResponse {
   quota?: QuotaStatus;
 }
 
-export type QuotaLevel = "available" | "almost" | "closed";
+export type QuotaLevel = "available" | "almost" | "closed" | "unknown";
 
 export interface QuotaStatus {
   level: QuotaLevel;
   /** 예상 남은 생성 가능 수 */
-  remainingGenerations: number;
+  remainingGenerations: number | null;
   /** 다음 Gemini 제공자 일일 quota 리셋 시각 (ISO). */
   resetAtIso: string;
   /** 사용률 0~1 */
-  usedRatio: number;
+  usedRatio: number | null;
   /** 계정 전체 AI 사용량은 제공자 오류 전까지 로컬 추정치다. */
-  capacityBasis: "local_estimate" | "provider_reported_closed" | "project_reserved";
+  capacityBasis: "local_estimate" | "provider_reported_closed" | "project_reserved" | "provider_unknown";
 }
 
 /** 값 검증 + 기본값 채움: AI 출력이 불완전해도 안전하게 만든다 */
