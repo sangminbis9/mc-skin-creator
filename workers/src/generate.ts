@@ -121,6 +121,13 @@ function primaryRenderContext(analysis: PhotoAnalysis) {
     topColor: String(features.topColor), bottomColor: String(features.bottomColor),
     topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor),
   } });
+  // Return metadata for the garment that was actually rendered. The plan has
+  // scoped garment evidence and may correct contradictory coarse AI colors.
+  features.topColor = skinPlan.outfitPlan.upper.baseColor;
+  const { leftSleeve, rightSleeve } = skinPlan.outfitPlan.upper;
+  if (leftSleeve.length === rightSleeve.length && (leftSleeve.length === "long" || leftSleeve.length === "short")) {
+    features.sleeveLength = leftSleeve.length;
+  }
   const summary: AnalysisSummary = {
     framing: renderAnalysis.framing, visibleRegions: renderAnalysis.visibleRegions,
     sourceSelection: renderAnalysis.sourceSelection, observed: renderAnalysis.observed,

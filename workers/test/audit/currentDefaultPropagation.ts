@@ -106,7 +106,11 @@ export async function captureCurrentDefaultPropagation(input: {
         // Verify those from the durable response in an offline consumer.
         const observedPlan = summary.skinPlan as SkinPlan | undefined;
         const features = refineFeatureColorsFromAnalysis(a, fallbackFeaturesToHex(a.fallbackFeatures, a.renderHints.skinUndertone));
-        if (!observedPlan?.hairPlan || !summaryFields.every(k => same(a[k], summary[k])) || !same(features, input.body.features)) continue;
+        if (!observedPlan?.hairPlan) continue;
+        features.topColor = observedPlan.outfitPlan.upper.baseColor;
+        const { leftSleeve, rightSleeve } = observedPlan.outfitPlan.upper;
+        if (leftSleeve.length === rightSleeve.length && (leftSleeve.length === "long" || leftSleeve.length === "short")) features.sleeveLength = leftSleeve.length;
+        if (!summaryFields.every(k => same(a[k], summary[k])) || !same(features, input.body.features)) continue;
         const parameters = { features, faceStyle: buildFaceStyle(a, features, observedPlan.hairPlan), familyDesign: null };
         trace.injectedParameters = project(parameters);
         findChanges(parameters, trace.injectedParameters, "injectedParameters");
@@ -119,9 +123,14 @@ export async function captureCurrentDefaultPropagation(input: {
         return trace;
       }
       mark("propagation_plan_started");
-      const plan = buildSkinPlan(a);
-      mark("propagation_plan_finished");
       const features = refineFeatureColorsFromAnalysis(a, fallbackFeaturesToHex(a.fallbackFeatures, a.renderHints.skinUndertone));
+      const plan = buildSkinPlan({ ...a, fallbackFeatures: { ...a.fallbackFeatures,
+        topColor: String(features.topColor), bottomColor: String(features.bottomColor),
+        topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } });
+      mark("propagation_plan_finished");
+      features.topColor = plan.outfitPlan.upper.baseColor;
+      const { leftSleeve, rightSleeve } = plan.outfitPlan.upper;
+      if (leftSleeve.length === rightSleeve.length && (leftSleeve.length === "long" || leftSleeve.length === "short")) features.sleeveLength = leftSleeve.length;
       mark("propagation_features_finished");
       if (!summaryFields.every(k => same(a[k], summary[k])) || !same(plan, summary.skinPlan) || !same(features, input.body.features)) continue;
       const style = buildFaceStyle(a, features, plan.hairPlan);

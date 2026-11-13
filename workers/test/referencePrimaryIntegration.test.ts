@@ -21,8 +21,14 @@ import { boundedProjection, digest } from "./audit/currentDefaultE2E";
 
 const hash = (v: Uint8Array | string) => createHash("sha256").update(v).digest("hex");
 function context(raw: primary.PhotoAnalysis) {
-  const analysis = normalizeAnalysisForRendering(raw), source = buildSkinPlan(analysis);
+  const analysis = normalizeAnalysisForRendering(raw);
   const features = refineFeatureColorsFromAnalysis(analysis, fallbackFeaturesToHex(analysis.fallbackFeatures, analysis.renderHints.skinUndertone));
+  const source = buildSkinPlan({ ...analysis, fallbackFeatures: { ...analysis.fallbackFeatures,
+    topColor: String(features.topColor), bottomColor: String(features.bottomColor),
+    topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } });
+  features.topColor = source.outfitPlan.upper.baseColor;
+  const { leftSleeve, rightSleeve } = source.outfitPlan.upper;
+  if (leftSleeve.length === rightSleeve.length && (leftSleeve.length === "long" || leftSleeve.length === "short")) features.sleeveLength = leftSleeve.length;
   const style = buildFaceStyle(analysis, features, source.hairPlan), baseline = buildProceduralFallbackAtlas(features, style, source);
   expect(baseline).not.toBeNull(); return { analysis, source, style, features, baseline: baseline! };
 }

@@ -313,7 +313,7 @@ function observedAttachedChestGraphic(analysis: PhotoAnalysis): OutfitPatternPla
   const graphicNoun = "(?:graphic|logo|print|motif|emblem)";
   const application = "(?: (?:printed|embossed)(?:/(?:printed|embossed))?)?";
   const chestEnd = "(?=[,.;]|$| and (?:a )?(?:front )?kangaroo pocket(?=[,.;]|$))";
-  const match = new RegExp(`^ (?:with|featuring) (?:a |an )?(?:(?:large|small|stylized|centered)[, ]+){0,2}(?:(?:matte|tonal) )?(${COLOR_WORD}|dark) (?:(?:gothic )?(cross) ${graphicNoun}|${graphicNoun}( (?:of a (?:stylized )?)?cross)?)${application} on (?:the )?(?:(center|central|left|right) )?chest${chestEnd}`).exec(after);
+  const match = new RegExp(`^ (?:with|featuring) (?:a |an )?(?:(?:large|small|stylized|centered)[, ]+){0,2}(?:(?:matte|tonal) )?(${COLOR_WORD}|dark) (?:(?:gothic )?(cross) ${graphicNoun}|${graphicNoun}( (?:of a (?:stylized )?)?cross)?)${application} on (?:the )?(?:upper[- ]+)?(?:(center|central|left|right) )?chest${chestEnd}`).exec(after);
   if (!match) return null;
   // Explicit achromatic "dark" ink uses the existing neutral dark palette;
   // it is not an unknown color and must not inherit a white shoe/accent swatch.
@@ -334,7 +334,7 @@ function garmentEvidence(text: string, garmentWords: string): string {
       if (!wanted.test(item[0])) continue;
       // Keep the newly recognized noun as a color-ownership boundary, but do
       // not promote an ambiguous or layered sweatshirt to the dominant top.
-      const scanText = text.replace(/\b(?:with|featuring) (?:a |an )?(?:(?:large|small|stylized|centered)[, ]+){0,2}(?:(?:matte|tonal) )?(?:black|white|gray|grey|red|orange|yellow|green|blue|navy|purple|pink|brown|beige|cream|gold|silver|dark) (?:graphic|logo|print|motif|emblem) on (?:the )?(?:(?:center|central|left|right) )?chest(?=[,.;]|$)/, "");
+      const scanText = text.replace(/\b(?:with|featuring) (?:a |an )?(?:(?:large|small|stylized|centered)[, ]+){0,2}(?:(?:matte|tonal) )?(?:black|white|gray|grey|red|orange|yellow|green|blue|navy|purple|pink|brown|beige|cream|gold|silver|dark) (?:graphic|logo|print|motif|emblem) on (?:the )?(?:upper[- ]+)?(?:(?:center|central|left|right) )?chest(?=[,.;]|$)/, "");
       if (item[0] === "sweatshirt" && /\b(?:over|under|underneath|layered|no|not|without|possibly|maybe|uncertain|hidden|obscured|unknown|print|graphic|motif)\b/.test(scanText)) continue;
       const previousEnd = i ? items[i - 1].index! + items[i - 1][0].length : 0;
       let prefix = clause.slice(previousEnd, item.index);

@@ -57,6 +57,7 @@ it("renders the observed hoodie color instead of a conflicting fallback color", 
     usage: { prompt_tokens: 9000, completion_tokens: 3000 } });
   const result = await generateFreeSkin(s.env, { image: s.image });
   expect(result.success).toBe(true);
+  expect(result.body.features).toMatchObject({ topType: "hoodie", topColor: "#b7b7b7", sleeveLength: "long" });
   const atlas = await decodePng(base64ToBytes(result.body.skinPngBase64!));
   const pixel = (x: number, y: number) => [...atlas.rgba.slice((y * 64 + x) * 4, (y * 64 + x) * 4 + 3)];
   const [red, , blue] = pixel(23, 25);
