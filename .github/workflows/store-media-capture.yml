@@ -1,0 +1,35 @@
+name: Capture App Store media
+on: push
+permissions:
+  contents: read
+jobs:
+  capture:
+    if: startsWith(github.ref, 'refs/heads/codex/store-media-')
+    runs-on: macos-26
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iphone, ipad]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare the release app and capture target
+        run: |
+          npm --prefix app-store ci
+          npm --prefix app-store run ios:sync
+          ruby -e 'require "xcodeproj"' || gem install xcodeproj --no-document --user-install
+          ruby .github/store-media/configure.rb
+      - name: Record the iOS app
+        env:
+          STORE_DEVICE: ${{ matrix.device }}
+        run: bash .github/store-media/capture.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-store-${{ matrix.device }}
+          path: ${{ runner.temp }}/store-output
+          if-no-files-found: error
+          retention-days: 7
