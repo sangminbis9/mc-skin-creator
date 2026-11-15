@@ -11,6 +11,7 @@ test.build_configurations.each do |configuration|
   configuration.build_settings.merge!({
     'SWIFT_VERSION' => '5.0',
     'GENERATE_INFOPLIST_FILE' => 'YES',
+    'PRODUCT_NAME' => 'StoreCapture',
     'PRODUCT_BUNDLE_IDENTIFIER' => 'com.sangminbis9.skinstudio.storecapture',
     'TARGETED_DEVICE_FAMILY' => '1,2',
     'TEST_TARGET_NAME' => 'App'
@@ -19,5 +20,5 @@ end
 project.save
 
 scheme = Xcodeproj::XCScheme.new
-scheme.configure_with_targets(app, test)
+scheme.configure_with_targets(app, test, launch_target: true)
 scheme.save_as(path, 'StoreMedia', true)
