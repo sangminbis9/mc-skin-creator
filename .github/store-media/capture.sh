@@ -3,16 +3,15 @@ set -euo pipefail
 
 output="$RUNNER_TEMP/store-output"
 mkdir -p "$output"
-udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print(next((d["udid"] for group in json.load(sys.stdin)["devices"].values() for d in group if d["state"]=="Booted"), ""))')
-if [[ -n "$udid" ]]; then xcrun simctl shutdown "$udid" || true; fi
-udid=$(xcrun simctl list devices available -j | python3 -c '
+read -r runtime device_type < <(xcrun simctl list devices available -j | python3 -c '
 import json, os, re, sys
 pattern = r"iPhone (17|16) Pro Max" if os.environ["STORE_DEVICE"] == "iphone" else r"iPad Pro 13.inch \(M[45]\)"
-devices = [d for group in json.load(sys.stdin)["devices"].values() for d in group if re.fullmatch(pattern, d["name"])]
+devices = [(runtime, d) for runtime, group in json.load(sys.stdin)["devices"].items() for d in group if re.fullmatch(pattern, d["name"])]
 if not devices: raise SystemExit("No matching simulator")
-print(devices[0]["udid"])
+runtime, device = devices[0]
+print(runtime, device["deviceTypeIdentifier"])
 ')
-xcrun simctl boot "$udid" || true
+udid=$(xcrun simctl create "Store Media $STORE_DEVICE" "$device_type" "$runtime")
 xcrun simctl bootstatus "$udid" -b
 xcrun simctl status_bar "$udid" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState discharging --batteryLevel 100
 xcrun simctl spawn "$udid" defaults write NSGlobalDomain AppleLanguages -array ko-KR ko en
