@@ -23,20 +23,44 @@ derived="$RUNNER_TEMP/store-build"
 result="$RUNNER_TEMP/store.xcresult"
 args=(-project "$project" -scheme StoreMedia -configuration Debug -destination "id=$udid" -derivedDataPath "$derived" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO)
 xcodebuild "${args[@]}" build-for-testing > "$output/build.log" 2>&1 || { tail -150 "$output/build.log"; exit 1; }
+echo 'Simulator app and UI tests built.'
+app="$derived/Build/Products/Debug-iphonesimulator/App.app"
+xcrun simctl install "$udid" "$app"
+xcrun simctl launch "$udid" com.sangminbis9.skinstudio -AppleLanguages '(ko)' -AppleLocale ko_KR
+sleep 3
+xcrun simctl io "$udid" screenshot "$output/landing.png"
 
 rm -f /tmp/skin-store-recording
-xcrun simctl io "$udid" recordVideo --codec=h264 "$output/raw.mov" &
-recorder=$!
-xcodebuild "${args[@]}" -resultBundlePath "$result" test-without-building > "$output/capture.log" 2>&1 &
-tester=$!
-started=$SECONDS
-until [[ -e /tmp/skin-store-recording ]] || ! kill -0 "$tester" 2>/dev/null; do sleep 0.25; done
-if [[ -e /tmp/skin-store-recording ]]; then echo "$((SECONDS - started))" > "$output/action-start.txt"; fi
 set +e
-wait "$tester"
+python3 - "$udid" "$output" xcodebuild "${args[@]}" -resultBundlePath "$result" test-without-building <<'PY'
+import pathlib, signal, subprocess, sys, time
+
+device, output, *command = sys.argv[1:]
+output = pathlib.Path(output)
+video = subprocess.Popen(['xcrun', 'simctl', 'io', device, 'recordVideo', '--codec=h264', '--mask=ignored', str(output/'raw.mov')], start_new_session=True)
+started = time.monotonic()
+try:
+    with (output/'capture.log').open('w') as log:
+        test = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+        while test.poll() is None and time.monotonic() - started < 210:
+            timing = output/'action-start.txt'
+            if pathlib.Path('/tmp/skin-store-recording').exists() and not timing.exists():
+                timing.write_text(str(time.monotonic() - started))
+            time.sleep(0.25)
+        if test.poll() is None:
+            test.terminate()
+            test.wait(timeout=20)
+finally:
+    if video.poll() is None:
+        video.send_signal(signal.SIGINT)
+        try:
+            video.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            video.terminate()
+            video.wait(timeout=10)
+sys.exit(test.returncode)
+PY
 status=$?
-kill -INT "$recorder" 2>/dev/null
-wait "$recorder"
 set -e
 xcrun xcresulttool export attachments --path "$result" --output-path "$output/attachments" || true
 tail -75 "$output/capture.log"
