@@ -14,7 +14,7 @@ print(devices[0]["udid"])
 ')
 xcrun simctl boot "$udid" || true
 xcrun simctl bootstatus "$udid" -b
-xcrun simctl status_bar "$udid" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState unplugged --batteryLevel 100
+xcrun simctl status_bar "$udid" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState discharging --batteryLevel 100
 xcrun simctl spawn "$udid" defaults write NSGlobalDomain AppleLanguages -array ko-KR ko en
 xcrun simctl spawn "$udid" defaults write NSGlobalDomain AppleLocale -string ko_KR
 
