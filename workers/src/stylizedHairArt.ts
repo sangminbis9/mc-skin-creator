@@ -128,3 +128,73 @@ export function stylizedHairRamp(pigment: MaterialRgb, treatment: Treatment): Ma
     ? [tune(0, [1, 0, 1]), tune(1, [1, 1, 2]), pigment, tune(3, [5, 3, 2], headroom), tune(4, [9, 6, 4], headroom)]
     : [tune(0, [-5, -4, -2]), tune(1, [-4, -3, -1]), pigment, tune(3, [0, 2, 4], headroom), tune(4, [0, 4, 8], headroom)];
 }
+
+const wrapsLooseVolume = (cut: PhotoHeadCut, profile: PhotoHairProfile) => !compact(cut) && !structured(profile);
+
+/** Add supported relief behind the existing front. Work in physical texel
+ * coordinates: edge partners share the same sculpt, with the rear corners
+ * stepping in around a wider crown instead of framing a second square hat. */
+export function sculptWrappedHair(g: PhotoHeadGeometry, p: PhotoHairProfile, preference: SkinPresentation): PhotoHeadGeometry {
+  const front = sculptStylizedHair(g, p, preference);
+  if (!wrapsLooseVolume(g.cut, p)) return front;
+  const loose = hasLength(g.cut), ribbon = hairTreatment(g.cut, p, preference) === "ribbon";
+  const wrap = (c: Cell) => {
+    const [face] = c;
+    const [u, v, z] = headMaterialPoint(...c), edge = Math.min(u, 7 - u);
+    const previous = inMask(front.overlay, c);
+    if (z === 0 || face === "bottom" || !inMask(g.base, c)) return previous;
+    // Keep exceptions at the supported front corners and never extend
+    // relief over skin at a tuck, nape or temple.
+    if (edge === 0 && z >= 6 && v <= 1) return false;
+    if (v === 0) {
+      if (z <= 1) return previous;
+      const crown = edge >= (z >= 6 ? 2 : 1) && (edge >= 2 || z >= 3 && z <= 5);
+      const part = p.part === "center" ? 3.5 : p.part === "left" ? 2 : 5;
+      return crown && !(p.part !== "none" && z < 5 && Math.abs(u - part) <= .5);
+    }
+    if (z === 7) {
+      const bend = p.type === "wavy" || g.cut === "shag" ? [0, 0, 0, 1, 1, 0, -1, -1][v] : 0;
+      const lane = ribbon ? u + (u < 4 ? bend : -bend) : u + (v >= 3 ? p.sweep === "left" ? 1 : -1 : 0);
+      if (v === 1) return edge >= 1;
+      if (v <= (loose ? 5 : 3)) return lane === 1 || lane === 2 || lane === 5 || lane === 6 && v <= 3 || edge === 0 && v <= 3;
+      return loose && v === 6 && (lane === 2 || lane === 5);
+    }
+    if (edge === 0 && z >= 3) {
+      return v <= 2 && z >= 4 || loose && v <= 4 && z >= 4 && z <= 5 || previous;
+    }
+    return previous;
+  };
+  // Front coordinates are immutable. The bottom edge inherits the nearest
+  // supported rear/side run, while all physical seams stay paired.
+  const overlay = Object.fromEntries(faces.map(f => [f, front.overlay[f].map((row, y) => [...row].map((_, x) => wrap([f, x, y])))])) as Record<Face, boolean[][]>;
+  const get = ([f, x, y]: Cell) => overlay[f][y][x];
+  const set = ([f, x, y]: Cell, value: boolean) => { overlay[f][y][x] = value; };
+  for (const [a, b] of seamPairs) {
+    if (!inMask(g.base, a) || !inMask(g.base, b)) continue;
+    const frontEdge = headMaterialPoint(...a)[2] === 0;
+    const v = frontEdge ? inMask(front.overlay, a) : a[0] === "bottom" || b[0] === "bottom" ? get(a) && get(b) : get(a) || get(b);
+    set(a, v); set(b, v);
+  }
+  return { ...front, overlay: Object.fromEntries(faces.map(f => [f, overlay[f].map(row => row.map(on => on ? "#" : ".").join(""))])) as PhotoHeadGeometry["overlay"] };
+}
+
+export function wrappedHairTone(point: readonly [number, number, number], cut: PhotoHeadCut, p: PhotoHairProfile,
+  treatment: Treatment, raised: boolean, original: Tone): Tone {
+  const [x, y, z] = point;
+  const base = stylizedHairTone(point, cut, p, treatment, raised, original);
+  if (z < 2 || y === 7 || !wrapsLooseVolume(cut, p)) return base;
+  const { fromRoot, along, wave } = flow(p, x, y);
+  const edge = Math.min(x, 7 - x);
+  const arch = y * .91 + z * .37 - edge * .19;
+  if (z >= 6 && edge < 1 && y <= 1) return 1;
+  if (y <= 2 && p.part !== "none" && fromRoot <= .55 && z <= 4) return 0;
+  const fold = treatment === "ribbon" ? edge + wave - (z >= 5 ? .35 : 0) : along + y * .36 - z * .17;
+  const bright = treatment === "ribbon" ? fold >= .9 && fold <= 2.25 : fold >= .65 && fold <= 2.55;
+  if (arch >= .8 && arch <= 3.2 && bright) return raised && arch < 2.65 ? 4 : 3;
+  if (z >= 4 && y >= 2) {
+    if (bright && hasLength(cut) && y <= 5) return raised ? 3 : 2;
+    if (edge === 0 && y >= 3 || y >= 5 && !raised) return 1;
+    if (fold > 2.3 && fold < 3.15 && y <= 5) return 1;
+  }
+  return raised && arch < 2.9 && edge >= 2 ? 3 : 2;
+}

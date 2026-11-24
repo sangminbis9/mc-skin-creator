@@ -288,8 +288,8 @@ export function renderSkinViews(
 }
 
 /** Offline inspection angles; does not expand production/evaluator view inputs. */
-export function renderSkinInspectionView(atlas: RawImage, yawDegrees: number, pitchDegrees = 0): RawImage {
-  return renderView(atlas, "front", yawDegrees, "classic", 192, 288, pitchDegrees).image;
+export function renderSkinInspectionView(atlas: RawImage, yawDegrees: number, pitchDegrees = 0, geometry: SkinGeometry = "classic"): RawImage {
+  return renderView(atlas, "front", yawDegrees, geometry, 192, 288, pitchDegrees).image;
 }
 
 /** Nearest-neighbour head crop used for likeness ranking and eval artifacts. */

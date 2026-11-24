@@ -15,7 +15,7 @@ import {
   type SkinLayer,
 } from "./skinCorrection";
 import type { BodyPart } from "./uvLayout";
-import { scopeOutfitLength } from "./outfitIdentity";
+import { scopeOutfitLegwear, scopeOutfitLength, type PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
 import {
   buildIdentityPixelPlans,
   type FacePixelPlan,
@@ -139,8 +139,9 @@ function describeStructuredLowerBody(analysis: PhotoAnalysis): string | null {
   return `${design.bottomPattern} ${design.bottomType}${accent}, ${legwear}, and ${design.shoeStyle}; ${design.rationale}`;
 }
 
-export function buildSkinPlan(analysis: PhotoAnalysis, publicGarment = false): SkinPlan {
+export function buildSkinPlan(analysis: PhotoAnalysis, publicGarment: boolean | typeof PUBLIC_LEGWEAR_POLICY = false): SkinPlan {
   const pixelPlans = buildIdentityPixelPlans(analysis);
+  const outfit = publicGarment ? scopeOutfitLength(pixelPlans.outfitPlan, analysis) : pixelPlans.outfitPlan;
   const assignments = analysis.canonicalIdentity.features
     .slice()
     .sort((a, b) => b.priority - a.priority)
@@ -201,7 +202,7 @@ export function buildSkinPlan(analysis: PhotoAnalysis, publicGarment = false): S
       "Unobserved surfaces must extend observed construction without inventing a new motif.",
     ],
     ...pixelPlans,
-    ...(publicGarment ? { outfitPlan: scopeOutfitLength(pixelPlans.outfitPlan, analysis) } : {}),
+    outfitPlan: typeof publicGarment === "string" ? scopeOutfitLegwear(outfit, analysis) : outfit,
   };
 }
 

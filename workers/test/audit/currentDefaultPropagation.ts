@@ -17,6 +17,7 @@ import { buildPhotoDrape } from "../../src/photoHairFinish";
 import { photoHeadForRender, renderNameMcPresentation } from "../../src/skinEngine";
 import { applyCoveredHeadFinish, COVERED_HEAD_FINISH } from "../../src/coveredHeadFinish";
 import { applyPublicClothFinish, PUBLIC_CLOTH_POLICY } from "../../src/publicClothFinish";
+import { PUBLIC_LEGWEAR_POLICY } from "../../src/outfitIdentity";
 import { repairSkinIntegrity } from "../../../shared/skinIntegrity";
 import { composeReferenceStyleAtlas } from "../../src/referenceStyleRenderer";
 import { measureReferenceRenderedQuality } from "../../src/referenceStyleSelection";
@@ -133,7 +134,8 @@ export async function captureCurrentDefaultPropagation(input: {
       const features = refineFeatureColorsFromAnalysis(a, fallbackFeaturesToHex(a.fallbackFeatures, a.renderHints.skinUndertone));
       const plan = buildSkinPlan({ ...a, fallbackFeatures: { ...a.fallbackFeatures,
         topColor: String(features.topColor), bottomColor: String(features.bottomColor),
-        topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } }, reference.garmentFinish === PUBLIC_CLOTH_POLICY);
+        topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } },
+        reference.legwearFinish === PUBLIC_LEGWEAR_POLICY ? PUBLIC_LEGWEAR_POLICY : reference.garmentFinish === PUBLIC_CLOTH_POLICY);
       mark("propagation_plan_finished");
       features.topColor = plan.outfitPlan.upper.baseColor;
       const { leftSleeve, rightSleeve } = plan.outfitPlan.upper;
@@ -170,7 +172,8 @@ export async function captureCurrentDefaultPropagation(input: {
       let chosen: ReturnType<typeof buildReferenceStylePlan> | undefined;
       let reproduced = source;
       let execution: ReturnType<typeof composeReferenceStyleAtlas>["diagnostic"] | undefined;
-      const { headFinish: _finish, garmentFinish, ...referenceShape } = reference;
+      const { headFinish: _finish, garmentFinish, legwearFinish, ...referenceShape } = reference;
+      if (legwearFinish !== undefined && (legwearFinish !== PUBLIC_LEGWEAR_POLICY || plan.outfitPlan.lower.legwear.startRow === undefined)) continue;
       let scope: "observed_design_atlas" | "preserved_source_atlas";
       if (plan.headIdentityPlan.ownership?.execution !== "resolved") {
         // This production branch has no candidate search. Preserve its entire

@@ -24,6 +24,7 @@ import { buildPhotoDrape } from "../src/photoHairFinish";
 import { photoHeadForRender, renderNameMcPresentation } from "../src/skinEngine";
 import { repairSkinIntegrity } from "../../shared/skinIntegrity";
 import { applyPublicClothFinish, PUBLIC_CLOTH_POLICY } from "../src/publicClothFinish";
+import { PUBLIC_LEGWEAR_POLICY } from "../src/outfitIdentity";
 
 const hash = (v: Uint8Array | string) => createHash("sha256").update(v).digest("hex");
 function context(raw: primary.PhotoAnalysis) {
@@ -31,7 +32,7 @@ function context(raw: primary.PhotoAnalysis) {
   const features = refineFeatureColorsFromAnalysis(analysis, fallbackFeaturesToHex(analysis.fallbackFeatures, analysis.renderHints.skinUndertone));
   const source = buildSkinPlan({ ...analysis, fallbackFeatures: { ...analysis.fallbackFeatures,
     topColor: String(features.topColor), bottomColor: String(features.bottomColor),
-    topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } }, true);
+    topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } }, PUBLIC_LEGWEAR_POLICY);
   features.topColor = source.outfitPlan.upper.baseColor;
   const { leftSleeve, rightSleeve } = source.outfitPlan.upper;
   if (leftSleeve.length === rightSleeve.length && (leftSleeve.length === "long" || leftSleeve.length === "short")) features.sleeveLength = leftSleeve.length;

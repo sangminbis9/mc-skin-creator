@@ -210,6 +210,8 @@ export interface OutfitPlan {
       source: OutfitEvidence;
       /** Only a pattern explicitly attached to visible legwear, never a shirt stripe. */
       pattern?: "diagonal_stripe";
+      /** Shared base/cuff start; absent retains the legacy material interval. */
+      startRow?: number;
     };
     source: OutfitEvidence;
   };
@@ -1421,6 +1423,31 @@ export function scopeOutfitLength(plan: OutfitPlan, analysis: PhotoAnalysis): Ou
   if (garmentRows === plan.lower.garmentRows) return plan;
   return { ...plan, lower: { ...plan.lower, garmentRows,
     skinExposureRows: Math.max(0, 12 - garmentRows - plan.lower.shoeRows) } };
+}
+
+export const PUBLIC_LEGWEAR_POLICY = "observed_legwear_boundary_v1" as const;
+
+/** Tall socks are not tights. Leave a readable gap above the sock cuff when
+ * observed tall legwear can fit under a short, separately owned hem. */
+export function scopeOutfitLegwear(plan: OutfitPlan, analysis: PhotoAnalysis): OutfitPlan {
+  const { lower } = plan, l = lower.legwear;
+  if (!analysis.visibleRegions.lowerBody || !["skirt", "shorts", "dress_continuation"].includes(lower.garmentType)) return plan;
+  const clauses = analysis.observed.clothing.toLowerCase().split(/[.;\n]/).filter(c =>
+    !/\b(?:no|not|without|maybe|unknown|possibly|uncertain|occluded)\b/.test(c));
+  const tall = clauses.filter(c => /\b(?:thigh[- ]highs|(?:thigh[- ]high|knee[- ]high|over[- ](?:the[- ])?knee|otk|long)(?:[- ]+(?:white|off[- ]white|black|cream|pale|pink|ribbed|opaque|knit)){0,4}[- ]+(?:socks?|stockings?))\b|\b(?:socks?|stockings?)\b[^.;]{0,30}\b(?:over (?:the )?knee|above (?:the )?knees?|mid[- ]thigh)\b/.test(c));
+  if (!tall.length && l.kind !== "thigh_highs") return plan;
+  const end = 12 - lower.shoeRows, available = end - lower.garmentRows;
+  if (available < 2) return plan;
+  const kneeHigh = tall.some(c => /\bknee[- ]high\b/.test(c) && !/\b(?:thigh|over[- ](?:the[- ])?knee|otk)\b/.test(c));
+  const startRow = Math.max(lower.garmentRows + (available >= 5 ? 2 : 1), end - (kneeHigh ? 4 : 5));
+  const both = tall.some(c => /\b(?:both (?:legs|knees)|a pair of)\b/.test(c));
+  const side = /\bon (?:the )?viewer[- ](left|right)(?: leg| knee)?\b/.exec(tall.join(";"))?.[1] as "left" | "right" | undefined;
+  const white = tall.some(c => /\bwhite (?:ribbed |knit |opaque )?(?:socks?|stockings?|thigh[- ]highs?)\b|\bwhite (?:thigh[- ]high|knee[- ]high|over[- ]knee|long) (?:socks?|stockings?)\b/.test(c));
+  return { ...plan, lower: { ...lower, skinExposureRows: startRow - lower.garmentRows,
+    legwear: { ...l, kind: "thigh_highs", color: white ? "#f2f0ee" : l.color, asymmetry: both ? "both" : side ?? (l.asymmetry === "none" ? "both" : l.asymmetry), startRow } },
+    outerLayer: plan.outerLayer.regions.includes("legwear") ? plan.outerLayer
+      : { ...plan.outerLayer, regions: [...plan.outerLayer.regions, "legwear"] },
+    outerLayerRegions: plan.outerLayerRegions.includes("legwear") ? plan.outerLayerRegions : [...plan.outerLayerRegions, "legwear"] };
 }
 
 export function outfitPlanSignature(plan: OutfitPlan): string {

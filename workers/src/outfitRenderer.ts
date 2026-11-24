@@ -276,7 +276,9 @@ function drawSleeve(atlas: RawImage, box: BoxUV, sleeve: OutfitSleevePlan, patte
 function legwearRows(plan: OutfitPlan, height: number): { start: number; end: number } {
   const garmentEnd = Math.min(height, plan.lower.garmentRows);
   const end = Math.max(garmentEnd, height - plan.lower.shoeRows);
-  const start = plan.lower.legwear.kind === "socks" ? Math.max(garmentEnd, end - 3)
+  const authored = plan.lower.legwear.startRow;
+  const start = authored !== undefined ? Math.min(end, Math.max(garmentEnd, authored))
+    : plan.lower.legwear.kind === "socks" ? Math.max(garmentEnd, end - 3)
     : plan.lower.legwear.kind === "leg_warmers" ? Math.max(garmentEnd, end - 5) : garmentEnd;
   return { start, end };
 }

@@ -5,6 +5,7 @@ import { expect, it } from "vitest";
 import type { PhotoAnalysis, PixelRenderHints } from "../src/analysis";
 import { buildFaceStyle, buildProceduralSourceAtlas, fallbackFeaturesToHex } from "../src/generate";
 import { headUvIsByteIdentical } from "../src/outfitIdentityRetention";
+import { PUBLIC_LEGWEAR_POLICY } from "../src/outfitIdentity";
 import { renderOutfitFabricFoundation } from "../src/outfitRenderer";
 import { decodePng, encodePng, type RawImage } from "../src/png";
 import { applyPublicClothFinish } from "../src/publicClothFinish";
@@ -104,7 +105,7 @@ it("generates 216 full Minecraft outfits through the public fabric path and veri
   let card = 0;
   for (const [u, top] of tops.entries()) for (const [l, bottom] of bottoms.entries()) {
     const id = `${u}-${l}`, label = `${top.name} / ${bottom.name}`;
-    const a = observation(top, bottom), source = buildSkinPlan(a, true), design = buildReferenceStylePlan(a);
+    const a = observation(top, bottom), source = buildSkinPlan(a, PUBLIC_LEGWEAR_POLICY), design = buildReferenceStylePlan(a);
     const planJson = JSON.stringify(source.outfitPlan);
     const before = renderReferenceGarmentUnderlay(neutral, source, design, style, new Set(), 0);
     const after = copy(before);

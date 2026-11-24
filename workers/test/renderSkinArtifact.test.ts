@@ -5,6 +5,7 @@ import { decodePng, encodePng } from "../src/png";
 import {
   buildSkinViewMontage,
   inspectRenderedSkin,
+  renderSkinInspectionView,
   renderSkinViews,
   type SkinGeometry,
 } from "../src/skinRender";
@@ -33,6 +34,10 @@ describe.skipIf(!INPUT || !OUTPUT)("saved skin visual inspection", () => {
         join(OUTPUT as string, `${stem}-${GEOMETRY}-six-view.png`),
         await encodePng(montage),
       ),
+      ...(process.env.RENDER_SKIN_ELEVATED === "1" ? [writeFile(
+        join(OUTPUT as string, `${stem}-${GEOMETRY}-crown.png`),
+        await encodePng(renderSkinInspectionView(atlas, 148, 30, GEOMETRY)),
+      )] : []),
       writeFile(
         join(OUTPUT as string, `${stem}-${GEOMETRY}-inspection.json`),
         JSON.stringify({ geometry: GEOMETRY, validation, inspection }, null, 2),

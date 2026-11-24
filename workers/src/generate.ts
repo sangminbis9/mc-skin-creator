@@ -1,6 +1,6 @@
 import { runFaceIdentityGeometryAnalysis } from "./faceIdentityGeometry";
 import { observedGoateeMustache } from "./facialHairEvidence";
-import { observedStandaloneHoodedSweatshirt, observedStandaloneSweatshirt, observedStripedTie } from "./outfitIdentity";
+import { observedStandaloneHoodedSweatshirt, observedStandaloneSweatshirt, observedStripedTie, PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
 import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
 import { unambiguousHairEndpointText } from "./hairEndpointEvidence";
 import { normalizeHeadwearObservation, observedHeadwearCategory } from "./observedHeadwear";
@@ -125,7 +125,7 @@ function primaryRenderContext(analysis: PhotoAnalysis, publicGarment: boolean) {
     ...renderAnalysis.fallbackFeatures,
     topColor: String(features.topColor), bottomColor: String(features.bottomColor),
     topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor),
-  } }, publicGarment);
+  } }, publicGarment ? PUBLIC_LEGWEAR_POLICY : false);
   // Return metadata for the garment that was actually rendered. The plan has
   // scoped garment evidence and may correct contradictory coarse AI colors.
   features.topColor = skinPlan.outfitPlan.upper.baseColor;

@@ -10,6 +10,7 @@ import { buildPhotoDrape, classifyPhotoHair } from "../src/photoHairFinish";
 import { decodeImage, decodePng, encodePng, type RawImage } from "../src/png";
 import { renderNameMcPresentation, renderSkinEngine } from "../src/skinEngine";
 import { buildSkinPlan } from "../src/skinPlan";
+import { PUBLIC_LEGWEAR_POLICY } from "../src/outfitIdentity";
 import { renderSkinInspectionView } from "../src/skinRender";
 import type { Env } from "../src/types";
 import { CLASSIC_LAYOUT } from "../src/uvLayout";
@@ -52,7 +53,7 @@ it.skipIf(!directory)("compares photo-led drape and hair families against the fi
       fallbackFeaturesToHex(renderAnalysis.fallbackFeatures, renderAnalysis.renderHints.skinUndertone));
     const source = buildSkinPlan({ ...renderAnalysis, fallbackFeatures: { ...renderAnalysis.fallbackFeatures,
       topColor: String(features.topColor), bottomColor: String(features.bottomColor),
-      topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } }, true);
+      topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } }, PUBLIC_LEGWEAR_POLICY);
     features.topColor = source.outfitPlan.upper.baseColor;
     if (source.outfitPlan.upper.leftSleeve.length === source.outfitPlan.upper.rightSleeve.length
         && ["long", "short"].includes(source.outfitPlan.upper.leftSleeve.length)) {

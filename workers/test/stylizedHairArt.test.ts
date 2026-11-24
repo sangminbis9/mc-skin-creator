@@ -4,7 +4,7 @@ import { classifyPhotoHair } from "../src/photoHairFinish";
 import { buildPhotoHeadGeometry } from "../src/photoHeadGeometry";
 import { headMaterialPoint } from "../src/referenceMaterialDetail";
 import { DEFAULT_FACE_STYLE, type FaceStyle } from "../src/skinPack";
-import { hairTreatment, sculptStylizedHair, stylizedHairRamp, stylizedHairTone } from "../src/stylizedHairArt";
+import { hairTreatment, sculptStylizedHair, sculptWrappedHair, stylizedHairRamp, stylizedHairTone, wrappedHairTone } from "../src/stylizedHairArt";
 import { CLASSIC_LAYOUT, getBoxUvSeams, type BoxUV } from "../src/uvLayout";
 
 const cases: [Partial<FaceStyle>, string][] = [
@@ -81,4 +81,34 @@ it("keeps the dye as the midtone, opens the part with shadow and shades mirror s
   const noPreference = classifyPhotoHair(DEFAULT_FACE_STYLE, "");
   expect(hairTreatment("crop", noPreference, "source")).toBe("sweep");
   expect(hairTreatment("wave", noPreference, "source")).toBe("ribbon");
+});
+
+it("sculpts a raised crown and flowing back without repainting the front or splitting shared corners", () => {
+  for (const [patch, words] of cases) {
+    const style = { ...DEFAULT_FACE_STYLE, ...patch };
+    const p = classifyPhotoHair(style, words, true);
+    const g = buildPhotoHeadGeometry(style, p, words);
+    for (const mode of ["source", "feminine", "masculine"] as const) {
+      const old = sculptStylizedHair(g, p, mode), next = sculptWrappedHair(g, p, mode);
+      expect(next.base).toEqual(old.base);
+      expect(next.overlay.front).toEqual(old.overlay.front);
+      const treatment = hairTreatment(g.cut, p, mode);
+      for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) {
+        expect(wrappedHairTone([x, y, 0], g.cut, p, treatment, true, 2))
+          .toBe(stylizedHairTone([x, y, 0], g.cut, p, treatment, true, 2));
+      }
+      for (const seam of [...vertical, ...horizontal]) for (const [k, a] of seam.primary.entries()) {
+        const b = seam.adjacent[k];
+        if (value(g.base, a) === "#" && value(g.base, b) === "#") expect(value(next.overlay, a), `${words}: ${a.x},${a.y}`).toBe(value(next.overlay, b));
+      }
+      if (words.startsWith("Long waves")) {
+        expect(next.overlay.back).not.toEqual(old.overlay.back);
+        expect(next.overlay.top).not.toEqual(old.overlay.top);
+        expect(next.overlay.back[0]).toBe("..####..");
+        expect(next.overlay.back[1].startsWith(".")).toBe(true);
+        const tones = new Set(Array.from({length: 42}, (_, i) => wrappedHairTone([1 + i % 6, Math.floor(i / 6), 7], g.cut, p, treatment, true, 2)));
+        expect(tones.size).toBeGreaterThanOrEqual(3);
+      }
+    }
+  }
 });

@@ -4,6 +4,7 @@ Visual references: [NameMC eGirl](https://namemc.com/minecraft-skins/tag/egirl) 
 
 - **Photo cues are constraints, not a pixel trace.** The underlying cut, part opening, length, side tuck, hair pigment and fixed eye map do not change with the selected finish. eGirl groups the reflection into broader ribbons and softly steps the temple relief; eBoy uses directional fringe highlights and more shadow under the sweep. Photo-led chooses a finish using the cut and texture, not the person's gender.
 - **Build the volume on the outer layer.** Only hair-backed cells can rise; raise paired, hair-backed UV edges together, and follow a physical coordinate system for shading. Coils, braids, locs, tied shapes and compact cuts retain their characteristic relief. Body locks and clothes stay unchanged by the new head finish.
+- **Wrap behind the fringe.** The crown and rear are sculpted in shared cuboid coordinates. Large loose locks cross adjoining faces; the rear crown corners step inward. The front mask, front shading, eye positions, length and dye remain the same for the same observation.
 - **Keep the display rules.** Fixed eyes, no nose, mouth, or eyewear. Hats retain their source paint priority; full coverings use their separate finish. Earlier renderer policy IDs remain replayable.
 - **No extra inference.** The web preference still survives retries and has its own versioned cache key. It is applied during the existing deterministic rendering pass after analysis.
 

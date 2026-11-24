@@ -7,7 +7,7 @@ import { lockedHairLight } from "./lockedHeadFinish";
 import { fixedHairMaterialPoint, fixedHairTone, photoMaterialRamp } from "./fixedMaterialPalette";
 import { classifyPhotoHair, photoHairTone, type PhotoDrapeCell, type PhotoHairProfile } from "./photoHairFinish";
 import { buildPhotoHeadGeometry } from "./photoHeadGeometry";
-import { hairTreatment, sculptStylizedHair, stylizedHairRamp, stylizedHairTone } from "./stylizedHairArt";
+import { hairTreatment, sculptStylizedHair, sculptWrappedHair, stylizedHairRamp, stylizedHairTone, wrappedHairTone } from "./stylizedHairArt";
 import { bytesToBase64, type RawImage } from "./png";
 import type { FaceStyle } from "./skinPack";
 import type { SkinPlan } from "./skinPlan";
@@ -18,19 +18,21 @@ export const PREVIOUS_NAMEMC_HEAD_FINISH = "namemc_6c13a4b6c3d74499_no_eyewear_v
 export const MATERIAL_NAMEMC_HEAD_FINISH = "namemc_6c13a4b6c3d74499_material_ramps_v3" as const;
 export const DRAPE_NAMEMC_HEAD_FINISH = "namemc_6c13a4b6c3d74499_photo_drape_v4" as const;
 export const ADAPTIVE_NAMEMC_HEAD_FINISH = "namemc_fixed_eyes_photo_hair_shape_v5" as const;
-export const NAMEMC_HEAD_FINISH = "namemc_fixed_eyes_stylized_photo_hair_v6" as const;
-export type NameMcFinishPolicy = typeof PREVIOUS_NAMEMC_HEAD_FINISH | typeof MATERIAL_NAMEMC_HEAD_FINISH | typeof DRAPE_NAMEMC_HEAD_FINISH | typeof ADAPTIVE_NAMEMC_HEAD_FINISH | typeof NAMEMC_HEAD_FINISH;
-export const usesAdaptiveHeadPolicy = (policy: NameMcFinishPolicy) => policy === NAMEMC_HEAD_FINISH || policy === ADAPTIVE_NAMEMC_HEAD_FINISH;
+export const STYLIZED_NAMEMC_HEAD_FINISH = "namemc_fixed_eyes_stylized_photo_hair_v6" as const;
+export const NAMEMC_HEAD_FINISH = "namemc_fixed_eyes_wrapped_hair_v7" as const;
+export type NameMcFinishPolicy = typeof PREVIOUS_NAMEMC_HEAD_FINISH | typeof MATERIAL_NAMEMC_HEAD_FINISH | typeof DRAPE_NAMEMC_HEAD_FINISH | typeof ADAPTIVE_NAMEMC_HEAD_FINISH | typeof STYLIZED_NAMEMC_HEAD_FINISH | typeof NAMEMC_HEAD_FINISH;
+export const usesAdaptiveHeadPolicy = (policy: NameMcFinishPolicy) => policy === NAMEMC_HEAD_FINISH || policy === STYLIZED_NAMEMC_HEAD_FINISH || policy === ADAPTIVE_NAMEMC_HEAD_FINISH;
 export const usesPhotoDrapePolicy = (policy: NameMcFinishPolicy) => usesAdaptiveHeadPolicy(policy) || policy === DRAPE_NAMEMC_HEAD_FINISH;
 export const isNameMcFinishPolicy = (policy: unknown): policy is NameMcFinishPolicy =>
-  policy === NAMEMC_HEAD_FINISH || policy === ADAPTIVE_NAMEMC_HEAD_FINISH || policy === DRAPE_NAMEMC_HEAD_FINISH
+  policy === NAMEMC_HEAD_FINISH || policy === STYLIZED_NAMEMC_HEAD_FINISH || policy === ADAPTIVE_NAMEMC_HEAD_FINISH || policy === DRAPE_NAMEMC_HEAD_FINISH
     || policy === MATERIAL_NAMEMC_HEAD_FINISH || policy === PREVIOUS_NAMEMC_HEAD_FINISH;
 
 const defaultGeometry = (style: FaceStyle, profile: PhotoHairProfile, drape: readonly PhotoDrapeCell[],
   policy: NameMcFinishPolicy, presentation: SkinPresentation = "source") => {
   if (!usesAdaptiveHeadPolicy(policy)) return undefined;
   const g = buildPhotoHeadGeometry(style, profile, "", drape);
-  return policy === NAMEMC_HEAD_FINISH ? sculptStylizedHair(g, profile, presentation) : g;
+  return policy === NAMEMC_HEAD_FINISH ? sculptWrappedHair(g, profile, presentation)
+    : policy === STYLIZED_NAMEMC_HEAD_FINISH ? sculptStylizedHair(g, profile, presentation) : g;
 };
 const full = Array<string>(8).fill("########"), empty = Array<string>(8).fill("........");
 export const NAMEMC_HEAD_HAIR = {
@@ -128,7 +130,8 @@ export function applyNameMcHead(input: RawImage, garment: RawImage, source: Skin
   const hair = rgb(style.hairColor, [39, 32, 30]);
   const hairRamp = photoMaterialRamp(geometry?.cut === "buzz" ? mix(hair, skin, .34) : hair, "hair");
   const masks = geometry ?? NAMEMC_HEAD_HAIR;
-  const cut = policy === NAMEMC_HEAD_FINISH ? geometry?.cut : undefined;
+  const cut = policy === NAMEMC_HEAD_FINISH || policy === STYLIZED_NAMEMC_HEAD_FINISH ? geometry?.cut : undefined;
+  const hairTone = policy === NAMEMC_HEAD_FINISH ? wrappedHairTone : stylizedHairTone;
   const treatment = cut && hairTreatment(cut, profile, presentation);
   const headRamp = treatment && cut !== "buzz" ? stylizedHairRamp(hair, treatment) : hairRamp;
   const iris = rgb(style.eyeColor, [67, 45, 37]);
@@ -138,7 +141,7 @@ export function applyNameMcHead(input: RawImage, garment: RawImage, source: Skin
     const point = fixedHairMaterialPoint(part, face, x, y);
     if (usesPhotoDrapePolicy(policy)) {
       const tone = photoHairTone(point, style, profile, raised);
-      return part === "head" && cut && treatment ? headRamp[stylizedHairTone(point, cut, profile, treatment, raised, tone)] : hairRamp[tone];
+      return part === "head" && cut && treatment ? headRamp[hairTone(point, cut, profile, treatment, raised, tone)] : hairRamp[tone];
     }
     if (policy === MATERIAL_NAMEMC_HEAD_FINISH) return hairRamp[fixedHairTone(point, style, raised)];
     const shade = lockedHairLight({ face, x, y: part === "body" ? y + 7 : y, raised }, style) * (raised ? .57 : .46) + (raised ? 5 : 0);

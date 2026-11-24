@@ -17,6 +17,7 @@ import type { LockedHeadFinishPolicy } from "./lockedHeadFinish";
 import type { NameMcFinishPolicy } from "./namemcHeadTemplate";
 import type { COVERED_HEAD_FINISH } from "./coveredHeadFinish";
 import type { PUBLIC_CLOTH_POLICY } from "./publicClothFinish";
+import type { PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
 
 export interface ReferencePrimarySummary {
   version: "reference_primary_v1";
@@ -31,6 +32,7 @@ export interface ReferencePrimarySummary {
   craftValidation: "pass";
   headFinish?: { policy: LockedHeadFinishPolicy | NameMcFinishPolicy | typeof COVERED_HEAD_FINISH; presentation: SkinPresentation };
   garmentFinish?: typeof PUBLIC_CLOTH_POLICY;
+  legwearFinish?: typeof PUBLIC_LEGWEAR_POLICY;
   constraints?: ReferenceConstraintResult;
   metrics?: ReferenceRenderedQuality["metrics"];
   preservedReason?: "unresolved_complex_head_grammar";
