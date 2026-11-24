@@ -1,8 +1,12 @@
 import { CLASSIC_LAYOUT as L, type BodyPart } from "../../shared/skinLayout";
 import {
   analyzeHair,
+  applyFixedHairTint,
+  FIXED_HAIR_FINISHES,
   HAIR_FINISHES,
   preserveDrapedHair,
+  preserveFixedTorsoHair,
+  readFixedHairMask,
   varyOriginalHair,
   type VariationHints,
 } from "./hairVariations";
@@ -54,6 +58,7 @@ export function createSkinVariations(
   check(original);
   check(current);
   const analysis = analyzeHair(original, hints);
+  const fixedHairMask = readFixedHairMask(hints.fixedHairMask);
   const initial = (): SkinVariation[] => [
     {
       id: "current",
@@ -71,7 +76,9 @@ export function createSkinVariations(
   return {
     head: [
       ...initial(),
-      ...HAIR_FINISHES.map(({ id, label, description }) => {
+      ...(fixedHairMask ? FIXED_HAIR_FINISHES.map(({ id, label, tint }) => ({
+        id, label, pixels: applyFixedHairTint(original, current, fixedHairMask, tint),
+      })) : HAIR_FINISHES.map(({ id, label, description }) => {
         const pixels = varyOriginalHair(original, id, analysis);
         const changesVolume = analysis.nodes.some(
           (n) => n.layer === "overlay" && pixels[n.i + 3] !== original[n.i + 3],
@@ -104,13 +111,14 @@ export function createSkinVariations(
               ? "This region is already near its volume limit."
               : undefined),
         };
-      }),
+      })),
     ],
     upper: [
       ...initial(),
       ...TOP_STYLES.map((style) => {
         const pixels = makeWardrobe(original, "upper", style, analysis.skin);
-        preserveDrapedHair(pixels, original, analysis);
+        if (fixedHairMask) preserveFixedTorsoHair(pixels, original, fixedHairMask);
+        else preserveDrapedHair(pixels, original, analysis);
         return { ...style, pixels };
       }),
     ],

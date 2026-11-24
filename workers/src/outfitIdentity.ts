@@ -766,10 +766,15 @@ function baseOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
   // Match the existing FaceStyle pullover policy, but only for a visible,
   // unambiguous standalone garment. Explicit sleeve evidence still wins.
   const impliedLongSleeves = sweatshirt || (garmentType === "hoodie" && observedStandalonePullover(analysis, "hoodie"));
-  const sleeveBase = impliedLongSleeves ? "long" : analysis.fallbackFeatures.sleeveLength;
+  // The compact fallback can mistake a visible inner tee for the sleeve
+  // owner. A positively observed zip hoodie owns the arms even when layered.
+  // Use this as a completion prior only; an explicit short/rolled cut wins.
+  const zipHoodieSleeves = analysis.visibleRegions.upperBody && garmentType === "hoodie"
+    && /\b(?:zip(?:ped|per)?(?:[- ]up)?[- ](?:hoodie|hooded sweatshirt)|(?:hoodie|hooded sweatshirt)\b[^.;]{0,40}\bzipper)\b/.test(observedClothing);
+  const sleeveBase = impliedLongSleeves || zipHoodieSleeves ? "long" : analysis.fallbackFeatures.sleeveLength;
   const leftLength = sleeveLength(sleeveBase, upperText, "left");
   const rightLength = sleeveLength(sleeveBase, upperText, "right");
-  const sleeveEvidence: OutfitEvidence = impliedLongSleeves && !/\bsleeveless\b|\bsleeve(?:d|s)?\b/.test(upperText)
+  const sleeveEvidence: OutfitEvidence = (impliedLongSleeves || zipHoodieSleeves) && !/\bsleeveless\b|\bsleeve(?:d|s)?\b/.test(upperText)
     ? "strongly_implied" : analysis.visibleRegions.upperBody ? "observed" : "conservative";
   const contrastingSleeves = /\b(?:contrasting|contrast|raglan|two[- ]tone) sleeves?\b/.test(text);
   const leftSleeveColor = contrastingSleeves || /\bleft sleeve[^.]{0,24}(?:contrasting|accent)\b/.test(text) ? accentColor : topColor;
@@ -1397,6 +1402,25 @@ export function buildOutfitPlanCandidates(analysis: PhotoAnalysis, maxCandidates
 
 export function buildOutfitPlan(analysis: PhotoAnalysis): OutfitPlan {
   return buildOutfitPlanCandidates(analysis, 3)[0];
+}
+
+/** Public length projection: only a descriptor attached to the skirt or dress
+ * can extend its hem. Keep the old interpretation available for audit replay. */
+export function scopeOutfitLength(plan: OutfitPlan, analysis: PhotoAnalysis): OutfitPlan {
+  const kind = plan.lower.garmentType;
+  if (kind !== "skirt" && kind !== "dress_continuation") return plan;
+  const noun = kind === "skirt" ? "(?:skirt|skort)" : "dress";
+  const observed = (kind === "dress_continuation" && analysis.visibleRegions.upperBody) || analysis.visibleRegions.lowerBody;
+  const observation = observed
+    ? analysis.observed.clothing : analysis.inferred.lowerBody?.value ?? "";
+  const scoped = garmentEvidence(observation.toLowerCase(), kind === "skirt" ? "skirt|skort" : "dress");
+  const allow = !/\b(?:no|not|maybe|unknown|possibly|uncertain|occluded)\b/.test(scoped);
+  const attached = new RegExp(`\\b(?:long|maxi|floor[- ]length|ankle[- ]length)(?:\\s+(?!(?:sleeves?|and|with|over|under)\\b)[\\w-]+){0,3}\\s+${noun}\\b`);
+  const after = new RegExp(`\\b${noun}\\s+(?:(?:hem|is|reaches|falls|extends|ends|hits|down|to|at|the|a)\\s+){1,6}(?:long|maxi|floor|ankles?|ankle[- ]length|floor[- ]length)\\b`);
+  const garmentRows = allow && (attached.test(scoped) || after.test(scoped)) ? 9 : kind === "skirt" ? 3 : 5;
+  if (garmentRows === plan.lower.garmentRows) return plan;
+  return { ...plan, lower: { ...plan.lower, garmentRows,
+    skinExposureRows: Math.max(0, 12 - garmentRows - plan.lower.shoeRows) } };
 }
 
 export function outfitPlanSignature(plan: OutfitPlan): string {

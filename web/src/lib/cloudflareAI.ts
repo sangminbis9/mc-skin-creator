@@ -4,6 +4,7 @@
  */
 
 import { normalizeFeatures, type GenerateResponse, type QuotaStatus } from "./skinFeatures";
+import { generationReuseKey, isGenerationReuseKey, type SkinPresentation } from "./skinPresentation";
 
 export const DEFAULT_API_BASE_URL = "";
 const API_BASE = (
@@ -15,7 +16,7 @@ const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
 // Never persist photographs, requests, or analysis. Bump revision with a new
 // presentation release; expiry also bounds reuse across Worker-only releases.
 const completedGenerations = new Map<string, { expires: number; result: GenerateResponse }>();
-const REUSE_KEY = "skin-studio-web:completed:headwear-20261019-v1";
+const REUSE_KEY = "skin-studio-web:completed:cloth-v22";
 let reuseLoaded = false;
 
 function loadCompletedGenerations(): void {
@@ -29,7 +30,7 @@ function loadCompletedGenerations(): void {
     for (const item of entries) {
       if (!item || typeof item !== "object") continue;
       const { key, expires, png, features, mode } = item;
-      if (typeof key !== "string" || !/^[a-f0-9]{64}(?::[a-f0-9]{64}){1,5}$/.test(key)
+      if (typeof key !== "string" || !isGenerationReuseKey(key)
         || typeof expires !== "number" || expires <= Date.now() || expires > Date.now() + 86_400_000
         || typeof png !== "string" || !isSkinPngHeader(png)
         || (mode !== "procedural_fallback" && mode !== "image")) continue;
@@ -63,13 +64,14 @@ export async function requestSkinGeneration(
   imageDataUrl: string,
   analysisImageDataUrl?: string,
   referenceImageDataUrls: string[] = [],
+  presentation: SkinPresentation = "source",
 ): Promise<GenerateResponse> {
   // React StrictMode remounts effects during local development. Share the same
   // in-flight request without retaining the full private photo in a Map key.
   const values = [imageDataUrl, analysisImageDataUrl ?? "", ...referenceImageDataUrls];
   if (referenceImageDataUrls.length > 4 || values.some(v => v.length > 1_500_000))
     throw new ApiError("사진 크기나 개수를 확인해 주세요", "bad_request");
-  const requestKey = (await Promise.all(values.map(dataFingerprint))).join(":");
+  const requestKey = generationReuseKey(presentation, await Promise.all(values.map(dataFingerprint)));
   loadCompletedGenerations();
   for (const [key, entry] of completedGenerations) if (entry.expires <= Date.now()) completedGenerations.delete(key);
   const completed = completedGenerations.get(requestKey);
@@ -83,6 +85,7 @@ export async function requestSkinGeneration(
     imageDataUrl,
     analysisImageDataUrl,
     referenceImageDataUrls,
+    presentation,
   );
   inFlightGenerations.set(requestKey, request);
   const clearRequest = () => {
@@ -110,8 +113,9 @@ async function dataFingerprint(value: string): Promise<string> {
 
 async function performSkinGeneration(
   imageDataUrl: string,
-  analysisImageDataUrl?: string,
-  referenceImageDataUrls: string[] = [],
+  analysisImageDataUrl: string | undefined,
+  referenceImageDataUrls: string[],
+  presentation: SkinPresentation,
 ): Promise<GenerateResponse> {
   const images = [imageDataUrl, ...(analysisImageDataUrl ? [analysisImageDataUrl] : []), ...referenceImageDataUrls];
   if (referenceImageDataUrls.length > 4 || images.some(image => !image.startsWith("data:image/") || image.length > 1_500_000)) {
@@ -138,6 +142,7 @@ async function performSkinGeneration(
       cache: "no-store",
       body: JSON.stringify({
         image: imageDataUrl,
+        presentation,
         ...(analysisImageDataUrl ? { analysisImage: analysisImageDataUrl } : {}),
         ...(referenceImageDataUrls.length > 0
           ? { referenceImages: referenceImageDataUrls.slice(0, 4) }

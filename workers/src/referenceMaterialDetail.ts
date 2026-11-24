@@ -5,7 +5,7 @@ import type { BoxUV } from "./uvLayout";
 import type { FaceStyle } from "./skinPack";
 
 type Rgb = [number, number, number];
-export type HairMaterialPolicy = "clustered_material_v1" | "tapered_material_v2" | "flow_locks_v3" | "continuous_locks_v4";
+export type HairMaterialPolicy = "clustered_material_v1" | "tapered_material_v2" | "flow_locks_v3" | "continuous_locks_v4" | "seam_swept_locks_v5";
 export function headMaterialPoint(face: keyof BoxUV, x: number, y: number): [number, number, number] {
   switch (face) {
     case "front": return [x, y, 0];
@@ -32,6 +32,23 @@ export function referenceHairMaterial(color: Rgb, face: keyof BoxUV, x: number, 
   // Broad bands, not isolated salt-and-pepper highlights. The same function
   // shades top/front/profile/nape and both layers without changing occupancy.
   const rootShadow = v === 0 && Math.abs(u - root) < 1;
+  if (policy === "seam_swept_locks_v5") {
+    // The ridge flows away from the real part and fades at the ends. Using a
+    // cuboid point rather than UV x/y keeps its color continuous at each seam.
+    const wave = style.hairTexture === "wavy" ? [0, 0, 1, 1, 1, 0, -1, -1][v % 8] : 0;
+    const handed = style.hairPart === "left" ? -1 : style.hairPart === "right" ? 1 : 0;
+    const flow = Math.floor(Math.abs(u - root) + z * 0.48 + wave + handed * Math.floor(v / 3) + 16);
+    const lane = flow % 6, group = Math.floor(flow / 6);
+    const height = v > 7 ? (v - 8) % 8 : v;
+    const ridgeStart = 1 + group % 2;
+    const ridge = (lane === 1 || lane === 2) && height >= ridgeStart && height <= ridgeStart + 2;
+    const shoulder = (lane === 1 || lane === 2) && height === ridgeStart + 3;
+    const factor = rootShadow ? .80 : lane === 0 ? .85 : ridge ? 1.10 : shoulder ? 1.03 : lane === 5 ? .92 : .98;
+    // Near-black strands need additive reflection to remain readable at 8px;
+    // lighter pigments keep their hue and do not get a white stripe.
+    const reflection = ridge ? Math.max(0, 21 - Math.max(...color) * .085) : shoulder ? 3 : 0;
+    return color.map(c => Math.max(0, Math.min(255, Math.round(c * factor + reflection + (outer ? 2 : 0))))) as Rgb;
+  }
   if (policy === "flow_locks_v3" || policy === "continuous_locks_v4") {
     // A broad two-pixel lock turns gently with observed waves. Bounded mid-
     // length reflection leaves a shadowed root and tip instead of equal-width
@@ -74,8 +91,8 @@ export function referenceHairMaterial(color: Rgb, face: keyof BoxUV, x: number, 
  * decides whether a lock exists or how long it is. Braids retain their own
  * interlacing grammar and are not routed through this loose-hair function. */
 export function referenceLooseHairMaterial(color: Rgb, p: {face: "front" | "back"; x: number; y: number; shade: number},
-  style: Pick<FaceStyle, "hairPart" | "hairTexture">, clustered: boolean | HairMaterialPolicy): Rgb {
-  const material = clustered ? referenceHairMaterial(color, p.face, p.x, 7 + p.y, style, false,
+  style: Pick<FaceStyle, "hairPart" | "hairTexture">, clustered: boolean | HairMaterialPolicy, raised = false): Rgb {
+  const material = clustered ? referenceHairMaterial(color, p.face, p.x, 7 + p.y, style, raised,
     typeof clustered === "string" ? clustered : "clustered_material_v1") : color;
   return material.map(c => Math.min(255, Math.round(c * p.shade))) as Rgb;
 }

@@ -11,6 +11,7 @@ import { decodeSkinPng } from "./lib/skinDecode";
 import type { PreparedPhotoUpload } from "./lib/imageQuality";
 import type { SkinGeometry } from "./lib/skinAtlas";
 import type { QuotaStatus } from "./lib/skinFeatures";
+import type { SkinPresentation } from "./lib/skinPresentation";
 import { ProductPage } from "./pages/ProductPage";
 import { demoHints, loadDemoSkin } from "./lib/demoSkin";
 import { ApplyGuidePage } from "./pages/ApplyGuidePage";
@@ -67,6 +68,7 @@ function App() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [skinGeometry, setSkinGeometry] = useState<SkinGeometry>("classic");
   const [isSample, setIsSample] = useState(false);
+  const [presentation, setPresentation] = useState<SkinPresentation>("source");
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -103,6 +105,7 @@ function App() {
     setRetryCount(0);
     setCapturedImage(null);
     setSkinGeometry("classic");
+    setPresentation("source");
     setStep("upload");
   };
 
@@ -134,6 +137,8 @@ function App() {
       {step === "quality" && photo && (
         <QualityCheckPage
           photoDataUrl={photo.analysisDataUrl}
+          presentation={presentation}
+          onPresentationChange={setPresentation}
           onContinue={() => setStep("generating")}
           onReselect={resetToUpload}
         />
@@ -142,6 +147,7 @@ function App() {
       {step === "generating" && photo && (
         <GeneratingPage
           photoDataUrl={photo.generationDataUrl}
+          presentation={presentation}
           analysisPhotoDataUrl={photo.analysisDataUrl}
           referencePhotoDataUrls={photos
             .slice(1)

@@ -5,10 +5,57 @@ import {
 } from "../../shared/skinLayout";
 
 export interface VariationHints {
+  fixedHairMask?: string;
   hairColor?: string;
   skinTone?: string;
   hat?: string;
   hairstyle?: string;
+}
+
+export const FIXED_HAIR_FINISHES = [
+  { id: "fixed-soft", label: "은은한 결", tint: [14, 13, 12] },
+  { id: "fixed-defined", label: "선명한 명암", tint: [-13, -12, -10] },
+  { id: "fixed-warm", label: "따뜻한 광택", tint: [20, 9, 1] },
+  { id: "fixed-cool", label: "차가운 광택", tint: [1, 9, 20] },
+] as const;
+
+export function readFixedHairMask(encoded?: string): Uint8Array | null {
+  if (!encoded || !/^[A-Za-z0-9+/]{683}=$/.test(encoded)) return null;
+  try { return Uint8Array.from(atob(encoded), c => c.charCodeAt(0)); }
+  catch { return null; }
+}
+
+function fixedHairAt(mask: Uint8Array, offset: number): boolean {
+  const i = offset / 4;
+  return (mask[i >> 3] & (1 << (i % 8))) !== 0;
+}
+
+/** Colour-only relief: base strands, eyes, alpha and manual non-hair edits stay put. */
+export function applyFixedHairTint(original: Uint8ClampedArray, current: Uint8ClampedArray,
+  mask: Uint8Array, tint: readonly number[]): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(current);
+  for (const r of Object.values(L.head.overlay)) {
+    for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+      const i = ((r.y + y) * 64 + r.x + x) * 4;
+      if (!fixedHairAt(mask, i) || original[i + 3] !== 255 || current[i + 3] !== 255) continue;
+      // Taper at face seams and the neck transition; don't replace the dye.
+      const strength = x === 0 || y === 0 || x === r.w - 1 || y === r.h - 1 ? .55 : 1;
+      for (let c = 0; c < 3; c++) out[i + c] = original[i + c] + tint[c] * strength;
+    }
+  }
+  return out;
+}
+
+/** Wardrobe clothes must neither erase a lock nor cover its transparent relief. */
+export function preserveFixedTorsoHair(target: Uint8ClampedArray, original: Uint8ClampedArray, mask: Uint8Array): void {
+  for (const face of Object.keys(L.body.base) as (keyof BoxUV)[]) {
+    const a = L.body.base[face], b = L.body.overlay[face];
+    for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) {
+      const base = ((a.y + y) * 64 + a.x + x) * 4, overlay = ((b.y + y) * 64 + b.x + x) * 4;
+      if (fixedHairAt(mask, base)) target.set(original.subarray(base, base + 4), base);
+      if (fixedHairAt(mask, base) || fixedHairAt(mask, overlay)) target.set(original.subarray(overlay, overlay + 4), overlay);
+    }
+  }
 }
 export const HAIR_FINISHES = [
   {

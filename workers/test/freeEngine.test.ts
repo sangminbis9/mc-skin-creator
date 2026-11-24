@@ -11,6 +11,11 @@ import { fallbackFeaturesToHex, refineFeatureColorsFromAnalysis } from "../src/g
 import { makeAnalysis } from "./helpers";
 import { validatePhotoAnalysis } from "../src/analysis";
 import { GENERATION_OBSERVER } from "../src/generationObservation";
+import { CLASSIC_LAYOUT } from "../src/uvLayout";
+import { validateGemmaNamedPhotoAnalysis } from "../src/gemmaPhotoAnalysis";
+import { renderSkinViews, scaleNearestNeighbor } from "../src/skinRender";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 afterEach(() => vi.restoreAllMocks());
 
 it("carries the observed dress color into its skirt when no separate color is given", () => {
@@ -64,6 +69,67 @@ it("renders the observed hoodie color instead of a conflicting fallback color", 
   expect(red).toBeGreaterThan(120);
   expect(Math.abs(red - blue)).toBeLessThan(25);
 });
+
+it("keeps the fixed fringe and eyes but follows the observed chest-length drape with one free analysis", async () => {
+  const s = await setup();
+  const photo = semanticFixture("plain");
+  photo.observed.hair = "Long dark brown wavy hair. Wispy bangs reach the eyebrows with skin between the strands. Hair lies over the front of the gray hoodie on both sides to the chest.";
+  photo.observed.accessories = "No visible accessories.";
+  photo.observed.clothing = "Light gray zip hoodie with dark lettering.";
+  photo.identityPrompt = "Round face with dark brown wavy hair and fine bangs.";
+  photo.inferred.hairBack = { value: "Long wavy back hair", rationale: "Matches the visible long hair." };
+  photo.canonicalIdentity = {
+    overallImpression: "Round face with brow-length wispy bangs, dark wavy locks and a light gray zip hoodie.",
+    mustPreserve: ["visible wispy bangs", "long front locks", "light gray hoodie"],
+    features: [
+      { feature: "wispy bangs", evidence: "Separate thin bangs over the forehead.", category: "hair", confidence: "high", priority: 5, targetRegions: ["head.front"] },
+      { feature: "long wavy front locks", evidence: "Hair lies over the front of the hoodie on both sides to the chest.", category: "hair", confidence: "high", priority: 5, targetRegions: ["head.front", "torso.front"] },
+      { feature: "round face", evidence: "The jaw is rounded.", category: "face", confidence: "high", priority: 4, targetRegions: ["head.front"] },
+      { feature: "gray hoodie", evidence: "A light gray zipped hooded sweatshirt.", category: "outfit", confidence: "high", priority: 4, targetRegions: ["torso.front"] },
+    ],
+  };
+  Object.assign(photo.fallbackFeatures, { hairColor: "dark-brown", hairstyle: "long", glasses: "none", topType: "hoodie", topColor: "gray" });
+  Object.assign(photo.renderHints, { bangs: "none", bangsLength: "none", bangsDensity: "balanced", fringeOpening: "center",
+    hairTexture: "wavy", overallHairLength: "chest", hairBackShape: "long", sideHairLength: "jaw" });
+  const payload = namedGemmaFixture(wireFixture(photo));
+  expect(validateGemmaNamedPhotoAnalysis(payload)).toEqual([]);
+  s.run.mockResolvedValue({ choices: [{ message: { content: JSON.stringify(payload) } }],
+    usage: { prompt_tokens: 9000, completion_tokens: 3000 } });
+
+  const result = await generateFreeSkin(s.env, { image: s.image });
+  expect(result.success, result.body.errorCode).toBe(true);
+  expect(s.run).toHaveBeenCalledOnce();
+  expect(JSON.stringify(s.run.mock.calls[0][1])).toContain("front garment overlap");
+  const atlas = await decodePng(base64ToBytes(result.body.skinPngBase64!));
+  expect(validateFinalAtlas(atlas).ok).toBe(true);
+  const pixel = (rect: { x: number; y: number }, x: number, y: number) => {
+    const i = ((rect.y + y) * 64 + rect.x + x) * 4;
+    return atlas.rgba.slice(i, i + 4);
+  };
+  const head = CLASSIC_LAYOUT.head;
+  const fringe = Array.from({ length: 6 }, (_, i) => pixel(head.base.front, i + 1, 2)[0]);
+  expect(fringe.some(red => red < 110)).toBe(true);
+  expect(fringe.some(red => red > 150)).toBe(true);
+  for (const [x, outerX] of [[2, 1], [5, 6]]) {
+    expect(pixel(head.overlay.front, x, 5)[3]).toBe(0);
+    expect(pixel(head.base.front, x, 5)[0]).toBeLessThan(110);
+    expect(pixel(head.base.front, outerX, 5)[0]).toBeGreaterThan(180);
+    expect(pixel(head.base.front, outerX, 6)[0]).toBeGreaterThan(230);
+  }
+  expect(pixel(head.overlay.front, 4, 5)[3]).toBe(0);
+  expect(result.body.features?.fixedHairMask).toMatch(/^[A-Za-z0-9+/]{683}=$/);
+  const body = CLASSIC_LAYOUT.body.base.front;
+  for (const x of [0, 7]) {
+    expect(pixel(body, x, 0)[0]).toBeLessThan(110);
+    expect(pixel(CLASSIC_LAYOUT.body.overlay.front, x, 0)[3]).toBe(0);
+    expect(pixel(body, x, 6)[0]).toBeLessThan(110);
+  }
+  expect(pixel(body, 3, 0)[0]).toBeGreaterThan(125);
+  expect(pixel(body, 3, 6)[0]).toBeGreaterThan(125);
+  for (const x of [0, 7]) expect(pixel(body, x, 11)[0]).toBeGreaterThan(110);
+  for (const x of [1, 6]) expect(pixel(CLASSIC_LAYOUT.body.overlay.front, x, 2)[3]).toBe(255);
+});
+
 async function setup() {
   const image = `data:image/png;base64,${bytesToBase64(await encodePng(makeSyntheticAtlas(64)))}`;
   const state = newBudgetState(new Date().toISOString().slice(0, 10));
@@ -104,6 +170,62 @@ it("blocks oversize/malformed input and requires an AI binding", async () => {
   expect((await generateFreeSkin({ ...s.env, AI: undefined }, { image: s.image })).status).toBe(503);
   expect(s.run).not.toHaveBeenCalled();
 });
+it("honors both selected avatar finishes on the same observation without image generation or extra calls", async () => {
+  const s = await setup();
+  const observation = semanticFixture("plain");
+  observation.observed.accessories = "none";
+  observation.observed.face = "soft oval face with visible dark eyes and a small closed mouth";
+  observation.canonicalIdentity.features = observation.canonicalIdentity.features.map(f => f.category !== "accessory" ? f : ({
+    ...f, category: "face", feature: "dark readable eyes", evidence: "both eyes are visible", targetRegions: ["head.front"],
+  }));
+  observation.canonicalIdentity.overallImpression = "Oval warm face with short side-swept dark hair and a closed mouth.";
+  observation.canonicalIdentity.mustPreserve = observation.canonicalIdentity.mustPreserve.filter(f => !f.includes("glasses"));
+  observation.fallbackFeatures.glasses = "none";
+  observation.fallbackFeatures.expression = "neutral";
+  observation.renderHints.mouthShape = "small";
+  observation.renderHints.mouthOpening = "closed";
+  const providerObservation = namedGemmaFixture(wireFixture(observation));
+  expect(validateGemmaNamedPhotoAnalysis(providerObservation)).toEqual([]);
+  s.run.mockImplementation(async () => ({ choices: [{ message: { content: JSON.stringify(providerObservation) } }],
+    usage: { prompt_tokens: 9000, completion_tokens: 3000 } }));
+  const env = { ...s.env, FREE_IMAGE_GENERATION_ENABLED: "true" };
+  const results = await Promise.all((["feminine", "masculine", "source"] as const).map(presentation =>
+    generateFreeSkin(env, { image: s.image, presentation })));
+  const atlases = await Promise.all(results.map(result => {
+    expect(result).toMatchObject({ success: true, body: { generationMode: "procedural_fallback" } });
+    return decodePng(base64ToBytes(result.body.skinPngBase64!));
+  }));
+  expect(atlases.every(a => validateFinalAtlas(a).ok)).toBe(true);
+  expect(atlases[0].rgba).not.toEqual(atlases[1].rgba);
+  // Full atlas difference alone would pass even if only the hair or outfit
+  // changed. Verify real face changes and identical garment pixels.
+  const front = CLASSIC_LAYOUT.head.base.front;
+  const texel = (a: typeof atlases[number], x: number, y: number) => a.rgba.slice((y * 64 + x) * 4, (y * 64 + x) * 4 + 4);
+  let facialDifferences = 0;
+  for (let y = 3; y < 8; y++) for (let x = 1; x < 7; x++) {
+    if (texel(atlases[0], front.x + x, front.y + y).some((v, i) => v !== texel(atlases[1], front.x + x, front.y + y)[i])) facialDifferences++;
+  }
+  expect(facialDifferences).toBeGreaterThan(0);
+  expect(atlases[0].rgba.slice(16 * 64 * 4)).toEqual(atlases[1].rgba.slice(16 * 64 * 4));
+  const { fixedHairMask: feminineMask, ...feminineFeatures } = results[0].body.features!;
+  const { fixedHairMask: masculineMask, ...masculineFeatures } = results[1].body.features!;
+  expect(feminineFeatures).toEqual(masculineFeatures);
+  expect(feminineMask).toMatch(/^[A-Za-z0-9+/]{683}=$/);
+  expect(masculineMask).toMatch(/^[A-Za-z0-9+/]{683}=$/);
+  expect(feminineMask).not.toBe(masculineMask);
+  expect(s.run.mock.calls.map(call => call[0])).toEqual([FREE_VISION_MODEL, FREE_VISION_MODEL, FREE_VISION_MODEL]);
+  const output = process.env.SKIN_PRESENTATION_ARTIFACT_DIR;
+  if (output) {
+    const fronts = atlases.map(a => renderSkinViews(a).find(v => v.name === "front")!.image);
+    const { width, height } = fronts[0];
+    const comparison = { width: width * 2, height, rgba: new Uint8Array(width * 2 * height * 4) };
+    for (let y = 0; y < height; y++) fronts.forEach((p, i) => {
+      comparison.rgba.set(p.rgba.subarray(y * width * 4, (y + 1) * width * 4), (2 * y + i) * width * 4);
+    });
+    const png = await encodePng(scaleNearestNeighbor(comparison, comparison.width * 5, comparison.height * 5));
+    await writeFile(join(output, "skin-finish-comparison.png"), png);
+  }
+}, 30_000);
 it("rejects a direct paid-image helper invocation under the free policy", async () => {
   const s = await setup(), net = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not dispatch"));
   await expect(generateGeminiImage({ ...s.env, AI_POLICY: "workers_free_only" }, {

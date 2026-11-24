@@ -4,8 +4,9 @@ import { FREE_VISION_MODEL, MAX_FREE_OUTPUT_TOKENS, MAX_IMAGE_ATTEMPTS, MAX_IMAG
 import { WorkersAiImageProvider, type SkinGenerationProvider } from "./skinProvider";
 import type { Env, QuotaStatus } from "./types";
 import { validVisionImage } from "./visionInput";
+import { isSkinPresentation, type SkinPresentation } from "./referenceStyleTemplates";
 
-export interface SkinEngineRequest { image: string; analysisImage?: string; referenceImages?: string[] }
+export interface SkinEngineRequest { image: string; analysisImage?: string; referenceImages?: string[]; presentation?: SkinPresentation }
 
 export async function freeQuotaStatus(_env: Env, providerClosed = false): Promise<QuotaStatus> {
   const reset = new Date(); reset.setUTCHours(24, 0, 0, 0);
@@ -15,12 +16,17 @@ export async function freeQuotaStatus(_env: Env, providerClosed = false): Promis
 }
 
 export async function generateFreeSkin(env: Env, input: SkinEngineRequest): Promise<GenerateResult> {
+  if (input.presentation !== undefined && !isSkinPresentation(input.presentation))
+    return { success: false, status: 400, neuronsSpent: 0, body: { ok: false, errorCode: "bad_request", error: "지원하지 않는 스킨 스타일이에요" } };
   const images = [input.image, input.analysisImage ?? input.image, ...(input.referenceImages ?? [])];
   if ((input.referenceImages?.length ?? 0) > 4 || images.some(v => typeof v !== "string" || !validVisionImage(v)))
     return { success: false, status: 400, neuronsSpent: 0, body: { ok: false, errorCode: "bad_request", error: "축소된 JPEG 또는 PNG 사진을 사용해 주세요" } };
   if (!env.AI) return { success: false, status: 503, neuronsSpent: 0,
     body: { ok: false, errorCode: "provider_unavailable", error: "무료 생성 서비스 설정을 확인해 주세요" } };
-  const imageEnabled = env.FREE_IMAGE_GENERATION_ENABLED === "true";
+  // Only low-level image-provider probes may opt into a separate image pass.
+  // The public route always supplies a finish, including the default, and
+  // must use the locked, deterministic head instead of a redrawn face.
+  const imageEnabled = env.FREE_IMAGE_GENERATION_ENABLED === "true" && input.presentation === undefined;
   let dispatched = false, charged = 0, imageCalls = 0;
   const imageEnv = { ...env, ...(imageEnabled ? { MCSKIN_KV: { put: async () => undefined } as unknown as KVNamespace } : {}),
     WORKERS_IMAGE_MODEL: "@cf/black-forest-labs/flux-2-klein-4b",
@@ -31,7 +37,7 @@ export async function generateFreeSkin(env: Env, input: SkinEngineRequest): Prom
     imageCalls++;
     return workerImage.generate({ ...request, modelTier: "balanced" });
   } };
-  const result = await generateSkin({ ...imageEnv, AI_POLICY: "workers_free_only", WORKERS_VISION_MODEL: FREE_VISION_MODEL,
+  const result = await generateSkin({ ...imageEnv, FREE_IMAGE_GENERATION_ENABLED: String(imageEnabled), AI_POLICY: "workers_free_only", WORKERS_VISION_MODEL: FREE_VISION_MODEL,
     FREE_ANALYSIS_RUN: async wire => {
       if (dispatched || wire.max_completion_tokens !== MAX_FREE_OUTPUT_TOKENS) throw new Error("Free call policy rejected");
       dispatched = true;
@@ -46,7 +52,7 @@ export async function generateFreeSkin(env: Env, input: SkinEngineRequest): Prom
       charged = reportedGemmaNeurons(response) ?? 0;
       return response;
     },
-  }, input.image, imageEnabled ? imageProvider : undefined, input.analysisImage ?? input.image, input.referenceImages ?? []);
+  }, input.image, imageEnabled ? imageProvider : undefined, input.analysisImage ?? input.image, input.referenceImages ?? [], input.presentation ?? "source");
   const b = result.body;
   return { status: result.status, success: result.success, neuronsSpent: charged + imageCalls * MAX_IMAGE_CALL_NEURONS,
     body: { ok: b.ok, ...(b.quality ? { quality: b.quality } : {}), ...(b.features ? { features: b.features } : {}),

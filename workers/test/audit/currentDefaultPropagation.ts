@@ -10,7 +10,14 @@ import { normalizeAnalysisForRendering, refineFeatureColorsFromAnalysis, fallbac
   buildFaceStyle, buildProceduralSourceAtlas } from "../../src/generate";
 import { buildSkinPlan, type SkinPlan } from "../../src/skinPlan";
 import { renderReferencePrimaryAtlas } from "../../src/referencePrimaryRenderer";
-import { FACE_STYLE_TEMPLATES, HAIR_STYLE_TEMPLATES, OUTFIT_STYLE_TEMPLATES, buildReferenceStylePlan } from "../../src/referenceStyleTemplates";
+import { FACE_STYLE_TEMPLATES, HAIR_STYLE_TEMPLATES, OUTFIT_STYLE_TEMPLATES, buildReferenceStylePlan, isSkinPresentation } from "../../src/referenceStyleTemplates";
+import { applyLockedHeadFinish, LEGACY_LOCKED_HEAD_FINISH, LOCKED_HEAD_FINISH } from "../../src/lockedHeadFinish";
+import { isNameMcFinishPolicy, nameMcHairMask, usesAdaptiveHeadPolicy, usesNameMcHead, usesPhotoDrapePolicy } from "../../src/namemcHeadTemplate";
+import { buildPhotoDrape } from "../../src/photoHairFinish";
+import { photoHeadForRender, renderNameMcPresentation } from "../../src/skinEngine";
+import { applyCoveredHeadFinish, COVERED_HEAD_FINISH } from "../../src/coveredHeadFinish";
+import { applyPublicClothFinish, PUBLIC_CLOTH_POLICY } from "../../src/publicClothFinish";
+import { repairSkinIntegrity } from "../../../shared/skinIntegrity";
 import { composeReferenceStyleAtlas } from "../../src/referenceStyleRenderer";
 import { measureReferenceRenderedQuality } from "../../src/referenceStyleSelection";
 import { buildReferenceCraftPlan, validateReferenceAtlasCraft } from "../../src/referenceCraftPlan";
@@ -126,14 +133,22 @@ export async function captureCurrentDefaultPropagation(input: {
       const features = refineFeatureColorsFromAnalysis(a, fallbackFeaturesToHex(a.fallbackFeatures, a.renderHints.skinUndertone));
       const plan = buildSkinPlan({ ...a, fallbackFeatures: { ...a.fallbackFeatures,
         topColor: String(features.topColor), bottomColor: String(features.bottomColor),
-        topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } });
+        topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } }, reference.garmentFinish === PUBLIC_CLOTH_POLICY);
       mark("propagation_plan_finished");
       features.topColor = plan.outfitPlan.upper.baseColor;
       const { leftSleeve, rightSleeve } = plan.outfitPlan.upper;
       if (leftSleeve.length === rightSleeve.length && (leftSleeve.length === "long" || leftSleeve.length === "short")) features.sleeveLength = leftSleeve.length;
       mark("propagation_features_finished");
-      if (!summaryFields.every(k => same(a[k], summary[k])) || !same(plan, summary.skinPlan) || !same(features, input.body.features)) continue;
       const style = buildFaceStyle(a, features, plan.hairPlan);
+      const finish = object(reference.headFinish);
+      const nameMcPolicy = finish.policy;
+      if (isNameMcFinishPolicy(nameMcPolicy)) {
+        const drape = usesPhotoDrapePolicy(nameMcPolicy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(nameMcPolicy)) : [];
+        const presentation = finish.presentation === "feminine" || finish.presentation === "masculine" ? finish.presentation : "source";
+        features.fixedHairMask = nameMcHairMask(style, drape, nameMcPolicy,
+          usesAdaptiveHeadPolicy(nameMcPolicy) ? photoHeadForRender(style, a, drape, presentation, nameMcPolicy) : undefined);
+      }
+      if (!summaryFields.every(k => same(a[k], summary[k])) || !same(plan, summary.skinPlan) || !same(features, input.body.features)) continue;
       if (input.replayMode === "parameters_only") {
         // Audit-only bounded verification: exact observed normalization, plan
         // and features license these derived parameters, NOT an atlas claim.
@@ -154,12 +169,14 @@ export async function captureCurrentDefaultPropagation(input: {
       if (!source) continue;
       let chosen: ReturnType<typeof buildReferenceStylePlan> | undefined;
       let reproduced = source;
+      let execution: ReturnType<typeof composeReferenceStyleAtlas>["diagnostic"] | undefined;
+      const { headFinish: _finish, garmentFinish, ...referenceShape } = reference;
       let scope: "observed_design_atlas" | "preserved_source_atlas";
       if (plan.headIdentityPlan.ownership?.execution !== "resolved") {
         // This production branch has no candidate search. Preserve its entire
         // source-grammar contract, including the complete legacy craft check.
         const styled = renderReferencePrimaryAtlas(source, plan, a, style);
-        if (!styled.ok || !same(styled.summary, reference)) continue;
+        if (!styled.ok || !same(styled.summary, referenceShape)) continue;
         reproduced = styled.atlas; scope = "preserved_source_atlas";
       } else {
         const eligible = buildReferenceStylePlan(a);
@@ -183,7 +200,25 @@ export async function captureCurrentDefaultPropagation(input: {
           || !same(quality.metrics, reference.metrics) || !same(composition.diagnostic.constraints, reference.constraints)
           || !validateReferenceAtlasCraft(composition.atlas, source, plan, style,
             buildReferenceCraftPlan(plan, chosen, composition)).ok) continue;
-        reproduced = composition.atlas; scope = "observed_design_atlas";
+        reproduced = composition.atlas; execution = composition.diagnostic; scope = "observed_design_atlas";
+      }
+      if (_finish !== undefined) {
+        if ((finish.policy !== LOCKED_HEAD_FINISH && finish.policy !== LEGACY_LOCKED_HEAD_FINISH && !isNameMcFinishPolicy(finish.policy) && finish.policy !== COVERED_HEAD_FINISH)
+            || !isSkinPresentation(finish.presentation)) continue;
+        const repaired = repairSkinIntegrity(reproduced, source);
+        if (!repaired.report.valid) continue;
+        if (isNameMcFinishPolicy(finish.policy) && !usesNameMcHead(plan, style)) continue;
+        reproduced = isNameMcFinishPolicy(finish.policy) ? renderNameMcPresentation(repaired.atlas, plan, a, style, finish.presentation, chosen, finish.policy)
+          : finish.policy === COVERED_HEAD_FINISH ? applyCoveredHeadFinish(repaired.atlas, plan, style, finish.presentation, execution)
+          : applyLockedHeadFinish(repaired.atlas, plan, style, finish.presentation, execution, finish.policy);
+      }
+      if (garmentFinish !== undefined) {
+        if (garmentFinish !== PUBLIC_CLOTH_POLICY || finish.policy !== COVERED_HEAD_FINISH && !isNameMcFinishPolicy(finish.policy)) continue;
+        const nameMc = isNameMcFinishPolicy(finish.policy);
+        const design = chosen ?? (nameMc ? buildReferenceStylePlan(a) : undefined);
+        const drape = nameMc && usesPhotoDrapePolicy(finish.policy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(finish.policy)) : [];
+        applyPublicClothFinish(reproduced, plan, style.skinTone ?? "#d39e80", design?.garmentDetailPolicy ?? !!design?.materialDetailPolicy,
+          drape, nameMc ? undefined : execution?.surfaces);
       }
       if (reproduced.width !== atlas.width || reproduced.height !== atlas.height
         || reproduced.rgba.length !== atlas.rgba.length || !reproduced.rgba.every((v, i) => v === atlas.rgba[i])) continue;

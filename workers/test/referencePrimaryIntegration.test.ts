@@ -18,6 +18,12 @@ import { makeAnalysis, makeSyntheticAtlas } from "./helpers";
 import type { Env } from "../src/types";
 import { captureCurrentDefaultPropagation } from "./audit/currentDefaultPropagation";
 import { boundedProjection, digest } from "./audit/currentDefaultE2E";
+import { applyCoveredHeadFinish, COVERED_HEAD_FINISH } from "../src/coveredHeadFinish";
+import { nameMcHairMask, NAMEMC_HEAD_FINISH, usesNameMcHead } from "../src/namemcHeadTemplate";
+import { buildPhotoDrape } from "../src/photoHairFinish";
+import { photoHeadForRender, renderNameMcPresentation } from "../src/skinEngine";
+import { repairSkinIntegrity } from "../../shared/skinIntegrity";
+import { applyPublicClothFinish, PUBLIC_CLOTH_POLICY } from "../src/publicClothFinish";
 
 const hash = (v: Uint8Array | string) => createHash("sha256").update(v).digest("hex");
 function context(raw: primary.PhotoAnalysis) {
@@ -25,7 +31,7 @@ function context(raw: primary.PhotoAnalysis) {
   const features = refineFeatureColorsFromAnalysis(analysis, fallbackFeaturesToHex(analysis.fallbackFeatures, analysis.renderHints.skinUndertone));
   const source = buildSkinPlan({ ...analysis, fallbackFeatures: { ...analysis.fallbackFeatures,
     topColor: String(features.topColor), bottomColor: String(features.bottomColor),
-    topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } });
+    topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor) } }, true);
   features.topColor = source.outfitPlan.upper.baseColor;
   const { leftSleeve, rightSleeve } = source.outfitPlan.upper;
   if (leftSleeve.length === rightSleeve.length && (leftSleeve.length === "long" || leftSleeve.length === "short")) features.sleeveLength = leftSleeve.length;
@@ -55,14 +61,21 @@ describe("actual default primary -> reference-style PNG integration", () => {
         const expected = selectReferenceStyleAtlas(b.baseline, b.source, buildReferenceStylePlan(b.analysis), b.style).selected!;
         expect(expected, fixture.id).not.toBeNull();
         runPrimary.mockClear(); runPrimary.mockResolvedValue({ ok: true, analysis: raw, neuronsSpent: 123, attempts: 1 });
-        const bindings = env(), started = performance.now(), result = await generateSkin(bindings, image);
+        const bindings = env(), started = performance.now(), result = await generateSkin(bindings, image, undefined, image, [], "source");
         const localGenerationElapsedMs = Math.round((performance.now() - started) * 100) / 100;
         expect(result.status, fixture.id).toBe(200); expect(result.body.ok).toBe(true);
         expect(result.body.generationMode).toBe("procedural_fallback"); expect(result.body.fallbackReason).toBe("reliability_baseline");
         expect(result.neuronsSpent).toBe(123); expect(runPrimary).toHaveBeenCalledTimes(1);
         expect(bindings.AI!.run).not.toHaveBeenCalled(); expect(network).not.toHaveBeenCalled();
         const decoded = await decodePng(base64ToBytes(result.body.skinPngBase64!));
-        expect(decoded.rgba, `${fixture.id}: default must actually encode selected style, not the old baseline`).toEqual(expected.composition.atlas.rgba);
+        const selectedAtlas = repairSkinIntegrity(expected.composition.atlas, b.baseline).atlas;
+        const fixed = usesNameMcHead(b.source, b.style);
+        const finished = fixed ? renderNameMcPresentation(selectedAtlas, b.source, b.analysis, b.style, "source", expected.design)
+          : applyCoveredHeadFinish(selectedAtlas, b.source, b.style, "source", expected.composition.diagnostic);
+        const drape = buildPhotoDrape(b.source, b.analysis, b.style, true);
+        applyPublicClothFinish(finished, b.source, b.style.skinTone ?? "#d39e80", expected.design.garmentDetailPolicy ?? !!expected.design.materialDetailPolicy,
+          fixed ? drape : [], fixed ? [] : expected.composition.diagnostic.surfaces);
+        expect(decoded.rgba.every((v, i) => v === finished.rgba[i]), `${fixture.id}: wrong public finish`).toBe(true);
         expect(validateFinalAtlas(decoded).ok).toBe(true);
         expect(result.body.analysis!.skinPlan).toEqual(b.source);
         expect(hash(JSON.stringify(result.body.analysis!.skinPlan))).toBe(identity);
@@ -72,6 +85,10 @@ describe("actual default primary -> reference-style PNG integration", () => {
         expect(summary.craftValidation).toBe("pass"); expect(summary.sourceGeometryPreserved).toBe(true);
         expect(summary.constraints!.ok).toBe(true); expect(summary.renderAttempts).toBeLessThanOrEqual(27);
         expect(summary.design).toEqual(expected.design);
+        expect(summary.headFinish).toEqual({ policy: fixed ? NAMEMC_HEAD_FINISH : COVERED_HEAD_FINISH, presentation: "source" });
+        expect(summary.garmentFinish).toBe(PUBLIC_CLOTH_POLICY);
+        expect(result.body.features?.fixedHairMask).toBe(fixed ? nameMcHairMask(b.style, drape, NAMEMC_HEAD_FINISH,
+          photoHeadForRender(b.style, b.analysis, drape)) : undefined);
         const replay = await captureCurrentDefaultPropagation({ primary: raw, geometry: null,
           providerStage: "mocked_stored_validated_analysis", body: result.body,
           runId: "a".repeat(32), inputs: { analysisSha256: hash("offline-analysis"), generationSha256: hash("offline-generation") },
@@ -80,9 +97,9 @@ describe("actual default primary -> reference-style PNG integration", () => {
         expect(replay.replay, fixture.id).toMatchObject({ scope: "observed_design_atlas",
           rankingRecomputed: false, acceptedCandidateCountRecomputed: false, finalAtlasMatch: true });
         expect(replay.injectedParameters, fixture.id).not.toBeNull();
-        const craft = validateReferenceAtlasCraft(decoded, b.baseline, b.source, b.style, buildReferenceCraftPlan(b.source, expected.design, expected.composition));
+        const craft = validateReferenceAtlasCraft(expected.composition.atlas, b.baseline, b.source, b.style, buildReferenceCraftPlan(b.source, expected.design, expected.composition));
         expect(craft.ok, fixture.id).toBe(true); expect(validateAtlasCraft(b.baseline, b.style, undefined, undefined, b.source).ok).toBe(true);
-        const repeat = await generateSkin(bindings, image); // Local replay of the mocked stored result, NOT a provider retry.
+        const repeat = await generateSkin(bindings, image, undefined, image, [], "source"); // Local replay, NOT a provider retry.
         expect(repeat.body.skinPngBase64).toBe(result.body.skinPngBase64); expect(repeat.body.analysis).toEqual(result.body.analysis);
         expect(bindings.AI!.run).not.toHaveBeenCalled();
         writeFileSync(`${root}/${fixture.id}-default.png`, await encodePng(decoded), { flag: "wx" });

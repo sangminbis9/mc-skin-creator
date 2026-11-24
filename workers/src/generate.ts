@@ -4,6 +4,7 @@ import { observedStandaloneHoodedSweatshirt, observedStandaloneSweatshirt, obser
 import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
 import { unambiguousHairEndpointText } from "./hairEndpointEvidence";
 import { normalizeHeadwearObservation, observedHeadwearCategory } from "./observedHeadwear";
+import { observedFrontHairPlacement } from "./observedFrontHairDrape";
 /**
  * 사진 → 마인크래프트 스킨 생성 파이프라인.
  * 원본 사진은 이 요청 처리 동안만 메모리에 존재하며 어디에도 저장하지 않는다.
@@ -73,6 +74,7 @@ import { mergeTargetedAtlas } from "./skinCorrection";
 import { applyProceduralCritiqueCorrections } from "./proceduralCorrection";
 import { buildSkinPlan, type SkinPlan } from "./skinPlan";
 import type { ReferencePrimarySummary } from "./referencePrimaryRenderer";
+import type { SkinPresentation } from "./referenceStyleTemplates";
 import { renderSkinEngine } from "./skinEngine";
 import {
   buildSkinViewMontage,
@@ -115,7 +117,7 @@ async function primaryDiagnostic(env: Env, value: unknown): Promise<void> {
   () => new Error("Diagnostic deadline")).catch(() => undefined);
 }
 
-function primaryRenderContext(analysis: PhotoAnalysis) {
+function primaryRenderContext(analysis: PhotoAnalysis, publicGarment: boolean) {
   const renderAnalysis = normalizeAnalysisForRendering(analysis);
   const features = refineFeatureColorsFromAnalysis(renderAnalysis,
     fallbackFeaturesToHex(renderAnalysis.fallbackFeatures, renderAnalysis.renderHints.skinUndertone));
@@ -123,7 +125,7 @@ function primaryRenderContext(analysis: PhotoAnalysis) {
     ...renderAnalysis.fallbackFeatures,
     topColor: String(features.topColor), bottomColor: String(features.bottomColor),
     topAccentColor: String(features.topAccentColor), shoesColor: String(features.shoesColor),
-  } });
+  } }, publicGarment);
   // Return metadata for the garment that was actually rendered. The plan has
   // scoped garment evidence and may correct contradictory coarse AI colors.
   features.topColor = skinPlan.outfitPlan.upper.baseColor;
@@ -143,16 +145,16 @@ function primaryRenderContext(analysis: PhotoAnalysis) {
   return { renderAnalysis, skinPlan, features, summary, faceStyle: buildFaceStyle(renderAnalysis, features, skinPlan.hairPlan) };
 }
 
-async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number, mark: GenerationObserver, maxRenderAttempts?: number): Promise<GenerateResult> {
+async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: number, mark: GenerationObserver, maxRenderAttempts?: number, presentation?: SkinPresentation): Promise<GenerateResult> {
   mark("render_context_started");
-  const { renderAnalysis, skinPlan, features, summary, faceStyle } = primaryRenderContext(analysis);
+  const { renderAnalysis, skinPlan, features, summary, faceStyle } = primaryRenderContext(analysis, presentation !== undefined);
   mark("render_context_finished");
   mark("source_atlas_started");
   const sourceAtlas = buildProceduralSourceAtlas(features, faceStyle, skinPlan);
   mark("source_atlas_finished");
   if (!sourceAtlas) return fail(500, "유효한 스킨을 만들지 못했어요", "SKIN_RENDER_FAILED", neuronsSpent);
   mark("reference_atlas_started");
-  const styled = renderSkinEngine(sourceAtlas, skinPlan, renderAnalysis, faceStyle, maxRenderAttempts);
+  const styled = renderSkinEngine(sourceAtlas, skinPlan, renderAnalysis, faceStyle, maxRenderAttempts, presentation);
   mark("reference_atlas_finished");
   if (!styled.ok) {
     console.log(JSON.stringify({ event: "reference_primary_render_rejected", reason: styled.reason, renderAttempts: styled.renderAttempts }));
@@ -163,7 +165,9 @@ async function renderPrimaryBaseline(analysis: PhotoAnalysis, neuronsSpent: numb
   const skinPngBase64 = bytesToBase64(await encodePng(styled.atlas));
   mark("png_finished");
   return { status: 200, success: true, neuronsSpent, body: {
-    ok: true, quality: analysis.quality, features, analysis: summary, skinPngBase64,
+    ok: true, quality: analysis.quality,
+    features: styled.fixedHairMask ? { ...features, fixedHairMask: styled.fixedHairMask } : features,
+    analysis: summary, skinPngBase64,
     generationMode: "procedural_fallback", fallbackReason: "reliability_baseline",
   } };
 }
@@ -411,6 +415,7 @@ export async function generateSkin(
   provider: SkinGenerationProvider = new ResilientImageProvider(env),
   analysisImageDataUrl: string = imageDataUrl,
   referenceImageDataUrls: string[] = [],
+  presentation?: SkinPresentation,
 ): Promise<GenerateResult> {
   const freeImage = env.AI_POLICY === "workers_free_only" && env.FREE_IMAGE_GENERATION_ENABLED === "true";
   if (env.AI_POLICY === "workers_free_only") {
@@ -578,15 +583,15 @@ export async function generateSkin(
   if (!freeImage) {
     const maxRenderAttempts = env.AI_POLICY === "workers_free_only" ? FREE_EDGE_RENDER_ATTEMPTS : undefined;
     try {
-      baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts);
+      baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts, presentation);
       if (!baseline.success && analysis !== primaryOnlyAnalysis) {
         analysis = primaryOnlyAnalysis;
-        baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts);
+        baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts, presentation);
       }
     } catch (error) {
       if (analysis === primaryOnlyAnalysis) throw error;
       analysis = primaryOnlyAnalysis;
-      baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts);
+      baseline = await renderPrimaryBaseline(analysis, spent, mark, maxRenderAttempts, presentation);
     }
     mark("baseline_returned");
   }
@@ -2887,7 +2892,8 @@ const NAMED_CLOTHING_COLOR_CUES: ReadonlyArray<{
   { pattern: "(?:orange)", hex: CLOTHING_COLORS.orange },
   { pattern: "(?:mustard|ochre)", hex: CLOTHING_COLORS.yellow },
   { pattern: "(?:yellow|gold(?:en)?)", hex: CLOTHING_COLORS.yellow },
-  { pattern: "(?:olive)", hex: "#667047" },
+  { pattern: "(?:olive(?:[-\\s]+green)?)", hex: "#667047" },
+  { pattern: "(?:moss[-\\s]+green)", hex: "#53654f" },
   { pattern: "(?:turquoise|aqua|cyan)", hex: "#42b8b0" },
   { pattern: "(?:teal)", hex: "#2f7775" },
   { pattern: "(?:green)", hex: CLOTHING_COLORS.green },
@@ -3136,6 +3142,10 @@ export function normalizeAnalysisForRendering(
 ): PhotoAnalysis {
   analysis = normalizeHeadwearObservation(analysis);
   const renderHints = { ...analysis.renderHints };
+  const visibleFringe = analysis.visibleRegions.hair && analysis.observed.hair.toLowerCase().split(/[.;!\n]/).find(
+    clause => !/\b(?:no|not|without|hidden|occluded|unclear|maybe|possibly|inferred)\b/.test(clause)
+      && /\b(?:see[- ]through|wispy|sparse|airy|piecey|feathery)[, ]+(?:(?:front|parted|curtain|brow[- ]length|eyebrow[- ]length|eye[- ]length)[, ]+){0,2}(?:bangs?|fringe)\b|\b(?:bangs?|fringe) (?:is|are|looks?) (?:visibly )?(?:see[- ]through|wispy|sparse|airy|piecey|feathery)\b/.test(clause),
+  );
   let inferred = analysis.inferred;
   let outfitPrompt = analysis.outfitPrompt;
   const faceText = joinedAnalysisText([
@@ -3455,7 +3465,18 @@ export function normalizeAnalysisForRendering(
       renderHints.hairAccessoryScale = "small";
     }
   }
-  if (explicitSideSweptFringe) {
+  if (visibleFringe) {
+    renderHints.bangs = "wispy";
+    renderHints.bangsDensity = "sparse";
+    renderHints.fringeEdge = "wispy";
+    if (/\b(?:eye[- ](?:length|level)|(?:partly )?cover(?:s|ing)? (?:the )?eyes?)\b/.test(visibleFringe)) {
+      renderHints.bangsLength = "eye";
+    } else if (/\b(?:brow|eyebrow)s?\b/.test(visibleFringe) && renderHints.bangsLength !== "eye") {
+      renderHints.bangsLength = "brow";
+    } else if (renderHints.bangsLength === "none") {
+      renderHints.bangsLength = "short";
+    }
+  } else if (explicitSideSweptFringe) {
     renderHints.bangs = "side";
     if (explicitViewerLeftPart) renderHints.fringeOpening = "left";
     if (explicitViewerRightPart) renderHints.fringeOpening = "right";
@@ -3478,7 +3499,7 @@ export function normalizeAnalysisForRendering(
   } else if (explicitCenterOpening && renderHints.bangs !== "none") {
     renderHints.fringeOpening = "center";
     if (
-      renderHints.hairTexture !== "straight" &&
+      renderHints.hairTexture !== "straight" && renderHints.bangs !== "wispy" &&
       renderHints.bangsDensity !== "dense"
     ) {
       renderHints.bangs = "curtain";
@@ -3786,6 +3807,19 @@ export function normalizeAnalysisForRendering(
     }
   }
 
+  if (analysis.visibleRegions.hair) {
+    const { left, right } = observedFrontHairPlacement(analysis.observed.hair);
+    if (left || right) {
+      const order = ["cropped", "ear", "jaw", "shoulder", "chest", "waist", "hip"] as const;
+      const visibleLength = left === "waist" || right === "waist" ? "waist"
+        : left === "chest" || right === "chest" ? "chest" : "shoulder";
+      if (order.indexOf(renderHints.overallHairLength) < order.indexOf(visibleLength)) {
+        renderHints.overallHairLength = visibleLength;
+      }
+      renderHints.sideHairLength = "shoulder";
+      if (renderHints.sideHairShape !== "flared") renderHints.sideHairShape = "face_framing";
+    }
+  }
   return { ...analysis, inferred, renderHints, outfitPrompt };
 }
 
@@ -4678,14 +4712,19 @@ function completeVisibleAccessoryDetails(
       .find(color => color !== null) ?? style.glassesColor;
   }
 
-  const earringText = relevantClauses(
+  const earringPattern = /\b(?:earrings?|ear studs?|hoops?|teardrops?|dangling|dangle|drop earrings?)\b/;
+  // Accessory inventories use semicolons between different items and often
+  // commas within one item's color/count/side. Keep those local fields together.
+  const observedEarringItems = analysis.observed.accessories.toLowerCase().split(/[;.!?\n]+/)
+    .filter(clause => earringPattern.test(clause) && !/\b(?:glasses|frames|necklace|choker|bracelet|headband|clips?|hat|cap|scarf|bag|strap|brooch)\b/.test(clause));
+  const earringText = observedEarringItems.join(" ") || relevantClauses(
     [
       analysis.observed.accessories,
       analysis.observed.hair,
       analysis.identityPrompt,
       canonicalText,
     ],
-    /\b(?:earrings?|ear studs?|hoops?|teardrops?|dangling|dangle|drop earrings?)\b/,
+    earringPattern,
   );
   if (earringText) {
     style.earrings = /\bteardrop\b/.test(earringText)
@@ -4695,7 +4734,10 @@ function completeVisibleAccessoryDetails(
         : /\bhoops?\b/.test(earringText)
           ? "hoop"
           : "stud";
+    const silver = observedEarringItems.some(clause => /\bsilver\b/.test(clause));
+    const gold = observedEarringItems.some(clause => /\bgold(?:en)?\b/.test(clause));
     style.earringColor =
+      (silver && !gold ? "#c7cbd2" : null) ??
       recoverNamedColorBeforeItem(
         earringText,
         "(?:earrings?|ear[-\\s]?studs?|hoops?|teardrops?|pendants?)",

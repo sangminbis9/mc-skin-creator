@@ -89,7 +89,9 @@ export function buildReferenceHeadProportion(source: SkinPlan, design: Reference
   // Use source topology, not an all-head rectangular fill. Tight scalp hair,
   // curls, tied sections, headwear and measured silhouettes are not loose caps.
   const ordinary = ["short_shaggy_masculine", "short_soft_feminine", "medium_layered", "long_straight_with_bangs", "long_wavy_with_bangs", "long_pastel_straight"].includes(design.hair.family);
-  if (hairColor && ordinary && !head.covering && !head.tiedMass && !hair.surfaceOnly && hair.lengthClass !== "none"
+  const wideFringe = design.fringePolicy === "reference_brow_length_v1" && ["wispy", "straight"].includes(hair.fringe)
+    && (style.bangsLength === "brow" || style.bangsLength === "eye");
+  if (hairColor && (ordinary || wideFringe) && !head.covering && !head.tiedMass && !hair.surfaceOnly && hair.lengthClass !== "none"
     && style.sideHairShape !== "undercut" && style.hairBackShape !== "undercut"
     && hair.headMask.source === "semantic_template" && !face.layout.geometryUsage.hairline
     && !head.cells.some(c => c.provenance === "validated_derived") && style.hat === "none") {
@@ -100,7 +102,20 @@ export function buildReferenceHeadProportion(source: SkinPlan, design: Reference
       const key = `${c.face}:${c.x}`, cells = columns.get(key) ?? [];
       cells.push(c); columns.set(key, cells);
     }
+    const displayedEyes = canProject ? result.eyePixels : sourceEyes;
     for (const f of ["front", "right", "back", "left"] as const) for (let x = 0; x < 8; x++) {
+      if (f === "front" && wideFringe) {
+        // Keep the brow-length fringe and shape its tips around the existing
+        // eye layout. Face paint remains entirely in the original eye stage.
+        const tip = x === 2 || x === 5 ? 3 : 4;
+        for (let y = 1; y <= tip; y++) {
+          if (blocked(f, x, y) || displayedEyes.some(p => p.x === x && p.y === y)
+            || (face.layout.geometryUsage.brows && displayed.pixels.some(p => p.role === "brow" && p.x === x && p.y === y))) break;
+          put(f, x, y, "hair", referenceHairMaterial(hairColor, f, x, y, style, false, design.materialDetailPolicy));
+        }
+        continue;
+      }
+      if (!ordinary) continue;
       const column = columns.get(`${f}:${x}`) ?? [];
       // Some legacy side masks omit entire crown columns although the top
       // foundation is hair. Let that connected crown support the side cap.
@@ -134,7 +149,7 @@ export function buildReferenceHeadProportion(source: SkinPlan, design: Reference
           : shade(hairColor, (1 - Math.min(y, 6) * 0.015) * (x % 4 === 1 ? 1.08 : 1)));
       }
     }
-    if (design.headSeamPolicy === "connected_outline_v1") {
+    if (ordinary && design.headSeamPolicy === "connected_outline_v1") {
       // Reference skins wrap the SAME hair mass around cube edges, including
       // a narrow underside rim on long hair, while retaining a central neck.
       // Group the three texels at a corner together; pairwise copying would

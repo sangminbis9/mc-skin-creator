@@ -18,8 +18,8 @@ function setup(kind = "short") {
   const raw = makeAnalysis();
   raw.fallbackFeatures.glasses = "none"; raw.fallbackFeatures.facialHair = "none";
   raw.observed.accessories = "none";
-  if (kind === "long") {
-    raw.observed.hair = "long straight hair with bangs";
+  if (kind === "long" || kind === "wispy") {
+    raw.observed.hair = kind === "wispy" ? "Long dark hair. Wispy bangs reach the eyebrows." : "long straight hair with bangs";
     raw.renderHints.overallHairLength = "chest";
     raw.fallbackFeatures.hairstyle = "long";
   }
@@ -48,6 +48,21 @@ it("uses lower two-row, one-column irises with outward sclera without mutating s
     mutated.diagnostic.headProportion!.paints.find(q => q.face === p.face && q.x === p.x && q.y === p.y)!.color[0] ^= 127;
     expect(measureReferenceRenderedQuality(mutated, b.atlas, b.plan, b.design, b.style).constructionValid, `${p.face}:${p.x},${p.y}`).toBe(false);
   }
+});
+
+it("retains the brow-length fringe on the original eye coordinates and colors", () => {
+  const b = setup("wispy");
+  const baseline = composeReferenceStyleAtlas(b.atlas, b.plan, { ...b.design, fringePolicy: undefined }, b.style);
+  const result = composeReferenceStyleAtlas(b.atlas, b.plan, b.design, b.style);
+  const projected = result.diagnostic.headProportion!;
+  expect(projected.eyes).toBe("lower_narrow_pair");
+  expect(projected.eyePixels).toEqual(baseline.diagnostic.headProportion!.eyePixels);
+  for (const p of projected.eyePixels) for (const layer of ["base", "overlay"] as const) {
+    const i = headProportionOffset({ ...p, face: "front", layer });
+    expect(result.atlas.rgba.slice(i, i + 4)).toEqual(baseline.atlas.rgba.slice(i, i + 4));
+  }
+  expect(projected.paints).toContainEqual(expect.objectContaining({ face: "front", role: "hair", x: 3, y: 4 }));
+  expect(measureReferenceRenderedQuality(result, b.atlas, b.plan, b.design, b.style).violations).toEqual([]);
 });
 
 it("preserves eyewear, measured eyes, scalp-only hair, source part and side ear windows", () => {

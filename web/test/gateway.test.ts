@@ -18,7 +18,7 @@ test("quota is forwarded without caching or wildcard CORS", async () => {
 });
 test("generation preserves the request body and upstream errors", async () => {
   const { env, calls } = environment(() => Response.json({ errorCode: "quota_exceeded" }, { status: 429 }));
-  const body = JSON.stringify({ image: "test-only" });
+  const body = JSON.stringify({ image: "test-only", presentation: "feminine" });
   const res = await worker.fetch(new Request("https://demo.example/api/generate", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://demo.example" }, body }), env);
   assert.equal(res.status, 429); assert.equal(await calls[0].text(), body);
 });

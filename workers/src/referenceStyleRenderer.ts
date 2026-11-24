@@ -157,7 +157,7 @@ export interface ReferenceCompositionResult { atlas: RawImage; diagnostic: Refer
 /** Atomic structural groups are routed before painting. If a group cannot fit
  * the outer budget its full connected cue goes on the base, not random pruning.
  */
-function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, design: ReferenceStylePlan, ownership: Map<number, Cell>, scarf: ReferenceScarfFinish) {
+function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, design: ReferenceStylePlan, ownership: Map<number, Cell>, scarf: ReferenceScarfFinish, frontLocks: ReadonlySet<number>, frontReliefCount: number) {
   const groups: ReferenceCompositionDiagnostic["bodyGroups"] = [];
   const placedGroups: Array<{ record: ReferenceCompositionDiagnostic["bodyGroups"][number]; cells: Cell[] }> = [];
   const basePlan = { ...plan, outerLayer: { ...plan.outerLayer, regions: [] }, accessories: [] };
@@ -203,10 +203,13 @@ function garmentComposition(atlas: RawImage, plan: OutfitPlan, skin: string, des
       }
     }
     const outerCells = sourceCells.filter(c => !covered.has(key(c)));
-    const fits = parts.filter(p => p !== "head").every(part => {
+    // Keep the entire seam-closed garment cue on the base when a visible
+    // front lock passes over it. The lock then covers only its own pixels.
+    const coveredByHair = group.owner === "garment" && outerCells.some(c => frontLocks.has(key(c)));
+    const fits = !coveredByHair && parts.filter(p => p !== "head").every(part => {
       const occupied = new Set([...ownership.values()].filter(c => c.part === part && c.layer === "overlay").map(key));
       outerCells.filter(c => c.part === part).forEach(c => occupied.add(key(c)));
-      return occupied.size / area(part) <= REFERENCE_OUTER_COVERAGE[part];
+      return (occupied.size + (part === "body" ? frontReliefCount : 0)) / area(part) <= REFERENCE_OUTER_COVERAGE[part];
     });
     if (!fits) {
       const positions = new Set(outerCells.map(c => `${c.part}:${c.face}:${c.x}:${c.y}`));
@@ -360,12 +363,18 @@ export function composeReferenceStyleAtlas(baseline: RawImage, plan: SkinPlan, d
   return composeReferenceStyleStages(baseline, plan, design, style).composition;
 }
 
-function prepareGarment(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle) {
+function prepareGarment(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, frontLocks: ReadonlySet<number>, frontReliefCount: number) {
   const atlas = clone(baseline), ownership = new Map<number, Cell>();
   const skin = style.skinTone ?? "#d39e80";
   const scarf = buildReferenceScarfFinish(plan, skin);
-  const garment = garmentComposition(atlas, plan.outfitPlan, skin, design, ownership, scarf);
+  const garment = garmentComposition(atlas, plan.outfitPlan, skin, design, ownership, scarf, frontLocks, frontReliefCount);
   return { atlas, ownership, scarf, garment };
+}
+
+/** Garment-only underlay for a presentation that replaces the source drape. */
+export function renderReferenceGarmentUnderlay(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle,
+  frontLocks: ReadonlySet<number>, frontReliefCount: number): RawImage {
+  return prepareGarment(baseline, plan, design, style, frontLocks, frontReliefCount).atlas;
 }
 
 /** One selection, one immutable garment foundation per distinct outfit finish.
@@ -374,19 +383,26 @@ function prepareGarment(baseline: RawImage, plan: SkinPlan, design: ReferenceSty
 export function createReferenceCandidateComposer(baseline: RawImage, plan: SkinPlan, style: FaceStyle) {
   const garments = new Map<string, ReturnType<typeof prepareGarment>>();
   return (design: ReferenceStylePlan) => {
-    const key = `${design.outfit.family}:${design.garmentDetailPolicy ?? !!design.materialDetailPolicy}`;
-    let garment = garments.get(key);
+    const looseHair = buildReferenceLooseHair(plan, design, style);
+    const frontLocks = frontLockOverlayOffsets(looseHair);
+    const frontReliefCount = looseHair.points.filter(p => p.relief).length;
+    const cacheKey = `${design.outfit.family}:${design.garmentDetailPolicy ?? !!design.materialDetailPolicy}:${[...frontLocks].join(",")}:${frontReliefCount}`;
+    let garment = garments.get(cacheKey);
     if (!garment) {
-      garment = prepareGarment(baseline, plan, design, style);
-      garments.set(key, garment);
+      garment = prepareGarment(baseline, plan, design, style, frontLocks, frontReliefCount);
+      garments.set(cacheKey, garment);
     }
-    return composeReferenceStyleStages(baseline, plan, design, style, garment);
+    return composeReferenceStyleStages(baseline, plan, design, style, looseHair, garment);
   };
 }
 
+function frontLockOverlayOffsets(looseHair: ReferenceLooseHair): Set<number> {
+  return new Set(looseHair.points.filter(p => p.face === "front").map(p => key({ ...p, part: "body", layer: "overlay" })));
+}
+
 /** Preserve the freshly painted foundation for the in-process verifier. */
-function composeReferenceStyleStages(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, garment?: ReturnType<typeof prepareGarment>) {
-  const foundation = composeReferenceStyleFoundation(baseline, plan, design, style, garment);
+function composeReferenceStyleStages(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, looseHair = buildReferenceLooseHair(plan, design, style), garment?: ReturnType<typeof prepareGarment>) {
+  const foundation = composeReferenceStyleFoundation(baseline, plan, design, style, looseHair, garment);
   if (!design.headProportionPolicy) return { composition: foundation, foundation, projection: undefined };
   const projection = deriveCompositionHeadProportion(foundation, plan, design, style);
   const atlas = clone(foundation.atlas);
@@ -406,11 +422,12 @@ export function deriveCompositionHeadProportion(foundation: ReferenceComposition
     foundation.diagnostic.surfaces.filter(c => c.part === "head" && c.layer === "base" && c.owner === "hair"));
 }
 
-function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, prepared?: ReturnType<typeof prepareGarment>): ReferenceCompositionResult {
+function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, design: ReferenceStylePlan, style: FaceStyle, looseHair: ReferenceLooseHair, prepared?: ReturnType<typeof prepareGarment>): ReferenceCompositionResult {
   if (baseline.width !== 64 || baseline.height !== 64 || baseline.rgba.length !== 16384) throw new Error("reference_composition_atlas_invalid");
   const head = plan.headIdentityPlan.ownership;
   if (!head || head.execution !== "resolved") throw new Error("reference_composition_head_ownership_unresolved");
-  const { atlas: garmentAtlas, ownership: garmentOwnership, garment, scarf: scarfFinish } = prepared ?? prepareGarment(baseline, plan, design, style);
+  const { atlas: garmentAtlas, ownership: garmentOwnership, garment, scarf: scarfFinish } = prepared
+    ?? prepareGarment(baseline, plan, design, style, frontLockOverlayOffsets(looseHair), looseHair.points.filter(p => p.relief).length);
   const atlas = prepared ? clone(garmentAtlas) : garmentAtlas;
   const ownership = prepared ? new Map(garmentOwnership) : garmentOwnership;
   const skin = rgb(style.skinTone, [211, 158, 128]), hair = rgb(style.hairColor, [57, 42, 33]);
@@ -546,7 +563,6 @@ function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, des
     const c: Cell = { ...p, part: "head", layer: "base", owner: "hair", color: [...hair] };
     atlas.rgba.set([...c.color, 255], at(c)); baseHair.push(c); ownership.set(key(c), c);
   }
-  const looseHair = buildReferenceLooseHair(plan, design, style);
   if (pairedDrape.length) {
     for (const [headX, name] of [[0, "left_lock"], [7, "right_lock"]] as const) {
       const points = pairedDrape.filter(c => c.drapeGroup === name);
@@ -566,8 +582,13 @@ function composeReferenceStyleFoundation(baseline: RawImage, plan: SkinPlan, des
     origin.drapeGroup = root.drapeGroup;
   }
   for (const p of looseHair.points) {
-    const c: Cell = { part: "body", face: p.face, layer: "base", x: p.x, y: p.y, drapeGroup: p.drapeGroup, owner: "hair", color: referenceLooseHairMaterial(hair, p, style, design.hair.family !== "preserve_existing" && (design.materialDetailPolicy ?? false)) };
+    const detail = design.hair.family !== "preserve_existing" && (design.materialDetailPolicy ?? false);
+    const c: Cell = { part: "body", face: p.face, layer: "base", x: p.x, y: p.y, drapeGroup: p.drapeGroup, owner: "hair", color: referenceLooseHairMaterial(hair, p, style, detail) };
     atlas.rgba.set([...c.color, 255], at(c)); ownership.set(key(c), c); drapeCells++;
+    if (p.relief) {
+      const raised: Cell = { ...c, layer: "overlay", color: referenceLooseHairMaterial(hair, p, style, detail, true) };
+      atlas.rgba.set([...raised.color, 255], at(raised)); ownership.set(key(raised), raised); drapeCells++;
+    }
   }
   // Use the same authored footprint as the production painter, not an entire
   // lower-face rectangle that also suppresses mouth and complexion finishing.

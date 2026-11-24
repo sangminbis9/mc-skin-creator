@@ -4,6 +4,7 @@ import { buildSkinPlan } from "../src/skinPlan";
 import { buildFaceStyle, fallbackFeaturesToHex } from "../src/generate";
 import { buildReferenceStylePlan } from "../src/referenceStyleTemplates";
 import { buildReferenceLooseHair } from "../src/referenceLooseHair";
+import { observedFrontHairPlacement } from "../src/observedFrontHairDrape";
 
 function sample(text: string) {
   const a = makeAnalysis();
@@ -99,4 +100,31 @@ it("requires real bottom-head roots and retains tied/full-covering exclusions", 
   expect(buildReferenceLooseHair(b.plan, b.design, b.style).points).toEqual([]);
   const tied = sample("hair in twin braids; front locks extend to the chest");
   expect(buildReferenceLooseHair(tied.plan, tied.design, tied.style).points).toEqual([]);
+});
+
+it("uses separate visible depths without mirroring garment-overlap evidence", () => {
+  const { plan, design, style } = sample("Hair lies over the front of the gray hoodie on the viewer's left to the chest. Hair lies over the front of the gray hoodie on the viewer's right at the shoulder.");
+  const { points } = buildReferenceLooseHair(plan, design, style);
+  expect(Math.max(...points.filter(p => p.drapeGroup === "left_lock").map(p => p.y))).toBe(11);
+  expect(Math.max(...points.filter(p => p.drapeGroup === "right_lock").map(p => p.y))).toBe(3);
+  const left = sample("Hair lies over the front of the top on the viewer's left to the chest. Hair on the viewer's right falls behind the shoulder.");
+  const visible = buildReferenceLooseHair(left.plan, left.design, left.style).points.filter(p => p.face === "front");
+  expect(new Set(visible.map(p => p.drapeGroup))).toEqual(new Set(["left_lock"]));
+});
+
+it("renders the tapered front frame when chest-length tips and garment overlap are separate observations", () => {
+  const s = sample("Long locks frame the face and drape over the shoulders, with the ends reaching the chest area. Hair lies over the front of the hoodie on both sides.");
+  const front = buildReferenceLooseHair(s.plan, s.design, s.style).points.filter(p => p.face === "front");
+  const columns = (row: number) => front.filter(p => p.y === row).map(p => p.x).sort((a, b) => a - b);
+  expect(columns(0)).toEqual([0, 1, 2, 5, 6, 7]);
+  expect(columns(7)).toEqual([0, 1, 6, 7]);
+  expect(columns(10)).toEqual([0, 7]);
+  expect(columns(11)).toEqual([0, 1, 6, 7]);
+  expect(front.filter(p => p.relief).map(p => p.y).sort((a, b) => a - b)).toEqual([4, 4, 5, 5, 6, 6, 7, 7]);
+});
+
+it("recognizes alternate front-overlap wording without pulling rear hair forward", () => {
+  expect(observedFrontHairPlacement("Hair hangs down the front of the clothing on both sides to the chest.")).toEqual({ left: "chest", right: "chest" });
+  expect(observedFrontHairPlacement("Hair on the viewer's left rests on the shirt to the chest, while hair on the viewer's right falls behind the shoulder."))
+    .toEqual({ left: "chest" });
 });

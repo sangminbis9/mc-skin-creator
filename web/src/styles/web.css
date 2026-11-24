@@ -15,6 +15,12 @@
 .web-start[data-dragging="true"] { outline-color: var(--px-grass); }
 .web-consent { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; line-height: 1.65; margin-bottom: 16px; max-width: 390px; }
 .web-consent input { accent-color: var(--px-grass); width: 17px; height: 17px; flex: 0 0 auto; margin: 3px 0 0; }
+.skin-presentation { margin: 0; min-width: 0; padding: 12px; border: 1px solid currentColor; }
+.skin-presentation legend { padding: 0 6px; font-weight: 700; }
+.skin-presentation-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.skin-presentation-options label { display: flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 10px; border: 1px solid currentColor; cursor: pointer; }
+.skin-presentation-options input { margin: 0; accent-color: var(--px-grass); }
+.skin-presentation p { margin: 10px 0 0; font-size: 13px; }
 .web-start .px-btn { justify-content: flex-start; min-height: 56px; }
 .web-start .px-btn svg:last-child { margin-left: auto; }
 .web-upload-note, .web-small { color: var(--px-ink-soft); font-size: 11px; line-height: 1.8; margin: 12px 0 0; }

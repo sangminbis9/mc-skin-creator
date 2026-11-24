@@ -11,6 +11,7 @@ import { bumpMetric, getMetric, METRICS, type Metric } from "./analytics";
 import { MAX_IMAGE_CHARS } from "./generate";
 import { generateFreeSkin, freeQuotaStatus } from "./engineService";
 import { SKIN_ENGINE_VERSION } from "./skinEngine";
+import { isSkinPresentation } from "./referenceStyleTemplates";
 export { NeuronBudget } from "./NeuronBudget";
 import { withinDeadline } from "./deadline";
 import {
@@ -98,8 +99,10 @@ async function handleGenerate(
     image?: string;
     analysisImage?: string;
     referenceImages?: string[];
+    presentation?: unknown;
   } | null;
   if (!body || typeof body.image !== "string"
+    || (body.presentation !== undefined && !isSkinPresentation(body.presentation))
     || (body.analysisImage !== undefined && typeof body.analysisImage !== "string")
     || (body.referenceImages !== undefined && (!Array.isArray(body.referenceImages)
       || body.referenceImages.length > 4 || body.referenceImages.some(item => typeof item !== "string")))) {
@@ -114,7 +117,7 @@ async function handleGenerate(
   let result;
   try {
     result = await generateFreeSkin(env, { image: body.image,
-      analysisImage: body.analysisImage, referenceImages: body.referenceImages });
+      analysisImage: body.analysisImage, referenceImages: body.referenceImages, presentation: body.presentation ?? "source" });
   } catch (error) {
     await advisory(() => bumpMetric(env, "failures"));
     await persistFailureDiagnostic(env, {

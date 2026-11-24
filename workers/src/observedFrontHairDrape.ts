@@ -4,11 +4,54 @@
  */
 export type FrontHairDrapeEvidence = "observed_shoulder_drape" | "observed_front_lock_endpoint" | "observed_front_shoulder_endpoint";
 
+type VisibleEndpoint = "shoulder" | "chest" | "waist";
+
+function visibleTorsoEndpoint(text: string): VisibleEndpoint | undefined {
+  if (/\b(?:to|at|below|reaching|past) (?:the )?(?:natural )?(?:waist|hips?)\b|\b(?:waist|hip)[- ]length\b/.test(text)) return "waist";
+  if (/\b(?:chest|bust|torso)\b/.test(text)) return "chest";
+  if (/\b(?:to|at|ending at) (?:the )?shoulders?\b/.test(text)) return "shoulder";
+}
+
+/** Front garment overlap gives each lock its own visible endpoint. */
+export function observedFrontHairPlacement(text: string): Partial<Record<"left" | "right", VisibleEndpoint>> {
+  const placement: Partial<Record<"left" | "right", VisibleEndpoint>> = {};
+  const clauses = text.toLowerCase().split(/[.!?;\n]|\b(?:while|whereas)\b/).filter(clause =>
+    !/\b(?:no|not|without|absent|unknown|unseen|hidden|occluded|maybe|might|may|possibly|perhaps|imagined|inferred|behind|rear|back|printed|drawing|illustration)\b/.test(clause));
+  // A separate endpoint sentence may still describe the same visible locks.
+  // Require a continuous face-to-shoulder description and its own tips.
+  const sharedEndpoint = clauses.filter(clause =>
+    /\b(?:locks|strands|tresses) (?:frame|framing) (?:the|her|his|their) face\b/.test(clause)
+    && /\b(?:over|across) (?:the |both )?shoulders?\b/.test(clause)
+    && !/\b(?:left|right|scarf|necklace)\b/.test(clause))
+    .map(clause => /\b(?:ends|tips) (?:reach(?:ing)?|end(?:ing)?|fall(?:ing)?|at)\b.*$/.exec(clause)?.[0])
+    .filter((tips): tips is string => !!tips)
+    .map(visibleTorsoEndpoint).find(endpoint => endpoint !== undefined);
+  for (const clause of clauses) {
+    const overlap = /\b(?:hair|locks?|strands?|tresses)(?: on (?:both sides|the viewer(?:'s)? (?:left|right)))? (?:lies|lie|falls?|falling|hangs?|hanging|drapes?|draping|flows?|rests?|continues?|extends?)(?: down)? (?:over|across|onto|in front of|on top of|on|the front of)\b|\b(?:hair|locks?|strands?|tresses) (?:overlaps?|covers?)\b/.exec(clause);
+    if (!overlap) continue;
+    const landing = clause.slice(overlap.index + overlap[0].length);
+    const onGarment = /^(?:\s+[\w'-]+){0,9}\s+\b(?:top|tee|shirt|hoodie|sweatshirt|jacket|cardigan|blouse|coat|garment|clothing|chest|torso)\b/.test(landing);
+    const inFrontOfShoulders = /\bin front of$/.test(overlap[0]) && /^(?:\s+[\w'-]+){0,4}\s+shoulders?\b/.test(landing);
+    if (!onGarment && !inFrontOfShoulders) continue;
+    const both = /\b(?:both|each) (?:sides?|shoulders?)\b|\bon either side\b/.test(clause);
+    const left = /\bviewer(?:'s)?[ -]left\b/.test(clause);
+    const right = /\bviewer(?:'s)?[ -]right\b/.test(clause);
+    if (!both && left === right) continue;
+    const endpoint = visibleTorsoEndpoint(landing) ?? (both ? sharedEndpoint : undefined) ?? "shoulder";
+    if (both || left) placement.left ??= endpoint;
+    if (both || right) placement.right ??= endpoint;
+  }
+  return placement;
+}
+
 export function observedFrontHairDrape(text: string): FrontHairDrapeEvidence | null {
+  const { left, right } = observedFrontHairPlacement(text);
+  if (left || right) return (!left || left === "shoulder") && (!right || right === "shoulder")
+    ? "observed_front_shoulder_endpoint" : "observed_front_lock_endpoint";
   for (const clause of text.toLowerCase().split(/[.;\n]/)) {
     if (/\b(?:no|not|without|absent|unknown|unseen|hidden|occluded|maybe|might|may|possibly|perhaps|imagined|inferred|completion)\b/.test(clause)) continue;
     if (/\b(?:drap(?:e|es|ing)|over (?:the )?shoulders?|across (?:the )?shoulders?)\b/.test(clause)
-      && (!/\bback\b/.test(clause) || /\bshoulders?\b/.test(clause))) return "observed_shoulder_drape";
+      && !/\b(?:back|rear|behind)\b/.test(clause)) return "observed_shoulder_drape";
     // A plural/front-side mass reaching the torso is stronger than overall
     // chest length. Do not turn one-sided, rear or depicted hair into two locks.
     if (/\b(?:left|right|single|one|only|back|rear|behind|printed|print|drawing|illustration)\b/.test(clause)) continue;

@@ -11,15 +11,20 @@ import {
   checkImageQuality,
   type QualityCheckResult,
 } from "../lib/imageQuality";
+import { SKIN_PRESENTATIONS, type SkinPresentation } from "../lib/skinPresentation";
 
 interface QualityCheckPageProps {
   photoDataUrl: string;
+  presentation: SkinPresentation;
+  onPresentationChange: (value: SkinPresentation) => void;
   onContinue: () => void;
   onReselect: () => void;
 }
 
 export function QualityCheckPage({
   photoDataUrl,
+  presentation,
+  onPresentationChange,
   onContinue,
   onReselect,
 }: QualityCheckPageProps) {
@@ -86,6 +91,22 @@ export function QualityCheckPage({
           </p>
         ))}
       </PixelPanel>
+
+      {result.verdict !== "fail" && (
+        <fieldset className="skin-presentation" aria-describedby="skin-presentation-note">
+          <legend>Avatar finish</legend>
+          <div className="skin-presentation-options">
+            {SKIN_PRESENTATIONS.map(({ value, label }) => (
+              <label key={value}>
+                <input type="radio" name="skin-presentation" value={value}
+                  checked={presentation === value} onChange={() => onPresentationChange(value)} />
+                {label}
+              </label>
+            ))}
+          </div>
+          <p id="skin-presentation-note">Style changes hair volume and shading. Your part, length, and eye placement stay the same.</p>
+        </fieldset>
+      )}
 
       <div className="px-spacer" />
 

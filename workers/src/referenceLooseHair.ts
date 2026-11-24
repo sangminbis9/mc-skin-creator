@@ -7,7 +7,8 @@ import type { SkinPlan } from "./skinPlan";
 import type { FaceStyle } from "./skinPack";
 import type { ReferenceStylePlan } from "./referenceStyleTemplates";
 import { sourceAccessoryStencils } from "./referenceOutfitRetention";
-import { observedFrontHairDrape, type FrontHairDrapeEvidence } from "./observedFrontHairDrape";
+import { buildReferenceScarfFinish } from "./referenceScarfFinish";
+import { observedFrontHairDrape, observedFrontHairPlacement, type FrontHairDrapeEvidence } from "./observedFrontHairDrape";
 
 export interface LooseHairPoint {
   face: "front" | "back";
@@ -15,6 +16,7 @@ export interface LooseHairPoint {
   y: number;
   drapeGroup: "left_lock" | "right_lock" | "rear_curtain";
   shade: number;
+  relief?: true;
 }
 export interface ReferenceLooseHair {
   provenance: "template_design";
@@ -47,19 +49,36 @@ export function buildReferenceLooseHair(source: SkinPlan, design: ReferenceStyle
   result.rows = rows;
   const ownsRoot = (face: "front" | "back", x: number) => head.cells.some(c => c.face === face && c.layer === "base" && c.owner === "hair_base" && c.x === x && c.y === 7);
   const frontEvidence = observedFrontHairDrape(observed);
-  const frontRows = frontEvidence === "observed_front_shoulder_endpoint" ? Math.min(rows, 4) : rows;
+  const placement = observedFrontHairPlacement(observed);
+  const hasPlacement = !!(placement.left || placement.right);
   if (design.drape.eligible && design.drape.maxShoulderColumns === 1 && frontEvidence) {
-    for (const [outer, inner, drapeGroup] of [[0, 1, "left_lock"], [7, 6, "right_lock"]] as const) {
-      if (!ownsRoot("front", outer)) continue;
+    for (const [side, outer, inner, drapeGroup] of [["left", 0, 1, "left_lock"], ["right", 7, 6, "right_lock"]] as const) {
+      const endpoint = placement[side];
+      if ((hasPlacement && !endpoint) || !ownsRoot("front", outer)) continue;
+      const frameTorso = design.frontLockPolicy === "reference_torso_frame_v1" && (endpoint === "chest" || endpoint === "waist");
+      const frontRows = frameTorso ? 12 : Math.min(rows, endpoint === "waist" ? 12 : endpoint === "chest" ? 8
+        : frontEvidence === "observed_front_shoulder_endpoint" || endpoint === "shoulder" ? 4 : rows);
+      result.rows = Math.max(result.rows, frontRows);
       result.frontEvidence = frontEvidence;
       result.roots.push({ face: "front", x: outer, y: 7, drapeGroup });
       for (let y = 0; y < frontRows; y++) {
+        if (frameTorso) {
+          const width = y < 2 ? 3 : y === 10 ? 1 : 2;
+          for (let lane = 0; lane < width; lane++) {
+            const x = outer + lane * (inner - outer);
+            const shade = lane === 1 ? y >= 3 && y <= 8 ? 1.13 : 0.98 : y < 2 || y >= 10 ? 0.83 : 0.95;
+            result.points.push({ face: "front", x, y, drapeGroup, shade,
+              ...(lane === 1 && y >= 4 && y <= 7 ? { relief: true } : {}) });
+          }
+          continue;
+        }
         // Upper shoulders stay one column. Lower connected turns provide
         // wavy silhouette without an enlarged outer rail or random speckles.
         const wave = hair.texture === "wavy" || hair.texture === "curly";
         const x = wave && y >= 3 && y % 4 >= 2 ? inner : outer;
         const previous = wave && y > 3 && (y - 1) % 4 >= 2 ? inner : outer;
-        const xs = x !== previous ? [previous, x] : [x];
+        const fullerLock = endpoint !== undefined && y >= 2 && y < frontRows - 1 && y < 5;
+        const xs = fullerLock ? [outer, inner] : x !== previous ? [previous, x] : [x];
         for (const column of xs) result.points.push({ face: "front", x: column, y, drapeGroup, shade: column === inner ? 0.84 : y === frontRows - 1 ? 0.88 : 1 });
       }
     }
@@ -86,7 +105,11 @@ export function buildReferenceLooseHair(source: SkinPlan, design: ReferenceStyle
   // curtain. Retain only the surviving component reachable from an actual head
   // root; never paint detached fragments below an occluding band. Keep rows and
   // shading tied to the original length, not a fabricated shorter endpoint.
-  const reserved = sourceAccessoryStencils(source.outfitPlan, style.skinTone ?? "#d39e80").flatMap(s => s.paints);
+  const skin = style.skinTone ?? "#d39e80";
+  const reserved = [
+    ...sourceAccessoryStencils(source.outfitPlan, skin).flatMap(s => s.paints),
+    ...buildReferenceScarfFinish(source, skin).paints,
+  ];
   const available = result.points.filter(p => !reserved.some(c => c.part === "body" && c.face === p.face && c.x === p.x && c.y === p.y));
   result.occlusion.accessoryPixels = result.points.length - available.length;
   const key = (p: Pick<LooseHairPoint, "face" | "drapeGroup" | "x" | "y">) => `${p.face}:${p.drapeGroup}:${p.x}:${p.y}`;

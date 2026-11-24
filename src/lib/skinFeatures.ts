@@ -32,6 +32,8 @@ export type BottomType = "pants" | "jeans" | "shorts" | "skirt";
 export type SleeveLength = "short" | "long";
 
 export interface SkinFeatures {
+  /** Optional 4096-bit atlas mask for colour-only fixed-template wardrobe edits. */
+  fixedHairMask?: string;
   skinTone: string;
   hairColor: string;
   hairstyle: Hairstyle;
@@ -117,6 +119,8 @@ export function normalizeFeatures(raw: Partial<SkinFeatures>): SkinFeatures {
       : fallback;
 
   return {
+    ...(typeof raw.fixedHairMask === "string" && /^[A-Za-z0-9+/]{683}=$/.test(raw.fixedHairMask)
+      ? { fixedHairMask: raw.fixedHairMask } : {}),
     skinTone: hex(raw.skinTone, "#e8b98f"),
     hairColor: hex(raw.hairColor, "#2f2118"),
     hairstyle: oneOf(

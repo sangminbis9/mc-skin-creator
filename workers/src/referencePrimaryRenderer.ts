@@ -9,10 +9,14 @@ import type { RawImage } from "./png";
 import type { SkinPlan } from "./skinPlan";
 import type { FaceStyle } from "./skinPack";
 import { validateAtlasCraft, validateAtlasCraftFoundation, validateFinalAtlas } from "./skinPost";
-import { buildReferenceStylePlan, type ReferenceStylePlan } from "./referenceStyleTemplates";
+import { buildReferenceStylePlan, type ReferenceStylePlan, type SkinPresentation } from "./referenceStyleTemplates";
 import { selectReferenceStyleAtlas, type ReferenceRenderedQuality } from "./referenceStyleSelection";
 import { buildReferenceCraftPlan, validateReferenceAtlasCraft, type ReferenceCraftPlan } from "./referenceCraftPlan";
 import type { ReferenceConstraintResult } from "./referenceStyleConstraints";
+import type { LockedHeadFinishPolicy } from "./lockedHeadFinish";
+import type { NameMcFinishPolicy } from "./namemcHeadTemplate";
+import type { COVERED_HEAD_FINISH } from "./coveredHeadFinish";
+import type { PUBLIC_CLOTH_POLICY } from "./publicClothFinish";
 
 export interface ReferencePrimarySummary {
   version: "reference_primary_v1";
@@ -22,8 +26,11 @@ export interface ReferencePrimarySummary {
   design?: ReferenceStylePlan;
   renderAttempts: number;
   acceptedCandidates: number;
+  /** The verified candidate and source plan remain intact before public presentation. */
   sourceGeometryPreserved: true;
   craftValidation: "pass";
+  headFinish?: { policy: LockedHeadFinishPolicy | NameMcFinishPolicy | typeof COVERED_HEAD_FINISH; presentation: SkinPresentation };
+  garmentFinish?: typeof PUBLIC_CLOTH_POLICY;
   constraints?: ReferenceConstraintResult;
   metrics?: ReferenceRenderedQuality["metrics"];
   preservedReason?: "unresolved_complex_head_grammar";

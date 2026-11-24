@@ -157,10 +157,11 @@ function measureReferenceFoundationQuality(
   accessoryRetention.violations.forEach(v => errors.add(v));
   // Derived from immutable source, not candidate labels or rewritten colors.
   const scarfFinish = buildReferenceScarfFinish(source, style.skinTone ?? "#d39e80");
+  const looseHair = buildReferenceLooseHair(source, design, style);
   if (JSON.stringify(scarfFinish) !== JSON.stringify(diagnostic.scarfFinish)) errors.add("scarf_finish_contract_changed");
   const garmentFoundation = measureReferenceGarmentFoundation(atlas, source.outfitPlan, style.skinTone ?? "#d39e80", design, diagnostic.bodyGroups, diagnostic.surfaces, scarfFinish.paints);
   garmentFoundation.violations.forEach(v => errors.add(v));
-  const garmentStructure = measureReferenceGarmentStructure(atlas, source.outfitPlan, style.skinTone ?? "#d39e80", design, diagnostic.bodyGroups, scarfFinish.paints);
+  const garmentStructure = measureReferenceGarmentStructure(atlas, source.outfitPlan, style.skinTone ?? "#d39e80", design, diagnostic.bodyGroups, scarfFinish.paints, looseHair.points.filter(p => p.face === "front"));
   garmentStructure.violations.forEach(v => errors.add(v));
   const expected = new Map(diagnostic.surfacePixels.map(c => [offset(c), c]));
   for (const p of scarfFinish.paints) {
@@ -201,16 +202,24 @@ function measureReferenceFoundationQuality(
     if (cell?.owner !== "hair" || cell.drapeGroup !== p.drapeGroup || expected.get(root)?.owner !== "hair"
       || atlas.rgba[i + 3] !== 255 || hairPalette.some((v, ch) => atlas.rgba[i + ch] !== v)) errors.add("paired_hair_junction_invalid");
   }
-  const looseHair = buildReferenceLooseHair(source, design, style);
   if (JSON.stringify(looseHair) !== JSON.stringify(diagnostic.looseHair)) errors.add("loose_hair_contract_changed");
   const actualLoose = diagnostic.surfaces.filter(c => c.owner === "hair" && c.part !== "head" && !pairedDrape.some(p => c.face === "front" && c.x === p.x && c.y === p.y));
-  if (actualLoose.length !== looseHair.points.length) errors.add("loose_hair_drape_invalid");
+  const loosePaintCount = looseHair.points.reduce((count, p) => count + (p.relief ? 2 : 1), 0);
+  if (actualLoose.length !== loosePaintCount) errors.add("loose_hair_drape_invalid");
   for (const p of looseHair.points) {
     const i = offset({ ...p, part: "body", layer: "base", owner: "hair" });
     const c = expected.get(i);
-    const color = referenceLooseHairMaterial(hairPalette as [number, number, number], p, style, design.hair.family !== "preserve_existing" && (design.materialDetailPolicy ?? false));
+    const detail = design.hair.family !== "preserve_existing" && (design.materialDetailPolicy ?? false);
+    const color = referenceLooseHairMaterial(hairPalette as [number, number, number], p, style, detail);
+    const outer = offset({ ...p, part: "body", layer: "overlay", owner: "hair" });
     if (!c || c.owner !== "hair" || c.drapeGroup !== p.drapeGroup || atlas.rgba[i + 3] !== 255
       || color.some((v, ch) => atlas.rgba[i + ch] !== v)) errors.add("loose_hair_drape_invalid");
+    if (p.relief) {
+      const raised = expected.get(outer);
+      const relief = referenceLooseHairMaterial(hairPalette as [number, number, number], p, style, detail, true);
+      if (raised?.owner !== "hair" || raised.drapeGroup !== p.drapeGroup || atlas.rgba[outer + 3] !== 255
+        || relief.some((v, ch) => atlas.rgba[outer + ch] !== v)) errors.add("loose_hair_drape_invalid");
+    } else if (p.face === "front" && atlas.rgba[outer + 3] !== 0) errors.add("loose_hair_drape_invalid");
   }
   if (pairedDrape.length) {
     const declaredDrape = diagnostic.surfaces.filter(c => c.owner === "hair" && c.part !== "head");

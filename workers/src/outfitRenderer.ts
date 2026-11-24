@@ -5,6 +5,9 @@ import { ATLAS_SIZE, CLASSIC_LAYOUT, type BoxUV, type Rect } from "./uvLayout";
 
 type Rgb = [number, number, number];
 type VerticalFace = "front" | "right" | "left" | "back";
+type Fabric = "upper" | "lower";
+const fabricTrace = Symbol("outfitFabricTrace");
+type TracedImage = RawImage & { [fabricTrace]?: Map<number, Fabric> };
 
 function rgb(hex: string, fallback: Rgb): Rgb {
   const match = /^#([0-9a-f]{6})$/i.exec(hex);
@@ -25,17 +28,23 @@ function offset(atlas: RawImage, rect: Rect, x: number, y: number): number {
   return ((rect.y + y) * atlas.width + rect.x + x) * 4;
 }
 
-function put(atlas: RawImage, rect: Rect, x: number, y: number, color: Rgb, alpha = 255): void {
+function put(atlas: TracedImage, rect: Rect, x: number, y: number, color: Rgb, alpha = 255, fabric?: Fabric): void {
   if (x < 0 || y < 0 || x >= rect.w || y >= rect.h) return;
-  atlas.rgba.set([color[0], color[1], color[2], alpha], offset(atlas, rect, x, y));
+  const i = offset(atlas, rect, x, y);
+  atlas.rgba.set([color[0], color[1], color[2], alpha], i);
+  const trace = atlas[fabricTrace];
+  if (trace) {
+    if (fabric) trace.set(i, fabric);
+    else trace.delete(i);
+  }
 }
 
 function clearRect(atlas: RawImage, rect: Rect): void {
   for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) atlas.rgba.fill(0, offset(atlas, rect, x, y), offset(atlas, rect, x, y) + 4);
 }
 
-function fill(atlas: RawImage, rect: Rect, color: Rgb): void {
-  for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) put(atlas, rect, x, y, color);
+function fill(atlas: RawImage, rect: Rect, color: Rgb, fabric?: Fabric): void {
+  for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) put(atlas, rect, x, y, color, 255, fabric);
 }
 
 const FACE_SHADE: Record<keyof BoxUV, number> = {
@@ -53,8 +62,8 @@ function clearBodyOverlays(atlas: RawImage): void {
   }
 }
 
-function fillBox(atlas: RawImage, box: BoxUV, color: Rgb): void {
-  for (const face of Object.keys(box) as Array<keyof BoxUV>) fill(atlas, box[face], shade(color, FACE_SHADE[face]));
+function fillBox(atlas: RawImage, box: BoxUV, color: Rgb, fabric?: Fabric): void {
+  for (const face of Object.keys(box) as Array<keyof BoxUV>) fill(atlas, box[face], shade(color, FACE_SHADE[face]), fabric);
 }
 
 function drawPattern(
@@ -175,12 +184,12 @@ function drawNeckline(atlas: RawImage, plan: OutfitPlan, skin: Rgb): void {
 function drawTorso(atlas: RawImage, plan: OutfitPlan, skin: Rgb): void {
   const box = CLASSIC_LAYOUT.body.base;
   const base = rgb(plan.upper.baseColor, [82, 106, 140]);
-  fillBox(atlas, box, base);
+  fillBox(atlas, box, base, "upper");
   const lower = rgb(plan.lower.baseColor, [55, 67, 88]);
   if (plan.lower.garmentType === "dress_continuation" || plan.lower.garmentType === "skirt") {
     for (const face of ["front", "right", "left", "back"] as const) {
       const rect = box[face];
-      for (let y = plan.lower.waistRow; y < rect.h; y++) for (let x = 0; x < rect.w; x++) put(atlas, rect, x, y, shade(lower, FACE_SHADE[face]));
+      for (let y = plan.lower.waistRow; y < rect.h; y++) for (let x = 0; x < rect.w; x++) put(atlas, rect, x, y, shade(lower, FACE_SHADE[face]), 255, "lower");
     }
   } else {
     for (const face of ["front", "right", "left", "back"] as const) {
@@ -244,7 +253,7 @@ function drawSleeve(atlas: RawImage, box: BoxUV, sleeve: OutfitSleevePlan, patte
   fillBox(atlas, box, skin);
   for (const face of ["front", "right", "left", "back"] as const) {
     const rect = box[face];
-    for (let y = 0; y < Math.min(rect.h, sleeve.terminationRow); y++) for (let x = 0; x < rect.w; x++) put(atlas, rect, x, y, shade(cloth, FACE_SHADE[face]));
+    for (let y = 0; y < Math.min(rect.h, sleeve.terminationRow); y++) for (let x = 0; x < rect.w; x++) put(atlas, rect, x, y, shade(cloth, FACE_SHADE[face]), 255, "upper");
     if (pattern.surfaceParts ? pattern.surfaceParts.includes(part) : pattern.placement === "front_and_sleeves" || pattern.placement === "wrap") {
       // Keep the existing flower inside actual cloth, above the physical hem.
       // Short sleeves clip the glyph, not the skin or shoulder seam; long
@@ -277,7 +286,7 @@ function drawLower(atlas: RawImage, plan: OutfitPlan, skin: Rgb): void {
   const shoes = rgb(plan.lower.shoeColor, [52, 48, 50]);
   for (const part of ["rightLeg", "leftLeg"] as const) {
     const box = CLASSIC_LAYOUT[part].base;
-    fillBox(atlas, box, garment);
+    fillBox(atlas, box, garment, "lower");
     for (const face of ["front", "right", "left", "back"] as const) {
       const rect = box[face];
       const garmentEnd = Math.min(rect.h, plan.lower.garmentRows);
@@ -556,4 +565,13 @@ export function renderOutfitOverlayStencil(plan: OutfitPlan): RawImage {
   const atlas = { width: ATLAS_SIZE, height: ATLAS_SIZE, rgba: new Uint8Array(ATLAS_SIZE * ATLAS_SIZE * 4) };
   drawOuter(atlas, plan);
   return atlas;
+}
+
+/** Last-writer ownership from the same recipe that paints the source. A
+ * matching-color print, seam, cuff or skin pixel is still not base fabric. */
+export function renderOutfitFabricFoundation(plan: OutfitPlan, skin: string) {
+  const fabric = new Map<number, Fabric>();
+  const atlas: TracedImage = { width: ATLAS_SIZE, height: ATLAS_SIZE, rgba: new Uint8Array(ATLAS_SIZE ** 2 * 4), [fabricTrace]: fabric };
+  applyOutfitPlan(atlas, plan, skin);
+  return { atlas, fabric };
 }

@@ -6,6 +6,12 @@ import type { PhotoAnalysis } from "./analysis";
 import type { BodyPart } from "./uvLayout";
 import { hasObservedFloralGarment } from "./outfitIdentity";
 import { observedFrontHairDrape } from "./observedFrontHairDrape";
+import type { HairMaterialPolicy } from "./referenceMaterialDetail";
+
+export type SkinPresentation = "source" | "feminine" | "masculine";
+export function isSkinPresentation(value: unknown): value is SkinPresentation {
+  return value === "source" || value === "feminine" || value === "masculine";
+}
 
 export const FACE_STYLE_TEMPLATES = {
   soft_feminine_calm: { eyeFinish: "soft", irisPigment: 1.55, irisGlint: 0.82, noseCells: 0, mouthCells: 0, complexionContrast: 0.08, lipContrast: 0.16, blush: false },
@@ -72,8 +78,10 @@ export interface ReferenceStylePlan {
   faceLayoutPolicy?: "mouthless_lower_eyes";
   hairPalettePolicy?: "continuous_material";
   headProportionPolicy?: "reference_low_eyes_v1";
+  fringePolicy?: "reference_brow_length_v1";
+  frontLockPolicy?: "reference_torso_frame_v1";
   /** Material-only authored finish; historical plans without it remain exact. */
-  materialDetailPolicy?: "clustered_material_v1" | "tapered_material_v2" | "flow_locks_v3" | "continuous_locks_v4";
+  materialDetailPolicy?: HairMaterialPolicy;
   /** Cloth-only finish; independent of hair policy and absent on saved plans. */
   garmentDetailPolicy?: "articulated_cloth_v1";
   /** Source-supported crown/back relief; absent on immutable historical plans. */
@@ -185,6 +193,8 @@ export function buildReferenceStylePlan(a: PhotoAnalysis): ReferenceStylePlan {
     eyeBoundaryPolicy: "paired_lower_pigment",
     faceLayoutPolicy: "mouthless_lower_eyes",
     headProportionPolicy: "reference_low_eyes_v1",
+    ...(bangs && a.visibleRegions.hair ? { fringePolicy: "reference_brow_length_v1" as const } : {}),
+    frontLockPolicy: "reference_torso_frame_v1",
     materialDetailPolicy: "continuous_locks_v4",
     garmentDetailPolicy: "articulated_cloth_v1",
     hairVolumePolicy: "flowing_crown_v2",

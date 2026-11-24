@@ -2455,7 +2455,7 @@ function resetPortraitFaceOverlay(atlas: RawImage): void {
  * bangs can naturally occlude the frame while the side-hair pass restores the
  * visible temple arms where appropriate.
  */
-function composeGlassesOverlay(atlas: RawImage, style: FaceStyle): void {
+export function composeGlassesOverlay(atlas: RawImage, style: FaceStyle): void {
   if (style.glasses === "none") return;
 
   const overlay = CLASSIC_LAYOUT.head.overlay.front;

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError, requestSkinGeneration } from "../lib/cloudflareAI";
 import { normalizeFeatures } from "../lib/skinFeatures";
 import type { GenerationMode, QuotaStatus, SkinFeatures } from "../lib/skinFeatures";
+import type { SkinPresentation } from "../lib/skinPresentation";
 
 export interface GenerationFailure {
   kind: "photo" | "ai" | "network";
@@ -17,11 +18,12 @@ interface Props {
   photoDataUrl: string;
   analysisPhotoDataUrl: string;
   referencePhotoDataUrls?: string[];
+  presentation: SkinPresentation;
   onDone: (result: GenerationSuccess) => void | Promise<void>;
   onFail: (failure: GenerationFailure) => void;
   onQuotaClosed: (quota: QuotaStatus | null) => void;
 }
-export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePhotoDataUrls = [], onDone, onFail, onQuotaClosed }: Props) {
+export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePhotoDataUrls = [], presentation, onDone, onFail, onQuotaClosed }: Props) {
   const [seconds, setSeconds] = useState(0);
   const referenceKey = JSON.stringify(referencePhotoDataUrls);
   useEffect(() => {
@@ -32,7 +34,7 @@ export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePh
     let cancelled = false;
     void (async () => {
       try {
-        const result = await requestSkinGeneration(photoDataUrl, analysisPhotoDataUrl, JSON.parse(referenceKey));
+        const result = await requestSkinGeneration(photoDataUrl, analysisPhotoDataUrl, JSON.parse(referenceKey), presentation);
         if (!cancelled) await onDone({
           features: normalizeFeatures(result.features ?? {}),
           skinPngBase64: result.skinPngBase64,
@@ -55,7 +57,7 @@ export function GeneratingPage({ photoDataUrl, analysisPhotoDataUrl, referencePh
     return () => { cancelled = true; };
     // callbacks are controlled by the parent flow; don't resubmit on a parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photoDataUrl, analysisPhotoDataUrl, referenceKey]);
+  }, [photoDataUrl, analysisPhotoDataUrl, referenceKey, presentation]);
   return <div className="px-screen px-screen--center">
     <h1 className="px-title">A new world.<br />Still you.</h1>
     <p className="px-subtitle">The AI is analyzing your photos and the renderer is building your skin.</p>

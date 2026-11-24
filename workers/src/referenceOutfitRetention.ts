@@ -121,6 +121,7 @@ export function measureReferenceGarmentStructure(
   atlas: RawImage, plan: OutfitPlan, skin: string, design: ReferenceStylePlan,
   groups: readonly { id: string; placement: "outer_structure" | "base_anchor" }[],
   scarfPaints: readonly SourceAccessoryPaint[] = [],
+  frontLocks: readonly { x: number; y: number }[] = [],
 ): GarmentStructureRetention {
   const errors = new Set<string>(), cues: GarmentStructureRetention["cues"] = [];
   if (atlas.width !== 64 || atlas.height !== 64 || atlas.rgba.length !== 16384) return { valid: false, violations: ["garment_atlas_invalid"], cues };
@@ -135,9 +136,13 @@ export function measureReferenceGarmentStructure(
     return { id: `structure:${region}`, paints };
   });
   const accessoryPositions = closedSourcePositions([...sourceAccessoryStencils(plan, skin).flatMap(s => s.paints), ...scarfPaints]);
+  const hairPositions = new Set(frontLocks.map(p => `body:front:${p.x}:${p.y}`));
   for (const [index, stencil] of stencils.entries()) {
     const later = closedSourcePositions(stencils.slice(index + 1).flatMap(s => s.paints));
-    const visible = stencil.paints.filter(c => !accessoryPositions.has(coordinateKey(c)) && !later.has(coordinateKey(c)));
+    const visible = stencil.paints.filter(c => {
+      const key = coordinateKey(c);
+      return !accessoryPositions.has(key) && !later.has(key) && !hairPositions.has(key);
+    });
     const palette = new Set(stencil.paints.map(c => colorKey(c.color)));
     const route = groups.filter(g => g.id === stencil.id);
     if (route.length !== 1) errors.add(`source_structure_route_missing:${stencil.id}`);
