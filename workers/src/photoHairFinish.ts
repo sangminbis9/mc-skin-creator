@@ -6,6 +6,7 @@ import { buildReferenceScarfFinish } from "./referenceScarfFinish";
 import type { FaceStyle } from "./skinPack";
 import type { SkinPlan } from "./skinPlan";
 import { fixedHairTone } from "./fixedMaterialPalette";
+import { buildLooseRearHair, chooseRearHairPattern, isLooseRearHair } from "./rearHairFinish";
 
 export type PhotoHairType = "compact" | "straight" | "wavy" | "curly" | "coily" | "braided" | "locs" | "tied";
 export type PhotoHairProfile = {
@@ -84,9 +85,11 @@ export function photoHairTone(p: readonly [number, number, number], style: FaceS
   return fixedHairTone(p, style, raised, profile.part);
 }
 
-export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceStyle, explicitStructure = false): PhotoDrapeCell[] {
+export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceStyle, explicitStructure = false, rearFinish = explicitStructure): PhotoDrapeCell[] {
   const observed = a.observed.hair;
   const profile = classifyPhotoHair(style, observed, explicitStructure);
+  const rearPattern = rearFinish && isLooseRearHair(profile.type)
+    ? chooseRearHairPattern(profile.type, observed, a.appearanceDetail?.rearHairPattern) : undefined;
   const rows = style.overallHairLength === "shoulder" ? 4 : style.overallHairLength === "chest" ? 8
     : ["waist", "hip"].includes(style.overallHairLength ?? "") ? 12 : 0;
   if (!a.visibleRegions.hair || profile.type === "compact") return [];
@@ -130,7 +133,8 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
       if (style.hairstyle === "bun" ? !endpoint : !longCut && !observedOnSide) continue;
       if (locallyShort && verified !== "shoulder" && (!endpoint || endpoint === "shoulder")) continue;
       const length = frontRows[verified];
-      const texture = detail?.frontHairTexture === "unknown" ? profile.type : detail?.frontHairTexture;
+      const observedTexture = detail?.frontHairTexture === "unknown" ? profile.type : detail?.frontHairTexture;
+      const texture = rearPattern === "straight" && observedTexture !== "braided" ? "straight" : observedTexture;
       for (let y = 0; y < length; y++) {
         const bend = texture === "wavy" && [3, 4, 7, 8, 9].includes(y) || texture === "braided" && y >= 5;
         // Underlay stays attached to its temple; relief traces the outside of
@@ -162,7 +166,7 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
         : endpoint === "chest" ? 8 : rows);
     }
     for (let y = 0; y < length; y++) {
-      const wide = y > 0 && y < length - 1 && (profile.type === "straight" || y % 4 !== 1);
+      const wide = y > 0 && y < length - 1 && (rearPattern === "straight" || profile.type === "straight" || y % 4 !== 1);
       front.push({ face: "front", layer: "base", x, y, tone: y < 2 || y === length - 1 ? 1 : 2 });
       if (wide) front.push({ face: "front", layer: "base", x: x + inward, y, tone: profile.type === "braided" && y % 2 === 0 ? 1 : 2 });
       if (wide && y >= 2 && (profile.type === "braided" ? y % 3 !== 0 : y % 5 === 2 || y % 5 === 3)) {
@@ -176,7 +180,9 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
     && !/\b(?:unknown|unseen|no|not|cropped|short|bun)\b/i.test(rearText);
   const tiedRear = style.hairstyle === "ponytail" && /\bponytail\b[^.;]{0,45}\b(?:down|over|along) (?:the )?back\b/i.test(observed);
   const pairedRear = style.hairstyle === "twintails" && /\b(?:twin[- ]?tails|pigtails|two ponytails)\b[^.;]{0,45}\b(?:down|over|along) (?:the )?back\b/i.test(observed);
-  if ((profile.type !== "tied" && rearSupported) || tiedRear || pairedRear) for (let y = 0; y < rows; y++) {
+  if (rearFinish && rearSupported && isLooseRearHair(profile.type)) {
+    rear.push(...buildLooseRearHair(rows, profile.type, profile.sweep === "right", rearPattern));
+  } else if ((profile.type !== "tied" && rearSupported) || tiedRear || pairedRear) for (let y = 0; y < rows; y++) {
     const taper = y >= rows - 2;
     const columns = pairedRear ? taper ? [2, 5] : [1, 2, 5, 6]
       : tiedRear ? [3, 4] : taper ? [2, 3, 4, 5] : [1, 2, 3, 4, 5, 6];

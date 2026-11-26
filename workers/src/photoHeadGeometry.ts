@@ -3,6 +3,7 @@
 import type { FaceStyle } from "./skinPack";
 import type { PhotoDrapeCell, PhotoHairProfile } from "./photoHairFinish";
 import type { AppearanceDetail } from "./appearanceDetail";
+import { isLooseRearHair } from "./rearHairFinish";
 import { CLASSIC_LAYOUT, getBoxUvSeams, type BoxUV } from "./uvLayout";
 
 export type PhotoHeadCut = "bald" | "buzz" | "crew" | "crop" | "spiky" | "slick" | "side_part" | "curtain"
@@ -11,6 +12,7 @@ export type PhotoHeadGeometry = {
   cut: PhotoHeadCut;
   base: Record<keyof BoxUV, string[]>;
   overlay: Record<keyof BoxUV, string[]>;
+  rearJoin?: readonly number[];
 };
 const faceKeys = Object.keys(CLASSIC_LAYOUT.head.base) as (keyof BoxUV)[];
 const longLength = (s: FaceStyle) => ["shoulder", "chest", "waist", "hip"].includes(s.overallHairLength ?? "") || s.hairstyle === "long";
@@ -90,13 +92,16 @@ function fringeRows(cut: PhotoHeadCut, style: FaceStyle, profile: PhotoHairProfi
 }
 
 export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfile, observed: string,
-  drape: readonly PhotoDrapeCell[] = [], detail?: Pick<AppearanceDetail, "templeLeft" | "templeRight">): PhotoHeadGeometry {
+  drape: readonly PhotoDrapeCell[] = [], detail?: Pick<AppearanceDetail, "templeLeft" | "templeRight">, rearFinish = false): PhotoHeadGeometry {
   const cut = classifyPhotoHeadCut(style, profile, observed);
   const fringe = fringeRows(cut, style, profile);
   const short = ["buzz", "crew", "crop", "spiky", "slick", "pixie", "side_part", "curtain", "bowl", "tied"].includes(cut);
   const curls = ["curls", "coils"].includes(cut), long = !short && cut !== "bald";
   const isTapered = short && ["tapered", "undercut", "ear_hugging"].includes(style.sideHairShape ?? "");
   const tiedBun = cut === "tied" && style.hairstyle === "bun";
+  const rearRoot = rearFinish && longLength(style) && style.hairBackShape === "long" && isLooseRearHair(profile.type)
+    && drape.some(p => p.face === "back" && p.layer === "base" && p.y === 0);
+  const rearJoin = rearRoot ? drape.filter(p => p.face === "back" && p.layer === "overlay" && p.y === 0).map(p => p.x) : undefined;
   const ends = { above_ear: 3, at_ear: 4, cheek: 5, jaw: 6, below_jaw: 7, unknown: 7 } as const;
   const limitTemple = (left: boolean) => {
     const endpoint = left ? detail?.templeLeft : detail?.templeRight;
@@ -125,16 +130,19 @@ export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfi
     if (face === "top") return cut !== "buzz" || !(x === 0 && (y === 0 || y === 7) || x === 7 && (y === 0 || y === 7));
     if (face === "front") return y <= fringe[x] && (y <= 3 || x === 0 || x === 7);
     if (face === "back") {
+      if (rearRoot) return true;
       const nape = cut === "buzz" ? 5 : long || cut === "tied" ? 7 : 6;
       return y <= nape - (x <= 1 || x >= 6 ? 1 : 0);
     }
-    if (face === "bottom") return (x === 0 && behindEarJoin.has("left") || x === 7 && behindEarJoin.has("right")) && (y === 2 || y === 3)
+    if (face === "bottom") return rearRoot && y >= 6
+      || (x === 0 && behindEarJoin.has("left") || x === 7 && behindEarJoin.has("right")) && (y === 2 || y === 3)
       || long && (y >= 5 || (x === 0 || x === 7) && y >= 2);
     const depth = face === "right" ? 7 - x : x;
     const frontSide = face === "right" ? 0 : 7;
     const sideTuck = tucked(face === "right" ? "left" : "right");
     const rear = long || cut === "tied" ? 6 : cut === "buzz" ? 4 : 5;
     if (depth === 0) return y <= fringe[frontSide];
+    if (rearRoot && depth >= 6) return true;
     // Keep the cheek edge and fixed eyes intact; take the long lock around
     // the side behind the ear instead of extending the front temple down.
     if (behindEarJoin.has(face === "right" ? "left" : "right") && (depth === 2 || depth === 3)) return true;
@@ -179,6 +187,10 @@ export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfi
     for (let y = tiedBun ? 0 : 2; y <= (long ? 6 : 4); y++) for (let x = 1; x < 7; x++) {
       if (tiedBun ? x >= 3 && x <= 5 && y <= 3 : (long && (x <= 2 || x >= 5)) || (curls && (x + y) % 3 !== 0)) raise("back", x, y);
     }
+    for (const x of rearJoin ?? []) {
+      raise("back", x, 7);
+      raise("bottom", x, 7);
+    }
     for (const x of [0, 7]) for (let y = 3; y <= fringe[x]; y++) if (long || curls) raise("front", x, y);
   }
   const box = CLASSIC_LAYOUT.head.overlay;
@@ -195,5 +207,5 @@ export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfi
   }
   const overlay = Object.fromEntries(faceKeys.map(face => [face, Array.from({length: 8}, (_, y) =>
     Array.from({length: 8}, (_, x) => relief.has(key(face, x, y)) ? "#" : ".").join(""))])) as PhotoHeadGeometry["overlay"];
-  return { cut, base, overlay };
+  return { cut, base, overlay, ...(rearJoin ? { rearJoin } : {}) };
 }

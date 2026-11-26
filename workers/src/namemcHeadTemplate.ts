@@ -177,6 +177,7 @@ export function applyNameMcHead(input: RawImage, garment: RawImage, source: Skin
   const put = (r: Rect, x: number, y: number, c: readonly [number, number, number]) => rgba.set([...c, 255], at(r, x, y));
   const hairPaint = (part: "head" | "body", face: keyof BoxUV, x: number, y: number, raised: boolean) => {
     const point = fixedHairMaterialPoint(part, face, x, y);
+    if (part === "head" && geometry?.rearJoin && point[1] === 7 && point[2] === 7) return hairRamp[raised ? 3 : 2];
     if (usesPhotoDrapePolicy(policy)) {
       const tone = photoHairTone(point, style, profile, raised);
       return part === "head" && cut && treatment ? headRamp[hairTone(point, cut, profile, treatment, raised, tone)] : hairRamp[tone];

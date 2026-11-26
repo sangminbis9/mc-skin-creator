@@ -18,7 +18,7 @@ import { CLASSIC_LAYOUT } from "./uvLayout";
 import { sculptStylizedHair, sculptWrappedHair } from "./stylizedHairArt";
 import { applyPublicClothFinish, PUBLIC_CLOTH_POLICY } from "./publicClothFinish";
 import { PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
-export const SKIN_ENGINE_VERSION = "reference-engine-20261126-front-locks-v26";
+export const SKIN_ENGINE_VERSION = "reference-engine-20261127-rear-locks-v27";
 
 export function photoHeadForRender(style: FaceStyle, observation: PhotoAnalysis, drape: readonly PhotoDrapeCell[],
   presentation: SkinPresentation = "source", policy: NameMcFinishPolicy = NAMEMC_HEAD_FINISH): PhotoHeadGeometry {
@@ -26,20 +26,21 @@ export function photoHeadForRender(style: FaceStyle, observation: PhotoAnalysis,
   const profile = classifyPhotoHair(style, observed, true);
   // The caller supplies already-scoped drape. Only shoulder joins can change;
   // the forehead, fringe and crown still come from the original hair profile.
-  const geometry = buildPhotoHeadGeometry(style, profile, observed, drape, observation.visibleRegions.hair ? observation.appearanceDetail : undefined);
+  const geometry = buildPhotoHeadGeometry(style, profile, observed, drape, observation.visibleRegions.hair ? observation.appearanceDetail : undefined,
+    policy === NAMEMC_HEAD_FINISH);
   return policy === NAMEMC_HEAD_FINISH ? sculptWrappedHair(geometry, profile, presentation)
     : policy === STYLIZED_NAMEMC_HEAD_FINISH ? sculptStylizedHair(geometry, profile, presentation) : geometry;
 }
 
 export function renderNameMcPresentation(atlas: RawImage, plan: SkinPlan, observation: PhotoAnalysis, style: FaceStyle,
   presentation: SkinPresentation, design?: ReferenceStylePlan, policy: NameMcFinishPolicy = NAMEMC_HEAD_FINISH,
-  drape: readonly PhotoDrapeCell[] = usesPhotoDrapePolicy(policy) ? buildPhotoDrape(plan, observation, style, usesAdaptiveHeadPolicy(policy)) : [],
+  drape: readonly PhotoDrapeCell[] = usesPhotoDrapePolicy(policy) ? buildPhotoDrape(plan, observation, style, usesAdaptiveHeadPolicy(policy), policy === NAMEMC_HEAD_FINISH) : [],
   geometry: PhotoHeadGeometry | undefined = usesAdaptiveHeadPolicy(policy) ? photoHeadForRender(style, observation, drape, presentation, policy) : undefined): RawImage {
   const front = CLASSIC_LAYOUT.body.overlay.front;
   const reservation = new Set(drape.filter(p => p.face === "front").map(p => ((front.y + p.y) * 64 + front.x + p.x) * 4));
   const underlay = renderReferenceGarmentUnderlay(atlas, plan, design ?? buildReferenceStylePlan(observation), style,
     usesPhotoDrapePolicy(policy) ? reservation : namemcDrapeReservation,
-    usesPhotoDrapePolicy(policy) ? drape.filter(p => p.layer === "overlay").length : namemcDrapeReliefCount);
+    usesPhotoDrapePolicy(policy) ? drape.filter(p => p.layer === "overlay" && p.face === "front").length : namemcDrapeReliefCount);
   const result = applyNameMcHead(atlas, underlay, plan, style, presentation, policy, drape, classifyPhotoHair(style, observation.observed.hair, usesAdaptiveHeadPolicy(policy)), geometry);
   if (policy !== PREVIOUS_NAMEMC_HEAD_FINISH) refineFixedFootwear(result, plan.outfitPlan.lower);
   return result;

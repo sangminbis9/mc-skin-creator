@@ -117,7 +117,7 @@ it.each([false, true])("keeps the fixed eyes and paints front chest locks with o
   const base = namedGemmaFixture(wireFixture(photo));
   expect(validateGemmaNamedPhotoAnalysis(base)).toEqual([]);
   const payload = structuredOnly ? { ...base, appearanceDetail: {
-    templeLeft: "at_ear", templeRight: "at_ear", frontHairLeft: "chest", frontHairRight: "shoulder", frontHairTexture: "wavy",
+    templeLeft: "at_ear", templeRight: "at_ear", frontHairLeft: "chest", frontHairRight: "shoulder", frontHairTexture: "wavy", rearHairPattern: "layered_wave",
   } } : base;
   s.run.mockResolvedValue({ choices: [{ message: { content: JSON.stringify(payload) } }],
     usage: { prompt_tokens: 9000, completion_tokens: 3000 } });
@@ -144,6 +144,13 @@ it.each([false, true])("keeps the fixed eyes and paints front chest locks with o
   }
   expect(pixel(head.overlay.front, 4, 5)[3]).toBe(0);
   expect(result.body.features?.fixedHairMask).toMatch(/^[A-Za-z0-9+/]{683}=$/);
+  if (structuredOnly) {
+    const mask = base64ToBytes(String(result.body.features?.fixedHairMask));
+    const back = CLASSIC_LAYOUT.body.base.back;
+    const tips = Array.from({ length: 8 }, (_, x) => (back.y + 7) * 64 + back.x + x)
+      .filter(i => mask[i >> 3] & (1 << (i & 7)));
+    expect(tips).toHaveLength(1);
+  }
   const body = CLASSIC_LAYOUT.body.base.front;
   for (const x of [0, 7]) {
     expect(pixel(body, x, 0)[0]).toBeLessThan(110);

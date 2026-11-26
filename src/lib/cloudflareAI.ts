@@ -16,7 +16,7 @@ const inFlightGenerations = new Map<string, Promise<GenerateResponse>>();
 // Never persist photographs, requests, or analysis. Bump revision with a new
 // presentation release; expiry also bounds reuse across Worker-only releases.
 const completedGenerations = new Map<string, { expires: number; result: GenerateResponse }>();
-const REUSE_KEY = "mc-skin:completed:front-locks-v26";
+const REUSE_KEY = "mc-skin:completed:rear-locks-v27";
 let reuseLoaded = false;
 
 function loadCompletedGenerations(): void {

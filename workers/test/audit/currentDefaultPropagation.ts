@@ -12,7 +12,7 @@ import { buildSkinPlan, type SkinPlan } from "../../src/skinPlan";
 import { renderReferencePrimaryAtlas } from "../../src/referencePrimaryRenderer";
 import { FACE_STYLE_TEMPLATES, HAIR_STYLE_TEMPLATES, OUTFIT_STYLE_TEMPLATES, buildReferenceStylePlan, isSkinPresentation } from "../../src/referenceStyleTemplates";
 import { applyLockedHeadFinish, LEGACY_LOCKED_HEAD_FINISH, LOCKED_HEAD_FINISH } from "../../src/lockedHeadFinish";
-import { applyObservedBeanie, isNameMcFinishPolicy, nameMcHairMask, usesAdaptiveHeadPolicy, usesNameMcHead, usesPhotoDrapePolicy } from "../../src/namemcHeadTemplate";
+import { applyObservedBeanie, isNameMcFinishPolicy, nameMcHairMask, NAMEMC_HEAD_FINISH, usesAdaptiveHeadPolicy, usesNameMcHead, usesPhotoDrapePolicy } from "../../src/namemcHeadTemplate";
 import { buildPhotoDrape } from "../../src/photoHairFinish";
 import { photoHeadForRender, renderNameMcPresentation } from "../../src/skinEngine";
 import { applyCoveredHeadFinish, COVERED_HEAD_FINISH } from "../../src/coveredHeadFinish";
@@ -145,7 +145,7 @@ export async function captureCurrentDefaultPropagation(input: {
       const finish = object(reference.headFinish);
       const nameMcPolicy = finish.policy;
       if (isNameMcFinishPolicy(nameMcPolicy)) {
-        const drape = usesPhotoDrapePolicy(nameMcPolicy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(nameMcPolicy)) : [];
+        const drape = usesPhotoDrapePolicy(nameMcPolicy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(nameMcPolicy), nameMcPolicy === NAMEMC_HEAD_FINISH) : [];
         const presentation = finish.presentation === "feminine" || finish.presentation === "masculine" ? finish.presentation : "source";
         features.fixedHairMask = nameMcHairMask(style, drape, nameMcPolicy,
           usesAdaptiveHeadPolicy(nameMcPolicy) ? photoHeadForRender(style, a, drape, presentation, nameMcPolicy) : undefined,
@@ -220,7 +220,7 @@ export async function captureCurrentDefaultPropagation(input: {
         if (garmentFinish !== PUBLIC_CLOTH_POLICY || finish.policy !== COVERED_HEAD_FINISH && !isNameMcFinishPolicy(finish.policy)) continue;
         const nameMc = isNameMcFinishPolicy(finish.policy);
         const design = chosen ?? (nameMc ? buildReferenceStylePlan(a) : undefined);
-        const drape = nameMc && usesPhotoDrapePolicy(finish.policy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(finish.policy)) : [];
+        const drape = nameMc && usesPhotoDrapePolicy(finish.policy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(finish.policy), finish.policy === NAMEMC_HEAD_FINISH) : [];
         if (a.visibleRegions.hair || a.visibleRegions.face) applyObservedBeanie(reproduced, style, a.appearanceDetail);
         applyPublicClothFinish(reproduced, plan, style.skinTone ?? "#d39e80", design?.garmentDetailPolicy ?? !!design?.materialDetailPolicy,
           drape, nameMc ? undefined : execution?.surfaces);

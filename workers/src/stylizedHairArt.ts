@@ -153,6 +153,7 @@ export function sculptWrappedHair(g: PhotoHeadGeometry, p: PhotoHairProfile, pre
       return crown && !(p.part !== "none" && z < 5 && Math.abs(u - part) <= .5);
     }
     if (z === 7) {
+      if (v === 7 && g.rearJoin) return g.rearJoin.includes(7 - u);
       const bend = p.type === "wavy" || g.cut === "shag" ? [0, 0, 0, 1, 1, 0, -1, -1][v] : 0;
       const lane = ribbon ? u + (u < 4 ? bend : -bend) : u + (v >= 3 ? p.sweep === "left" ? 1 : -1 : 0);
       if (v === 1) return edge >= 1;
