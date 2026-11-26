@@ -88,7 +88,8 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
   const profile = classifyPhotoHair(style, observed, explicitStructure);
   const rows = style.overallHairLength === "shoulder" ? 4 : style.overallHairLength === "chest" ? 8
     : ["waist", "hip"].includes(style.overallHairLength ?? "") ? 12 : 0;
-  if (!rows || !a.visibleRegions.hair || style.hairstyle === "bun" || profile.type === "compact") return [];
+  const detail = a.visibleRegions.upperBody ? a.appearanceDetail : undefined;
+  if ((!rows && !detail) || !a.visibleRegions.hair || style.hairstyle === "bun" || profile.type === "compact") return [];
   const parsedText = observed.replace(/\bviewer(?:'s)?-(left|right)\b/gi, "viewer $1");
   const evidence = observedFrontHairDrape(parsedText);
   const placement = observedFrontHairPlacement(parsedText);
@@ -105,7 +106,35 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
   const both = /\b(?:both|each) (?:sides?|shoulders?)\b/i.test(observed)
     || /\b(?:twin[- ]?tails|pigtails|(?:two|twin|paired) braids)\b[^.;]{0,36}\b(?:over|across|in front of)\b/i.test(observed);
   const front: PhotoDrapeCell[] = [];
-  if (frontWitness) for (const [side, x, inward] of [["left", 0, 1], ["right", 7, -1]] as const) {
+  for (const [side, x, inward] of [["left", 0, 1], ["right", 7, -1]] as const) {
+    const verified = side === "left" ? detail?.frontHairLeft : detail?.frontHairRight;
+    if (verified && verified !== "unknown") {
+      if (verified === "not_in_front") continue;
+      const temple = side === "left" ? detail?.templeLeft : detail?.templeRight;
+      const observedOnSide = !!placement[side] || frontWitness && (forward === side || both || pluralFaceFrame) && !placement[side === "left" ? "right" : "left"];
+      // A short cut or an ear/cheek/jaw endpoint cannot independently turn a
+      // contradictory shoulder label into a head-to-torso lock. Longer hair
+      // behind the neck is also not evidence of front overlap.
+      if (!rows && !(temple === "below_jaw" && observedOnSide)) continue;
+      if (!observedOnSide && (temple && temple !== "below_jaw" && temple !== "unknown" || rows === 4 && temple !== "below_jaw")) continue;
+      const length = Math.min(rows || 4, { shoulder: 4, chest: 8, waist: 11 }[verified]);
+      const texture = detail?.frontHairTexture === "unknown" ? profile.type : detail?.frontHairTexture;
+      for (let y = 0; y < length; y++) {
+        const bend = texture === "wavy" && [3, 4, 7, 8, 9].includes(y) || texture === "braided" && y >= 5;
+        // Underlay stays attached to its temple; relief traces the outside of
+        // a wave or the alternating facing lobes of a braid, never a shell.
+        const anchor = x + (bend ? inward : 0);
+        const edge = x + (bend ? 2 * inward : inward);
+        front.push({ face: "front", layer: "base", x: anchor, y, tone: y < 2 || y === length - 1 ? 1 : 2 });
+        if (y < length - 1) {
+          front.push({ face: "front", layer: "base", x: edge, y, tone: texture === "braided" && y % 3 === 1 ? 1 : 2 });
+          if (y >= 1 && (texture === "braided" ? y % 3 !== 1 : y % 4 === 2 || bend && y % 2 === 0))
+            front.push({ face: "front", layer: "overlay", x: edge, y, tone: 3 });
+        }
+      }
+      continue;
+    }
+    if (!frontWitness || !rows) continue;
     const endpoint = placement[side];
     const explicitSide = placement.left || placement.right || forward;
     if (explicitSide && !endpoint && forward !== side) continue;

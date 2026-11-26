@@ -12,6 +12,7 @@ import { bytesToBase64, type RawImage } from "./png";
 import type { FaceStyle } from "./skinPack";
 import type { SkinPlan } from "./skinPlan";
 import type { SkinPresentation } from "./referenceStyleTemplates";
+import type { AppearanceDetail } from "./appearanceDetail";
 import { CLASSIC_LAYOUT, type BoxUV, type Rect } from "./uvLayout";
 
 export const PREVIOUS_NAMEMC_HEAD_FINISH = "namemc_6c13a4b6c3d74499_no_eyewear_v2" as const;
@@ -97,7 +98,7 @@ export function usesNameMcHead(source: SkinPlan, style: FaceStyle): boolean {
 
 /** Public wardrobe mask: one bit per atlas coordinate, no colours or photo. */
 export function nameMcHairMask(style: FaceStyle, drape: readonly PhotoDrapeCell[] = [], policy: NameMcFinishPolicy = NAMEMC_HEAD_FINISH,
-  geometry = defaultGeometry(style, classifyPhotoHair(style, ""), drape, policy)): string {
+  geometry = defaultGeometry(style, classifyPhotoHair(style, ""), drape, policy), detail?: AppearanceDetail): string {
   const bits = new Uint8Array(512);
   const mark = (offset: number, include: boolean) => {
     const pixel = offset / 4, flag = 1 << (pixel % 8), bucket = Math.floor(pixel / 8);
@@ -111,7 +112,7 @@ export function nameMcHairMask(style: FaceStyle, drape: readonly PhotoDrapeCell[
     for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) if (has(rows, x, y)) mark(at(r, x, y), true);
   }
   if (usesPhotoDrapePolicy(policy)) for (const p of drape) mark(at(CLASSIC_LAYOUT.body[p.layer][p.face], p.x, p.y), true);
-  for (const p of hatPaint(style)) {
+  for (const p of [...hatPaint(style), ...observedBeaniePaint(style, detail)]) {
     mark(at(CLASSIC_LAYOUT.head.base[p.face], p.x, p.y), false);
     mark(at(CLASSIC_LAYOUT.head.overlay[p.face], p.x, p.y), false);
   }
@@ -120,6 +121,43 @@ export function nameMcHairMask(style: FaceStyle, drape: readonly PhotoDrapeCell[
 
 const hatPaint = (style: FaceStyle) => buildHeadwearPaint(style.hat, style.hatColor ?? "#303030", style.hatVisor,
   NAMEMC_EYES.map(e => ({ ...e, face: "front" as const })));
+
+function observedBeaniePaint(style: FaceStyle, detail?: AppearanceDetail) {
+  if (!detail?.beanieBase || !["beanie", "ear_beanie"].includes(detail.beanie)
+    || ["headscarf", "helmet", "full_helmet", "hard_hat"].includes(style.hat)) return [];
+  const pigment = rgb(detail.beanieBase, [79, 179, 187]);
+  const paint = buildHeadwearPaint("beanie", detail.beanieBase, undefined, NAMEMC_EYES.map(e => ({ ...e, face: "front" as const })));
+  for (const cell of paint) {
+    if (cell.face === "front" && cell.y === 2 && cell.x >= 1 && cell.x <= 6 && detail.beanieTrim.length) {
+      cell.color = rgb(detail.beanieTrim[Math.floor((cell.x - 1) * detail.beanieTrim.length / 6)], pigment);
+    }
+  }
+  if (detail.beanie === "ear_beanie") {
+    // Only raised texture, not new model geometry. Echo the paired corners
+    // onto the adjoining faces instead of isolated upward dots.
+    const ear = mix(pigment, [248, 245, 242], .24);
+    for (const x of [0, 1, 6, 7]) {
+      for (const y of x === 0 || x === 7 ? [5, 6] : [6]) paint.push({ face: "top", x, y, layer: "overlay", color: ear, shade: 1 });
+      paint.push({ face: "front", x, y: 0, layer: "overlay", color: ear, shade: 1 });
+      paint.push({ face: "top", x, y: 7, layer: "overlay", color: ear, shade: 1 });
+    }
+    for (const [face, xs] of [["right", [5, 6, 7]], ["left", [0, 1, 2]]] as const)
+      for (const x of xs) paint.push({ face, x, y: 0, layer: "overlay", color: ear, shade: 1 });
+  }
+  return paint;
+}
+
+/** Last pass is shared by both head branches; only observed beanie paint is
+ * rewritten, leaving the eye rows and all existing outfit pieces intact. */
+export function applyObservedBeanie(atlas: RawImage, style: FaceStyle, detail?: AppearanceDetail): void {
+  for (const p of observedBeaniePaint(style, detail)) {
+    if (p.layer === "base") {
+      const i = at(CLASSIC_LAYOUT.head.overlay[p.face], p.x, p.y);
+      atlas.rgba.fill(0, i, i + 4);
+    }
+    atlas.rgba.set([...p.color, 255], at(CLASSIC_LAYOUT.head[p.layer][p.face], p.x, p.y));
+  }
+}
 
 export function applyNameMcHead(input: RawImage, garment: RawImage, source: SkinPlan, style: FaceStyle,
   presentation: SkinPresentation = "source", policy: NameMcFinishPolicy = NAMEMC_HEAD_FINISH,

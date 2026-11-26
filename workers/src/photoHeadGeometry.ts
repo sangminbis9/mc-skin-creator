@@ -2,6 +2,7 @@
  * and pigment are independent: a different dye never selects a different cut. */
 import type { FaceStyle } from "./skinPack";
 import type { PhotoDrapeCell, PhotoHairProfile } from "./photoHairFinish";
+import type { AppearanceDetail } from "./appearanceDetail";
 import { CLASSIC_LAYOUT, getBoxUvSeams, type BoxUV } from "./uvLayout";
 
 export type PhotoHeadCut = "bald" | "buzz" | "crew" | "crop" | "spiky" | "slick" | "side_part" | "curtain"
@@ -89,18 +90,29 @@ function fringeRows(cut: PhotoHeadCut, style: FaceStyle, profile: PhotoHairProfi
 }
 
 export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfile, observed: string,
-  drape: readonly PhotoDrapeCell[] = []): PhotoHeadGeometry {
+  drape: readonly PhotoDrapeCell[] = [], detail?: Pick<AppearanceDetail, "templeLeft" | "templeRight">): PhotoHeadGeometry {
   const cut = classifyPhotoHeadCut(style, profile, observed);
   const fringe = fringeRows(cut, style, profile);
   const short = ["buzz", "crew", "crop", "spiky", "slick", "pixie", "side_part", "curtain", "bowl", "tied"].includes(cut);
   const curls = ["curls", "coils"].includes(cut), long = !short && cut !== "bald";
   const isTapered = short && ["tapered", "undercut", "ear_hugging"].includes(style.sideHairShape ?? "");
   const tiedBun = cut === "tied" && style.hairstyle === "bun";
+  const ends = { above_ear: 3, at_ear: 4, cheek: 5, jaw: 6, below_jaw: 7, unknown: 7 } as const;
+  const limitTemple = (left: boolean) => {
+    const endpoint = left ? detail?.templeLeft : detail?.templeRight;
+    if (!detail) return 7; // preserve historical atlases
+    if (endpoint && endpoint !== "unknown") return ends[endpoint];
+    if (style.overallHairLength === "cropped" || style.overallHairLength === "ear") return 4;
+    if (style.overallHairLength === "jaw") return 5;
+    if (["none", "short"].includes(style.sideHairLength ?? "") && short) return 4;
+    return 7;
+  };
   const tucked = (view: string) => /\bboth sides (?:are )?tucked\b/i.test(observed)
     || new RegExp(`\\bviewer(?:'s)?[- ]${view}[^.;]{0,35}\\btuck\\w*\\b`, "i").test(observed);
   for (const [x, view] of [[0, "left"], [7, "right"]] as const) {
     if (drape.some(p => p.face === "front" && p.x === x && p.y === 0)) fringe[x] = 7;
     else if (tucked(view)) fringe[x] = Math.min(fringe[x], 3);
+    else fringe[x] = Math.min(fringe[x], limitTemple(view === "left"));
   }
   const topTrim = (x: number, y: number) => (x <= 1 || x >= 6) && (y <= 1 || y >= 6);
   const baseCell = (face: keyof BoxUV, x: number, y: number) => {
@@ -119,7 +131,7 @@ export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfi
     if (depth === 0) return y <= fringe[frontSide];
     const taper = isTapered ? (depth <= 4 ? 1 : 0) : 0;
     const limit = sideTuck && depth <= 4 ? 2 : depth >= 6 ? rear : long ? 6 : depth <= 2 ? Math.min(4, fringe[frontSide] + 1) - taper : rear - 1 - taper;
-    return y <= limit;
+    return y <= (depth <= 2 && fringe[frontSide] < 7 ? Math.min(limit, limitTemple(face === "right") + 1) : limit);
   };
   const base = Object.fromEntries(faceKeys.map(face => [face, Array.from({length: 8}, (_, y) =>
     Array.from({length: 8}, (_, x) => baseCell(face, x, y) ? "#" : ".").join(""))])) as PhotoHeadGeometry["base"];

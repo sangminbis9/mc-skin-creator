@@ -1435,11 +1435,14 @@ export function scopeOutfitLegwear(plan: OutfitPlan, analysis: PhotoAnalysis): O
   const clauses = analysis.observed.clothing.toLowerCase().split(/[.;\n]/).filter(c =>
     !/\b(?:no|not|without|maybe|unknown|possibly|uncertain|occluded)\b/.test(c));
   const tall = clauses.filter(c => /\b(?:thigh[- ]highs|(?:thigh[- ]high|knee[- ]high|over[- ](?:the[- ])?knee|otk|long)(?:[- ]+(?:white|off[- ]white|black|cream|pale|pink|ribbed|opaque|knit)){0,4}[- ]+(?:socks?|stockings?))\b|\b(?:socks?|stockings?)\b[^.;]{0,30}\b(?:over (?:the )?knee|above (?:the )?knees?|mid[- ]thigh)\b/.test(c));
-  if (!tall.length && l.kind !== "thigh_highs") return plan;
+  const observedHeight = analysis.appearanceDetail?.sockTop;
+  const heldTallHeight = observedHeight && observedHeight !== "unknown" && (l.kind === "socks" || l.kind === "thigh_highs");
+  if (!tall.length && l.kind !== "thigh_highs" && !heldTallHeight) return plan;
   const end = 12 - lower.shoeRows, available = end - lower.garmentRows;
   if (available < 2) return plan;
   const kneeHigh = tall.some(c => /\bknee[- ]high\b/.test(c) && !/\b(?:thigh|over[- ](?:the[- ])?knee|otk)\b/.test(c));
-  const startRow = Math.max(lower.garmentRows + (available >= 5 ? 2 : 1), end - (kneeHigh ? 4 : 5));
+  const sockRows = heldTallHeight ? observedHeight === "above_knee" ? 5 : observedHeight === "at_knee" ? 3 : 2 : kneeHigh ? 4 : 5;
+  const startRow = Math.max(lower.garmentRows + (available >= 5 ? 2 : 1), end - sockRows);
   const both = tall.some(c => /\b(?:both (?:legs|knees)|a pair of)\b/.test(c));
   const side = /\bon (?:the )?viewer[- ](left|right)(?: leg| knee)?\b/.exec(tall.join(";"))?.[1] as "left" | "right" | undefined;
   const white = tall.some(c => /\bwhite (?:ribbed |knit |opaque )?(?:socks?|stockings?|thigh[- ]highs?)\b|\bwhite (?:thigh[- ]high|knee[- ]high|over[- ]knee|long) (?:socks?|stockings?)\b/.test(c));
@@ -1448,6 +1451,38 @@ export function scopeOutfitLegwear(plan: OutfitPlan, analysis: PhotoAnalysis): O
     outerLayer: plan.outerLayer.regions.includes("legwear") ? plan.outerLayer
       : { ...plan.outerLayer, regions: [...plan.outerLayer.regions, "legwear"] },
     outerLayerRegions: plan.outerLayerRegions.includes("legwear") ? plan.outerLayerRegions : [...plan.outerLayerRegions, "legwear"] };
+}
+
+export function applyObservedGarmentPalette(plan: OutfitPlan, analysis: PhotoAnalysis): OutfitPlan {
+  const detail = analysis.appearanceDetail;
+  if (!detail) return plan;
+  let { upper, lower } = plan;
+  if (analysis.visibleRegions.upperBody) {
+    const swatches = detail.upperPalette;
+    const patterned = !["unknown", "none"].includes(detail.upperPattern) && swatches.length >= 2;
+    const baseColor = patterned ? swatches[0] : upper.baseColor;
+    const sleeve = (prior: OutfitSleevePlan, observed: string) => ({ ...prior, color: observed || (prior.color === upper.baseColor ? baseColor : prior.color) });
+    const pattern: OutfitPatternPlan = patterned ? {
+      ...upper.pattern,
+      ...(detail.upperPattern === "torso_gradient" ? { kind: "color_panel", construction: "stepped_gradient", gradientColors: swatches, gradientDirection: "vertical" }
+        : { kind: "checker_block", construction: "pixel_blocks", blockColors: swatches }),
+      color: swatches[0], placement: "wrap", source: "observed",
+      surfaceParts: detail.upperPattern === "wrap_blocks" ? ["body", "leftArm", "rightArm"] : ["body"],
+    } : upper.pattern;
+    upper = { ...upper, baseColor, colorBlocks: upper.colorBlocks.map(b => b.region === "all" ? { ...b, color: baseColor } : b), pattern,
+      // Screen-left belongs to the atlas right arm.
+      rightSleeve: sleeve(upper.rightSleeve, detail.leftSleeveColor), leftSleeve: sleeve(upper.leftSleeve, detail.rightSleeveColor) };
+  }
+  if (analysis.visibleRegions.lowerBody && lower.garmentType === "skirt" && (detail.skirtBase || detail.skirtCheck)) {
+    const baseColor = detail.skirtBase || lower.baseColor;
+    const ink = detail.skirtCheck || (lower.pattern.kind === "checker_block" && detail.skirtBase
+      ? `#${[1, 3, 5].map(i => Math.round(parseInt(baseColor.slice(i, i + 2), 16) * .72 + 255 * .28).toString(16).padStart(2, "0")).join("")}`
+      : lower.pattern.color);
+    lower = { ...lower, baseColor, pattern: detail.skirtCheck || lower.pattern.kind === "checker_block"
+      ? { ...lower.pattern, kind: "checker_block", construction: "crossed_bands", crossedBandColors: [ink], color: ink, placement: "wrap", source: "observed" }
+      : lower.pattern };
+  }
+  return { ...plan, upper, lower };
 }
 
 export function outfitPlanSignature(plan: OutfitPlan): string {

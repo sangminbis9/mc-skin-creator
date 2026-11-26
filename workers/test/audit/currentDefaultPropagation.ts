@@ -12,7 +12,7 @@ import { buildSkinPlan, type SkinPlan } from "../../src/skinPlan";
 import { renderReferencePrimaryAtlas } from "../../src/referencePrimaryRenderer";
 import { FACE_STYLE_TEMPLATES, HAIR_STYLE_TEMPLATES, OUTFIT_STYLE_TEMPLATES, buildReferenceStylePlan, isSkinPresentation } from "../../src/referenceStyleTemplates";
 import { applyLockedHeadFinish, LEGACY_LOCKED_HEAD_FINISH, LOCKED_HEAD_FINISH } from "../../src/lockedHeadFinish";
-import { isNameMcFinishPolicy, nameMcHairMask, usesAdaptiveHeadPolicy, usesNameMcHead, usesPhotoDrapePolicy } from "../../src/namemcHeadTemplate";
+import { applyObservedBeanie, isNameMcFinishPolicy, nameMcHairMask, usesAdaptiveHeadPolicy, usesNameMcHead, usesPhotoDrapePolicy } from "../../src/namemcHeadTemplate";
 import { buildPhotoDrape } from "../../src/photoHairFinish";
 import { photoHeadForRender, renderNameMcPresentation } from "../../src/skinEngine";
 import { applyCoveredHeadFinish, COVERED_HEAD_FINISH } from "../../src/coveredHeadFinish";
@@ -30,7 +30,7 @@ type ObjectValue = Record<string, unknown>;
 const object = (v: unknown): ObjectValue => v !== null && typeof v === "object" && !Array.isArray(v) ? v as ObjectValue : {};
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const summaryFields = ["framing", "visibleRegions", "sourceSelection", "observed", "inferred",
-  "canonicalIdentity", "renderHints", "identityGeometry", "faceMeasurementEvidence"] as const;
+  "canonicalIdentity", "renderHints", "identityGeometry", "faceMeasurementEvidence", "appearanceDetail"] as const;
 
 export async function captureCurrentDefaultPropagation(input: {
   primary: PhotoAnalysis | null; geometry: FaceIdentityGeometryAnalysis | null; providerStage: string | null;
@@ -148,7 +148,8 @@ export async function captureCurrentDefaultPropagation(input: {
         const drape = usesPhotoDrapePolicy(nameMcPolicy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(nameMcPolicy)) : [];
         const presentation = finish.presentation === "feminine" || finish.presentation === "masculine" ? finish.presentation : "source";
         features.fixedHairMask = nameMcHairMask(style, drape, nameMcPolicy,
-          usesAdaptiveHeadPolicy(nameMcPolicy) ? photoHeadForRender(style, a, drape, presentation, nameMcPolicy) : undefined);
+          usesAdaptiveHeadPolicy(nameMcPolicy) ? photoHeadForRender(style, a, drape, presentation, nameMcPolicy) : undefined,
+          a.visibleRegions.hair || a.visibleRegions.face ? a.appearanceDetail : undefined);
       }
       if (!summaryFields.every(k => same(a[k], summary[k])) || !same(plan, summary.skinPlan) || !same(features, input.body.features)) continue;
       if (input.replayMode === "parameters_only") {
@@ -220,6 +221,7 @@ export async function captureCurrentDefaultPropagation(input: {
         const nameMc = isNameMcFinishPolicy(finish.policy);
         const design = chosen ?? (nameMc ? buildReferenceStylePlan(a) : undefined);
         const drape = nameMc && usesPhotoDrapePolicy(finish.policy) ? buildPhotoDrape(plan, a, style, usesAdaptiveHeadPolicy(finish.policy)) : [];
+        if (a.visibleRegions.hair || a.visibleRegions.face) applyObservedBeanie(reproduced, style, a.appearanceDetail);
         applyPublicClothFinish(reproduced, plan, style.skinTone ?? "#d39e80", design?.garmentDetailPolicy ?? !!design?.materialDetailPolicy,
           drape, nameMc ? undefined : execution?.surfaces);
       }

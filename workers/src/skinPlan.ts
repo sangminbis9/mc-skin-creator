@@ -15,7 +15,7 @@ import {
   type SkinLayer,
 } from "./skinCorrection";
 import type { BodyPart } from "./uvLayout";
-import { scopeOutfitLegwear, scopeOutfitLength, type PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
+import { applyObservedGarmentPalette, scopeOutfitLegwear, scopeOutfitLength, type PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
 import {
   buildIdentityPixelPlans,
   type FacePixelPlan,
@@ -202,7 +202,7 @@ export function buildSkinPlan(analysis: PhotoAnalysis, publicGarment: boolean | 
       "Unobserved surfaces must extend observed construction without inventing a new motif.",
     ],
     ...pixelPlans,
-    outfitPlan: typeof publicGarment === "string" ? scopeOutfitLegwear(outfit, analysis) : outfit,
+    outfitPlan: typeof publicGarment === "string" ? applyObservedGarmentPalette(scopeOutfitLegwear(outfit, analysis), analysis) : outfit,
   };
 }
 

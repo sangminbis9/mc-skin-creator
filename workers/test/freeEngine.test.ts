@@ -18,6 +18,24 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 afterEach(() => vi.restoreAllMocks());
 
+it("requires scoped appearance details in the same provider call and paints them without exposing the analysis", async () => {
+  const s = await setup();
+  const payload = { ...namedGemmaFixture(wireFixture(semanticFixture("plain"))), appearanceDetail: {
+    frontHairLeft: "unknown", frontHairRight: "unknown", frontHairTexture: "unknown", upperPattern: "unknown", upperPalette: [],
+    leftSleeveColor: "", rightSleeveColor: "", skirtBase: "", skirtCheck: "", beanie: "ear_beanie", beanieBase: "#74c3d2", beanieTrim: [], sockTop: "unknown",
+  } };
+  s.run.mockResolvedValue({ choices: [{ message: { content: JSON.stringify(payload) } }], usage: { prompt_tokens: 9000, completion_tokens: 3000 } });
+  const result = await generateFreeSkin(s.env, { image: s.image, presentation: "source" });
+  expect(result.success, result.body.errorCode).toBe(true);
+  expect(s.run).toHaveBeenCalledOnce();
+  const wire = s.run.mock.calls[0][1] as { response_format: { json_schema: { schema: { required: string[] } } } };
+  expect(wire.response_format.json_schema.schema.required).toContain("appearanceDetail");
+  expect(result.body).not.toHaveProperty("analysis");
+  const atlas = await decodePng(base64ToBytes(result.body.skinPngBase64!));
+  const top = CLASSIC_LAYOUT.head.base.top, i = ((top.y + 3) * 64 + top.x + 3) * 4;
+  expect(atlas.rgba[i + 1] - atlas.rgba[i]).toBeGreaterThan(35);
+});
+
 it("carries the observed dress color into its skirt when no separate color is given", () => {
   const base = makeAnalysis();
   const photo = makeAnalysis({

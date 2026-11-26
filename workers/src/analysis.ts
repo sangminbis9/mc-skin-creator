@@ -213,6 +213,7 @@ export interface PhotoAnalysis {
   renderHints: PixelRenderHints;
   /** Optional primary-image categorical observations; legacy records have no block. */
   faceMeasurementEvidence?: FaceMeasurementEvidence;
+  appearanceDetail?: import("./appearanceDetail").AppearanceDetail;
   identityPrompt: string;
   outfitPrompt: string;
   negativePrompt: string;
@@ -3102,13 +3103,18 @@ export async function runPhotoAnalysis(
 - A true scalp part, a forehead window, and a fuller side lock are separate. Short wisps with small gaps and no visible scalp division do not have a center part. Use wispy for thin, separated tips and staggered for thicker chunks of alternating height. Compare the locks crossing each temple and shoulder: if one visibly covers a cheek or chest while the other is tucked behind the ear or shoulder, report the visibly fuller side in hairSides.sideHairAsymmetry and observed.hair. Do not treat camera angle alone as structural asymmetry. Classify texture and color from the body of the locks, not flyaways, rim light, or deep shadow.
 - In observed.hair name the cut only when its structure is visible, e.g. skin-close buzz, crew with exposed forehead, short crop with downward fringe, brushed-back quiff, middle-part curtain, bowl with a level dense fringe, pixie, jaw-length bob, layered shag, long loose waves, tight curls, braids, or tied bun/ponytail. Also state where the lower hair edge lands and whether the sides are tapered, expose the ears, or cover the jaw. Do not infer a tied style from an obscured rear view or conflate tapered sides with an overall buzz cut.
 - Match the outfit hints and primary palette to the description: an open cardigan over a visible inner shirt uses upperOutfit.outerGarment "cardigan" and separate colors for the two garments. Preserve visible accessory type and color; do not call a reflection an accessory. Record out-of-frame clothes and shoes only as inferred. Do not infer hairstyle, complexion, or clothing from age, gender, or nationality.` : "";
+    const detail = !structuredContract && env.AI_POLICY === "workers_free_only" && env.FREE_ANALYSIS_RUN
+      ? await import("./appearanceDetail") : undefined;
+    const coreSchema = gemma.GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA;
     const result = await generateGeminiStructuredJson(env, {
       model: env.VISION_MODEL?.trim() || DEFAULT_VISION_MODEL,
       imageDataUrls: references,
       prompt: `${v4?.COMPACT_PHOTO_ANALYSIS_V4_PROMPT ?? compact.COMPACT_PHOTO_ANALYSIS_V3_PROMPT}${referenceSuffix}`,
       responseSchema: v4?.COMPACT_PHOTO_ANALYSIS_V4_PROVIDER_SCHEMA ?? compact.COMPACT_PHOTO_ANALYSIS_V3_SCHEMA,
-      workersAiResponseSchema: v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_SCHEMA : gemma.GEMMA_NAMED_PHOTO_ANALYSIS_SCHEMA,
-      workersAiPrompt: `${v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT : gemma.GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT}${referenceSuffix}${freePortraitCrossCheck}`,
+      workersAiResponseSchema: v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_SCHEMA : detail
+        ? { ...coreSchema, properties: { appearanceDetail: detail.APPEARANCE_DETAIL_SCHEMA, ...coreSchema.properties },
+          required: ["appearanceDetail", ...(coreSchema.required ?? [])] } : coreSchema,
+      workersAiPrompt: `${detail ? `${detail.APPEARANCE_DETAIL_PROMPT}\n\n` : ""}${v4 ? gemma.GEMMA_NAMED_PHOTO_ANALYSIS_V4_PROMPT : gemma.GEMMA_NAMED_PHOTO_ANALYSIS_PROMPT}${referenceSuffix}${freePortraitCrossCheck}`,
       maxOutputTokens: 8192,
       timeoutCapMs: 45_000,
       workersAiTimeoutCapMs: structuredContract ? undefined
@@ -3175,11 +3181,18 @@ export async function runPhotoAnalysis(
         expectedContractVersion, contractValidation };
     }
     let providerErrors: string[];
+    let appearanceDetail: PhotoAnalysis["appearanceDetail"];
     if (completedAttempt?.provider === "workers_ai"
       && completedAttempt.model === gemma.GEMMA_VISION_MODEL) {
-      providerErrors = gemma.validateGemmaNamedPhotoAnalysis(providerParsed);
+      let providerCore = providerParsed;
+      if (detail && providerParsed && typeof providerParsed === "object" && !Array.isArray(providerParsed) && "appearanceDetail" in providerParsed) {
+        const { appearanceDetail: supplement, ...core } = providerParsed;
+        appearanceDetail = detail.readAppearanceDetail(supplement);
+        providerCore = core;
+      }
+      providerErrors = gemma.validateGemmaNamedPhotoAnalysis(providerCore);
       if (!providerErrors.length) {
-        const adapted = gemma.adaptGemmaNamedPhotoAnalysis(providerParsed);
+        const adapted = gemma.adaptGemmaNamedPhotoAnalysis(providerCore);
         if (adapted.ok) parsed = adapted.compact;
         else providerErrors = adapted.errors;
       }
@@ -3208,7 +3221,7 @@ export async function runPhotoAnalysis(
         detail: errors.length ? errors.join("; ") : "Compact v3 rich normalization failed",
         attempts, neuronsSpent, providerAttempts, primaryElapsedMs: primaryElapsedMs() };
     }
-    return { ok: true, analysis: rich.analysis, localizationTrace, attempts, neuronsSpent, providerAttempts,
+    return { ok: true, analysis: appearanceDetail ? { ...rich.analysis, appearanceDetail } : rich.analysis, localizationTrace, attempts, neuronsSpent, providerAttempts,
       primaryElapsedMs: primaryElapsedMs() };
   } catch (error) {
     // No model rounds, sleeps, retries or semantic repair. The transport alone

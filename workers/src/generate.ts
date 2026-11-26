@@ -1,6 +1,7 @@
 import { runFaceIdentityGeometryAnalysis } from "./faceIdentityGeometry";
 import { observedGoateeMustache } from "./facialHairEvidence";
 import { observedStandaloneHoodedSweatshirt, observedStandaloneSweatshirt, observedStripedTie, PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
+import { corroborateNeutralHair, observedNeutralHairColor } from "./neutralHairSample";
 import { observedQualifiedScalpCloseHair } from "./scalpCloseHairEvidence";
 import { unambiguousHairEndpointText } from "./hairEndpointEvidence";
 import { normalizeHeadwearObservation, observedHeadwearCategory } from "./observedHeadwear";
@@ -140,6 +141,7 @@ function primaryRenderContext(analysis: PhotoAnalysis, publicGarment: boolean) {
     renderHints: renderAnalysis.renderHints,
     ...(renderAnalysis.identityGeometry ? { identityGeometry: renderAnalysis.identityGeometry } : {}),
     ...(renderAnalysis.faceMeasurementEvidence ? { faceMeasurementEvidence: renderAnalysis.faceMeasurementEvidence } : {}),
+    ...(renderAnalysis.appearanceDetail ? { appearanceDetail: renderAnalysis.appearanceDetail } : {}),
     skinPlan,
   };
   return { renderAnalysis, skinPlan, features, summary, faceStyle: buildFaceStyle(renderAnalysis, features, skinPlan.hairPlan) };
@@ -366,6 +368,7 @@ export interface AnalysisSummary {
   renderHints: PhotoAnalysis["renderHints"];
   identityGeometry?: PhotoAnalysis["identityGeometry"];
   faceMeasurementEvidence?: PhotoAnalysis["faceMeasurementEvidence"];
+  appearanceDetail?: PhotoAnalysis["appearanceDetail"];
   skinPlan: SkinPlan;
   referenceStyle?: ReferencePrimarySummary;
 }
@@ -538,6 +541,10 @@ export async function generateSkin(
   }
 
   // Independent quality opt-in: never enables the old multi-stage chain.
+  if (env.AI_POLICY === "workers_free_only" && analysis.appearanceDetail) {
+    const source = generationCandidates[analysis.sourceSelection.portraitImageIndex];
+    if (source) analysis = await corroborateNeutralHair(analysis, source);
+  }
   const primaryOnlyAnalysis = analysis;
   if ((env.FACE_GEOMETRY_ENRICHMENT_ENABLED === "true" || env.IDENTITY_GEOMETRY_ENRICHMENT_ENABLED === "true") && analysis.visibleRegions.face) {
     try {
@@ -4051,7 +4058,10 @@ export function refineFeatureColorsFromAnalysis(
     )
       ? null
       : recoverObservedHairColor(observedHairText);
-  if (recoveredHairColor) {
+  const neutralHair = observedNeutralHairColor(analysis);
+  if (neutralHair) {
+    refined.hairColor = neutralHair;
+  } else if (recoveredHairColor) {
     refined.hairColor = recoveredHairColor;
   } else if (
     /\b(?:black[- ]and[- ]white|black\s*&\s*white|grayscale|greyscale|monochrome)\b/.test(
