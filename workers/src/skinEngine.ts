@@ -18,7 +18,7 @@ import { CLASSIC_LAYOUT } from "./uvLayout";
 import { sculptStylizedHair, sculptWrappedHair } from "./stylizedHairArt";
 import { applyPublicClothFinish, PUBLIC_CLOTH_POLICY } from "./publicClothFinish";
 import { PUBLIC_LEGWEAR_POLICY } from "./outfitIdentity";
-export const SKIN_ENGINE_VERSION = "reference-engine-20261126-neutral-hair-temples-v25";
+export const SKIN_ENGINE_VERSION = "reference-engine-20261126-front-locks-v26";
 
 export function photoHeadForRender(style: FaceStyle, observation: PhotoAnalysis, drape: readonly PhotoDrapeCell[],
   presentation: SkinPresentation = "source", policy: NameMcFinishPolicy = NAMEMC_HEAD_FINISH): PhotoHeadGeometry {

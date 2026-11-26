@@ -15,7 +15,11 @@ function visibleTorsoEndpoint(text: string): VisibleEndpoint | undefined {
 /** Front garment overlap gives each lock its own visible endpoint. */
 export function observedFrontHairPlacement(text: string): Partial<Record<"left" | "right", VisibleEndpoint>> {
   const placement: Partial<Record<"left" | "right", VisibleEndpoint>> = {};
-  const clauses = text.toLowerCase().split(/[.!?;\n]|\b(?:while|whereas)\b/).filter(clause =>
+  const clauses = text.toLowerCase().split(/[.!?;\n]|\b(?:while|whereas)\b/)
+    // Behind the ear can be the origin, not the destination. Leave other
+    // behind/occluded phrases guarded, particularly behind the shoulder.
+    .map(clause => clause.replace(/\s+from behind (?:(?:the|her|his|their) )?(?:(?:left|right) )?ear\b/g, ""))
+    .filter(clause =>
     !/\b(?:no|not|without|absent|unknown|unseen|hidden|occluded|maybe|might|may|possibly|perhaps|imagined|inferred|behind|rear|back|printed|drawing|illustration)\b/.test(clause));
   // A separate endpoint sentence may still describe the same visible locks.
   // Require a continuous face-to-shoulder description and its own tips.
@@ -27,7 +31,7 @@ export function observedFrontHairPlacement(text: string): Partial<Record<"left" 
     .filter((tips): tips is string => !!tips)
     .map(visibleTorsoEndpoint).find(endpoint => endpoint !== undefined);
   for (const clause of clauses) {
-    const overlap = /\b(?:hair|locks?|strands?|tresses)(?: on (?:both sides|the viewer(?:'s)? (?:left|right)))? (?:lies|lie|falls?|falling|hangs?|hanging|drapes?|draping|flows?|rests?|continues?|extends?)(?: down)? (?:over|across|onto|in front of|on top of|on|the front of)\b|\b(?:hair|locks?|strands?|tresses) (?:overlaps?|covers?)\b/.exec(clause);
+    const overlap = /\b(?:hair|locks?|strands?|tresses|braids?|ponytails?|pigtails?|curls?)(?: on (?:both sides|the viewer(?:'s)?[ -](?:left|right)))? (?:lies|lie|falls?|falling|hangs?|hanging|drapes?|draping|flows?|rests?|continues?|extends?)(?: down)? (?:over|across|onto|in front of|on top of|on|the front of)\b|\b(?:hair|locks?|strands?|tresses|braids?|ponytails?|pigtails?|curls?) (?:overlaps?|covers?)\b/.exec(clause);
     if (!overlap) continue;
     const landing = clause.slice(overlap.index + overlap[0].length);
     const onGarment = /^(?:\s+[\w'-]+){0,9}\s+\b(?:top|tee|shirt|hoodie|sweatshirt|jacket|cardigan|blouse|coat|garment|clothing|chest|torso)\b/.test(landing);

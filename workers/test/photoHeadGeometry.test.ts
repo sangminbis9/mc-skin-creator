@@ -47,3 +47,17 @@ it("moves the hairline gap of long fringe-free hair with the observed side part"
   expect(left.base.front[2]).not.toEqual(right.base.front[2]);
   expect(left.base.front[2][2]).toBe("."); expect(right.base.front[2][2]).toBe("#");
 });
+
+it("bridges a confirmed torso lock around the ear without extending the cheek edge", () => {
+  const text = "Long wavy hair. The viewer-left temple is tucked behind the ear.";
+  const style = { ...DEFAULT_FACE_STYLE, hairstyle: "long", overallHairLength: "chest", hairTexture: "wavy" } as const;
+  const p = classifyPhotoHair(style, text, true);
+  const detail = { templeLeft: "at_ear", templeRight: "jaw" } as const;
+  const without = buildPhotoHeadGeometry(style, p, text, [], detail);
+  const withLock = buildPhotoHeadGeometry(style, p, text, [{ face: "front", layer: "base", x: 0, y: 0, tone: 1 }], detail);
+  expect(withLock.base.front).toEqual(without.base.front);
+  expect(withLock.base.right[7][5]).toBe("#");
+  expect(withLock.base.right[7][7]).toBe(".");
+  expect(withLock.base.left).toEqual(without.base.left);
+  for (const {x, y} of NAMEMC_EYES) expect(withLock.overlay.front[y][x]).toBe(".");
+});

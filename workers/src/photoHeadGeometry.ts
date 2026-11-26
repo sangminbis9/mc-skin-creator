@@ -109,9 +109,14 @@ export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfi
   };
   const tucked = (view: string) => /\bboth sides (?:are )?tucked\b/i.test(observed)
     || new RegExp(`\\bviewer(?:'s)?[- ]${view}[^.;]{0,35}\\btuck\\w*\\b`, "i").test(observed);
+  const behindEarJoin = new Set<string>();
   for (const [x, view] of [[0, "left"], [7, "right"]] as const) {
-    if (drape.some(p => p.face === "front" && p.x === x && p.y === 0)) fringe[x] = 7;
-    else if (tucked(view)) fringe[x] = Math.min(fringe[x], 3);
+    const hasFrontLock = drape.some(p => p.face === "front" && p.layer === "base" && p.x === x && p.y === 0);
+    const isTucked = tucked(view);
+    const temple = view === "left" ? detail?.templeLeft : detail?.templeRight;
+    if (hasFrontLock && detail && (isTucked || temple && temple !== "unknown" && temple !== "below_jaw")) behindEarJoin.add(view);
+    if (hasFrontLock && !behindEarJoin.has(view)) fringe[x] = 7;
+    else if (isTucked) fringe[x] = Math.min(fringe[x], 3);
     else fringe[x] = Math.min(fringe[x], limitTemple(view === "left"));
   }
   const topTrim = (x: number, y: number) => (x <= 1 || x >= 6) && (y <= 1 || y >= 6);
@@ -123,12 +128,16 @@ export function buildPhotoHeadGeometry(style: FaceStyle, profile: PhotoHairProfi
       const nape = cut === "buzz" ? 5 : long || cut === "tied" ? 7 : 6;
       return y <= nape - (x <= 1 || x >= 6 ? 1 : 0);
     }
-    if (face === "bottom") return long && (y >= 5 || (x === 0 || x === 7) && y >= 2);
+    if (face === "bottom") return (x === 0 && behindEarJoin.has("left") || x === 7 && behindEarJoin.has("right")) && (y === 2 || y === 3)
+      || long && (y >= 5 || (x === 0 || x === 7) && y >= 2);
     const depth = face === "right" ? 7 - x : x;
     const frontSide = face === "right" ? 0 : 7;
     const sideTuck = tucked(face === "right" ? "left" : "right");
     const rear = long || cut === "tied" ? 6 : cut === "buzz" ? 4 : 5;
     if (depth === 0) return y <= fringe[frontSide];
+    // Keep the cheek edge and fixed eyes intact; take the long lock around
+    // the side behind the ear instead of extending the front temple down.
+    if (behindEarJoin.has(face === "right" ? "left" : "right") && (depth === 2 || depth === 3)) return true;
     const taper = isTapered ? (depth <= 4 ? 1 : 0) : 0;
     const limit = sideTuck && depth <= 4 ? 2 : depth >= 6 ? rear : long ? 6 : depth <= 2 ? Math.min(4, fringe[frontSide] + 1) - taper : rear - 1 - taper;
     return y <= (depth <= 2 && fringe[frontSide] < 7 ? Math.min(limit, limitTemple(face === "right") + 1) : limit);

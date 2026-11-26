@@ -34,6 +34,41 @@ it("does not grow jaw-length hair over the torso from a contradictory front lock
   const short = { ...DEFAULT_FACE_STYLE, hairstyle: "medium", overallHairLength: "jaw" } as const;
   expect(buildPhotoDrape(p, a, short, true)).toEqual([]);
   expect(buildPhotoDrape(p, a, { ...short, overallHairLength: "shoulder" }, true)).toEqual([]);
+  a.appearanceDetail = readAppearanceDetail({ frontHairLeft: "shoulder", templeLeft: "at_ear" });
+  a.observed.hair = "Short tousled hair. Hair on the viewer-left lies over the top at the shoulder.";
+  expect(buildPhotoDrape(p, a, short, true)).toEqual([]);
+  a.appearanceDetail = readAppearanceDetail({ frontHairLeft: "chest", templeLeft: "at_ear" });
+  a.observed.hair = "An ear-length cut with one separate braid. A braid from behind the ear on the viewer-left lies over the shirt to the chest.";
+  expect(buildPhotoDrape(p, a, short, true).some(c => c.face === "front" && c.y === 7)).toBe(true);
+});
+
+it("preserves an ear-tucked lock to the chest without adding one on the rear-only side", () => {
+  const a = sample({ frontHairLeft: "chest", frontHairRight: "not_in_front", templeLeft: "at_ear", templeRight: "at_ear", frontHairTexture: "wavy" });
+  a.observed.hair = "Long wavy hair. The viewer-left temple is tucked behind the ear.";
+  a.inferred.hairBack = { ...a.inferred.hairBack, value: "Long wavy hair at the back" };
+  const p = buildSkinPlan(a, PUBLIC_LEGWEAR_POLICY);
+  const style = { ...DEFAULT_FACE_STYLE, hairstyle: "long", overallHairLength: "chest", hairBackShape: "long" } as const;
+  const cells = buildPhotoDrape(p, a, style, true);
+  expect(cells.some(c => c.face === "back")).toBe(true);
+  const f = cells.filter(c => c.face === "front");
+  expect(f.every(c => c.x <= 2)).toBe(true);
+  expect(f.some(c => c.y === 7)).toBe(true);
+  expect(f.some(c => c.layer === "overlay" && c.x === 2)).toBe(true);
+  const shoulder = buildPhotoDrape(p, a, { ...style, overallHairLength: "shoulder" }, true).filter(c => c.face === "front");
+  expect(shoulder).toEqual(f); // Overall length is not the visible lock endpoint.
+});
+
+it("uses an observed braid crossing the garment in a crop without guessing the other side", () => {
+  const a = sample({ frontHairLeft: "unknown", frontHairRight: "unknown", templeRight: "at_ear" });
+  a.visibleRegions.upperBody = false;
+  a.observed.hair = "A braid from behind the ear on the viewer-right lies over the jacket to the chest. On the viewer-left it stays behind the shoulder.";
+  const style = { ...DEFAULT_FACE_STYLE, hairstyle: "ponytail", overallHairLength: "jaw" } as const;
+  const p = buildSkinPlan(a, PUBLIC_LEGWEAR_POLICY);
+  const f = buildPhotoDrape(p, a, style, true).filter(c => c.face === "front");
+  expect(f.some(c => c.y === 7)).toBe(true);
+  expect(f.every(c => c.x >= 6)).toBe(true);
+  a.observed.hair = "Long braids lie behind the shoulders, not over the chest.";
+  expect(buildPhotoDrape(p, a, style, true)).toEqual([]);
 });
 
 it("uses only the visible garment swatches and separates tall sock heights without losing skin", () => {

@@ -88,7 +88,7 @@ it("renders the observed hoodie color instead of a conflicting fallback color", 
   expect(Math.abs(red - blue)).toBeLessThan(25);
 });
 
-it("keeps the fixed fringe and eyes but follows the observed chest-length drape with one free analysis", async () => {
+it.each([false, true])("keeps the fixed eyes and paints front chest locks with one free analysis (structured-only: %s)", async (structuredOnly) => {
   const s = await setup();
   const photo = semanticFixture("plain");
   photo.observed.hair = "Long dark brown wavy hair. Wispy bangs reach the eyebrows with skin between the strands. Hair lies over the front of the gray hoodie on both sides to the chest.";
@@ -109,8 +109,16 @@ it("keeps the fixed fringe and eyes but follows the observed chest-length drape 
   Object.assign(photo.fallbackFeatures, { hairColor: "dark-brown", hairstyle: "long", glasses: "none", topType: "hoodie", topColor: "gray" });
   Object.assign(photo.renderHints, { bangs: "none", bangsLength: "none", bangsDensity: "balanced", fringeOpening: "center",
     hairTexture: "wavy", overallHairLength: "chest", hairBackShape: "long", sideHairLength: "jaw" });
-  const payload = namedGemmaFixture(wireFixture(photo));
-  expect(validateGemmaNamedPhotoAnalysis(payload)).toEqual([]);
+  if (structuredOnly) {
+    photo.observed.hair = "Long dark brown wavy hair. Wispy bangs reach the eyebrows with skin between the strands. Both sides are tucked behind the ears.";
+    photo.canonicalIdentity.features[1].evidence = "Long wavy locks on both sides.";
+    photo.visibleRegions.upperBody = true;
+  }
+  const base = namedGemmaFixture(wireFixture(photo));
+  expect(validateGemmaNamedPhotoAnalysis(base)).toEqual([]);
+  const payload = structuredOnly ? { ...base, appearanceDetail: {
+    templeLeft: "at_ear", templeRight: "at_ear", frontHairLeft: "chest", frontHairRight: "shoulder", frontHairTexture: "wavy",
+  } } : base;
   s.run.mockResolvedValue({ choices: [{ message: { content: JSON.stringify(payload) } }],
     usage: { prompt_tokens: 9000, completion_tokens: 3000 } });
 
@@ -140,8 +148,10 @@ it("keeps the fixed fringe and eyes but follows the observed chest-length drape 
   for (const x of [0, 7]) {
     expect(pixel(body, x, 0)[0]).toBeLessThan(110);
     expect(pixel(CLASSIC_LAYOUT.body.overlay.front, x, 0)[3]).toBe(0);
-    expect(pixel(body, x, 6)[0]).toBeLessThan(110);
   }
+  expect(pixel(body, 0, 6)[0]).toBeLessThan(110);
+  if (structuredOnly) expect(pixel(body, 7, 6)[0]).toBeGreaterThan(125);
+  else expect(pixel(body, 7, 6)[0]).toBeLessThan(110);
   expect(pixel(body, 3, 0)[0]).toBeGreaterThan(125);
   expect(pixel(body, 3, 6)[0]).toBeGreaterThan(125);
   for (const x of [0, 7]) expect(pixel(body, x, 11)[0]).toBeGreaterThan(110);

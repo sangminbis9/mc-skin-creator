@@ -15,6 +15,7 @@ export type PhotoHairProfile = {
   sweep: "left" | "right" | "none";
 };
 export type PhotoDrapeCell = { face: "front" | "back"; layer: "base" | "overlay"; x: number; y: number; tone: 0 | 1 | 2 | 3 | 4 };
+const frontRows = { shoulder: 4, chest: 8, waist: 11 } as const;
 
 function explicitPart(text: string): PhotoHairProfile["part"] | undefined {
   const hits = new Set<PhotoHairProfile["part"]>();
@@ -88,8 +89,7 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
   const profile = classifyPhotoHair(style, observed, explicitStructure);
   const rows = style.overallHairLength === "shoulder" ? 4 : style.overallHairLength === "chest" ? 8
     : ["waist", "hip"].includes(style.overallHairLength ?? "") ? 12 : 0;
-  const detail = a.visibleRegions.upperBody ? a.appearanceDetail : undefined;
-  if ((!rows && !detail) || !a.visibleRegions.hair || style.hairstyle === "bun" || profile.type === "compact") return [];
+  if (!a.visibleRegions.hair || profile.type === "compact") return [];
   const parsedText = observed.replace(/\bviewer(?:'s)?-(left|right)\b/gi, "viewer $1");
   const evidence = observedFrontHairDrape(parsedText);
   const placement = observedFrontHairPlacement(parsedText);
@@ -107,17 +107,29 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
     || /\b(?:twin[- ]?tails|pigtails|(?:two|twin|paired) braids)\b[^.;]{0,36}\b(?:over|across|in front of)\b/i.test(observed);
   const front: PhotoDrapeCell[] = [];
   for (const [side, x, inward] of [["left", 0, 1], ["right", 7, -1]] as const) {
+    const other = side === "left" ? "right" : "left";
+    const endpoint = placement[side];
+    // A close crop can still show a lock crossing fabric on one side even
+    // when the whole upper body is not classified as visible.
+    const detail = a.visibleRegions.upperBody || explicitStructure && endpoint ? a.appearanceDetail : undefined;
     const verified = side === "left" ? detail?.frontHairLeft : detail?.frontHairRight;
+    const temple = side === "left" ? detail?.templeLeft : detail?.templeRight;
+    const locallyShort = style.hairstyle === "short" || style.hairstyle === "medium" && rows <= 4;
+    // At this resolution a compact lock near the neck can look like it just
+    // touches a shoulder. Require a continuous below-jaw lock and its own
+    // garment overlap before painting this weakest endpoint on a short cut.
+    const allowShoulder = !locallyShort || temple === "below_jaw" && !!endpoint;
     if (verified && verified !== "unknown") {
       if (verified === "not_in_front") continue;
-      const temple = side === "left" ? detail?.templeLeft : detail?.templeRight;
-      const observedOnSide = !!placement[side] || frontWitness && (forward === side || both || pluralFaceFrame) && !placement[side === "left" ? "right" : "left"];
-      // A short cut or an ear/cheek/jaw endpoint cannot independently turn a
-      // contradictory shoulder label into a head-to-torso lock. Longer hair
-      // behind the neck is also not evidence of front overlap.
-      if (!rows && !(temple === "below_jaw" && observedOnSide)) continue;
-      if (!observedOnSide && (temple && temple !== "below_jaw" && temple !== "unknown" || rows === 4 && temple !== "below_jaw")) continue;
-      const length = Math.min(rows || 4, { shoulder: 4, chest: 8, waist: 11 }[verified]);
+      if (verified === "shoulder" && !allowShoulder) continue;
+      const observedOnSide = !!endpoint || frontWitness && (forward === side || both || pluralFaceFrame) && !placement[other];
+      const longCut = rows >= 8 || ["long", "ponytail", "twintails"].includes(style.hairstyle);
+      // An explicit garment-overlap endpoint is not a temple measurement.
+      // Trust it for compatible long cuts, or with its own visible same-side
+      // overlap. A short cut or bun needs that extra evidence to avoid false locks.
+      if (style.hairstyle === "bun" ? !endpoint : !longCut && !observedOnSide) continue;
+      if (locallyShort && verified !== "shoulder" && (!endpoint || endpoint === "shoulder")) continue;
+      const length = frontRows[verified];
       const texture = detail?.frontHairTexture === "unknown" ? profile.type : detail?.frontHairTexture;
       for (let y = 0; y < length; y++) {
         const bend = texture === "wavy" && [3, 4, 7, 8, 9].includes(y) || texture === "braided" && y >= 5;
@@ -134,13 +146,21 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
       }
       continue;
     }
-    if (!frontWitness || !rows) continue;
-    const endpoint = placement[side];
-    const explicitSide = placement.left || placement.right || forward;
-    if (explicitSide && !endpoint && forward !== side) continue;
-    if (!explicitSide && (!both && evidence !== "observed_front_lock_endpoint" && !pluralFaceFrame || style.hairstyle === "ponytail")) continue;
-    const length = Math.min(rows, endpoint === "shoulder" || evidence === "observed_front_shoulder_endpoint" && !endpoint ? 4
-      : endpoint === "chest" ? 8 : rows);
+    // Side-qualified hair-on-fabric can supply both placement and length when
+    // the supplement is uncertain. Preserve the weaker historical fallback.
+    let length: number;
+    if (explicitStructure && endpoint) {
+      if (endpoint === "shoulder" && !allowShoulder) continue;
+      length = frontRows[endpoint];
+    }
+    else {
+      if (!frontWitness || !rows || style.hairstyle === "bun") continue;
+      const explicitSide = placement.left || placement.right || forward;
+      if (explicitSide && !endpoint && forward !== side) continue;
+      if (!explicitSide && (!both && evidence !== "observed_front_lock_endpoint" && !pluralFaceFrame || style.hairstyle === "ponytail")) continue;
+      length = Math.min(rows, endpoint === "shoulder" || evidence === "observed_front_shoulder_endpoint" && !endpoint ? 4
+        : endpoint === "chest" ? 8 : rows);
+    }
     for (let y = 0; y < length; y++) {
       const wide = y > 0 && y < length - 1 && (profile.type === "straight" || y % 4 !== 1);
       front.push({ face: "front", layer: "base", x, y, tone: y < 2 || y === length - 1 ? 1 : 2 });
@@ -170,8 +190,11 @@ export function buildPhotoDrape(plan: SkinPlan, a: PhotoAnalysis, style: FaceSty
   const key = (p: {face: string; x: number; y: number}) => `${p.face}:${p.x},${p.y}`;
   const reserved = new Set([...sourceAccessoryStencils(plan.outfitPlan, skin).flatMap(s => s.paints),
     ...buildReferenceScarfFinish(plan, skin).paints].filter(p => p.part === "body").map(key));
-  const candidates = [...front, ...rear].filter(p => !reserved.has(key(p)));
-  const baseCells = new Map(candidates.filter(p => p.layer === "base").map(p => [key(p), p]));
+  const all = [...front, ...rear];
+  const candidates = all.filter(p => !reserved.has(key(p)));
+  // Trace the continuous strand before foreground accessories occlude it.
+  // The visible end can reappear below a scarf or strap; never paint over it.
+  const baseCells = new Map((explicitStructure ? all : candidates).filter(p => p.layer === "base").map(p => [key(p), p]));
   const queue = [...baseCells.values()].filter(p => p.y === 0), connected = new Set<string>();
   for (const p of queue) {
     if (connected.has(key(p))) continue;
